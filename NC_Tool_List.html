@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NC 공구 리스트 생성기</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: "Segoe UI", "맑은 고딕", sans-serif;
+    background: #eef1f5; color: #1f2733;
+  }
+  header {
+    background: #1f3a5f; color: #fff; padding: 14px 20px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  header h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  header .sub { font-size: 12px; opacity: .8; }
+  .wrap {
+    display: flex; gap: 12px; padding: 12px;
+    height: calc(100vh - 52px);
+  }
+  .pane {
+    background: #fff; border: 1px solid #d5dbe3; border-radius: 8px;
+    display: flex; flex-direction: column; min-width: 0;
+  }
+  .pane.input { flex: 0 0 34%; }
+  .pane.output { flex: 1 1 auto; }
+  .pane .bar {
+    padding: 8px 10px; border-bottom: 1px solid #e5e9ef;
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    background: #f7f9fb; border-radius: 8px 8px 0 0;
+  }
+  .pane .bar .label { font-weight: 600; font-size: 13px; margin-right: auto; }
+  textarea {
+    flex: 1 1 auto; width: 100%; border: none; outline: none; resize: none;
+    padding: 10px; font-family: Consolas, "D2Coding", monospace; font-size: 12px;
+    line-height: 1.45; color: #223; white-space: pre;
+  }
+  button {
+    border: 1px solid #2f6fb0; background: #2f6fb0; color: #fff;
+    padding: 6px 12px; border-radius: 6px; font-size: 13px; cursor: pointer;
+  }
+  button.ghost { background: #fff; color: #2f6fb0; }
+  button:hover { filter: brightness(1.05); }
+  button:active { transform: translateY(1px); }
+  .tablescroll { flex: 1 1 auto; overflow: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 12px; }
+  th, td {
+    border: 1px solid #d5dbe3; padding: 4px 6px; text-align: center;
+    white-space: nowrap;
+  }
+  thead th {
+    position: sticky; top: 0; background: #1f3a5f; color: #fff;
+    font-weight: 600; z-index: 2;
+  }
+  tbody tr:nth-child(even) { background: #f6f8fb; }
+  td[contenteditable] { cursor: text; }
+  td[contenteditable]:focus { outline: 2px solid #f0b400; background: #fffde7; }
+  td.name { text-align: left; }
+  .count { font-size: 12px; color: #5a6577; }
+  .hint { font-size: 11px; color: #8a94a3; padding: 6px 10px; border-top: 1px solid #eee; }
+  .empty { padding: 30px; text-align: center; color: #99a3b2; font-size: 13px; }
+  .chk { font-size: 12px; color:#3a4657; display:inline-flex; align-items:center; gap:4px; cursor:pointer;}
+  code { background:#eef1f5; padding:1px 4px; border-radius:3px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🛠️ NC 공구 리스트 생성기</h1>
+  <span class="sub">NC 프로그램(G코드)을 붙여넣으면 공구 리스트를 자동으로 뽑아줍니다</span>
+</header>
+
+<div class="wrap">
+  <!-- 왼쪽: 입력 창 -->
+  <section class="pane input">
+    <div class="bar">
+      <span class="label">① 프로그램 입력</span>
+      <button class="ghost" onclick="loadExample()">예제 넣기</button>
+      <button class="ghost" onclick="clearInput()">지우기</button>
+      <button onclick="run()">▶ 공구 리스트 생성</button>
+    </div>
+    <textarea id="src" placeholder="여기에 전체 NC 프로그램(G코드)을 복사해서 붙여넣으세요.
+그런 다음 [▶ 공구 리스트 생성] 버튼을 누르세요."></textarea>
+    <div class="hint">각 공구의 <b>N번호 ~ M6 사이 괄호( ) 주석</b>만 읽어서 표로 만듭니다.</div>
+  </section>
+
+  <!-- 오른쪽: 복사용 결과 표 -->
+  <section class="pane output">
+    <div class="bar">
+      <span class="label">② 공구 리스트 (복사용)</span>
+      <span class="count" id="count">공구 0개</span>
+      <label class="chk"><input type="checkbox" id="withHeader"> 머리글 포함</label>
+      <button onclick="copyTable()">📋 표 복사 (엑셀 붙여넣기)</button>
+    </div>
+    <div class="tablescroll" id="result">
+      <div class="empty">왼쪽에 프로그램을 넣고 <b>[▶ 공구 리스트 생성]</b>을 누르면 여기에 표가 나타납니다.</div>
+    </div>
+    <div class="hint">모든 칸은 프로그램에서 자동으로 채워집니다. 값이 이상하면 칸을 직접 클릭해 수정한 뒤 복사할 수 있어요.</div>
+  </section>
+</div>
+
+<script>
+// 표 컬럼 정의 (엑셀 A~P 순서와 동일). key = 내부 데이터 키
+const COLUMNS = [
+  {key:'NO',    label:'NO'},
+  {key:'TYPE',  label:'TYPE'},
+  {key:'NAME',  label:'NAME', name:true},
+  {key:'D',     label:'D'},
+  {key:'FL',    label:'FL'},
+  {key:'LCF',   label:'LCF'},
+  {key:'F',     label:'F'},
+  {key:'R',     label:'R'},
+  {key:'SIG',   label:'SIG'},
+  {key:'PL',    label:'PL'},
+  {key:'SO',    label:'SO'},
+  {key:'GL',    label:'GL'},
+  {key:'HOLDER',label:'홀더'},
+  {key:'SPINDL',label:'SPINDL'},
+  {key:'FEED',  label:'FEED'},
+  {key:'REMARK',label:'REMARK'},
+];
+
+function fmtNum(s){
+  const n = Number(s);
+  return isNaN(n) ? String(s).trim() : String(n);
+}
+function deriveType(name){
+  const u = (name||'').toUpperCase();
+  if(u.includes('F.EM')||u.includes('FLAT')) return 'FLAT E/M';
+  if(u.includes('B.EM')||u.includes('BALL')) return 'BALL E/M';
+  if(u.includes('R.EM')) return 'RADIUS E/M';
+  if(u.includes('DRILL')) return 'DRILL';
+  if(u.includes('TAP')) return 'TAP';
+  if(u.includes('REAMER')) return 'REAMER';
+  if(u.includes('BORING')) return 'BORING';
+  if(u.includes('CHAM')||u.includes('C.EM')) return 'CHAMFER';
+  return '';
+}
+function deriveD(name){
+  const m = (name||'').match(/D\s*([\d.]+)/i);
+  return m ? m[1] : '';
+}
+
+// 핵심 파서: N번호 ~ M6 사이의 괄호 주석만 읽어서 공구별로 정리
+function parseProgram(text){
+  const lines = text.split(/\r?\n/);
+  const tools = {};                      // 공구번호 -> {fields, remarks}
+  const toolRe = /\(\s*T(\d+)\s*\/\/\s*(.*?)\s*\[SO\s*([\d.]+)\]\s*\/\/\s*T\d+\s*([^)]*?)\s*\)/i;
+  const nRe    = /^\s*N(\d+)\s*\(\s*#\d+\s*:\s*Tool\s*Change/i;
+  const m6Re   = /^\s*M0?6\s+T(\d+)/i;
+  // 키 뒤의 숫자만 추출 (값이 없으면 매칭 안 됨). 긴 키를 앞에 둬서 FL이 F로 잘못 잡히지 않게 함
+  const kvRe   = /\b(LCF|SPINDL|FEED|FL|GL|DC|RE|SIG|PL|F)\s+(-?\d+(?:\.\d+)?)/gi;
+
+  let curN = null, buf = [];
+  function ensure(n){ if(!tools[n]) tools[n] = {num:n, fields:{}, remarks:[]}; return tools[n]; }
+
+  function flush(num){
+    const t = ensure(num);
+    const blockText = buf.join('\n');
+    const tm = blockText.match(toolRe);
+    if(tm){
+      if(t.fields.NAME==null)   t.fields.NAME   = tm[2].trim();
+      if(t.fields.SO==null)     t.fields.SO     = tm[3].trim();
+      if(t.fields.HOLDER==null) t.fields.HOLDER = tm[4].trim();
+    }
+    let m; kvRe.lastIndex = 0;
+    while((m = kvRe.exec(blockText)) !== null){
+      const key = m[1].toUpperCase();
+      if(t.fields[key]==null) t.fields[key] = fmtNum(m[2]);
+    }
+    if(curN && !t.remarks.includes(curN)) t.remarks.push(curN);
+  }
+
+  for(const line of lines){
+    let m;
+    if((m = line.match(nRe))){ curN = 'N'+m[1]; buf = []; continue; }
+    if((m = line.match(m6Re))){ flush(parseInt(m[1],10)); buf = []; continue; }
+    if(line.indexOf('(') !== -1) buf.push(line);   // 괄호 주석 줄만 모음
+  }
+
+  return Object.keys(tools).map(Number).sort((a,b)=>a-b).map(n=>{
+    const f = tools[n].fields;
+    const re = f.RE;
+    return {
+      NO:'T'+String(n).padStart(2,'0'),
+      TYPE:deriveType(f.NAME),
+      NAME:f.NAME||'',
+      D:(f.DC!=null && f.DC!=='') ? f.DC : deriveD(f.NAME),
+      FL:f.FL||'',
+      LCF:f.LCF||'',
+      F:f.F||'',
+      R:(re!=null && re!=='' && Number(re)!==0) ? re : '',   // R(코너R)은 0이면 빈칸
+      SIG:f.SIG||'',
+      PL:f.PL||'',
+      SO:f.SO||'',
+      GL:f.GL||'',
+      HOLDER:f.HOLDER||'',
+      SPINDL:f.SPINDL||'',
+      FEED:f.FEED||'',
+      REMARK:tools[n].remarks.join(', ')
+    };
+  });
+}
+
+function run(){
+  const rows = parseProgram(document.getElementById('src').value);
+  renderTable(rows);
+  document.getElementById('count').textContent = '공구 ' + rows.length + '개';
+}
+
+function renderTable(rows){
+  const box = document.getElementById('result');
+  if(!rows.length){
+    box.innerHTML = '<div class="empty">인식된 공구가 없습니다.<br>' +
+      '<code>N#(#: Tool Change)</code> … <code>M6 T#</code> 구조와 그 사이 괄호 주석이 있어야 합니다.</div>';
+    return;
+  }
+  let html = '<table><thead><tr>';
+  for(const c of COLUMNS) html += '<th>'+c.label+'</th>';
+  html += '</tr></thead><tbody>';
+  for(const r of rows){
+    html += '<tr>';
+    for(const c of COLUMNS){
+      const val = escapeHtml(r[c.key] || '');
+      html += '<td contenteditable="true"'+(c.name?' class="name"':'')+'>'+val+'</td>';
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  box.innerHTML = html;
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+}
+
+function copyTable(){
+  const table = document.querySelector('#result table');
+  if(!table){ alert('먼저 공구 리스트를 생성하세요.'); return; }
+  const lines = [];
+  if(document.getElementById('withHeader').checked){
+    lines.push(COLUMNS.map(c=>c.label).join('\t'));
+  }
+  for(const tr of table.querySelectorAll('tbody tr')){
+    lines.push([...tr.children].map(td => td.textContent.trim()).join('\t'));
+  }
+  const tsv = lines.join('\r\n');
+  navigator.clipboard.writeText(tsv).then(
+    ()=>flash('✅ 복사됨! 엑셀에서 Ctrl+V 하세요.'),
+    ()=>{ const ta=document.createElement('textarea'); ta.value=tsv; document.body.appendChild(ta);
+          ta.select(); document.execCommand('copy'); ta.remove(); flash('✅ 복사됨! 엑셀에서 Ctrl+V 하세요.'); }
+  );
+}
+
+let flashTimer;
+function flash(msg){
+  const el = document.getElementById('count');
+  el.textContent = msg;
+  clearTimeout(flashTimer);
+  flashTimer = setTimeout(run, 1800);
+}
+
+function clearInput(){
+  document.getElementById('src').value = '';
+  document.getElementById('result').innerHTML =
+    '<div class="empty">왼쪽에 프로그램을 넣고 <b>[▶ 공구 리스트 생성]</b>을 누르면 여기에 표가 나타납니다.</div>';
+  document.getElementById('count').textContent = '공구 0개';
+}
+
+function loadExample(){ document.getElementById('src').value = EXAMPLE; run(); }
+
+const EXAMPLE = `NC PGM
+%
+O0001
+( ** TECH STAR ** )
+( PGM NO :  OP10_SSTR4171 )
+( PROGRAMER : S M.HWANG)
+( MACHINE : M2-5AX / WORK CODE: 501 )
+G0 G90 G49 G69 G80 G40 G17
+M111
+N1(#1: Tool Change)
+ (T2 // D10 F.EM [SO 40] // T2 BT40-SK16-120 )
+ (LCF   38.500000 FL   26.000000 GL  160.000000 F 3)
+ (DC   10.000000 RE    0.000000 SIG PL )
+ (SPINDL 10000.000000 FEED  4100.000000)
+M6 T2
+N2(#2: Tool Change)
+ (T3 // D6 B.EM [SO 30] // T3 BT40-SK10-120 )
+ (LCF   30.000000 FL   10.000000 GL  150.000000 F 2)
+ (DC    6.000000 RE    3.000000 SIG PL )
+ (SPINDL 10000.000000 FEED  3600.000000)
+M6 T3
+N3(#3: Tool Change)
+ (T4 // D2.3 DRILL [SO 20] // T4 BT40-SK10-90 )
+ (LCF   20.000000 FL   15.000000 GL  140.000000 F 2)
+ (DC    2.300000 RE SIG  118.000000 PL    0.691000 )
+ (SPINDL  3800.000000 FEED   152.000000)
+M6 T4
+N4(#4: Tool Change)
+ (T2 // D10 F.EM [SO 40] // T2 BT40-SK16-120 )
+ (LCF   38.500000 FL   26.000000 GL  160.000000 F 3)
+ (DC   10.000000 RE    0.000000 SIG PL )
+ (SPINDL 10000.000000 FEED  3600.000000)
+M6 T2
+N5(#5: Tool Change)
+ (T6 // D1 B.EM [SO 22] // T6 BT40-SK10-120 )
+ (LCF   22.000000 FL    4.000000 GL  142.000000 F 2)
+ (DC    1.000000 RE    0.500000 SIG PL )
+ (SPINDL  8000.000000 FEED   320.000000)
+M6 T6
+N6(#6: Tool Change)
+ (T4 // D2.3 DRILL [SO 20] // T4 BT40-SK10-90 )
+ (LCF   20.000000 FL   15.000000 GL  140.000000 F 2)
+ (DC    2.300000 RE SIG  118.000000 PL    0.691000 )
+ (SPINDL  3800.000000 FEED   152.000000)
+M6 T4
+N7(#7: Tool Change)
+ (T2 // D10 F.EM [SO 40] // T2 BT40-SK16-120 )
+ (LCF   38.500000 FL   26.000000 GL  160.000000 F 3)
+ (DC   10.000000 RE    0.000000 SIG PL )
+ (SPINDL 10000.000000 FEED  1500.000000)
+M6 T2
+N8(#8: Tool Change)
+ (T5 // D6 F.EM [SO 35] // T5 BT40-SK13-120 )
+ (LCF   35.000000 FL   15.000000 GL  155.000000 F 3)
+ (DC    6.000000 RE    0.000000 SIG PL )
+ (SPINDL 10000.000000 FEED  1500.000000)
+M6 T5
+N9(#9: Tool Change)
+ (T5 // D6 F.EM [SO 35] // T5 BT40-SK13-120 )
+ (LCF   35.000000 FL   15.000000 GL  155.000000 F 3)
+ (DC    6.000000 RE    0.000000 SIG PL )
+ (SPINDL 10000.000000 FEED  1500.000000)
+M6 T5
+N10(#10: Tool Change)
+ (T5 // D6 F.EM [SO 35] // T5 BT40-SK13-120 )
+ (LCF   35.000000 FL   15.000000 GL  155.000000 F 3)
+ (DC    6.000000 RE    0.000000 SIG PL )
+ (SPINDL 10000.000000 FEED  1500.000000)
+M6 T5
+M30
+%`;
+</script>
+</body>
+</html>
