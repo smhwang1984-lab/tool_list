@@ -4,8 +4,12 @@ NC 공구 리스트 생성기 (tkinter GUI)
 - 왼쪽: NC 프로그램(G코드) 입력
 - 오른쪽: N번호~M6 사이 괄호 주석을 읽어 만든 공구 리스트 (복사/보기용)
 """
+import json
+import os
 import re
+import sys
 import tkinter as tk
+from pathlib import Path
 from tkinter import ttk, filedialog, messagebox
 from tkinterdnd2 import DND_FILES, TkinterDnD
 
@@ -40,53 +44,94 @@ def fmt_num(s):
 
 
 # 사용자용 표시 목록 (이름 약어 -> TYPE). "이름 경우의 수" 버튼에서 이 목록을 보여줌
-NAME_TYPES = [
-    ('F.EM',  'FLAT E/M'),
-    ('R.EM',  'FILLET E/M'),
-    ('B.EM',  'BALL E/M'),
-    ('DR',    'DRILL'),
+DEFAULT_NAME_TYPES = [
+    ('F.EM', 'FLAT E/M'),
+    ('FLAT E/M', 'FLAT E/M'),
+    ('FLAT END MILL', 'FLAT E/M'),
+    ('R.EM', 'FILLET E/M'),
+    ('FILLET E/M', 'FILLET E/M'),
+    ('RADIUS E/M', 'FILLET E/M'),
+    ('B.EM', 'BALL E/M'),
+    ('BALL E/M', 'BALL E/M'),
+    ('BALL END MILL', 'BALL E/M'),
+    ('DR', 'DRILL'),
+    ('DRILL', 'DRILL'),
     ('F.MIL', 'FACE MILL'),
-    ('CUT',   'CUTTER'),
-    ('RM',    'REAMER'),
-    ('C.D',   'CENTER'),
+    ('FACE MILL', 'FACE MILL'),
+    ('CUT', 'CUTTER'),
+    ('CUTTER', 'CUTTER'),
+    ('RM', 'REAMER'),
+    ('REAMER', 'REAMER'),
+    ('C.D', 'CENTER'),
+    ('CENTER DRILL', 'CENTER'),
     ('T.CUT', 'T-CUTTER'),
+    ('T-CUTTER', 'T-CUTTER'),
     ('DY.EM', 'DYNAMIC E/M'),
+    ('DYNAMIC E/M', 'DYNAMIC E/M'),
     ('C.MIL', 'CHAMF MILL'),
+    ('CHAMF MILL', 'CHAMF MILL'),
 ]
 
 # 매칭 순서 (긴/구체적인 약어를 앞에 둬서 잘못 잡히지 않게 함) + 풀네임 대비
-_TYPE_MATCH = [
-    ('DY.EM', 'DYNAMIC E/M'),
-    ('F.MIL', 'FACE MILL'),
-    ('C.MIL', 'CHAMF MILL'),
-    ('T.CUT', 'T-CUTTER'),
-    ('F.EM',  'FLAT E/M'),
-    ('R.EM',  'FILLET E/M'),
-    ('B.EM',  'BALL E/M'),
-    ('C.D',   'CENTER'),
-    ('DRILL', 'DRILL'),
-    ('DR',    'DRILL'),
-    ('REAMER', 'REAMER'),
-    ('RM',    'REAMER'),
-    ('CUTTER', 'CUTTER'),
-    ('CUT',   'CUTTER'),
-]
+def settings_path():
+    """Return a user-writable path even when installed in Program Files."""
+    return Path(os.environ.get('APPDATA', str(Path.home()))) / 'NC Tool List' / 'name_type_mappings.json'
 
 
-def derive_type(name):
+def clean_name_types(items):
+    """Keep valid, unique mapping rows while preserving their display order."""
+    if not isinstance(items, list):
+        return []
+    clean, seen = [], set()
+    for item in items:
+        if isinstance(item, dict):
+            abbr, typ = item.get('name', ''), item.get('type', '')
+        else:
+            try:
+                abbr, typ = item
+            except (TypeError, ValueError):
+                continue
+        abbr, typ = str(abbr).strip(), str(typ).strip()
+        if abbr and typ and abbr.upper() not in seen:
+            clean.append((abbr, typ))
+            seen.add(abbr.upper())
+    return clean
+
+
+def load_name_types():
+    try:
+        with settings_path().open('r', encoding='utf-8') as fp:
+            saved = json.load(fp)
+        if isinstance(saved, list):
+            return clean_name_types(saved)
+    except (OSError, ValueError, TypeError):
+        pass
+    return list(DEFAULT_NAME_TYPES)
+
+
+def save_name_types(items):
+    path = settings_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open('w', encoding='utf-8') as fp:
+        json.dump([{'name': abbr, 'type': typ} for abbr, typ in items], fp,
+                  ensure_ascii=False, indent=2)
+
+
+def derive_type(name, name_types=None):
+    """Return TYPE for the longest matching configured name expression."""
     u = (name or '').upper()
-    for abbr, typ in _TYPE_MATCH:
-        if abbr in u:
+    mappings = name_types if name_types is not None else DEFAULT_NAME_TYPES
+    for abbr, typ in sorted(mappings, key=lambda item: len(item[0]), reverse=True):
+        if abbr.upper() in u:
             return typ
     return ''
-
 
 def derive_d(name):
     m = re.search(r'D\s*([\d.]+)', name or '', re.I)
     return m.group(1) if m else ''
 
 
-def parse_program(text):
+def parse_program(text, name_types=None):
     """N번호 ~ M6 사이의 괄호 주석만 읽어서 공구별로 정리해 행 목록 반환"""
     tools = {}          # 공구번호 -> {'f': {필드}, 'remarks': [...]}
     cur_n = [None]      # 리스트로 감싸 클로저에서 갱신값 참조
@@ -147,7 +192,7 @@ def parse_program(text):
         d = f.get('DC') or derive_d(f.get('NAME', ''))
         rows.append({
             'NO': 'T%02d' % n,
-            'TYPE': derive_type(f.get('NAME', '')),
+            'TYPE': derive_type(f.get('NAME', ''), name_types),
             'NAME': f.get('NAME', ''),
             'D': d,
             'FL': f.get('FL', ''),
@@ -166,11 +211,18 @@ def parse_program(text):
     return rows
 
 
+def resource_path(relative_path):
+    """Resolve bundled files both from source and PyInstaller one-file builds."""
+    base = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent))
+    return str(base / relative_path)
+
 # ---------- GUI ----------
 class App:
     def __init__(self, root):
         self.root = root
+        self.name_types = load_name_types()
         root.title('🛠️ NC 공구 리스트 생성기')
+        self.set_window_icon()
         root.geometry('1180x640')
         root.after_idle(self.maximize_window)
 
@@ -229,6 +281,9 @@ class App:
                        font=kfont).pack(side='right', padx=6)
         tk.Button(rbar, text='이름 경우의 수', command=self.show_type_list,
                   font=kfont).pack(side='right', padx=4)
+        tk.Button(rbar, text='＋ 행 추가', command=self.add_row, font=kfont).pack(side='right', padx=2)
+        tk.Button(rbar, text='수정', command=self.edit_selected, font=kfont).pack(side='right', padx=2)
+        tk.Button(rbar, text='삭제', command=self.delete_selected, font=kfont).pack(side='right', padx=2)
 
         tv_frame = tk.Frame(right)
         tv_frame.pack(fill='both', expand=True)
@@ -248,11 +303,104 @@ class App:
         tys.pack(side='right', fill='y')
         txs.pack(side='bottom', fill='x')
         self.tree.pack(side='left', fill='both', expand=True)
+        self.tree.bind('<Double-1>', lambda _event: self.edit_selected())
+        self.tree.bind('<Delete>', lambda _event: self.delete_selected())
 
         hint = tk.Label(right, anchor='w', fg='#8a94a3', font=('맑은 고딕', 8),
-                        text='모든 칸은 프로그램에서 자동으로 채워집니다. (N번호 ~ M6 사이 괄호 주석을 읽음)')
+                        text='행을 더블클릭하거나 수정/추가 버튼으로 직접 편집할 수 있습니다. (N번호 ~ M6 사이 괄호 주석을 읽음)')
         hint.pack(fill='x', pady=(4, 0))
 
+    def set_window_icon(self):
+        try:
+            self.root.iconbitmap(default=resource_path('assets/nc_tool_list.ico'))
+        except tk.TclError:
+            pass
+
+    def update_count(self):
+        self.count.config(text='공구 %d개' % len(self.tree.get_children()))
+
+    def next_tool_no(self):
+        numbers = []
+        for iid in self.tree.get_children():
+            value = str(self.tree.item(iid, 'values')[0]).upper()
+            match = re.fullmatch(r'T?(\d+)', value)
+            if match:
+                numbers.append(int(match.group(1)))
+        return 'T%02d' % (max(numbers, default=0) + 1)
+
+    def add_row(self):
+        values = {key: '' for key, _ in COLUMNS}
+        values['NO'] = self.next_tool_no()
+        self.show_row_editor(values)
+
+    def edit_selected(self):
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showinfo('알림', '수정할 행을 먼저 선택하세요.')
+            return
+        iid = selected[0]
+        row = dict(zip((key for key, _ in COLUMNS), self.tree.item(iid, 'values')))
+        self.show_row_editor(row, iid)
+
+    def delete_selected(self):
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showinfo('알림', '삭제할 행을 먼저 선택하세요.')
+            return
+        count = len(selected)
+        if not messagebox.askyesno('행 삭제', '%d개 행을 삭제할까요?' % count):
+            return
+        for iid in selected:
+            self.tree.delete(iid)
+        self.update_count()
+
+    def show_row_editor(self, values, iid=None):
+        win = tk.Toplevel(self.root)
+        win.title('공구 행 수정' if iid else '공구 행 추가')
+        win.transient(self.root)
+        win.grab_set()
+        form = tk.Frame(win, padx=12, pady=12)
+        form.pack(fill='both', expand=True)
+        variables = {}
+        for index, (key, label) in enumerate(COLUMNS):
+            column, row = (index // 8) * 2, index % 8
+            tk.Label(form, text=label, anchor='e', width=8).grid(row=row, column=column,
+                                                                  padx=(0, 4), pady=3, sticky='e')
+            var = tk.StringVar(value=str(values.get(key, '')))
+            entry = tk.Entry(form, textvariable=var, width=22)
+            entry.grid(row=row, column=column + 1, padx=(0, 14), pady=3, sticky='ew')
+            variables[key] = var
+        form.columnconfigure(1, weight=1)
+        form.columnconfigure(3, weight=1)
+
+        def save():
+            row = {key: variables[key].get().strip() for key, _ in COLUMNS}
+            if not row['TYPE'] and row['NAME']:
+                row['TYPE'] = derive_type(row['NAME'], self.name_types)
+            if not row['D'] and row['NAME']:
+                row['D'] = derive_d(row['NAME'])
+            data = [row[key] for key, _ in COLUMNS]
+            if iid:
+                self.tree.item(iid, values=data)
+                self.tree.selection_set(iid)
+                self.tree.focus(iid)
+            else:
+                new_iid = self.tree.insert('', 'end', values=data)
+                self.tree.selection_set(new_iid)
+                self.tree.focus(new_iid)
+            self.update_count()
+            win.destroy()
+
+        buttons = tk.Frame(win)
+        buttons.pack(pady=(0, 12))
+        tk.Button(buttons, text='저장', command=save, width=10).pack(side='left', padx=4)
+        tk.Button(buttons, text='취소', command=win.destroy, width=10).pack(side='left', padx=4)
+        win.bind('<Return>', lambda _event: save())
+        win.bind('<Escape>', lambda _event: win.destroy())
+        win.focus_set()
+        win.geometry('760x300')
+        win.resizable(False, False)
+        self.root.wait_window(win)
     # ----- 동작 -----
     def maximize_window(self):
         """Maximize on Windows and retain the default size elsewhere."""
@@ -265,7 +413,7 @@ class App:
                 pass
 
     def run(self):
-        rows = parse_program(self.src.get('1.0', 'end'))
+        rows = parse_program(self.src.get('1.0', 'end'), self.name_types)
         for iid in self.tree.get_children():
             self.tree.delete(iid)
         for r in rows:
@@ -315,26 +463,117 @@ class App:
     def show_type_list(self):
         win = tk.Toplevel(self.root)
         win.title('이름 → TYPE 경우의 수')
-        win.geometry('330x380')
+        win.geometry('500x460')
         win.transient(self.root)
-        tk.Label(win, text='공구 이름 약어 → TYPE 변환표',
-                 font=('맑은 고딕', 10, 'bold')).pack(pady=8)
+        tk.Label(win, text='공구 이름 → TYPE 변환표', font=('맑은 고딕', 10, 'bold')).pack(pady=(10, 2))
+        tk.Label(win, text='추가·수정한 내용은 다음 실행에도 유지됩니다.',
+                 fg='#5a6577', font=('맑은 고딕', 8)).pack(pady=(0, 8))
+
         frame = tk.Frame(win)
-        frame.pack(fill='both', expand=True, padx=10, pady=(0, 6))
-        tv = ttk.Treeview(frame, columns=('abbr', 'type'), show='headings')
-        tv.heading('abbr', text='이름(약어)')
+        frame.pack(fill='both', expand=True, padx=10)
+        tv = ttk.Treeview(frame, columns=('abbr', 'type'), show='headings', selectmode='browse')
+        tv.heading('abbr', text='이름(약어·표현)')
         tv.heading('type', text='TYPE')
-        tv.column('abbr', width=110, anchor='center')
-        tv.column('type', width=170, anchor='w')
-        for abbr, typ in NAME_TYPES:
-            tv.insert('', 'end', values=(abbr, typ))
+        tv.column('abbr', width=220, anchor='w')
+        tv.column('type', width=220, anchor='w')
         sb = tk.Scrollbar(frame, orient='vertical', command=tv.yview)
         tv.configure(yscrollcommand=sb.set)
         sb.pack(side='right', fill='y')
         tv.pack(side='left', fill='both', expand=True)
-        tk.Button(win, text='닫기', command=win.destroy,
-                  font=('맑은 고딕', 10)).pack(pady=(0, 10))
 
+        def refresh():
+            for item in tv.get_children():
+                tv.delete(item)
+            for index, (abbr, typ) in enumerate(self.name_types):
+                tv.insert('', 'end', iid=str(index), values=(abbr, typ))
+
+        def save_mappings():
+            try:
+                save_name_types(self.name_types)
+            except OSError as error:
+                messagebox.showerror('저장 실패', str(error), parent=win)
+                return False
+            return True
+
+        def open_editor(index=None):
+            current = self.name_types[index] if index is not None else ('', '')
+            editor = tk.Toplevel(win)
+            editor.title('이름 경우 수정' if index is not None else '이름 경우 추가')
+            editor.transient(win)
+            editor.grab_set()
+            body = tk.Frame(editor, padx=14, pady=14)
+            body.pack(fill='both', expand=True)
+            tk.Label(body, text='이름(약어·표현)').grid(row=0, column=0, sticky='w', pady=(0, 4))
+            name_var = tk.StringVar(value=current[0])
+            name_entry = tk.Entry(body, textvariable=name_var, width=34)
+            name_entry.grid(row=1, column=0, sticky='ew', pady=(0, 10))
+            tk.Label(body, text='TYPE').grid(row=2, column=0, sticky='w', pady=(0, 4))
+            type_var = tk.StringVar(value=current[1])
+            type_entry = tk.Entry(body, textvariable=type_var, width=34)
+            type_entry.grid(row=3, column=0, sticky='ew', pady=(0, 12))
+
+            def commit():
+                abbr, typ = name_var.get().strip(), type_var.get().strip()
+                if not abbr or not typ:
+                    messagebox.showwarning('입력 확인', '이름과 TYPE을 모두 입력하세요.', parent=editor)
+                    return
+                duplicate = next((i for i, pair in enumerate(self.name_types)
+                                  if pair[0].upper() == abbr.upper() and i != index), None)
+                if duplicate is not None:
+                    messagebox.showwarning('중복 이름', '같은 이름 경우가 이미 있습니다.', parent=editor)
+                    return
+                if index is None:
+                    self.name_types.append((abbr, typ))
+                else:
+                    self.name_types[index] = (abbr, typ)
+                if save_mappings():
+                    refresh()
+                    editor.destroy()
+
+            actions = tk.Frame(body)
+            actions.grid(row=4, column=0)
+            tk.Button(actions, text='저장', command=commit, width=9).pack(side='left', padx=3)
+            tk.Button(actions, text='취소', command=editor.destroy, width=9).pack(side='left', padx=3)
+            editor.bind('<Return>', lambda _event: commit())
+            editor.bind('<Escape>', lambda _event: editor.destroy())
+            name_entry.focus_set()
+
+        def selected_index():
+            selected = tv.selection()
+            if not selected:
+                messagebox.showinfo('알림', '수정하거나 삭제할 경우를 선택하세요.', parent=win)
+                return None
+            return int(selected[0])
+
+        def edit_selected():
+            index = selected_index()
+            if index is not None:
+                open_editor(index)
+
+        def delete_selected():
+            index = selected_index()
+            if index is None:
+                return
+            if messagebox.askyesno('이름 경우 삭제', '선택한 이름 경우를 삭제할까요?', parent=win):
+                del self.name_types[index]
+                if save_mappings():
+                    refresh()
+
+        def restore_defaults():
+            if messagebox.askyesno('기본값 복원', '기본 이름 경우의 수로 되돌릴까요?', parent=win):
+                self.name_types = list(DEFAULT_NAME_TYPES)
+                if save_mappings():
+                    refresh()
+
+        controls = tk.Frame(win)
+        controls.pack(fill='x', padx=10, pady=10)
+        tk.Button(controls, text='＋ 추가', command=open_editor).pack(side='left', padx=2)
+        tk.Button(controls, text='수정', command=edit_selected).pack(side='left', padx=2)
+        tk.Button(controls, text='삭제', command=delete_selected).pack(side='left', padx=2)
+        tk.Button(controls, text='기본값 복원', command=restore_defaults).pack(side='left', padx=12)
+        tk.Button(controls, text='닫기', command=win.destroy).pack(side='right', padx=2)
+        tv.bind('<Double-1>', lambda _event: edit_selected())
+        refresh()
     def copy_table(self):
         rows = self.tree.get_children()
         if not rows:
