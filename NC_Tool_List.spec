@@ -17,12 +17,13 @@ dnd_binaries = [
     for platform_dir in dnd_platform_dirs
     for dll in (dnd_package_dir / 'tkdnd' / platform_dir).glob('*.dll')
 ]
+app_data = [('assets/nc_tool_list.ico', 'assets')]
 
 a = Analysis(
     ['NC_Tool_List.py'],
     pathex=[],
     binaries=dnd_binaries,
-    datas=dnd_data,
+    datas=dnd_data + app_data,
     hiddenimports=['tkinterdnd2.TkinterDnD'],
     hookspath=[],
     hooksconfig={},
@@ -40,6 +41,7 @@ exe = EXE(
     a.datas,
     [],
     name='NC_Tool_List',
+    icon='assets/nc_tool_list.ico',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

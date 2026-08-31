@@ -3,3 +3,5 @@ dist/
 installer/
 __pycache__/
 *.pyc
+*.NC
+*.nc
