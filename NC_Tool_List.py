@@ -9,9 +9,24 @@ import os
 import re
 import sys
 import tkinter as tk
+from datetime import date
+from html import escape
 from pathlib import Path
 from tkinter import ttk, filedialog, messagebox
 from tkinterdnd2 import DND_FILES, TkinterDnD
+
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.lib.units import mm
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
+
+
+APP_VERSION = '1.3.0'
+APP_NAME = 'NC 공구 리스트 생성기'
 
 # ---------- 파싱 로직 ----------
 TOOL_RE = re.compile(r'\(\s*T(\d+)\s*//\s*(.*?)\s*\[SO\s*([\d.]+)\]\s*//\s*T\d+\s*([^)]*?)\s*\)', re.I)
@@ -19,6 +34,19 @@ N_RE    = re.compile(r'^\s*N(\d+)\s*\(\s*#\d+\s*:\s*Tool\s*Change', re.I)
 M6_RE   = re.compile(r'^\s*M0?6\s+T(\d+)', re.I)
 # 키 뒤 숫자만 추출(값이 없으면 매칭 안 됨). 긴 키를 앞에 둬서 FL이 F로 잘못 잡히지 않게 함
 KV_RE   = re.compile(r'\b(LCF|SPINDL|FEED|FL|GL|DC|RE|SIG|PL|F)\s+(-?\d+(?:\.\d+)?)', re.I)
+COMMENT_RE = re.compile(r'\(([^()]*)\)', re.S)
+PROGRAM_NO_RE = re.compile(r'^\s*(O\d+)\b', re.I | re.M)
+OPERATION_FROM_PROGRAM_RE = re.compile(
+    r'(?<![A-Z0-9])(OP(?:ERATION)?\s*[-_ ]?\d+[A-Z]?)(?=$|[^A-Z0-9])', re.I,
+)
+
+METADATA_ALIASES = {
+    'part_no': {'PARTNO', 'PARTNUMBER', 'PART'},
+    'operation': {'OPERATION', 'OPERATIONNO', 'OPER', 'OP'},
+    'program': {'PROGRAM', 'PROGRAMNO', 'PGM', 'PGMNO'},
+    'runtime': {'RUNTIME', 'COMPLETETIME', 'CYCLETIME', 'MACHININGTIME', 'TOTALTIME'},
+    'date': {'DATE', 'PROGRAMDATE', 'CREATEDATE', 'CREATIONDATE'},
+}
 
 # (내부키, 표시라벨) — 엑셀 A~P 순서와 동일
 COLUMNS = [
@@ -32,6 +60,197 @@ COL_WIDTH = {
     'R': 45, 'SIG': 45, 'PL': 55, 'SO': 45, 'GL': 50, 'HOLDER': 120,
     'SPINDL': 60, 'FEED': 55, 'REMARK': 110,
 }
+
+# TOOL_LIST_PG.xlsx의 A:P 열 폭 비율
+PDF_COLUMN_WEIGHTS = [48, 100, 150, 40, 40, 40, 40, 40, 40, 40, 40, 60, 140, 70, 70, 88]
+PDF_ROWS_PER_PAGE = 28
+PDF_INFO_BLUE = colors.HexColor('#BDDDEE')
+PDF_HEADER_GRAY = colors.HexColor('#BFBFBF')
+PDF_ALT_GRAY = colors.HexColor('#D9D9D9')
+PDF_FONT_BLUE = colors.HexColor('#002F60')
+PDF_GRID_GRAY = colors.HexColor('#9A9A9A')
+PDF_FONT_REGULAR = 'NCMalgun'
+PDF_FONT_BOLD = 'NCMalgunBold'
+PDF_METADATA_FIELDS = [
+    (0, 'PART NO', 'part_no'), (3, 'OPERATION', 'operation'),
+    (7, 'PROGRAM', 'program'), (11, 'RUN TIME', 'runtime'), (13, 'DATE', 'date'),
+]
+
+
+def normalize_metadata_key(value):
+    return re.sub(r'[^A-Z0-9]', '', value.upper())
+
+
+def parse_program_metadata(text):
+    """NC 헤더 주석에서 PDF 정보행에 들어갈 값을 추출한다."""
+    metadata = {key: '' for key in METADATA_ALIASES}
+    for comment in COMMENT_RE.findall(text or ''):
+        match = re.match(r'^\s*([^:=]+?)\s*[:=]\s*(.*?)\s*$', comment, re.S)
+        if not match:
+            continue
+        source_key = normalize_metadata_key(match.group(1))
+        value = ' '.join(match.group(2).split())
+        if not value:
+            continue
+        for target, aliases in METADATA_ALIASES.items():
+            if source_key in aliases and not metadata[target]:
+                metadata[target] = value
+                break
+
+    program_match = PROGRAM_NO_RE.search(text or '')
+    if not metadata['program'] and program_match:
+        metadata['program'] = program_match.group(1).upper()
+    program = metadata['program']
+    operation_match = OPERATION_FROM_PROGRAM_RE.search(program)
+    if operation_match and not metadata['operation']:
+        operation = normalize_metadata_key(operation_match.group(1))
+        metadata['operation'] = operation.replace('OPERATION', 'OP')
+    if operation_match and not metadata['part_no']:
+        remainder = program[:operation_match.start()] + program[operation_match.end():]
+        metadata['part_no'] = remainder.strip(' _-/')
+    return metadata
+
+
+def register_pdf_fonts():
+    registered = set(pdfmetrics.getRegisteredFontNames())
+    if PDF_FONT_REGULAR in registered and PDF_FONT_BOLD in registered:
+        return PDF_FONT_REGULAR, PDF_FONT_BOLD
+    font_dir = Path(os.environ.get('WINDIR', 'C:/Windows')) / 'Fonts'
+    regular_path = font_dir / 'malgun.ttf'
+    bold_path = font_dir / 'malgunbd.ttf'
+    if regular_path.exists() and bold_path.exists():
+        pdfmetrics.registerFont(TTFont(PDF_FONT_REGULAR, str(regular_path)))
+        pdfmetrics.registerFont(TTFont(PDF_FONT_BOLD, str(bold_path)))
+        return PDF_FONT_REGULAR, PDF_FONT_BOLD
+    fallback = 'HYSMyeongJo-Medium'
+    if fallback not in pdfmetrics.getRegisteredFontNames():
+        pdfmetrics.registerFont(UnicodeCIDFont(fallback))
+    return fallback, fallback
+
+
+def normalized_pdf_metadata(metadata):
+    values = {key: str((metadata or {}).get(key, '')).strip() for key in METADATA_ALIASES}
+    if not values['date']:
+        values['date'] = date.today().isoformat()
+    return values
+
+
+def make_pdf_metadata_row(metadata, font_name):
+    style = ParagraphStyle(
+        'PdfInfo', fontName=font_name, fontSize=7.5, leading=9,
+        textColor=colors.black, leftIndent=0, rightIndent=0,
+    )
+    row = [''] * len(COLUMNS)
+    for column, label, key in PDF_METADATA_FIELDS:
+        value = escape(str(metadata.get(key, '')))
+        row[column] = Paragraph('%s : %s' % (label, value), style)
+    return row
+
+
+def pdf_column_widths(available_width):
+    total = float(sum(PDF_COLUMN_WEIGHTS))
+    return [available_width * weight / total for weight in PDF_COLUMN_WEIGHTS]
+
+
+def make_pdf_table(rows, metadata, available_width, fonts):
+    regular_font, bold_font = fonts
+    page_rows = list(rows)
+    blank_row = {key: None for key, _label in COLUMNS}
+    while len(page_rows) < PDF_ROWS_PER_PAGE:
+        page_rows.append(blank_row)
+    data = [make_pdf_metadata_row(metadata, regular_font)]
+    data.append([label for _key, label in COLUMNS])
+    data.extend([[row.get(key) for key, _label in COLUMNS] for row in page_rows])
+    return style_pdf_table(data, available_width, regular_font, bold_font)
+
+
+def style_pdf_table(data, available_width, regular_font, bold_font):
+    heights = [16, 20] + [15.5] * PDF_ROWS_PER_PAGE
+    table = Table(data, colWidths=pdf_column_widths(available_width), rowHeights=heights)
+    commands = base_pdf_table_style(regular_font, bold_font)
+    commands.extend(pdf_table_spans())
+    commands.extend(pdf_table_row_backgrounds())
+    table.setStyle(TableStyle(commands))
+    return table
+
+
+def base_pdf_table_style(regular_font, bold_font):
+    return [
+        ('GRID', (0, 0), (-1, -1), 0.35, PDF_GRID_GRAY),
+        ('BACKGROUND', (0, 0), (-1, 0), PDF_INFO_BLUE),
+        ('BACKGROUND', (0, 1), (-1, 1), PDF_HEADER_GRAY),
+        ('FONTNAME', (0, 0), (-1, 0), regular_font),
+        ('FONTNAME', (0, 1), (-1, -1), bold_font),
+        ('TEXTCOLOR', (0, 1), (-1, -1), PDF_FONT_BLUE),
+        ('FONTSIZE', (0, 1), (-1, 1), 7.2),
+        ('FONTSIZE', (0, 2), (-1, -1), 6.5),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('ALIGN', (0, 1), (-1, -1), 'CENTER'),
+        ('ALIGN', (0, 0), (-1, 0), 'LEFT'),
+        ('ALIGN', (0, 1), (2, -1), 'LEFT'),
+        ('ALIGN', (12, 2), (12, -1), 'LEFT'),
+        ('ALIGN', (15, 2), (15, -1), 'LEFT'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 2.5),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 2.5),
+        ('TOPPADDING', (0, 0), (-1, -1), 1.5),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 1.5),
+    ]
+
+
+def pdf_table_spans():
+    return [
+        ('SPAN', (0, 0), (2, 0)),
+        ('SPAN', (3, 0), (6, 0)),
+        ('SPAN', (7, 0), (10, 0)),
+        ('SPAN', (11, 0), (12, 0)),
+        ('SPAN', (13, 0), (15, 0)),
+    ]
+
+
+def pdf_table_row_backgrounds():
+    commands = []
+    for table_row in range(3, PDF_ROWS_PER_PAGE + 2, 2):
+        commands.append(('BACKGROUND', (0, table_row), (-1, table_row), PDF_ALT_GRAY))
+    return commands
+
+
+def export_tool_list_pdf(path, rows, metadata):
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fonts = register_pdf_fonts()
+    document = make_pdf_document(output_path)
+    metadata = normalized_pdf_metadata(metadata)
+    document.build(make_pdf_story(rows, metadata, document.width, fonts))
+    return output_path
+
+
+def make_pdf_document(output_path):
+    return SimpleDocTemplate(
+        str(output_path), pagesize=landscape(A4),
+        leftMargin=18 * mm, rightMargin=18 * mm,
+        topMargin=19 * mm, bottomMargin=19 * mm,
+    )
+
+
+def make_pdf_story(rows, metadata, available_width, fonts):
+    source_rows = list(rows)
+    chunks = [source_rows[index:index + PDF_ROWS_PER_PAGE]
+              for index in range(0, len(source_rows), PDF_ROWS_PER_PAGE)]
+    if not chunks:
+        chunks = [[]]
+    story = []
+    for index, chunk in enumerate(chunks):
+        story.append(make_pdf_table(chunk, metadata, available_width, fonts))
+        if index < len(chunks) - 1:
+            story.append(PageBreak())
+    return story
+
+
+def default_pdf_filename(metadata):
+    parts = [metadata.get(key) for key in ('part_no', 'operation', 'program')]
+    stem = '_'.join(str(value).strip() for value in parts if value)
+    stem = re.sub(r'[^\w.-]+', '_', stem).strip('_.')
+    return (stem or 'NC') + '_TOOL_LIST.pdf'
 
 
 def fmt_num(s):
@@ -221,7 +440,8 @@ class App:
     def __init__(self, root):
         self.root = root
         self.name_types = load_name_types()
-        root.title('🛠️ NC 공구 리스트 생성기')
+        self.metadata = {key: '' for key in METADATA_ALIASES}
+        root.title('🛠️ %s v%s' % (APP_NAME, APP_VERSION))
         self.set_window_icon()
         root.geometry('1180x640')
         root.after_idle(self.maximize_window)
@@ -232,7 +452,7 @@ class App:
         # 상단 바
         top = tk.Frame(root, bg='#1f3a5f')
         top.pack(fill='x')
-        tk.Label(top, text='🛠️ NC 공구 리스트 생성기', bg='#1f3a5f', fg='white',
+        tk.Label(top, text='🛠️ %s v%s' % (APP_NAME, APP_VERSION), bg='#1f3a5f', fg='white',
                  font=('맑은 고딕', 13, 'bold')).pack(side='left', padx=14, pady=8)
         tk.Label(top, text='NC 프로그램을 넣고 [공구 리스트 생성]을 누르세요',
                  bg='#1f3a5f', fg='#c8d4e2', font=('맑은 고딕', 9)).pack(side='left')
@@ -276,6 +496,9 @@ class App:
         tk.Button(rbar, text='📋 표 복사 (엑셀 붙여넣기)', command=self.copy_table,
                   bg='#2f6fb0', fg='white', font=kfont, relief='flat',
                   padx=8).pack(side='right')
+        tk.Button(rbar, text='PDF 출력', command=self.export_pdf,
+                  bg='#4c7f31', fg='white', font=kfont, relief='flat',
+                  padx=8).pack(side='right', padx=4)
         self.with_header = tk.BooleanVar(value=False)
         tk.Checkbutton(rbar, text='머리글 포함', variable=self.with_header,
                        font=kfont).pack(side='right', padx=6)
@@ -284,6 +507,12 @@ class App:
         tk.Button(rbar, text='＋ 행 추가', command=self.add_row, font=kfont).pack(side='right', padx=2)
         tk.Button(rbar, text='수정', command=self.edit_selected, font=kfont).pack(side='right', padx=2)
         tk.Button(rbar, text='삭제', command=self.delete_selected, font=kfont).pack(side='right', padx=2)
+
+        self.metadata_summary = tk.Label(
+            right, text='출력 정보: -', anchor='w', fg='#40536b',
+            bg='#eaf1f8', font=('맑은 고딕', 8), padx=6, pady=3,
+        )
+        self.metadata_summary.pack(fill='x', pady=(0, 4))
 
         tv_frame = tk.Frame(right)
         tv_frame.pack(fill='both', expand=True)
@@ -318,6 +547,13 @@ class App:
 
     def update_count(self):
         self.count.config(text='공구 %d개' % len(self.tree.get_children()))
+
+    def update_metadata_summary(self):
+        values = []
+        for _column, label, key in PDF_METADATA_FIELDS:
+            value = self.metadata.get(key) or '-'
+            values.append('%s %s' % (label, value))
+        self.metadata_summary.config(text='출력 정보: ' + ' | '.join(values))
 
     def next_tool_no(self):
         numbers = []
@@ -413,12 +649,15 @@ class App:
                 pass
 
     def run(self):
-        rows = parse_program(self.src.get('1.0', 'end'), self.name_types)
+        source_text = self.src.get('1.0', 'end')
+        self.metadata = parse_program_metadata(source_text)
+        rows = parse_program(source_text, self.name_types)
         for iid in self.tree.get_children():
             self.tree.delete(iid)
         for r in rows:
             self.tree.insert('', 'end', values=[r[k] for k, _ in COLUMNS])
         self.count.config(text='공구 %d개' % len(rows))
+        self.update_metadata_summary()
 
     def open_file(self):
         path = filedialog.askopenfilename(
@@ -459,6 +698,8 @@ class App:
         for iid in self.tree.get_children():
             self.tree.delete(iid)
         self.count.config(text='공구 0개')
+        self.metadata = {key: '' for key in METADATA_ALIASES}
+        self.metadata_summary.config(text='출력 정보: -')
 
     def show_type_list(self):
         win = tk.Toplevel(self.root)
@@ -574,6 +815,34 @@ class App:
         tk.Button(controls, text='닫기', command=win.destroy).pack(side='right', padx=2)
         tv.bind('<Double-1>', lambda _event: edit_selected())
         refresh()
+    def export_pdf(self):
+        rows = self.current_rows()
+        if not rows:
+            messagebox.showinfo('알림', '먼저 공구 리스트를 생성하세요.')
+            return
+        path = filedialog.asksaveasfilename(
+            title='공구 리스트 PDF 저장', defaultextension='.pdf',
+            initialfile=default_pdf_filename(self.metadata),
+            filetypes=[('PDF 파일', '*.pdf')],
+        )
+        if path:
+            self.save_pdf(path, rows)
+
+    def save_pdf(self, path, rows):
+        try:
+            export_tool_list_pdf(path, rows, self.metadata)
+        except Exception as error:
+            messagebox.showerror('PDF 출력 실패', str(error))
+            return
+        messagebox.showinfo('PDF 출력 완료', 'PDF 파일을 저장했습니다.\n' + path)
+
+    def current_rows(self):
+        rows = []
+        keys = [key for key, _label in COLUMNS]
+        for iid in self.tree.get_children():
+            rows.append(dict(zip(keys, self.tree.item(iid, 'values'))))
+        return rows
+
     def copy_table(self):
         rows = self.tree.get_children()
         if not rows:
@@ -599,6 +868,8 @@ EXAMPLE = """NC PGM
 O0001
 ( ** TECH STAR ** )
 ( PGM NO :  OP10_SSTR4171 )
+( COMPLETE TIME : 11:15:01 )
+( DATE : 2026-08-25 )
 ( PROGRAMER : S M.HWANG)
 ( MACHINE : M2-5AX / WORK CODE: 501 )
 G0 G90 G49 G69 G80 G40 G17
