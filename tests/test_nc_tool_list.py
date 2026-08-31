@@ -63,6 +63,42 @@ class NcToolListTests(unittest.TestCase):
         self.assertEqual(self.rows[10]['NO'], 'T11')
         self.assertEqual(self.rows[15]['HOLDER'], 'BT50 NPU-90')
 
+    def test_parser_accepts_m6t_without_space(self):
+        source = """N1(#1: Tool Change)
+ (T7 // D5 DR [SO 40] // T7 BT50 HOLDER )
+M6T7
+"""
+        rows = app.parse_program(source)
+        self.assertEqual(len(rows), 7)
+        self.assertEqual(rows[6]['NO'], 'T07')
+        self.assertEqual(rows[6]['TYPE'], 'DRILL')
+        self.assertEqual(rows[6]['REMARK'], 'N1')
+
+    def test_next_tool_change_search_supports_spacing_and_wraps(self):
+        source = 'M6 T1\nG0 X0\nM06T12\nM6T3'
+        self.assertEqual(app.find_next_tool_change_span(source, 0), (0, 5, False))
+        self.assertEqual(app.find_next_tool_change_span(source, 6), (12, 18, False))
+        self.assertEqual(app.find_next_tool_change_span(source, len(source)), (0, 5, True))
+
+    def test_literal_search_is_case_insensitive_and_wraps(self):
+        source = 'FACE MILL\nflat em\nDRILL'
+        self.assertEqual(app.find_next_literal_span(source, 'FLAT', 1), (10, 14, False))
+        self.assertEqual(app.find_next_literal_span(source, 'face', len(source)), (0, 4, True))
+        self.assertIsNone(app.find_next_literal_span(source, 'tap', 0))
+
+    def test_open_file_with_default_app_uses_os_startfile(self):
+        opened = []
+        original = getattr(app.os, 'startfile', None)
+        app.os.startfile = lambda path: opened.append(path)
+        try:
+            self.assertEqual(app.open_file_with_default_app(Path('tool-list.pdf')), '')
+        finally:
+            if original is None:
+                delattr(app.os, 'startfile')
+            else:
+                app.os.startfile = original
+        self.assertEqual(opened, ['tool-list.pdf'])
+
     def test_legacy_metadata_derives_part_and_operation(self):
         metadata = app.parse_program_metadata(
             '( PGM NO : OP10_SSTR4171 )\n( COMPLETE TIME : 11:15:01 )'

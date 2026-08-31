@@ -25,13 +25,14 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
 
-APP_VERSION = '1.3.0'
+APP_VERSION = '1.3.1'
 APP_NAME = 'NC 공구 리스트 생성기'
 
 # ---------- 파싱 로직 ----------
 TOOL_RE = re.compile(r'\(\s*T(\d+)\s*//\s*(.*?)\s*\[SO\s*([\d.]+)\]\s*//\s*T\d+\s*([^)]*?)\s*\)', re.I)
 N_RE    = re.compile(r'^\s*N(\d+)\s*\(\s*#\d+\s*:\s*Tool\s*Change', re.I)
-M6_RE   = re.compile(r'^\s*M0?6\s+T(\d+)', re.I)
+M6_RE   = re.compile(r'^\s*M0?6\s*T(\d+)\b', re.I)
+M6_SEARCH_RE = re.compile(r'^\s*M0?6\s*T\d+\b', re.I | re.M)
 # 키 뒤 숫자만 추출(값이 없으면 매칭 안 됨). 긴 키를 앞에 둬서 FL이 F로 잘못 잡히지 않게 함
 KV_RE   = re.compile(r'\b(LCF|SPINDL|FEED|FL|GL|DC|RE|SIG|PL|F)\s+(-?\d+(?:\.\d+)?)', re.I)
 COMMENT_RE = re.compile(r'\(([^()]*)\)', re.S)
@@ -251,6 +252,43 @@ def default_pdf_filename(metadata):
     stem = '_'.join(str(value).strip() for value in parts if value)
     stem = re.sub(r'[^\w.-]+', '_', stem).strip('_.')
     return (stem or 'NC') + '_TOOL_LIST.pdf'
+
+
+def find_next_regex_span(text, pattern, start=0):
+    text = text or ''
+    if not text:
+        return None
+    try:
+        start = int(start)
+    except (TypeError, ValueError):
+        start = 0
+    start = max(0, min(start, len(text)))
+    match = pattern.search(text, start)
+    if match:
+        return match.start(), match.end(), False
+    match = pattern.search(text, 0, start)
+    if match:
+        return match.start(), match.end(), True
+    return None
+
+
+def find_next_tool_change_span(text, start=0):
+    return find_next_regex_span(text, M6_SEARCH_RE, start)
+
+
+def find_next_literal_span(text, needle, start=0):
+    needle = str(needle or '')
+    if not needle:
+        return None
+    return find_next_regex_span(text, re.compile(re.escape(needle), re.I), start)
+
+
+def open_file_with_default_app(path):
+    try:
+        os.startfile(os.fspath(path))
+    except Exception as error:
+        return str(error)
+    return ''
 
 
 def fmt_num(s):
@@ -473,6 +511,21 @@ class App:
         tk.Button(lbar, text='예제', command=self.load_example, font=kfont).pack(side='right')
         tk.Button(lbar, text='지우기', command=self.clear, font=kfont).pack(side='right', padx=4)
 
+        search_bar = tk.Frame(left)
+        search_bar.pack(fill='x', pady=(0, 4))
+        tk.Button(search_bar, text='다음공구검색', command=self.find_next_tool_change,
+                  font=kfont, width=12).pack(side='left')
+        tk.Label(search_bar, text='문자 검색', font=('맑은 고딕', 9)).pack(side='left', padx=(12, 4))
+        self.search_text = tk.StringVar()
+        search_entry = tk.Entry(search_bar, textvariable=self.search_text, font=kfont, width=26)
+        search_entry.pack(side='left', fill='x', expand=True)
+        search_entry.bind('<Return>', lambda _event: self.find_next_text())
+        tk.Button(search_bar, text='검색', command=self.find_next_text,
+                  font=kfont, width=7).pack(side='left', padx=(4, 0))
+        self.search_status = tk.Label(search_bar, text='', anchor='w',
+                                      fg='#5a6577', font=('맑은 고딕', 8))
+        self.search_status.pack(side='left', padx=(8, 0))
+
         txt_frame = tk.Frame(left)
         txt_frame.pack(fill='both', expand=True)
         self.src = tk.Text(txt_frame, wrap='none', font=mono, undo=True)
@@ -554,6 +607,48 @@ class App:
             value = self.metadata.get(key) or '-'
             values.append('%s %s' % (label, value))
         self.metadata_summary.config(text='출력 정보: ' + ' | '.join(values))
+
+    def source_cursor_offset(self):
+        count = self.src.count('1.0', 'insert', 'chars')
+        return count[0] if count else 0
+
+    def select_source_span(self, start, end):
+        start_index = '1.0 + %d chars' % start
+        end_index = '1.0 + %d chars' % end
+        self.src.tag_remove('sel', '1.0', 'end')
+        self.src.tag_add('sel', start_index, end_index)
+        self.src.mark_set('insert', end_index)
+        self.src.see(start_index)
+        self.src.focus_set()
+
+    def set_search_status(self, text, error=False):
+        self.search_status.config(text=text, fg='#b03a2e' if error else '#5a6577')
+
+    def find_next_tool_change(self):
+        result = find_next_tool_change_span(self.src.get('1.0', 'end-1c'),
+                                            self.source_cursor_offset())
+        if not result:
+            self.set_search_status('M6T 항목 없음', True)
+            self.src.focus_set()
+            return
+        start, end, wrapped = result
+        self.select_source_span(start, end)
+        self.set_search_status('처음부터 검색' if wrapped else '공구 위치 선택')
+
+    def find_next_text(self):
+        needle = self.search_text.get()
+        if not needle:
+            self.set_search_status('검색어 입력 필요', True)
+            return
+        result = find_next_literal_span(self.src.get('1.0', 'end-1c'), needle,
+                                        self.source_cursor_offset())
+        if not result:
+            self.set_search_status('검색 결과 없음', True)
+            self.src.focus_set()
+            return
+        start, end, wrapped = result
+        self.select_source_span(start, end)
+        self.set_search_status('처음부터 검색' if wrapped else '검색 위치 선택')
 
     def next_tool_no(self):
         numbers = []
@@ -834,7 +929,12 @@ class App:
         except Exception as error:
             messagebox.showerror('PDF 출력 실패', str(error))
             return
-        messagebox.showinfo('PDF 출력 완료', 'PDF 파일을 저장했습니다.\n' + path)
+        open_error = open_file_with_default_app(path)
+        if open_error:
+            messagebox.showwarning('PDF 열기 실패',
+                                   'PDF 파일은 저장했지만 자동으로 열지 못했습니다.\n%s\n%s' % (path, open_error))
+            return
+        messagebox.showinfo('PDF 출력 완료', 'PDF 파일을 저장하고 열었습니다.\n' + path)
 
     def current_rows(self):
         rows = []
