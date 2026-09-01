@@ -1,34 +1,25 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-from pathlib import Path
-
-import tkinterdnd2
-from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import collect_submodules
 
 
-dnd_package_dir = Path(tkinterdnd2.__file__).resolve().parent
-dnd_platform_dirs = ('win-x64', 'win-x64-tcl9')
-dnd_data = collect_data_files(
-    'tkinterdnd2',
-    includes=[f'tkdnd/{platform_dir}/**' for platform_dir in dnd_platform_dirs],
-)
-dnd_binaries = [
-    (str(dll), f'tkinterdnd2/tkdnd/{platform_dir}')
-    for platform_dir in dnd_platform_dirs
-    for dll in (dnd_package_dir / 'tkdnd' / platform_dir).glob('*.dll')
-]
 app_data = [('assets/nc_tool_list.ico', 'assets')]
+viewer_hiddenimports = [
+    'numpy',
+    'PyQt5.QtCore', 'PyQt5.QtGui', 'PyQt5.QtWidgets', 'PyQt5.QtOpenGL',
+    'pyqtgraph', 'pyqtgraph.opengl',
+] + collect_submodules('pyqtgraph.opengl') + collect_submodules('OpenGL')
 
 a = Analysis(
     ['NC_Tool_List.py'],
     pathex=[],
-    binaries=dnd_binaries,
-    datas=dnd_data + app_data,
-    hiddenimports=['tkinterdnd2.TkinterDnD'],
+    binaries=[],
+    datas=app_data,
+    hiddenimports=viewer_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['scipy', 'torch', 'matplotlib', 'IPython', 'jupyter_rfb', 'PySide6', 'PyQt6', 'PySide2'],
     noarchive=False,
     optimize=0,
 )

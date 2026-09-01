@@ -119,6 +119,17 @@ M6T7
         self.assertGreater(len(content), 10_000)
         self.assertEqual(len(re.findall(rb'/Type\s*/Page\b', content)), 2)
 
+    def test_tool_name_map_supports_viewer_filter_labels(self):
+        rows = [
+            {'NO': 'T02', 'NAME': 'D10 F.EM'},
+            {'NO': 'T3', 'NAME': 'D6 B.EM'},
+            {'NO': '', 'NAME': ''},
+        ]
+        mapping = app.tool_name_map_from_rows(rows)
+        self.assertEqual(mapping['T02'], 'D10 F.EM')
+        self.assertEqual(mapping['2'], 'D10 F.EM')
+        self.assertEqual(mapping['T3'], 'D6 B.EM')
+        self.assertEqual(mapping['T03'], 'D6 B.EM')
     def test_default_pdf_filename(self):
         metadata = app.parse_program_metadata(self.source)
         self.assertEqual(

@@ -1,19 +1,17 @@
 # -*- coding: utf-8 -*-
 """
-NC 공구 리스트 생성기 (tkinter GUI)
+NC 공구 리스트 생성기
 - 왼쪽: NC 프로그램(G코드) 입력
-- 오른쪽: N번호~M6 사이 괄호 주석을 읽어 만든 공구 리스트 (복사/보기용)
+- 오른쪽: 공구 리스트 산출 화면과 3D Viewer 화면을 같은 창 안에서 교환
 """
 import json
+import importlib.util
 import os
 import re
 import sys
-import tkinter as tk
 from datetime import date
 from html import escape
 from pathlib import Path
-from tkinter import ttk, filedialog, messagebox
-from tkinterdnd2 import DND_FILES, TkinterDnD
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
@@ -468,500 +466,712 @@ def parse_program(text, name_types=None):
     return rows
 
 
+def tool_name_map_from_rows(rows):
+    """Build lookup keys used by the embedded viewer filter labels."""
+    mapping = {}
+    for row in rows or []:
+        no = str(row.get('NO', '')).strip().upper()
+        name = str(row.get('NAME', '')).strip()
+        match = re.fullmatch(r'T?(\d+)', no)
+        if match:
+            number = int(match.group(1))
+            mapping['T%02d' % number] = name
+            mapping['T%d' % number] = name
+            mapping[str(number)] = name
+    return mapping
+
 def resource_path(relative_path):
     """Resolve bundled files both from source and PyInstaller one-file builds."""
     base = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent))
     return str(base / relative_path)
 
+
+def missing_viewer_dependencies():
+    if getattr(sys, 'frozen', False):
+        return []
+    return [name for name in ('PyQt5', 'pyqtgraph', 'numpy')
+            if importlib.util.find_spec(name) is None]
+
+
+QT_IMPORT_ERROR = None
+try:
+    from PyQt5.QtCore import Qt, QTimer, QSignalBlocker, pyqtSignal
+    from PyQt5.QtGui import QFont, QIcon, QTextCursor
+    from PyQt5.QtWidgets import (
+        QApplication, QAbstractItemView, QCheckBox, QComboBox, QDialog,
+        QDialogButtonBox, QFileDialog, QFormLayout, QGridLayout, QHBoxLayout,
+        QHeaderView, QLabel, QLineEdit, QListWidget, QMainWindow, QMessageBox,
+        QPushButton, QSplitter, QStackedWidget, QTableWidget, QTableWidgetItem,
+        QTextEdit, QVBoxLayout, QWidget,
+    )
+    from nc_viewer_widget import NCViewerWidget
+except ImportError as error:
+    QT_IMPORT_ERROR = error
+
+
 # ---------- GUI ----------
-class App:
-    def __init__(self, root):
-        self.root = root
-        self.name_types = load_name_types()
-        self.metadata = {key: '' for key in METADATA_ALIASES}
-        root.title('🛠️ %s v%s' % (APP_NAME, APP_VERSION))
-        self.set_window_icon()
-        root.geometry('1180x640')
-        root.after_idle(self.maximize_window)
+if QT_IMPORT_ERROR is not None:
+    class App:
+        def __init__(self, *args, **kwargs):
+            raise RuntimeError('GUI 실행에 필요한 패키지가 없습니다: %s' % QT_IMPORT_ERROR)
+else:
+    class ProgramTextEdit(QTextEdit):
+        filesDropped = pyqtSignal(list)
 
-        kfont = ('맑은 고딕', 10)
-        mono = ('Consolas', 10)
+        def __init__(self, parent=None):
+            super().__init__(parent)
+            self.setAcceptDrops(True)
 
-        # 상단 바
-        top = tk.Frame(root, bg='#1f3a5f')
-        top.pack(fill='x')
-        tk.Label(top, text='🛠️ %s v%s' % (APP_NAME, APP_VERSION), bg='#1f3a5f', fg='white',
-                 font=('맑은 고딕', 13, 'bold')).pack(side='left', padx=14, pady=8)
-        tk.Label(top, text='NC 프로그램을 넣고 [공구 리스트 생성]을 누르세요',
-                 bg='#1f3a5f', fg='#c8d4e2', font=('맑은 고딕', 9)).pack(side='left')
-
-        paned = ttk.PanedWindow(root, orient='horizontal')
-        paned.pack(fill='both', expand=True, padx=8, pady=8)
-
-        # ----- 왼쪽: 입력 -----
-        left = tk.Frame(paned)
-        paned.add(left, weight=1)
-        lbar = tk.Frame(left)
-        lbar.pack(fill='x', pady=(0, 4))
-        tk.Label(lbar, text='① 프로그램 입력', font=('맑은 고딕', 10, 'bold')).pack(side='left')
-        tk.Button(lbar, text='▶ 공구 리스트 생성', command=self.run,
-                  bg='#2f6fb0', fg='white', font=kfont, relief='flat',
-                  padx=8).pack(side='right')
-        tk.Button(lbar, text='파일 열기', command=self.open_file, font=kfont).pack(side='right', padx=4)
-        tk.Button(lbar, text='예제', command=self.load_example, font=kfont).pack(side='right')
-        tk.Button(lbar, text='지우기', command=self.clear, font=kfont).pack(side='right', padx=4)
-
-        search_bar = tk.Frame(left)
-        search_bar.pack(fill='x', pady=(0, 4))
-        tk.Button(search_bar, text='다음공구검색', command=self.find_next_tool_change,
-                  font=kfont, width=12).pack(side='left')
-        tk.Label(search_bar, text='문자 검색', font=('맑은 고딕', 9)).pack(side='left', padx=(12, 4))
-        self.search_text = tk.StringVar()
-        search_entry = tk.Entry(search_bar, textvariable=self.search_text, font=kfont, width=26)
-        search_entry.pack(side='left', fill='x', expand=True)
-        search_entry.bind('<Return>', lambda _event: self.find_next_text())
-        tk.Button(search_bar, text='검색', command=self.find_next_text,
-                  font=kfont, width=7).pack(side='left', padx=(4, 0))
-        self.search_status = tk.Label(search_bar, text='', anchor='w',
-                                      fg='#5a6577', font=('맑은 고딕', 8))
-        self.search_status.pack(side='left', padx=(8, 0))
-
-        txt_frame = tk.Frame(left)
-        txt_frame.pack(fill='both', expand=True)
-        self.src = tk.Text(txt_frame, wrap='none', font=mono, undo=True)
-        ys = tk.Scrollbar(txt_frame, orient='vertical', command=self.src.yview)
-        xs = tk.Scrollbar(txt_frame, orient='horizontal', command=self.src.xview)
-        self.src.configure(yscrollcommand=ys.set, xscrollcommand=xs.set)
-        ys.pack(side='right', fill='y')
-        xs.pack(side='bottom', fill='x')
-        self.src.pack(side='left', fill='both', expand=True)
-        self.src.drop_target_register(DND_FILES)
-        self.src.dnd_bind('<<Drop>>', self.drop_file)
-
-        # ----- 오른쪽: 결과 -----
-        right = tk.Frame(paned)
-        paned.add(right, weight=2)
-        rbar = tk.Frame(right)
-        rbar.pack(fill='x', pady=(0, 4))
-        tk.Label(rbar, text='② 공구 리스트 (복사용)', font=('맑은 고딕', 10, 'bold')).pack(side='left')
-        self.count = tk.Label(rbar, text='공구 0개', font=('맑은 고딕', 9), fg='#5a6577')
-        self.count.pack(side='left', padx=10)
-        tk.Button(rbar, text='📋 표 복사 (엑셀 붙여넣기)', command=self.copy_table,
-                  bg='#2f6fb0', fg='white', font=kfont, relief='flat',
-                  padx=8).pack(side='right')
-        tk.Button(rbar, text='PDF 출력', command=self.export_pdf,
-                  bg='#4c7f31', fg='white', font=kfont, relief='flat',
-                  padx=8).pack(side='right', padx=4)
-        self.with_header = tk.BooleanVar(value=False)
-        tk.Checkbutton(rbar, text='머리글 포함', variable=self.with_header,
-                       font=kfont).pack(side='right', padx=6)
-        tk.Button(rbar, text='이름 경우의 수', command=self.show_type_list,
-                  font=kfont).pack(side='right', padx=4)
-        tk.Button(rbar, text='＋ 행 추가', command=self.add_row, font=kfont).pack(side='right', padx=2)
-        tk.Button(rbar, text='수정', command=self.edit_selected, font=kfont).pack(side='right', padx=2)
-        tk.Button(rbar, text='삭제', command=self.delete_selected, font=kfont).pack(side='right', padx=2)
-
-        self.metadata_summary = tk.Label(
-            right, text='출력 정보: -', anchor='w', fg='#40536b',
-            bg='#eaf1f8', font=('맑은 고딕', 8), padx=6, pady=3,
-        )
-        self.metadata_summary.pack(fill='x', pady=(0, 4))
-
-        tv_frame = tk.Frame(right)
-        tv_frame.pack(fill='both', expand=True)
-        keys = [k for k, _ in COLUMNS]
-        style = ttk.Style()
-        style.configure('Treeview', font=('맑은 고딕', 9), rowheight=24)
-        style.configure('Treeview.Heading', font=('맑은 고딕', 9, 'bold'))
-        self.tree = ttk.Treeview(tv_frame, columns=keys, show='headings')
-        for key, label in COLUMNS:
-            self.tree.heading(key, text=label)
-            self.tree.column(key, width=COL_WIDTH.get(key, 60),
-                             anchor='w' if key in ('NAME', 'HOLDER', 'REMARK') else 'center',
-                             stretch=False)
-        tys = tk.Scrollbar(tv_frame, orient='vertical', command=self.tree.yview)
-        txs = tk.Scrollbar(tv_frame, orient='horizontal', command=self.tree.xview)
-        self.tree.configure(yscrollcommand=tys.set, xscrollcommand=txs.set)
-        tys.pack(side='right', fill='y')
-        txs.pack(side='bottom', fill='x')
-        self.tree.pack(side='left', fill='both', expand=True)
-        self.tree.bind('<Double-1>', lambda _event: self.edit_selected())
-        self.tree.bind('<Delete>', lambda _event: self.delete_selected())
-
-        hint = tk.Label(right, anchor='w', fg='#8a94a3', font=('맑은 고딕', 8),
-                        text='행을 더블클릭하거나 수정/추가 버튼으로 직접 편집할 수 있습니다. (N번호 ~ M6 사이 괄호 주석을 읽음)')
-        hint.pack(fill='x', pady=(4, 0))
-
-    def set_window_icon(self):
-        try:
-            self.root.iconbitmap(default=resource_path('assets/nc_tool_list.ico'))
-        except tk.TclError:
-            pass
-
-    def update_count(self):
-        self.count.config(text='공구 %d개' % len(self.tree.get_children()))
-
-    def update_metadata_summary(self):
-        values = []
-        for _column, label, key in PDF_METADATA_FIELDS:
-            value = self.metadata.get(key) or '-'
-            values.append('%s %s' % (label, value))
-        self.metadata_summary.config(text='출력 정보: ' + ' | '.join(values))
-
-    def source_cursor_offset(self):
-        count = self.src.count('1.0', 'insert', 'chars')
-        return count[0] if count else 0
-
-    def select_source_span(self, start, end):
-        start_index = '1.0 + %d chars' % start
-        end_index = '1.0 + %d chars' % end
-        self.src.tag_remove('sel', '1.0', 'end')
-        self.src.tag_add('sel', start_index, end_index)
-        self.src.mark_set('insert', end_index)
-        self.src.see(start_index)
-        self.src.focus_set()
-
-    def set_search_status(self, text, error=False):
-        self.search_status.config(text=text, fg='#b03a2e' if error else '#5a6577')
-
-    def find_next_tool_change(self):
-        result = find_next_tool_change_span(self.src.get('1.0', 'end-1c'),
-                                            self.source_cursor_offset())
-        if not result:
-            self.set_search_status('M6T 항목 없음', True)
-            self.src.focus_set()
-            return
-        start, end, wrapped = result
-        self.select_source_span(start, end)
-        self.set_search_status('처음부터 검색' if wrapped else '공구 위치 선택')
-
-    def find_next_text(self):
-        needle = self.search_text.get()
-        if not needle:
-            self.set_search_status('검색어 입력 필요', True)
-            return
-        result = find_next_literal_span(self.src.get('1.0', 'end-1c'), needle,
-                                        self.source_cursor_offset())
-        if not result:
-            self.set_search_status('검색 결과 없음', True)
-            self.src.focus_set()
-            return
-        start, end, wrapped = result
-        self.select_source_span(start, end)
-        self.set_search_status('처음부터 검색' if wrapped else '검색 위치 선택')
-
-    def next_tool_no(self):
-        numbers = []
-        for iid in self.tree.get_children():
-            value = str(self.tree.item(iid, 'values')[0]).upper()
-            match = re.fullmatch(r'T?(\d+)', value)
-            if match:
-                numbers.append(int(match.group(1)))
-        return 'T%02d' % (max(numbers, default=0) + 1)
-
-    def add_row(self):
-        values = {key: '' for key, _ in COLUMNS}
-        values['NO'] = self.next_tool_no()
-        self.show_row_editor(values)
-
-    def edit_selected(self):
-        selected = self.tree.selection()
-        if not selected:
-            messagebox.showinfo('알림', '수정할 행을 먼저 선택하세요.')
-            return
-        iid = selected[0]
-        row = dict(zip((key for key, _ in COLUMNS), self.tree.item(iid, 'values')))
-        self.show_row_editor(row, iid)
-
-    def delete_selected(self):
-        selected = self.tree.selection()
-        if not selected:
-            messagebox.showinfo('알림', '삭제할 행을 먼저 선택하세요.')
-            return
-        count = len(selected)
-        if not messagebox.askyesno('행 삭제', '%d개 행을 삭제할까요?' % count):
-            return
-        for iid in selected:
-            self.tree.delete(iid)
-        self.update_count()
-
-    def show_row_editor(self, values, iid=None):
-        win = tk.Toplevel(self.root)
-        win.title('공구 행 수정' if iid else '공구 행 추가')
-        win.transient(self.root)
-        win.grab_set()
-        form = tk.Frame(win, padx=12, pady=12)
-        form.pack(fill='both', expand=True)
-        variables = {}
-        for index, (key, label) in enumerate(COLUMNS):
-            column, row = (index // 8) * 2, index % 8
-            tk.Label(form, text=label, anchor='e', width=8).grid(row=row, column=column,
-                                                                  padx=(0, 4), pady=3, sticky='e')
-            var = tk.StringVar(value=str(values.get(key, '')))
-            entry = tk.Entry(form, textvariable=var, width=22)
-            entry.grid(row=row, column=column + 1, padx=(0, 14), pady=3, sticky='ew')
-            variables[key] = var
-        form.columnconfigure(1, weight=1)
-        form.columnconfigure(3, weight=1)
-
-        def save():
-            row = {key: variables[key].get().strip() for key, _ in COLUMNS}
-            if not row['TYPE'] and row['NAME']:
-                row['TYPE'] = derive_type(row['NAME'], self.name_types)
-            if not row['D'] and row['NAME']:
-                row['D'] = derive_d(row['NAME'])
-            data = [row[key] for key, _ in COLUMNS]
-            if iid:
-                self.tree.item(iid, values=data)
-                self.tree.selection_set(iid)
-                self.tree.focus(iid)
+        def dragEnterEvent(self, event):
+            if event.mimeData().hasUrls():
+                event.acceptProposedAction()
             else:
-                new_iid = self.tree.insert('', 'end', values=data)
-                self.tree.selection_set(new_iid)
-                self.tree.focus(new_iid)
-            self.update_count()
-            win.destroy()
+                super().dragEnterEvent(event)
 
-        buttons = tk.Frame(win)
-        buttons.pack(pady=(0, 12))
-        tk.Button(buttons, text='저장', command=save, width=10).pack(side='left', padx=4)
-        tk.Button(buttons, text='취소', command=win.destroy, width=10).pack(side='left', padx=4)
-        win.bind('<Return>', lambda _event: save())
-        win.bind('<Escape>', lambda _event: win.destroy())
-        win.focus_set()
-        win.geometry('760x300')
-        win.resizable(False, False)
-        self.root.wait_window(win)
-    # ----- 동작 -----
-    def maximize_window(self):
-        """Maximize on Windows and retain the default size elsewhere."""
-        try:
-            self.root.state('zoomed')
-        except tk.TclError:
-            try:
-                self.root.attributes('-zoomed', True)
-            except tk.TclError:
-                pass
+        def dropEvent(self, event):
+            paths = [url.toLocalFile() for url in event.mimeData().urls() if url.toLocalFile()]
+            if paths:
+                self.filesDropped.emit(paths)
+                event.acceptProposedAction()
+            else:
+                super().dropEvent(event)
 
-    def run(self):
-        source_text = self.src.get('1.0', 'end')
-        self.metadata = parse_program_metadata(source_text)
-        rows = parse_program(source_text, self.name_types)
-        for iid in self.tree.get_children():
-            self.tree.delete(iid)
-        for r in rows:
-            self.tree.insert('', 'end', values=[r[k] for k, _ in COLUMNS])
-        self.count.config(text='공구 %d개' % len(rows))
-        self.update_metadata_summary()
 
-    def open_file(self):
-        path = filedialog.askopenfilename(
-            title='NC 프로그램 파일 선택',
-            filetypes=[('NC/텍스트 파일', '*.nc *.txt *.tap *.min *.prg'), ('모든 파일', '*.*')])
-        if not path:
-            return
-        self.load_file(path)
+    class App(QMainWindow):
+        def __init__(self, _root=None):
+            super().__init__()
+            self.name_types = load_name_types()
+            self.metadata = {key: '' for key in METADATA_ALIASES}
+            self.current_file_path = None
+            self.current_mode = 'tool'
+            self.viewer_update_timer = QTimer(self)
+            self.viewer_update_timer.setSingleShot(True)
+            self.viewer_update_timer.timeout.connect(self.sync_viewer_from_source)
 
-    def load_file(self, path):
-        try:
-            with open(path, 'r', encoding='utf-8', errors='replace') as fp:
-                data = fp.read()
-        except Exception as e:
-            messagebox.showerror('열기 실패', str(e))
-            return
-        self.src.delete('1.0', 'end')
-        self.src.insert('1.0', data)
-        self.run()
+            self.setWindowTitle('%s v%s' % (APP_NAME, APP_VERSION))
+            self.resize(1180, 640)
+            self.set_window_icon()
+            self._build_ui()
+            QTimer.singleShot(0, self.showMaximized)
 
-    def drop_file(self, event):
-        """Load the first file dropped into the input area."""
-        paths = self.root.tk.splitlist(event.data)
-        if not paths:
-            return 'refuse_drop'
-        if len(paths) > 1:
-            messagebox.showinfo('File drop', 'Only the first dropped file will be loaded.')
-        self.load_file(paths[0])
-        return 'copy'
+        def _build_ui(self):
+            kfont = QFont('맑은 고딕', 10)
+            mono = QFont('Consolas', 10)
 
-    def load_example(self):
-        self.src.delete('1.0', 'end')
-        self.src.insert('1.0', EXAMPLE)
-        self.run()
+            central = QWidget()
+            root_layout = QVBoxLayout(central)
+            root_layout.setContentsMargins(0, 0, 0, 0)
+            root_layout.setSpacing(0)
+            self.setCentralWidget(central)
 
-    def clear(self):
-        self.src.delete('1.0', 'end')
-        for iid in self.tree.get_children():
-            self.tree.delete(iid)
-        self.count.config(text='공구 0개')
-        self.metadata = {key: '' for key in METADATA_ALIASES}
-        self.metadata_summary.config(text='출력 정보: -')
+            top = QWidget()
+            top.setStyleSheet('background: #1f3a5f; color: white;')
+            top_layout = QHBoxLayout(top)
+            top_layout.setContentsMargins(14, 7, 10, 7)
+            title = QLabel('%s v%s' % (APP_NAME, APP_VERSION))
+            title.setFont(QFont('맑은 고딕', 13, QFont.Bold))
+            top_layout.addWidget(title)
+            caption = QLabel('NC 프로그램을 넣고 공구 리스트를 생성하세요')
+            caption.setStyleSheet('color: #c8d4e2;')
+            top_layout.addWidget(caption)
+            top_layout.addStretch()
 
-    def show_type_list(self):
-        win = tk.Toplevel(self.root)
-        win.title('이름 → TYPE 경우의 수')
-        win.geometry('500x460')
-        win.transient(self.root)
-        tk.Label(win, text='공구 이름 → TYPE 변환표', font=('맑은 고딕', 10, 'bold')).pack(pady=(10, 2))
-        tk.Label(win, text='추가·수정한 내용은 다음 실행에도 유지됩니다.',
-                 fg='#5a6577', font=('맑은 고딕', 8)).pack(pady=(0, 8))
+            self.btn_tool_mode = QPushButton('툴리스트 산출 모드')
+            self.btn_tool_mode.setCheckable(True)
+            self.btn_tool_mode.clicked.connect(lambda: self.set_mode('tool'))
+            self.btn_viewer_mode = QPushButton('Viewer 모드')
+            self.btn_viewer_mode.setCheckable(True)
+            self.btn_viewer_mode.clicked.connect(lambda: self.set_mode('viewer'))
+            self.btn_machine_settings = QPushButton('설정')
+            self.btn_machine_settings.clicked.connect(self.open_machine_settings)
+            for button in (self.btn_tool_mode, self.btn_viewer_mode, self.btn_machine_settings):
+                button.setFont(QFont('맑은 고딕', 9, QFont.Bold))
+                top_layout.addWidget(button)
+            root_layout.addWidget(top)
 
-        frame = tk.Frame(win)
-        frame.pack(fill='both', expand=True, padx=10)
-        tv = ttk.Treeview(frame, columns=('abbr', 'type'), show='headings', selectmode='browse')
-        tv.heading('abbr', text='이름(약어·표현)')
-        tv.heading('type', text='TYPE')
-        tv.column('abbr', width=220, anchor='w')
-        tv.column('type', width=220, anchor='w')
-        sb = tk.Scrollbar(frame, orient='vertical', command=tv.yview)
-        tv.configure(yscrollcommand=sb.set)
-        sb.pack(side='right', fill='y')
-        tv.pack(side='left', fill='both', expand=True)
+            splitter = QSplitter(Qt.Horizontal)
+            splitter.setChildrenCollapsible(False)
+            root_layout.addWidget(splitter, 1)
 
-        def refresh():
-            for item in tv.get_children():
-                tv.delete(item)
-            for index, (abbr, typ) in enumerate(self.name_types):
-                tv.insert('', 'end', iid=str(index), values=(abbr, typ))
+            left = QWidget()
+            left_layout = QVBoxLayout(left)
+            left_layout.setContentsMargins(8, 8, 6, 8)
+            left_layout.setSpacing(5)
+            splitter.addWidget(left)
 
-        def save_mappings():
-            try:
-                save_name_types(self.name_types)
-            except OSError as error:
-                messagebox.showerror('저장 실패', str(error), parent=win)
-                return False
-            return True
+            lbar = QHBoxLayout()
+            label = QLabel('① 프로그램 입력')
+            label.setFont(QFont('맑은 고딕', 10, QFont.Bold))
+            lbar.addWidget(label)
+            lbar.addStretch()
+            self._add_button(lbar, '지우기', self.clear, kfont)
+            self._add_button(lbar, '예제', self.load_example, kfont)
+            self._add_button(lbar, '파일 열기', self.open_file, kfont)
+            run_button = self._add_button(lbar, '공구 리스트 생성', self.run, kfont)
+            run_button.setStyleSheet('background: #2f6fb0; color: white; padding: 5px 9px;')
+            left_layout.addLayout(lbar)
 
-        def open_editor(index=None):
-            current = self.name_types[index] if index is not None else ('', '')
-            editor = tk.Toplevel(win)
-            editor.title('이름 경우 수정' if index is not None else '이름 경우 추가')
-            editor.transient(win)
-            editor.grab_set()
-            body = tk.Frame(editor, padx=14, pady=14)
-            body.pack(fill='both', expand=True)
-            tk.Label(body, text='이름(약어·표현)').grid(row=0, column=0, sticky='w', pady=(0, 4))
-            name_var = tk.StringVar(value=current[0])
-            name_entry = tk.Entry(body, textvariable=name_var, width=34)
-            name_entry.grid(row=1, column=0, sticky='ew', pady=(0, 10))
-            tk.Label(body, text='TYPE').grid(row=2, column=0, sticky='w', pady=(0, 4))
-            type_var = tk.StringVar(value=current[1])
-            type_entry = tk.Entry(body, textvariable=type_var, width=34)
-            type_entry.grid(row=3, column=0, sticky='ew', pady=(0, 12))
+            search_bar = QHBoxLayout()
+            self._add_button(search_bar, '다음공구검색', self.find_next_tool_change, kfont)
+            search_bar.addWidget(QLabel('문자 검색'))
+            self.search_text = QLineEdit()
+            self.search_text.setFont(kfont)
+            self.search_text.returnPressed.connect(self.find_next_text)
+            search_bar.addWidget(self.search_text, 1)
+            self._add_button(search_bar, '검색', self.find_next_text, kfont)
+            self.search_status = QLabel('')
+            self.search_status.setStyleSheet('color: #5a6577;')
+            search_bar.addWidget(self.search_status)
+            left_layout.addLayout(search_bar)
 
-            def commit():
-                abbr, typ = name_var.get().strip(), type_var.get().strip()
-                if not abbr or not typ:
-                    messagebox.showwarning('입력 확인', '이름과 TYPE을 모두 입력하세요.', parent=editor)
-                    return
-                duplicate = next((i for i, pair in enumerate(self.name_types)
-                                  if pair[0].upper() == abbr.upper() and i != index), None)
-                if duplicate is not None:
-                    messagebox.showwarning('중복 이름', '같은 이름 경우가 이미 있습니다.', parent=editor)
-                    return
-                if index is None:
-                    self.name_types.append((abbr, typ))
-                else:
-                    self.name_types[index] = (abbr, typ)
-                if save_mappings():
-                    refresh()
-                    editor.destroy()
+            input_splitter = QSplitter(Qt.Vertical)
+            input_splitter.setChildrenCollapsible(False)
+            left_layout.addWidget(input_splitter, 1)
 
-            actions = tk.Frame(body)
-            actions.grid(row=4, column=0)
-            tk.Button(actions, text='저장', command=commit, width=9).pack(side='left', padx=3)
-            tk.Button(actions, text='취소', command=editor.destroy, width=9).pack(side='left', padx=3)
-            editor.bind('<Return>', lambda _event: commit())
-            editor.bind('<Escape>', lambda _event: editor.destroy())
-            name_entry.focus_set()
+            self.src = ProgramTextEdit()
+            self.src.setFont(mono)
+            self.src.setLineWrapMode(QTextEdit.NoWrap)
+            self.src.filesDropped.connect(self.drop_file)
+            self.src.textChanged.connect(self.source_changed)
+            input_splitter.addWidget(self.src)
 
-        def selected_index():
-            selected = tv.selection()
-            if not selected:
-                messagebox.showinfo('알림', '수정하거나 삭제할 경우를 선택하세요.', parent=win)
-                return None
-            return int(selected[0])
+            self.filter_panel = QWidget()
+            filter_layout = QVBoxLayout(self.filter_panel)
+            filter_layout.setContentsMargins(0, 5, 0, 0)
+            filter_layout.setSpacing(4)
+            filter_bar = QHBoxLayout()
+            filter_label = QLabel('공구별 경로 필터 선택')
+            filter_label.setFont(QFont('맑은 고딕', 9, QFont.Bold))
+            filter_bar.addWidget(filter_label)
+            filter_bar.addStretch()
+            self._add_button(filter_bar, '전체', lambda: self.viewer.select_all_tools(True), kfont)
+            self._add_button(filter_bar, '해제', lambda: self.viewer.select_all_tools(False), kfont)
+            filter_layout.addLayout(filter_bar)
+            self.tool_filter = QListWidget()
+            self.tool_filter.setSelectionMode(QAbstractItemView.MultiSelection)
+            filter_layout.addWidget(self.tool_filter, 1)
+            input_splitter.addWidget(self.filter_panel)
+            input_splitter.setSizes([480, 160])
 
-        def edit_selected():
-            index = selected_index()
-            if index is not None:
-                open_editor(index)
+            right = QWidget()
+            right_layout = QVBoxLayout(right)
+            right_layout.setContentsMargins(6, 8, 8, 8)
+            right_layout.setSpacing(0)
+            splitter.addWidget(right)
+            splitter.setSizes([430, 750])
 
-        def delete_selected():
-            index = selected_index()
-            if index is None:
+            self.stack = QStackedWidget()
+            right_layout.addWidget(self.stack, 1)
+            self._build_tool_panel()
+            self.viewer = NCViewerWidget()
+            self.viewer.attach_tool_filter(self.tool_filter)
+            self.stack.addWidget(self.viewer)
+            self.set_mode('tool')
+
+        def _add_button(self, layout, text, slot, font=None):
+            button = QPushButton(text)
+            if font is not None:
+                button.setFont(font)
+            button.clicked.connect(slot)
+            layout.addWidget(button)
+            return button
+
+        def _build_tool_panel(self):
+            panel = QWidget()
+            layout = QVBoxLayout(panel)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(4)
+
+            rbar = QHBoxLayout()
+            label = QLabel('② 공구 리스트 (복사용)')
+            label.setFont(QFont('맑은 고딕', 10, QFont.Bold))
+            rbar.addWidget(label)
+            self.count = QLabel('공구 0개')
+            self.count.setStyleSheet('color: #5a6577;')
+            rbar.addWidget(self.count)
+            rbar.addStretch()
+            self._add_button(rbar, '삭제', self.delete_selected)
+            self._add_button(rbar, '수정', self.edit_selected)
+            self._add_button(rbar, '＋ 행 추가', self.add_row)
+            self._add_button(rbar, '이름 경우의 수', self.show_type_list)
+            self.with_header = QCheckBox('머리글 포함')
+            rbar.addWidget(self.with_header)
+            pdf_button = self._add_button(rbar, 'PDF 출력', self.export_pdf)
+            pdf_button.setStyleSheet('background: #4c7f31; color: white; padding: 5px 9px;')
+            copy_button = self._add_button(rbar, '표 복사', self.copy_table)
+            copy_button.setStyleSheet('background: #2f6fb0; color: white; padding: 5px 9px;')
+            layout.addLayout(rbar)
+
+            self.metadata_summary = QLabel('출력 정보: -')
+            self.metadata_summary.setStyleSheet('background: #eaf1f8; color: #40536b; padding: 4px 6px;')
+            layout.addWidget(self.metadata_summary)
+
+            self.table = QTableWidget(0, len(COLUMNS))
+            self.table.setHorizontalHeaderLabels([label for _key, label in COLUMNS])
+            self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+            self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+            self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+            self.table.setAlternatingRowColors(True)
+            self.table.verticalHeader().setVisible(False)
+            header = self.table.horizontalHeader()
+            header.setSectionResizeMode(QHeaderView.Interactive)
+            for index, (key, _label) in enumerate(COLUMNS):
+                self.table.setColumnWidth(index, COL_WIDTH.get(key, 60))
+            self.table.doubleClicked.connect(lambda _index: self.edit_selected())
+            layout.addWidget(self.table, 1)
+
+            hint = QLabel('행을 더블클릭하거나 수정/추가 버튼으로 직접 편집할 수 있습니다. (N번호 ~ M6 사이 괄호 주석을 읽음)')
+            hint.setStyleSheet('color: #8a94a3;')
+            layout.addWidget(hint)
+            self.stack.addWidget(panel)
+
+        def set_window_icon(self):
+            icon_path = resource_path('assets/nc_tool_list.ico')
+            if Path(icon_path).exists():
+                self.setWindowIcon(QIcon(icon_path))
+
+        def set_mode(self, mode):
+            self.current_mode = mode
+            is_viewer = mode == 'viewer'
+            self.stack.setCurrentIndex(1 if is_viewer else 0)
+            self.filter_panel.setVisible(is_viewer)
+            self.btn_tool_mode.setChecked(not is_viewer)
+            self.btn_viewer_mode.setChecked(is_viewer)
+            self._style_mode_buttons()
+            if is_viewer:
+                self.sync_viewer_from_source()
+
+        def _style_mode_buttons(self):
+            active = 'background: #34577f; color: white; padding: 5px 9px;'
+            inactive = 'background: #f0f4f8; color: #1f3a5f; padding: 5px 9px;'
+            self.btn_tool_mode.setStyleSheet(active if self.current_mode == 'tool' else inactive)
+            self.btn_viewer_mode.setStyleSheet(active if self.current_mode == 'viewer' else inactive)
+            self.btn_machine_settings.setStyleSheet(inactive)
+
+        def source_changed(self):
+            if self.current_mode == 'viewer':
+                self.viewer_update_timer.start(450)
+
+        def sync_viewer_from_source(self):
+            source_text = self.src.toPlainText()
+            if not source_text.strip():
+                self.viewer.clear()
                 return
-            if messagebox.askyesno('이름 경우 삭제', '선택한 이름 경우를 삭제할까요?', parent=win):
-                del self.name_types[index]
-                if save_mappings():
-                    refresh()
+            rows = parse_program(source_text, self.name_types) or self.current_rows()
+            self.viewer.set_source_text(source_text, self.tool_name_map(rows))
 
-        def restore_defaults():
-            if messagebox.askyesno('기본값 복원', '기본 이름 경우의 수로 되돌릴까요?', parent=win):
-                self.name_types = list(DEFAULT_NAME_TYPES)
-                if save_mappings():
-                    refresh()
+        def open_machine_settings(self):
+            dialog = QDialog(self)
+            dialog.setWindowTitle('장비 타입 및 스펙 설정')
+            dialog.setMinimumWidth(420)
+            body = QVBoxLayout(dialog)
+            body.addWidget(QLabel('장비 타입'))
+            combo = QComboBox()
+            combo.addItems(self.viewer.machine_types())
+            combo.setCurrentText(self.viewer.current_machine_type)
+            body.addWidget(combo)
+            form_widget = QWidget()
+            form = QFormLayout(form_widget)
+            body.addWidget(form)
+            inputs = {}
 
-        controls = tk.Frame(win)
-        controls.pack(fill='x', padx=10, pady=10)
-        tk.Button(controls, text='＋ 추가', command=open_editor).pack(side='left', padx=2)
-        tk.Button(controls, text='수정', command=edit_selected).pack(side='left', padx=2)
-        tk.Button(controls, text='삭제', command=delete_selected).pack(side='left', padx=2)
-        tk.Button(controls, text='기본값 복원', command=restore_defaults).pack(side='left', padx=12)
-        tk.Button(controls, text='닫기', command=win.destroy).pack(side='right', padx=2)
-        tv.bind('<Double-1>', lambda _event: edit_selected())
-        refresh()
-    def export_pdf(self):
-        rows = self.current_rows()
-        if not rows:
-            messagebox.showinfo('알림', '먼저 공구 리스트를 생성하세요.')
-            return
-        path = filedialog.asksaveasfilename(
-            title='공구 리스트 PDF 저장', defaultextension='.pdf',
-            initialfile=default_pdf_filename(self.metadata),
-            filetypes=[('PDF 파일', '*.pdf')],
-        )
-        if path:
-            self.save_pdf(path, rows)
+            def rebuild_form():
+                while form.rowCount():
+                    form.removeRow(0)
+                inputs.clear()
+                for key, value in self.viewer.machine_spec(combo.currentText()).items():
+                    edit = QLineEdit(str(value))
+                    inputs[key] = edit
+                    form.addRow(key, edit)
 
-    def save_pdf(self, path, rows):
-        try:
-            export_tool_list_pdf(path, rows, self.metadata)
-        except Exception as error:
-            messagebox.showerror('PDF 출력 실패', str(error))
-            return
-        open_error = open_file_with_default_app(path)
-        if open_error:
-            messagebox.showwarning('PDF 열기 실패',
-                                   'PDF 파일은 저장했지만 자동으로 열지 못했습니다.\n%s\n%s' % (path, open_error))
-            return
-        messagebox.showinfo('PDF 출력 완료', 'PDF 파일을 저장하고 열었습니다.\n' + path)
+            combo.currentIndexChanged.connect(rebuild_form)
+            rebuild_form()
+            buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+            body.addWidget(buttons)
 
-    def current_rows(self):
-        rows = []
-        keys = [key for key, _label in COLUMNS]
-        for iid in self.tree.get_children():
-            rows.append(dict(zip(keys, self.tree.item(iid, 'values'))))
-        return rows
+            def save():
+                self.viewer.update_machine_spec(
+                    combo.currentText(), {key: edit.text() for key, edit in inputs.items()}
+                )
+                if self.current_mode == 'viewer':
+                    self.sync_viewer_from_source()
+                dialog.accept()
 
-    def copy_table(self):
-        rows = self.tree.get_children()
-        if not rows:
-            messagebox.showinfo('알림', '먼저 공구 리스트를 생성하세요.')
-            return
-        lines = []
-        if self.with_header.get():
-            lines.append('\t'.join(label for _, label in COLUMNS))
-        for iid in rows:
-            vals = self.tree.item(iid, 'values')
-            lines.append('\t'.join(str(v) for v in vals))
-        # 줄 구분은 '\n' 만 사용 (tkinter가 Windows에서 CRLF로 변환 -> Excel 빈 행 방지)
-        tsv = '\n'.join(lines)
-        self.root.clipboard_clear()
-        self.root.clipboard_append(tsv)
-        self.root.update()
-        self.count.config(text='✅ 복사됨! 엑셀에서 Ctrl+V')
-        self.root.after(1800, lambda: self.count.config(text='공구 %d개' % len(rows)))
+            buttons.accepted.connect(save)
+            buttons.rejected.connect(dialog.reject)
+            dialog.exec_()
 
+        def update_count(self):
+            self.count.setText('공구 %d개' % self.table.rowCount())
+
+        def update_metadata_summary(self):
+            values = []
+            for _column, label, key in PDF_METADATA_FIELDS:
+                value = self.metadata.get(key) or '-'
+                values.append('%s %s' % (label, value))
+            self.metadata_summary.setText('출력 정보: ' + ' | '.join(values))
+
+        def source_cursor_offset(self):
+            return self.src.textCursor().position()
+
+        def select_source_span(self, start, end):
+            cursor = self.src.textCursor()
+            cursor.setPosition(start)
+            cursor.setPosition(end, QTextCursor.KeepAnchor)
+            self.src.setTextCursor(cursor)
+            self.src.ensureCursorVisible()
+            self.src.setFocus()
+
+        def set_search_status(self, text, error=False):
+            color = '#b03a2e' if error else '#5a6577'
+            self.search_status.setText(text)
+            self.search_status.setStyleSheet('color: %s;' % color)
+
+        def find_next_tool_change(self):
+            result = find_next_tool_change_span(self.src.toPlainText(), self.source_cursor_offset())
+            if not result:
+                self.set_search_status('M6T 항목 없음', True)
+                self.src.setFocus()
+                return
+            start, end, wrapped = result
+            self.select_source_span(start, end)
+            self.set_search_status('처음부터 검색' if wrapped else '공구 위치 선택')
+
+        def find_next_text(self):
+            needle = self.search_text.text()
+            if not needle:
+                self.set_search_status('검색어 입력 필요', True)
+                return
+            result = find_next_literal_span(self.src.toPlainText(), needle, self.source_cursor_offset())
+            if not result:
+                self.set_search_status('검색 결과 없음', True)
+                self.src.setFocus()
+                return
+            start, end, wrapped = result
+            self.select_source_span(start, end)
+            self.set_search_status('처음부터 검색' if wrapped else '검색 위치 선택')
+
+        def next_tool_no(self):
+            numbers = []
+            for row in range(self.table.rowCount()):
+                value = self.table_text(row, 'NO').upper()
+                match = re.fullmatch(r'T?(\d+)', value)
+                if match:
+                    numbers.append(int(match.group(1)))
+            return 'T%02d' % (max(numbers, default=0) + 1)
+
+        def add_row(self):
+            values = {key: '' for key, _ in COLUMNS}
+            values['NO'] = self.next_tool_no()
+            self.show_row_editor(values)
+
+        def edit_selected(self):
+            selected_rows = self.selected_rows()
+            if not selected_rows:
+                QMessageBox.information(self, '알림', '수정할 행을 먼저 선택하세요.')
+                return
+            row_index = selected_rows[0]
+            row = {key: self.table_text(row_index, key) for key, _label in COLUMNS}
+            self.show_row_editor(row, row_index)
+
+        def delete_selected(self):
+            selected_rows = self.selected_rows()
+            if not selected_rows:
+                QMessageBox.information(self, '알림', '삭제할 행을 먼저 선택하세요.')
+                return
+            reply = QMessageBox.question(
+                self, '행 삭제', '%d개 행을 삭제할까요?' % len(selected_rows),
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+            )
+            if reply != QMessageBox.Yes:
+                return
+            for row in sorted(selected_rows, reverse=True):
+                self.table.removeRow(row)
+            self.update_count()
+            if self.current_mode == 'viewer':
+                self.sync_viewer_from_source()
+
+        def selected_rows(self):
+            return sorted({index.row() for index in self.table.selectionModel().selectedRows()})
+
+        def table_text(self, row, key):
+            column = [item_key for item_key, _label in COLUMNS].index(key)
+            item = self.table.item(row, column)
+            return item.text() if item else ''
+
+        def show_row_editor(self, values, row_index=None):
+            dialog = QDialog(self)
+            dialog.setWindowTitle('공구 행 수정' if row_index is not None else '공구 행 추가')
+            grid = QGridLayout(dialog)
+            editors = {}
+            for index, (key, label) in enumerate(COLUMNS):
+                column = (index // 8) * 2
+                row = index % 8
+                grid.addWidget(QLabel(label), row, column)
+                editor = QLineEdit(str(values.get(key, '')))
+                editors[key] = editor
+                grid.addWidget(editor, row, column + 1)
+            buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+            grid.addWidget(buttons, 8, 0, 1, 4)
+
+            def save():
+                row = {key: editors[key].text().strip() for key, _label in COLUMNS}
+                if not row['TYPE'] and row['NAME']:
+                    row['TYPE'] = derive_type(row['NAME'], self.name_types)
+                if not row['D'] and row['NAME']:
+                    row['D'] = derive_d(row['NAME'])
+                target = row_index
+                if target is None:
+                    target = self.table.rowCount()
+                    self.table.insertRow(target)
+                self.set_table_row(target, row)
+                self.table.selectRow(target)
+                self.update_count()
+                if self.current_mode == 'viewer':
+                    self.sync_viewer_from_source()
+                dialog.accept()
+
+            buttons.accepted.connect(save)
+            buttons.rejected.connect(dialog.reject)
+            dialog.exec_()
+
+        def set_table_row(self, row_index, row):
+            for column, (key, _label) in enumerate(COLUMNS):
+                item = QTableWidgetItem(str(row.get(key, '')))
+                if key not in ('NAME', 'HOLDER', 'REMARK'):
+                    item.setTextAlignment(Qt.AlignCenter)
+                self.table.setItem(row_index, column, item)
+
+        def run(self):
+            source_text = self.src.toPlainText()
+            self.metadata = parse_program_metadata(source_text)
+            rows = parse_program(source_text, self.name_types)
+            self.table.setRowCount(0)
+            for row_data in rows:
+                row_index = self.table.rowCount()
+                self.table.insertRow(row_index)
+                self.set_table_row(row_index, row_data)
+            self.update_count()
+            self.update_metadata_summary()
+            if self.current_mode == 'viewer':
+                self.sync_viewer_from_source()
+
+        def open_file(self):
+            path, _filter = QFileDialog.getOpenFileName(
+                self,
+                'NC 프로그램 파일 선택',
+                str(Path(self.current_file_path).parent) if self.current_file_path else os.getcwd(),
+                'NC/텍스트 파일 (*.nc *.txt *.tap *.min *.prg);;모든 파일 (*.*)',
+            )
+            if path:
+                self.load_file(path)
+
+        def load_file(self, path):
+            try:
+                with open(path, 'r', encoding='utf-8', errors='replace') as fp:
+                    data = fp.read()
+            except Exception as error:
+                QMessageBox.critical(self, '열기 실패', str(error))
+                return
+            self.current_file_path = path
+            with QSignalBlocker(self.src):
+                self.src.setPlainText(data)
+            self.run()
+            if self.current_mode == 'viewer':
+                self.sync_viewer_from_source()
+
+        def drop_file(self, paths):
+            if not paths:
+                return
+            if len(paths) > 1:
+                QMessageBox.information(self, 'File drop', '첫 번째 파일만 불러옵니다.')
+            self.load_file(paths[0])
+
+        def load_example(self):
+            with QSignalBlocker(self.src):
+                self.src.setPlainText(EXAMPLE)
+            self.run()
+            if self.current_mode == 'viewer':
+                self.sync_viewer_from_source()
+
+        def clear(self):
+            self.src.clear()
+            self.table.setRowCount(0)
+            self.update_count()
+            self.metadata = {key: '' for key in METADATA_ALIASES}
+            self.metadata_summary.setText('출력 정보: -')
+            self.viewer.clear()
+
+        def show_type_list(self):
+            dialog = QDialog(self)
+            dialog.setWindowTitle('이름 → TYPE 경우의 수')
+            dialog.resize(520, 470)
+            layout = QVBoxLayout(dialog)
+            title = QLabel('공구 이름 → TYPE 변환표')
+            title.setFont(QFont('맑은 고딕', 10, QFont.Bold))
+            layout.addWidget(title)
+            table = QTableWidget(0, 2)
+            table.setHorizontalHeaderLabels(['이름(약어·표현)', 'TYPE'])
+            table.setSelectionBehavior(QAbstractItemView.SelectRows)
+            table.setSelectionMode(QAbstractItemView.SingleSelection)
+            table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+            layout.addWidget(table, 1)
+
+            def refresh():
+                table.setRowCount(0)
+                for abbr, typ in self.name_types:
+                    row = table.rowCount()
+                    table.insertRow(row)
+                    table.setItem(row, 0, QTableWidgetItem(abbr))
+                    table.setItem(row, 1, QTableWidgetItem(typ))
+
+            def save_mappings():
+                try:
+                    save_name_types(self.name_types)
+                except OSError as error:
+                    QMessageBox.critical(dialog, '저장 실패', str(error))
+                    return False
+                return True
+
+            def selected_index():
+                rows = table.selectionModel().selectedRows()
+                if not rows:
+                    QMessageBox.information(dialog, '알림', '수정하거나 삭제할 경우를 선택하세요.')
+                    return None
+                return rows[0].row()
+
+            def open_editor(index=None):
+                current = self.name_types[index] if index is not None else ('', '')
+                editor = QDialog(dialog)
+                editor.setWindowTitle('이름 경우 수정' if index is not None else '이름 경우 추가')
+                form = QFormLayout(editor)
+                name_edit = QLineEdit(current[0])
+                type_edit = QLineEdit(current[1])
+                form.addRow('이름(약어·표현)', name_edit)
+                form.addRow('TYPE', type_edit)
+                buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+                form.addRow(buttons)
+
+                def commit():
+                    abbr = name_edit.text().strip()
+                    typ = type_edit.text().strip()
+                    if not abbr or not typ:
+                        QMessageBox.warning(editor, '입력 확인', '이름과 TYPE을 모두 입력하세요.')
+                        return
+                    duplicate = next(
+                        (i for i, pair in enumerate(self.name_types)
+                         if pair[0].upper() == abbr.upper() and i != index),
+                        None,
+                    )
+                    if duplicate is not None:
+                        QMessageBox.warning(editor, '중복 이름', '같은 이름 경우가 이미 있습니다.')
+                        return
+                    if index is None:
+                        self.name_types.append((abbr, typ))
+                    else:
+                        self.name_types[index] = (abbr, typ)
+                    if save_mappings():
+                        refresh()
+                        editor.accept()
+
+                buttons.accepted.connect(commit)
+                buttons.rejected.connect(editor.reject)
+                editor.exec_()
+
+            controls = QHBoxLayout()
+            self._add_button(controls, '＋ 추가', lambda: open_editor())
+
+            def edit_case():
+                index = selected_index()
+                if index is not None:
+                    open_editor(index)
+
+            self._add_button(controls, '수정', edit_case)
+
+            def delete_case():
+                index = selected_index()
+                if index is None:
+                    return
+                if QMessageBox.question(dialog, '이름 경우 삭제', '선택한 이름 경우를 삭제할까요?') == QMessageBox.Yes:
+                    del self.name_types[index]
+                    if save_mappings():
+                        refresh()
+
+            def restore_defaults():
+                if QMessageBox.question(dialog, '기본값 복원', '기본 이름 경우의 수로 되돌릴까요?') == QMessageBox.Yes:
+                    self.name_types = list(DEFAULT_NAME_TYPES)
+                    if save_mappings():
+                        refresh()
+
+            self._add_button(controls, '삭제', delete_case)
+            self._add_button(controls, '기본값 복원', restore_defaults)
+            controls.addStretch()
+            self._add_button(controls, '닫기', dialog.accept)
+            layout.addLayout(controls)
+            table.doubleClicked.connect(lambda _index: open_editor(selected_index()))
+            refresh()
+            dialog.exec_()
+
+        def export_pdf(self):
+            rows = self.current_rows()
+            if not rows:
+                QMessageBox.information(self, '알림', '먼저 공구 리스트를 생성하세요.')
+                return
+            path, _filter = QFileDialog.getSaveFileName(
+                self,
+                '공구 리스트 PDF 저장',
+                default_pdf_filename(self.metadata),
+                'PDF 파일 (*.pdf)',
+            )
+            if path:
+                self.save_pdf(path, rows)
+
+        def save_pdf(self, path, rows):
+            try:
+                export_tool_list_pdf(path, rows, self.metadata)
+            except Exception as error:
+                QMessageBox.critical(self, 'PDF 출력 실패', str(error))
+                return
+            open_error = open_file_with_default_app(path)
+            if open_error:
+                QMessageBox.warning(
+                    self, 'PDF 열기 실패',
+                    'PDF 파일은 저장했지만 자동으로 열지 못했습니다.\n%s\n%s' % (path, open_error),
+                )
+                return
+            QMessageBox.information(self, 'PDF 출력 완료', 'PDF 파일을 저장하고 열었습니다.\n' + path)
+
+        def current_rows(self):
+            rows = []
+            for row_index in range(self.table.rowCount()):
+                rows.append({key: self.table_text(row_index, key) for key, _label in COLUMNS})
+            return rows
+
+        def tool_name_map(self, rows):
+            return tool_name_map_from_rows(rows)
+
+        def copy_table(self):
+            if self.table.rowCount() == 0:
+                QMessageBox.information(self, '알림', '먼저 공구 리스트를 생성하세요.')
+                return
+            lines = []
+            if self.with_header.isChecked():
+                lines.append('\t'.join(label for _key, label in COLUMNS))
+            for row in self.current_rows():
+                lines.append('\t'.join(str(row.get(key, '')) for key, _label in COLUMNS))
+            QApplication.clipboard().setText('\n'.join(lines))
+            self.count.setText('복사됨! 엑셀에서 Ctrl+V')
+            QTimer.singleShot(1800, self.update_count)
+
+
+def main():
+    missing = missing_viewer_dependencies()
+    if missing:
+        raise SystemExit('GUI 실행에 필요한 Python 패키지가 없습니다: ' + ', '.join(missing))
+    app = QApplication(sys.argv)
+    window = App()
+    window.show()
+    sys.exit(app.exec_())
 
 EXAMPLE = """NC PGM
 %
@@ -1039,6 +1249,4 @@ M30
 
 
 if __name__ == '__main__':
-    root = TkinterDnD.Tk()
-    App(root)
-    root.mainloop()
+    main()
