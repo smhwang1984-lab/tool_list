@@ -71,6 +71,11 @@ class NCViewerWidget(QWidget):
         self.tool_name_map = {}
         self.tool_filter_list = None
         self.last_source_text = None
+        self.line_to_coord_map = {}
+        self.line_to_tool_map = {}
+        self.modal_state_map = {}
+        self.dynamic_trace_items = []
+        self.current_cursor_line = 0
 
         self._build_ui()
         self.set_machine_type(self.current_machine_type, init_camera=True)
@@ -189,6 +194,7 @@ class NCViewerWidget(QWidget):
         self.last_source_text = text
         self.raw_lines = text.splitlines()
         self.process_nc_lines(self.raw_lines)
+        self.set_cursor_line(self.current_cursor_line)
 
     def clear(self):
         self.last_source_text = ""
@@ -196,6 +202,10 @@ class NCViewerWidget(QWidget):
         self._clear_path_items()
         self.tool_paths.clear()
         self.plot_items.clear()
+        self.line_to_coord_map.clear()
+        self.line_to_tool_map.clear()
+        self.modal_state_map.clear()
+        self.current_cursor_line = 0
         self._refresh_tool_filter()
         self._set_coordinate_labels(("0.000",) * 6)
 
@@ -245,7 +255,13 @@ class NCViewerWidget(QWidget):
         for item_list in self.plot_items.values():
             for item in item_list:
                 self.gl_view.removeItem(item)
+        self._clear_dynamic_trace_items()
         self.cursor_sphere.setVisible(False)
+
+    def _clear_dynamic_trace_items(self):
+        for item in self.dynamic_trace_items:
+            self.gl_view.removeItem(item)
+        self.dynamic_trace_items = []
 
     def _tool_display_text(self, tool):
         match = re.search(r"T(\d+)", tool, re.I)
@@ -300,6 +316,9 @@ class NCViewerWidget(QWidget):
         self._clear_path_items()
         self.tool_paths.clear()
         self.plot_items.clear()
+        self.line_to_coord_map.clear()
+        self.line_to_tool_map.clear()
+        self.modal_state_map.clear()
 
         machine_type = self.current_machine_type
         is_lathe = "선반" in machine_type
@@ -365,13 +384,17 @@ class NCViewerWidget(QWidget):
                 match = pattern.search(line_upper)
                 if match:
                     modal_values[pos] = match.group(1)
+            self.modal_state_map[idx] = tuple(modal_values)
 
             comment_t_match = t_pattern.search(line_upper)
             if comment_t_match:
                 detected_t = "Tool T%s" % comment_t_match.group(1)
 
             if "(" in line_upper or ";" in line_upper:
+                self.line_to_tool_map[idx] = current_tool
                 continue
+
+            self.line_to_tool_map[idx] = current_tool
 
             if g12_1_pattern.search(line_upper):
                 polar_interpolation = True
@@ -404,8 +427,9 @@ class NCViewerWidget(QWidget):
                 if current_tool not in self.tool_paths:
                     self.tool_paths[current_tool] = []
                     self.tool_paths[current_tool].append({
-                        "pt": [cx, cy, cz], "type": current_motion, "valid": g43_active,
+                        "pt": [cx, cy, cz], "type": current_motion, "valid": g43_active, "src_line": idx,
                     })
+                self.line_to_tool_map[idx] = current_tool
 
             motion_match = motion_pattern.search(line_upper)
             if motion_match and not cycle_active:
@@ -464,9 +488,11 @@ class NCViewerWidget(QWidget):
                 if re.search(r"Z\s*0", line_upper):
                     cz = m_z
                 if g43_active or is_lathe:
+                    final_pt = [cx, cy, cz]
                     self.tool_paths[current_tool].append({
-                        "pt": [cx, cy, cz], "type": "G00", "valid": True, "src_line": idx,
+                        "pt": final_pt, "type": "G00", "valid": True, "src_line": idx,
                     })
+                    self.line_to_coord_map[idx] = final_pt
                 continue
 
             x_match = x_pattern.search(line_upper)
@@ -536,6 +562,7 @@ class NCViewerWidget(QWidget):
                     if g98_active:
                         self.tool_paths[current_tool].append({"pt": return_pt, "type": "G00", "valid": True, "src_line": idx})
                     cz = target_z
+                    self.line_to_coord_map[idx] = final_z_pt
                     continue
 
                 if current_motion in ("G02", "G03") and (g43_active or is_lathe):
@@ -547,6 +574,7 @@ class NCViewerWidget(QWidget):
                         self.tool_paths[current_tool].append({
                             "pt": pt, "type": current_motion, "valid": True, "src_line": idx,
                         })
+                    self.line_to_coord_map[idx] = target_pt
                 else:
                     self.tool_paths[current_tool].append({
                         "pt": target_pt,
@@ -554,11 +582,13 @@ class NCViewerWidget(QWidget):
                         "valid": True if is_lathe else g43_active,
                         "src_line": idx,
                     })
+                    if g43_active or is_lathe:
+                        self.line_to_coord_map[idx] = target_pt
 
         self.tool_paths = {key: value for key, value in self.tool_paths.items() if value}
         self._build_path_items()
         self._refresh_tool_filter()
-        self._set_coordinate_labels(modal_values)
+        self.set_cursor_line(self.current_cursor_line)
 
     def _arc_points(self, line_upper, start_pt, target_pt, current_motion, i_pattern, j_pattern, r_pattern):
         i_val = float(i_pattern.search(line_upper).group(1)) if i_pattern.search(line_upper) else 0.0
@@ -634,16 +664,102 @@ class NCViewerWidget(QWidget):
         self.gl_view.addItem(line_item)
         self.plot_items[tool].append(line_item)
 
-    def update_visible_paths(self):
+    def selected_tools(self):
         if self.tool_filter_list is None:
-            selected_items = set(self.plot_items)
-        else:
-            selected_items = {
-                item.data(Qt.UserRole) for item in self.tool_filter_list.selectedItems()
-            }
+            return set(self.plot_items)
+        return {item.data(Qt.UserRole) for item in self.tool_filter_list.selectedItems()}
+
+    def _tool_selected(self, tool):
+        return tool in self.selected_tools()
+
+    def update_visible_paths(self):
+        selected_items = self.selected_tools()
         for tool, plot_item_list in self.plot_items.items():
             for item in plot_item_list:
                 item.setVisible(tool in selected_items)
+        self.set_cursor_line(self.current_cursor_line)
+
+    def update_trace_item(self, index, pts_list, motion_type, base_color):
+        if len(pts_list) < 2:
+            return False
+        pts = np.array(pts_list, dtype=np.float32)
+        if motion_type == "G00":
+            color = [base_color[0], base_color[1], base_color[2], 0.45]
+            width = 1.5
+        else:
+            color = [base_color[0], base_color[1], base_color[2], 1.0]
+            width = 3.5
+        if index < len(self.dynamic_trace_items):
+            item = self.dynamic_trace_items[index]
+            item.setData(pos=pts, color=color, width=width)
+            item.setVisible(True)
+        else:
+            item = gl.GLLinePlotItem(pos=pts, color=color, width=width, antialias=True)
+            self.gl_view.addItem(item)
+            self.dynamic_trace_items.append(item)
+        return True
+
+    def _hide_dynamic_trace_from(self, start_index=0):
+        empty = np.empty((0, 3), dtype=np.float32)
+        for item in self.dynamic_trace_items[start_index:]:
+            item.setData(pos=empty)
+            item.setVisible(False)
+
+    def set_cursor_line(self, line_index):
+        try:
+            line_index = max(0, int(line_index))
+        except (TypeError, ValueError):
+            line_index = 0
+        self.current_cursor_line = line_index
+
+        modal_values = self.modal_state_map.get(line_index)
+        if modal_values:
+            self._set_coordinate_labels(modal_values)
+
+        current_tool = self.line_to_tool_map.get(line_index)
+        current_pt = self.line_to_coord_map.get(line_index)
+        if current_tool and current_pt is not None and self._tool_selected(current_tool):
+            self.cursor_sphere.resetTransform()
+            self.cursor_sphere.translate(current_pt[0], current_pt[1], current_pt[2])
+            self.cursor_sphere.setVisible(True)
+        else:
+            self.cursor_sphere.setVisible(False)
+
+        if not current_tool or current_tool not in self.tool_paths or not self._tool_selected(current_tool):
+            self._hide_dynamic_trace_from(0)
+            return
+
+        try:
+            tool_index = list(self.tool_paths.keys()).index(current_tool)
+        except ValueError:
+            tool_index = 0
+        base_color = tool_color_for_index(tool_index)
+        current_seg = []
+        prev_type = None
+        trace_index = 0
+
+        for node in self.tool_paths[current_tool]:
+            if node.get("src_line", -1) > line_index:
+                break
+            if not node["valid"]:
+                if self.update_trace_item(trace_index, current_seg, prev_type, base_color):
+                    trace_index += 1
+                current_seg = []
+                prev_type = None
+                continue
+            if prev_type is not None and node["type"] != prev_type:
+                if current_seg:
+                    current_seg.append(node["pt"])
+                    if self.update_trace_item(trace_index, current_seg, prev_type, base_color):
+                        trace_index += 1
+                    current_seg = [node["pt"]]
+            else:
+                current_seg.append(node["pt"])
+            prev_type = node["type"]
+
+        if self.update_trace_item(trace_index, current_seg, prev_type, base_color):
+            trace_index += 1
+        self._hide_dynamic_trace_from(trace_index)
 
     def _set_coordinate_labels(self, values):
         for axis, value in zip(("X", "Y", "Z", "A", "B", "C"), values):

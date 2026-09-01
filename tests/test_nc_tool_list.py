@@ -130,6 +130,25 @@ M6T7
         self.assertEqual(mapping['2'], 'D10 F.EM')
         self.assertEqual(mapping['T3'], 'D6 B.EM')
         self.assertEqual(mapping['T03'], 'D6 B.EM')
+
+    def test_append_nc_programs_adds_programs_below_m30_percent_tail(self):
+        base = '%\nO1001\nM30\n%\n'
+        extra = ' %\nO1002\nM30\n%\n '
+        self.assertEqual(
+            app.append_nc_programs(base, [extra, '']),
+            '%\nO1001\nM30\n%\n\n%\nO1002\nM30\n%',
+        )
+
+    def test_startup_file_argument_returns_first_existing_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            missing = str(Path(directory) / 'missing.nc')
+            existing = Path(directory) / 'part.nc'
+            existing.write_text('M30\n%', encoding='utf-8')
+            self.assertEqual(
+                app.startup_file_argument(['NC_Tool_List.exe', missing, str(existing)]),
+                str(existing),
+            )
+
     def test_default_pdf_filename(self):
         metadata = app.parse_program_metadata(self.source)
         self.assertEqual(

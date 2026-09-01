@@ -23,7 +23,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
 
-APP_VERSION = '1.3.1'
+APP_VERSION = '1.3.3'
 APP_NAME = 'NC 공구 리스트 생성기'
 
 # ---------- 파싱 로직 ----------
@@ -480,6 +480,26 @@ def tool_name_map_from_rows(rows):
             mapping[str(number)] = name
     return mapping
 
+def append_nc_programs(base_text, additions):
+    """Append one or more NC programs below the current M30/% tail."""
+    parts = []
+    base = (base_text or '').rstrip()
+    if base:
+        parts.append(base)
+    for addition in additions or []:
+        text = (addition or '').strip()
+        if text:
+            parts.append(text)
+    return '\n\n'.join(parts)
+
+
+def startup_file_argument(argv):
+    for arg in list(argv or [])[1:]:
+        value = str(arg).strip().strip('"')
+        if value and Path(value).is_file():
+            return value
+    return None
+
 def resource_path(relative_path):
     """Resolve bundled files both from source and PyInstaller one-file builds."""
     base = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent))
@@ -522,14 +542,29 @@ else:
             super().__init__(parent)
             self.setAcceptDrops(True)
 
+        def setReadOnly(self, read_only):
+            super().setReadOnly(read_only)
+            self.setAcceptDrops(True)
+
+        def _drop_paths(self, event):
+            if not event.mimeData().hasUrls():
+                return []
+            return [url.toLocalFile() for url in event.mimeData().urls() if url.toLocalFile()]
+
         def dragEnterEvent(self, event):
-            if event.mimeData().hasUrls():
+            if self._drop_paths(event):
                 event.acceptProposedAction()
             else:
                 super().dragEnterEvent(event)
 
+        def dragMoveEvent(self, event):
+            if self._drop_paths(event):
+                event.acceptProposedAction()
+            else:
+                super().dragMoveEvent(event)
+
         def dropEvent(self, event):
-            paths = [url.toLocalFile() for url in event.mimeData().urls() if url.toLocalFile()]
+            paths = self._drop_paths(event)
             if paths:
                 self.filesDropped.emit(paths)
                 event.acceptProposedAction()
@@ -607,6 +642,7 @@ else:
             self._add_button(lbar, '지우기', self.clear, kfont)
             self._add_button(lbar, '예제', self.load_example, kfont)
             self._add_button(lbar, '파일 열기', self.open_file, kfont)
+            self._add_button(lbar, '프로그램 추가', self.open_add_program_files, kfont)
             run_button = self._add_button(lbar, '공구 리스트 생성', self.run, kfont)
             run_button.setStyleSheet('background: #2f6fb0; color: white; padding: 5px 9px;')
             left_layout.addLayout(lbar)
@@ -631,8 +667,11 @@ else:
             self.src = ProgramTextEdit()
             self.src.setFont(mono)
             self.src.setLineWrapMode(QTextEdit.NoWrap)
+            self.src.setReadOnly(True)
+            self.src.setAcceptDrops(True)
             self.src.filesDropped.connect(self.drop_file)
             self.src.textChanged.connect(self.source_changed)
+            self.src.cursorPositionChanged.connect(self.source_cursor_changed)
             input_splitter.addWidget(self.src)
 
             self.filter_panel = QWidget()
@@ -752,6 +791,10 @@ else:
             if self.current_mode == 'viewer':
                 self.viewer_update_timer.start(450)
 
+        def source_cursor_changed(self):
+            if self.current_mode == 'viewer':
+                self.viewer.set_cursor_line(self.src.textCursor().blockNumber())
+
         def sync_viewer_from_source(self):
             source_text = self.src.toPlainText()
             if not source_text.strip():
@@ -759,6 +802,7 @@ else:
                 return
             rows = parse_program(source_text, self.name_types) or self.current_rows()
             self.viewer.set_source_text(source_text, self.tool_name_map(rows))
+            self.viewer.set_cursor_line(self.src.textCursor().blockNumber())
 
         def open_machine_settings(self):
             dialog = QDialog(self)
@@ -966,10 +1010,23 @@ else:
             if path:
                 self.load_file(path)
 
+        def open_add_program_files(self):
+            paths, _filter = QFileDialog.getOpenFileNames(
+                self,
+                '추가할 NC 프로그램 파일 선택',
+                str(Path(self.current_file_path).parent) if self.current_file_path else os.getcwd(),
+                'NC/텍스트 파일 (*.nc *.txt *.tap *.min *.prg);;모든 파일 (*.*)',
+            )
+            if paths:
+                self.add_program_files(paths)
+
+        def read_program_file(self, path):
+            with open(path, 'r', encoding='utf-8', errors='replace') as fp:
+                return fp.read()
+
         def load_file(self, path):
             try:
-                with open(path, 'r', encoding='utf-8', errors='replace') as fp:
-                    data = fp.read()
+                data = self.read_program_file(path)
             except Exception as error:
                 QMessageBox.critical(self, '열기 실패', str(error))
                 return
@@ -980,12 +1037,35 @@ else:
             if self.current_mode == 'viewer':
                 self.sync_viewer_from_source()
 
+        def add_program_files(self, paths):
+            additions = []
+            last_path = None
+            for path in paths:
+                try:
+                    additions.append(self.read_program_file(path))
+                    last_path = path
+                except Exception as error:
+                    QMessageBox.critical(self, '추가 실패', '%s\n%s' % (path, error))
+                    return
+            if not additions:
+                return
+            self.current_file_path = last_path or self.current_file_path
+            combined = append_nc_programs(self.src.toPlainText(), additions)
+            with QSignalBlocker(self.src):
+                self.src.setPlainText(combined)
+            self.run()
+            if self.current_mode == 'viewer':
+                self.sync_viewer_from_source()
+
         def drop_file(self, paths):
             if not paths:
                 return
-            if len(paths) > 1:
-                QMessageBox.information(self, 'File drop', '첫 번째 파일만 불러옵니다.')
+            if self.src.toPlainText().strip():
+                self.add_program_files(paths)
+                return
             self.load_file(paths[0])
+            if len(paths) > 1:
+                self.add_program_files(paths[1:])
 
         def load_example(self):
             with QSignalBlocker(self.src):
@@ -1170,6 +1250,9 @@ def main():
         raise SystemExit('GUI 실행에 필요한 Python 패키지가 없습니다: ' + ', '.join(missing))
     app = QApplication(sys.argv)
     window = App()
+    initial_file = startup_file_argument(sys.argv)
+    if initial_file:
+        QTimer.singleShot(0, lambda path=initial_file: window.load_file(path))
     window.show()
     sys.exit(app.exec_())
 
