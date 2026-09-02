@@ -69,8 +69,10 @@ class NCViewerWidget(QWidget):
         self.plot_items = {}
         self.raw_lines = []
         self.tool_name_map = {}
+        self.process_tool_map = {}
         self.tool_filter_list = None
         self.last_source_text = None
+        self.last_render_signature = None
         self.line_to_coord_map = {}
         self.line_to_tool_map = {}
         self.modal_state_map = {}
@@ -188,26 +190,41 @@ class NCViewerWidget(QWidget):
         self._refresh_tool_filter(keep_selection=True)
 
     def set_source_text(self, text, tool_name_map=None):
+        previous_tool_name_map = dict(self.tool_name_map)
         if tool_name_map is not None:
             self.tool_name_map = dict(tool_name_map)
         text = text or ""
+        signature = self._render_signature(text)
+        if signature == self.last_render_signature:
+            if previous_tool_name_map != self.tool_name_map:
+                self._refresh_tool_filter(keep_selection=True)
+            self.set_cursor_line(self.current_cursor_line)
+            return False
         self.last_source_text = text
         self.raw_lines = text.splitlines()
         self.process_nc_lines(self.raw_lines)
+        self.last_render_signature = signature
         self.set_cursor_line(self.current_cursor_line)
+        return True
 
     def clear(self):
         self.last_source_text = ""
+        self.last_render_signature = None
         self.raw_lines = []
         self._clear_path_items()
         self.tool_paths.clear()
         self.plot_items.clear()
+        self.process_tool_map.clear()
         self.line_to_coord_map.clear()
         self.line_to_tool_map.clear()
         self.modal_state_map.clear()
         self.current_cursor_line = 0
         self._refresh_tool_filter()
         self._set_coordinate_labels(("0.000",) * 6)
+
+    def _render_signature(self, text):
+        specs = tuple(sorted(self.machine_specs.get(self.current_machine_type, {}).items()))
+        return (text, self.current_machine_type, specs)
 
     def machine_types(self):
         return list(self.machine_specs.keys())
@@ -231,7 +248,8 @@ class NCViewerWidget(QWidget):
             self.set_camera_projection("ISO")
         self._save_machine_specs()
         if self.last_source_text:
-            self.process_nc_lines(self.raw_lines)
+            self.last_render_signature = None
+            self.set_source_text(self.last_source_text)
 
     def update_machine_spec(self, machine_type, specs):
         if machine_type not in self.machine_specs:
@@ -263,19 +281,33 @@ class NCViewerWidget(QWidget):
             self.gl_view.removeItem(item)
         self.dynamic_trace_items = []
 
-    def _tool_display_text(self, tool):
-        match = re.search(r"T(\d+)", tool, re.I)
+    def _normalize_tool_no(self, value):
+        try:
+            return "T%02d" % int(value)
+        except (TypeError, ValueError):
+            return ""
+
+    def _make_process_key(self, process_no, tool_no):
+        return "P%03d_%s" % (process_no, tool_no or "T00")
+
+    def _tool_display_text(self, process_key):
+        tool_no = self.process_tool_map.get(process_key)
+        if not tool_no:
+            return "초기 구간"
+        match = re.search(r"T(\d+)", tool_no, re.I)
         if not match:
-            return "%s | 이름 없음" % tool
+            return "공정 | %s | 이름 없음" % tool_no
         number = int(match.group(1))
-        tool_no = "T%02d" % number
+        normalized_tool_no = "T%02d" % number
         name = (
-            self.tool_name_map.get(tool_no)
+            self.tool_name_map.get(normalized_tool_no)
             or self.tool_name_map.get("T%d" % number)
             or self.tool_name_map.get(str(number))
             or "이름 없음"
         )
-        return "%s | %s" % (tool_no, name)
+        process_match = re.match(r"P(\d+)_", process_key)
+        process_label = "공정 %02d" % int(process_match.group(1)) if process_match else "공정"
+        return "%s | %s | %s" % (process_label, normalized_tool_no, name)
 
     def _refresh_tool_filter(self, keep_selection=False):
         if self.tool_filter_list is None:
@@ -316,6 +348,7 @@ class NCViewerWidget(QWidget):
         self._clear_path_items()
         self.tool_paths.clear()
         self.plot_items.clear()
+        self.process_tool_map.clear()
         self.line_to_coord_map.clear()
         self.line_to_tool_map.clear()
         self.modal_state_map.clear()
@@ -333,8 +366,9 @@ class NCViewerWidget(QWidget):
         except (TypeError, ValueError):
             m_x, m_y, m_z = 250.0, 250.0, 300.0
 
-        current_tool = "Default_Tool"
+        current_tool = "Initial"
         self.tool_paths[current_tool] = []
+        self.process_tool_map[current_tool] = ""
 
         cx, cy, cz = 0.0, 0.0, 0.0
         cc_deg = 0.0
@@ -349,10 +383,11 @@ class NCViewerWidget(QWidget):
         active_matrix = np.eye(3)
         g98_active = False
         cycle_active = False
-        detected_t = "Default_Tool"
+        detected_t = ""
+        process_no = 0
 
-        t_pattern = re.compile(r"T(\d+)")
-        m6_pattern = re.compile(r"M0?6")
+        t_pattern = re.compile(r"T0*(\d+)")
+        m6_pattern = re.compile(r"M0?6(?!\d)")
         x_pattern = re.compile(r"X\s*([+-]?\d*\.?\d+)")
         y_pattern = re.compile(r"Y\s*([+-]?\d*\.?\d+)")
         z_pattern = re.compile(r"Z\s*([+-]?\d*\.?\d+)")
@@ -388,7 +423,7 @@ class NCViewerWidget(QWidget):
 
             comment_t_match = t_pattern.search(line_upper)
             if comment_t_match:
-                detected_t = "Tool T%s" % comment_t_match.group(1)
+                detected_t = self._normalize_tool_no(comment_t_match.group(1))
 
             if "(" in line_upper or ";" in line_upper:
                 self.line_to_tool_map[idx] = current_tool
@@ -420,15 +455,16 @@ class NCViewerWidget(QWidget):
 
             t_match = t_pattern.search(line_upper)
             if t_match:
-                detected_t = "Tool T%s" % t_match.group(1)
+                detected_t = self._normalize_tool_no(t_match.group(1))
 
             if m6_pattern.search(line_upper):
-                current_tool = detected_t
-                if current_tool not in self.tool_paths:
-                    self.tool_paths[current_tool] = []
-                    self.tool_paths[current_tool].append({
-                        "pt": [cx, cy, cz], "type": current_motion, "valid": g43_active, "src_line": idx,
-                    })
+                process_no += 1
+                current_tool = self._make_process_key(process_no, detected_t)
+                self.tool_paths[current_tool] = []
+                self.process_tool_map[current_tool] = detected_t
+                self.tool_paths[current_tool].append({
+                    "pt": [cx, cy, cz], "type": current_motion, "valid": g43_active, "src_line": idx,
+                })
                 self.line_to_tool_map[idx] = current_tool
 
             motion_match = motion_pattern.search(line_upper)
@@ -586,6 +622,10 @@ class NCViewerWidget(QWidget):
                         self.line_to_coord_map[idx] = target_pt
 
         self.tool_paths = {key: value for key, value in self.tool_paths.items() if value}
+        self.process_tool_map = {
+            key: value for key, value in self.process_tool_map.items()
+            if key in self.tool_paths
+        }
         self._build_path_items()
         self._refresh_tool_filter()
         self.set_cursor_line(self.current_cursor_line)
@@ -629,26 +669,8 @@ class NCViewerWidget(QWidget):
         for idx, (tool, path_data) in enumerate(self.tool_paths.items()):
             base_color = tool_color_for_index(idx)
             self.plot_items[tool] = []
-            current_seg = []
-            prev_type = None
-
-            for node in path_data:
-                if not node["valid"]:
-                    if current_seg:
-                        self.create_segment_item(tool, current_seg, prev_type, base_color)
-                        current_seg = []
-                    continue
-                if prev_type is not None and node["type"] != prev_type:
-                    if current_seg:
-                        current_seg.append(node["pt"])
-                        self.create_segment_item(tool, current_seg, prev_type, base_color)
-                        current_seg = [node["pt"]]
-                else:
-                    current_seg.append(node["pt"])
-                prev_type = node["type"]
-
-            if current_seg:
-                self.create_segment_item(tool, current_seg, prev_type, base_color)
+            for motion_type, pts_list in self._render_segment_buckets(path_data).items():
+                self.create_segment_item(tool, pts_list, motion_type, base_color)
 
     def create_segment_item(self, tool, pts_list, motion_type, base_color):
         if len(pts_list) < 2:
@@ -660,9 +682,43 @@ class NCViewerWidget(QWidget):
         else:
             color = [base_color[0], base_color[1], base_color[2], 1.0]
             width = 2.5
-        line_item = gl.GLLinePlotItem(pos=pts, color=color, width=width, antialias=True)
+        line_item = gl.GLLinePlotItem(pos=pts, color=color, width=width, antialias=True, mode="lines")
         self.gl_view.addItem(line_item)
         self.plot_items[tool].append(line_item)
+
+    def _render_segments(self, path_data, line_limit=None):
+        current_seg = []
+        prev_type = None
+        for node in path_data:
+            if line_limit is not None and node.get("src_line", -1) > line_limit:
+                break
+            if not node["valid"]:
+                if current_seg:
+                    yield current_seg, prev_type
+                    current_seg = []
+                prev_type = None
+                continue
+            if prev_type is not None and node["type"] != prev_type:
+                if current_seg:
+                    current_seg.append(node["pt"])
+                    yield current_seg, prev_type
+                    current_seg = [node["pt"]]
+            else:
+                current_seg.append(node["pt"])
+            prev_type = node["type"]
+        if current_seg:
+            yield current_seg, prev_type
+
+    def _render_segment_buckets(self, path_data, line_limit=None):
+        buckets = {"G00": [], "CUT": []}
+        for pts_list, motion_type in self._render_segments(path_data, line_limit):
+            if len(pts_list) < 2:
+                continue
+            key = "G00" if motion_type == "G00" else "CUT"
+            for index in range(1, len(pts_list)):
+                buckets[key].append(pts_list[index - 1])
+                buckets[key].append(pts_list[index])
+        return buckets
 
     def selected_tools(self):
         if self.tool_filter_list is None:
@@ -694,7 +750,7 @@ class NCViewerWidget(QWidget):
             item.setData(pos=pts, color=color, width=width)
             item.setVisible(True)
         else:
-            item = gl.GLLinePlotItem(pos=pts, color=color, width=width, antialias=True)
+            item = gl.GLLinePlotItem(pos=pts, color=color, width=width, antialias=True, mode="lines")
             self.gl_view.addItem(item)
             self.dynamic_trace_items.append(item)
         return True
@@ -734,31 +790,12 @@ class NCViewerWidget(QWidget):
         except ValueError:
             tool_index = 0
         base_color = tool_color_for_index(tool_index)
-        current_seg = []
-        prev_type = None
         trace_index = 0
-
-        for node in self.tool_paths[current_tool]:
-            if node.get("src_line", -1) > line_index:
-                break
-            if not node["valid"]:
-                if self.update_trace_item(trace_index, current_seg, prev_type, base_color):
-                    trace_index += 1
-                current_seg = []
-                prev_type = None
-                continue
-            if prev_type is not None and node["type"] != prev_type:
-                if current_seg:
-                    current_seg.append(node["pt"])
-                    if self.update_trace_item(trace_index, current_seg, prev_type, base_color):
-                        trace_index += 1
-                    current_seg = [node["pt"]]
-            else:
-                current_seg.append(node["pt"])
-            prev_type = node["type"]
-
-        if self.update_trace_item(trace_index, current_seg, prev_type, base_color):
-            trace_index += 1
+        for motion_type, pts_list in self._render_segment_buckets(
+            self.tool_paths[current_tool], line_index
+        ).items():
+            if self.update_trace_item(trace_index, pts_list, motion_type, base_color):
+                trace_index += 1
         self._hide_dynamic_trace_from(trace_index)
 
     def _set_coordinate_labels(self, values):

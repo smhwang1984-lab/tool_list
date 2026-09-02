@@ -1,7 +1,10 @@
+import os
 import re
 import tempfile
 import unittest
 from pathlib import Path
+
+os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 import NC_Tool_List as app
 
@@ -78,6 +81,7 @@ M6T7
         source = 'M6 T1\nG0 X0\nM06T12\nM6T3'
         self.assertEqual(app.find_next_tool_change_span(source, 0), (0, 5, False))
         self.assertEqual(app.find_next_tool_change_span(source, 6), (12, 18, False))
+        self.assertEqual(app.find_next_tool_change_span('M06T01', 0), (0, 6, False))
         self.assertEqual(app.find_next_tool_change_span(source, len(source)), (0, 5, True))
 
     def test_literal_search_is_case_insensitive_and_wraps(self):
@@ -130,6 +134,35 @@ M6T7
         self.assertEqual(mapping['2'], 'D10 F.EM')
         self.assertEqual(mapping['T3'], 'D6 B.EM')
         self.assertEqual(mapping['T03'], 'D6 B.EM')
+
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_viewer_process_filter_separates_repeated_normalized_m6_tools(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        from nc_viewer_widget import NCViewerWidget
+
+        source = """M6T1
+G43
+G00 X0 Y0 Z0
+G01 X10 Y0 Z0
+M06T01
+G43
+G00 X20 Y0 Z0
+G01 X30 Y0 Z0
+"""
+        viewer = NCViewerWidget()
+        try:
+            self.assertTrue(viewer.set_source_text(source, {'T01': 'FACE MILL'}))
+            keys = list(viewer.tool_paths)
+            self.assertEqual(keys, ['P001_T01', 'P002_T01'])
+            self.assertEqual([viewer.process_tool_map[key] for key in keys], ['T01', 'T01'])
+            self.assertEqual(viewer._tool_display_text(keys[0]), '공정 01 | T01 | FACE MILL')
+            self.assertEqual(viewer._tool_display_text(keys[1]), '공정 02 | T01 | FACE MILL')
+            self.assertLessEqual(sum(len(items) for items in viewer.plot_items.values()), 4)
+            self.assertFalse(viewer.set_source_text(source, {'T01': 'FACE MILL'}))
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
 
     def test_append_nc_programs_adds_programs_below_m30_percent_tail(self):
         base = '%\nO1001\nM30\n%\n'

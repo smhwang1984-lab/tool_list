@@ -23,14 +23,14 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
 
-APP_VERSION = '1.3.3'
+APP_VERSION = '1.4.0'
 APP_NAME = 'NC 공구 리스트 생성기'
 
 # ---------- 파싱 로직 ----------
 TOOL_RE = re.compile(r'\(\s*T(\d+)\s*//\s*(.*?)\s*\[SO\s*([\d.]+)\]\s*//\s*T\d+\s*([^)]*?)\s*\)', re.I)
 N_RE    = re.compile(r'^\s*N(\d+)\s*\(\s*#\d+\s*:\s*Tool\s*Change', re.I)
-M6_RE   = re.compile(r'^\s*M0?6\s*T(\d+)\b', re.I)
-M6_SEARCH_RE = re.compile(r'^\s*M0?6\s*T\d+\b', re.I | re.M)
+M6_RE   = re.compile(r'^\s*M0?6\s*T0*(\d+)\b', re.I)
+M6_SEARCH_RE = re.compile(r'^\s*M0?6\s*T0*\d+\b', re.I | re.M)
 # 키 뒤 숫자만 추출(값이 없으면 매칭 안 됨). 긴 키를 앞에 둬서 FL이 F로 잘못 잡히지 않게 함
 KV_RE   = re.compile(r'\b(LCF|SPINDL|FEED|FL|GL|DC|RE|SIG|PL|F)\s+(-?\d+(?:\.\d+)?)', re.I)
 COMMENT_RE = re.compile(r'\(([^()]*)\)', re.S)
@@ -579,6 +579,9 @@ else:
             self.metadata = {key: '' for key in METADATA_ALIASES}
             self.current_file_path = None
             self.current_mode = 'tool'
+            self._last_parsed_source = None
+            self._last_parsed_rows = []
+            self._last_parsed_metadata = {key: '' for key in METADATA_ALIASES}
             self.viewer_update_timer = QTimer(self)
             self.viewer_update_timer.setSingleShot(True)
             self.viewer_update_timer.timeout.connect(self.sync_viewer_from_source)
@@ -679,7 +682,7 @@ else:
             filter_layout.setContentsMargins(0, 5, 0, 0)
             filter_layout.setSpacing(4)
             filter_bar = QHBoxLayout()
-            filter_label = QLabel('공구별 경로 필터 선택')
+            filter_label = QLabel('공정별 경로 필터 선택')
             filter_label.setFont(QFont('맑은 고딕', 9, QFont.Bold))
             filter_bar.addWidget(filter_label)
             filter_bar.addStretch()
@@ -795,13 +798,26 @@ else:
             if self.current_mode == 'viewer':
                 self.viewer.set_cursor_line(self.src.textCursor().blockNumber())
 
+        def parsed_program_data(self, source_text=None):
+            source_text = self.src.toPlainText() if source_text is None else source_text
+            if source_text != self._last_parsed_source:
+                self._last_parsed_source = source_text
+                self._last_parsed_metadata = parse_program_metadata(source_text)
+                self._last_parsed_rows = parse_program(source_text, self.name_types)
+            return self._last_parsed_metadata, list(self._last_parsed_rows)
+
+        def invalidate_parse_cache(self):
+            self._last_parsed_source = None
+            self._last_parsed_rows = []
+            self._last_parsed_metadata = {key: '' for key in METADATA_ALIASES}
+
         def sync_viewer_from_source(self):
             source_text = self.src.toPlainText()
             if not source_text.strip():
                 self.viewer.clear()
                 return
-            rows = parse_program(source_text, self.name_types) or self.current_rows()
-            self.viewer.set_source_text(source_text, self.tool_name_map(rows))
+            _metadata, rows = self.parsed_program_data(source_text)
+            self.viewer.set_source_text(source_text, self.tool_name_map(rows or self.current_rows()))
             self.viewer.set_cursor_line(self.src.textCursor().blockNumber())
 
         def open_machine_settings(self):
@@ -988,13 +1004,14 @@ else:
 
         def run(self):
             source_text = self.src.toPlainText()
-            self.metadata = parse_program_metadata(source_text)
-            rows = parse_program(source_text, self.name_types)
-            self.table.setRowCount(0)
-            for row_data in rows:
-                row_index = self.table.rowCount()
-                self.table.insertRow(row_index)
-                self.set_table_row(row_index, row_data)
+            self.metadata, rows = self.parsed_program_data(source_text)
+            self.table.setUpdatesEnabled(False)
+            try:
+                self.table.setRowCount(len(rows))
+                for row_index, row_data in enumerate(rows):
+                    self.set_table_row(row_index, row_data)
+            finally:
+                self.table.setUpdatesEnabled(True)
             self.update_count()
             self.update_metadata_summary()
             if self.current_mode == 'viewer':
@@ -1033,9 +1050,8 @@ else:
             self.current_file_path = path
             with QSignalBlocker(self.src):
                 self.src.setPlainText(data)
+            self.invalidate_parse_cache()
             self.run()
-            if self.current_mode == 'viewer':
-                self.sync_viewer_from_source()
 
         def add_program_files(self, paths):
             additions = []
@@ -1050,12 +1066,18 @@ else:
             if not additions:
                 return
             self.current_file_path = last_path or self.current_file_path
-            combined = append_nc_programs(self.src.toPlainText(), additions)
+            append_text = '\n\n'.join(text.strip() for text in additions if text.strip())
+            if not append_text:
+                return
             with QSignalBlocker(self.src):
-                self.src.setPlainText(combined)
+                if self.src.document().isEmpty():
+                    self.src.setPlainText(append_text)
+                else:
+                    cursor = self.src.textCursor()
+                    cursor.movePosition(QTextCursor.End)
+                    cursor.insertText('\n\n' + append_text)
+            self.invalidate_parse_cache()
             self.run()
-            if self.current_mode == 'viewer':
-                self.sync_viewer_from_source()
 
         def drop_file(self, paths):
             if not paths:
@@ -1070,15 +1092,15 @@ else:
         def load_example(self):
             with QSignalBlocker(self.src):
                 self.src.setPlainText(EXAMPLE)
+            self.invalidate_parse_cache()
             self.run()
-            if self.current_mode == 'viewer':
-                self.sync_viewer_from_source()
 
         def clear(self):
             self.src.clear()
             self.table.setRowCount(0)
             self.update_count()
             self.metadata = {key: '' for key in METADATA_ALIASES}
+            self.invalidate_parse_cache()
             self.metadata_summary.setText('출력 정보: -')
             self.viewer.clear()
 
