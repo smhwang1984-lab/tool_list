@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 """Embedded PyQt 3D NC path viewer widget."""
 import json
+from math import radians, tan
 import re
 
 import numpy as np
 import pyqtgraph.opengl as gl
 from PyQt5.QtCore import Qt, QSettings, QSignalBlocker
-from PyQt5.QtGui import QColor
+from PyQt5.QtGui import QColor, QMatrix4x4
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QGroupBox,
@@ -25,6 +26,9 @@ TOOL_COLOR_MAPS = [
     [0.00, 0.85, 0.70], [1.0, 0.55, 0.00], [0.65, 0.85, 1.0],
     [0.90, 0.45, 0.95], [0.45, 1.0, 0.45], [1.0, 0.80, 0.55],
 ]
+
+RAPID_MOVE_COLOR = [1.0, 0.0, 0.0]
+RAPID_MOVE_ALPHA = 1.0
 
 
 DEFAULT_MACHINE_SPECS = {
@@ -50,6 +54,37 @@ def tool_color_for_index(index):
 
 def qcolor_from_float_rgb(rgb):
     return QColor(*(max(0, min(255, int(channel * 255))) for channel in rgb))
+
+
+class OrthographicGLViewWidget(gl.GLViewWidget):
+    """GL viewer that keeps 3D navigation but removes perspective distortion."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.use_orthographic_projection = True
+
+    def projectionMatrix(self, region, viewport):
+        if not self.use_orthographic_projection:
+            return super().projectionMatrix(region, viewport)
+
+        x0, y0, width, height = viewport
+        width = max(float(width), 1.0)
+        height = max(float(height), 1.0)
+        distance = max(float(self.opts.get("distance", 200.0)), 1.0)
+        fov = max(float(self.opts.get("fov", 60.0)), 1.0)
+        near_clip = distance * 0.001
+        far_clip = distance * 1000.0
+        view_height = 2.0 * distance * tan(0.5 * radians(fov))
+        view_width = view_height * width / height
+
+        left = view_width * ((region[0] - x0) / width - 0.5)
+        right = view_width * ((region[0] + region[2] - x0) / width - 0.5)
+        bottom = view_height * ((region[1] - y0) / height - 0.5)
+        top = view_height * ((region[1] + region[3] - y0) / height - 0.5)
+
+        transform = QMatrix4x4()
+        transform.ortho(left, right, bottom, top, near_clip, far_clip)
+        return transform
 
 
 class NCViewerWidget(QWidget):
@@ -141,7 +176,7 @@ class NCViewerWidget(QWidget):
         coord_layout.addStretch()
         layout.addWidget(coord_group)
 
-        self.gl_view = gl.GLViewWidget()
+        self.gl_view = OrthographicGLViewWidget()
         self.gl_view.setBackgroundColor(33, 37, 43, 255)
         layout.addWidget(self.gl_view, 1)
 
@@ -245,7 +280,7 @@ class NCViewerWidget(QWidget):
         else:
             self.grid.setSize(400, 400, 1)
         if init_camera:
-            self.set_camera_projection("ISO")
+            self.set_camera_projection("XY")
         self._save_machine_specs()
         if self.last_source_text:
             self.last_render_signature = None
@@ -289,6 +324,10 @@ class NCViewerWidget(QWidget):
 
     def _make_process_key(self, process_no, tool_no):
         return "P%03d_%s" % (process_no, tool_no or "T00")
+
+    def _code_without_comments(self, line):
+        code = str(line or "").split(";", 1)[0]
+        return re.sub(r"\([^()]*\)", "", code)
 
     def _tool_display_text(self, process_key):
         tool_no = self.process_tool_map.get(process_key)
@@ -413,7 +452,8 @@ class NCViewerWidget(QWidget):
         cycle_pattern = re.compile(r"(G81|G83|G85|G73|G84|G80)")
 
         for idx, line in enumerate(lines):
-            line_upper = line.upper().replace(" ", "")
+            line_upper_with_comments = line.upper().replace(" ", "")
+            line_upper = self._code_without_comments(line).upper().replace(" ", "")
 
             for pos, pattern in enumerate((x_pattern, y_pattern, z_pattern, a_pattern, b_pattern, c_pattern)):
                 match = pattern.search(line_upper)
@@ -421,11 +461,11 @@ class NCViewerWidget(QWidget):
                     modal_values[pos] = match.group(1)
             self.modal_state_map[idx] = tuple(modal_values)
 
-            comment_t_match = t_pattern.search(line_upper)
+            comment_t_match = t_pattern.search(line_upper_with_comments)
             if comment_t_match:
                 detected_t = self._normalize_tool_no(comment_t_match.group(1))
 
-            if "(" in line_upper or ";" in line_upper:
+            if not line_upper:
                 self.line_to_tool_map[idx] = current_tool
                 continue
 
@@ -446,12 +486,15 @@ class NCViewerWidget(QWidget):
 
             if g98_pattern.search(line_upper):
                 g98_active = True
+                current_motion = "G98"
             elif g99_pattern.search(line_upper):
                 g98_active = False
 
             cycle_match = cycle_pattern.search(line_upper)
             if cycle_match:
-                cycle_active = cycle_match.group(1) != "G80"
+                cycle_code = cycle_match.group(1)
+                cycle_active = cycle_code != "G80"
+                current_motion = cycle_code
 
             t_match = t_pattern.search(line_upper)
             if t_match:
@@ -677,7 +720,7 @@ class NCViewerWidget(QWidget):
             return
         pts = np.array(pts_list, dtype=np.float32)
         if motion_type == "G00":
-            color = [base_color[0], base_color[1], base_color[2], 0.45]
+            color = RAPID_MOVE_COLOR + [RAPID_MOVE_ALPHA]
             width = 1.5
         else:
             color = [base_color[0], base_color[1], base_color[2], 1.0]
@@ -688,26 +731,33 @@ class NCViewerWidget(QWidget):
 
     def _render_segments(self, path_data, line_limit=None):
         current_seg = []
-        prev_type = None
+        current_type = None
+        previous_node = None
         for node in path_data:
             if line_limit is not None and node.get("src_line", -1) > line_limit:
                 break
             if not node["valid"]:
                 if current_seg:
-                    yield current_seg, prev_type
-                    current_seg = []
-                prev_type = None
+                    yield current_seg, current_type
+                current_seg = []
+                current_type = None
+                previous_node = None
                 continue
-            if prev_type is not None and node["type"] != prev_type:
-                if current_seg:
-                    current_seg.append(node["pt"])
-                    yield current_seg, prev_type
-                    current_seg = [node["pt"]]
-            else:
+            if previous_node is None:
+                previous_node = node
+                continue
+
+            motion_type = node["type"]
+            if current_type is not None and motion_type == current_type:
                 current_seg.append(node["pt"])
-            prev_type = node["type"]
+            else:
+                if current_seg:
+                    yield current_seg, current_type
+                current_seg = [previous_node["pt"], node["pt"]]
+                current_type = motion_type
+            previous_node = node
         if current_seg:
-            yield current_seg, prev_type
+            yield current_seg, current_type
 
     def _render_segment_buckets(self, path_data, line_limit=None):
         buckets = {"G00": [], "CUT": []}
@@ -740,7 +790,7 @@ class NCViewerWidget(QWidget):
             return False
         pts = np.array(pts_list, dtype=np.float32)
         if motion_type == "G00":
-            color = [base_color[0], base_color[1], base_color[2], 0.45]
+            color = RAPID_MOVE_COLOR + [RAPID_MOVE_ALPHA]
             width = 1.5
         else:
             color = [base_color[0], base_color[1], base_color[2], 1.0]

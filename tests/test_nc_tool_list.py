@@ -164,6 +164,69 @@ G01 X30 Y0 Z0
             viewer.deleteLater()
             qapp.processEvents()
 
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_viewer_rapid_modal_red_until_cut_or_g98(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        from nc_viewer_widget import NCViewerWidget, RAPID_MOVE_ALPHA, RAPID_MOVE_COLOR
+
+        source = """M6T1
+G43
+G00 X0 Y0 Z0
+X10 Y0 Z0
+Y10
+G01 X20 Y10 Z0
+G00 X30 Y10 Z0
+X40
+G98 X50 Y10 Z0
+X60 Y10 Z0
+"""
+        viewer = NCViewerWidget()
+        try:
+            viewer.set_machine_type('3축 MCT (X Y Z)', init_camera=True)
+            self.assertTrue(viewer.set_source_text(source, {'T01': 'FACE MILL'}))
+            path_data = viewer.tool_paths['P001_T01']
+            buckets = viewer._render_segment_buckets(path_data)
+            self.assertEqual(
+                buckets['G00'],
+                [
+                    [0.0, 0.0, 0.0], [10.0, 0.0, 0.0],
+                    [10.0, 0.0, 0.0], [10.0, 10.0, 0.0],
+                    [20.0, 10.0, 0.0], [30.0, 10.0, 0.0],
+                    [30.0, 10.0, 0.0], [40.0, 10.0, 0.0],
+                ],
+            )
+            self.assertEqual(
+                buckets['CUT'],
+                [
+                    [10.0, 10.0, 0.0], [20.0, 10.0, 0.0],
+                    [40.0, 10.0, 0.0], [50.0, 10.0, 0.0],
+                    [50.0, 10.0, 0.0], [60.0, 10.0, 0.0],
+                ],
+            )
+            viewer.plot_items['probe'] = []
+            viewer.create_segment_item('probe', [[0, 0, 0], [1, 0, 0]], 'G00', [0.2, 0.3, 0.4])
+            rapid_item = viewer.plot_items['probe'][-1]
+            self.assertEqual(rapid_item.color, RAPID_MOVE_COLOR + [RAPID_MOVE_ALPHA])
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_viewer_default_milling_camera_is_vertical_orthographic(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        from nc_viewer_widget import NCViewerWidget, OrthographicGLViewWidget
+
+        viewer = NCViewerWidget()
+        try:
+            viewer.set_machine_type('3축 MCT (X Y Z)', init_camera=True)
+            self.assertIsInstance(viewer.gl_view, OrthographicGLViewWidget)
+            self.assertTrue(viewer.gl_view.use_orthographic_projection)
+            self.assertEqual(viewer.gl_view.opts['elevation'], 90)
+            self.assertEqual(viewer.gl_view.opts['azimuth'], -90)
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
     def test_append_nc_programs_adds_programs_below_m30_percent_tail(self):
         base = '%\nO1001\nM30\n%\n'
         extra = ' %\nO1002\nM30\n%\n '
