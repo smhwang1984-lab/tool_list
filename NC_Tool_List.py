@@ -23,8 +23,12 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
 
-APP_VERSION = '1.4.0'
+APP_VERSION = '1.4.2'
 APP_NAME = 'NC 공구 리스트 생성기'
+PROGRAM_PANE_MIN_WIDTH = 430
+VIEWER_PANE_INITIAL_WIDTH = 1125
+INPUT_SPLITTER_INITIAL_SIZES = [480, 208]
+MAIN_SPLITTER_INITIAL_SIZES = [PROGRAM_PANE_MIN_WIDTH, VIEWER_PANE_INITIAL_WIDTH]
 
 # ---------- 파싱 로직 ----------
 TOOL_RE = re.compile(r'\(\s*T(\d+)\s*//\s*(.*?)\s*\[SO\s*([\d.]+)\]\s*//\s*T\d+\s*([^)]*?)\s*\)', re.I)
@@ -515,11 +519,11 @@ def missing_viewer_dependencies():
 
 QT_IMPORT_ERROR = None
 try:
-    from PyQt5.QtCore import Qt, QTimer, QSignalBlocker, pyqtSignal
+    from PyQt5.QtCore import Qt, QSettings, QTimer, QSignalBlocker, pyqtSignal
     from PyQt5.QtGui import QFont, QIcon, QTextCursor
     from PyQt5.QtWidgets import (
         QApplication, QAbstractItemView, QCheckBox, QComboBox, QDialog,
-        QDialogButtonBox, QFileDialog, QFormLayout, QGridLayout, QHBoxLayout,
+        QDialogButtonBox, QFileDialog, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout,
         QHeaderView, QLabel, QLineEdit, QListWidget, QMainWindow, QMessageBox,
         QPushButton, QSplitter, QStackedWidget, QTableWidget, QTableWidgetItem,
         QTextEdit, QVBoxLayout, QWidget,
@@ -585,12 +589,17 @@ else:
             self.viewer_update_timer = QTimer(self)
             self.viewer_update_timer.setSingleShot(True)
             self.viewer_update_timer.timeout.connect(self.sync_viewer_from_source)
+            if _root is None:
+                self.layout_settings = QSettings('NC Tool List', 'MainWindow')
+            else:
+                self.layout_settings = QSettings(str(Path(_root) / 'ui_layout.ini'), QSettings.IniFormat)
 
             self.setWindowTitle('%s v%s' % (APP_NAME, APP_VERSION))
-            self.resize(1180, 640)
+            self.resize(sum(MAIN_SPLITTER_INITIAL_SIZES), 760)
             self.set_window_icon()
             self._build_ui()
-            QTimer.singleShot(0, self.showMaximized)
+            if not self.restore_layout_settings():
+                QTimer.singleShot(0, self.showMaximized)
 
         def _build_ui(self):
             kfont = QFont('맑은 고딕', 10)
@@ -620,35 +629,49 @@ else:
             self.btn_viewer_mode = QPushButton('Viewer 모드')
             self.btn_viewer_mode.setCheckable(True)
             self.btn_viewer_mode.clicked.connect(lambda: self.set_mode('viewer'))
-            self.btn_machine_settings = QPushButton('설정')
+            self.btn_machine_settings = QPushButton('장비 설정')
+            self.btn_machine_settings.setMinimumWidth(90)
             self.btn_machine_settings.clicked.connect(self.open_machine_settings)
             for button in (self.btn_tool_mode, self.btn_viewer_mode, self.btn_machine_settings):
                 button.setFont(QFont('맑은 고딕', 9, QFont.Bold))
                 top_layout.addWidget(button)
             root_layout.addWidget(top)
 
-            splitter = QSplitter(Qt.Horizontal)
-            splitter.setChildrenCollapsible(False)
-            root_layout.addWidget(splitter, 1)
+            self.main_splitter = QSplitter(Qt.Horizontal)
+            self.main_splitter.setChildrenCollapsible(False)
+            root_layout.addWidget(self.main_splitter, 1)
+            self.viewer = NCViewerWidget()
 
-            left = QWidget()
-            left_layout = QVBoxLayout(left)
+            self.program_panel = QWidget()
+            self.program_panel.setMinimumWidth(PROGRAM_PANE_MIN_WIDTH)
+            left_layout = QVBoxLayout(self.program_panel)
             left_layout.setContentsMargins(8, 8, 6, 8)
             left_layout.setSpacing(5)
-            splitter.addWidget(left)
+            self.main_splitter.addWidget(self.program_panel)
 
             lbar = QHBoxLayout()
             label = QLabel('① 프로그램 입력')
             label.setFont(QFont('맑은 고딕', 10, QFont.Bold))
             lbar.addWidget(label)
             lbar.addStretch()
-            self._add_button(lbar, '지우기', self.clear, kfont)
-            self._add_button(lbar, '예제', self.load_example, kfont)
-            self._add_button(lbar, '파일 열기', self.open_file, kfont)
-            self._add_button(lbar, '프로그램 추가', self.open_add_program_files, kfont)
-            run_button = self._add_button(lbar, '공구 리스트 생성', self.run, kfont)
-            run_button.setStyleSheet('background: #2f6fb0; color: white; padding: 5px 9px;')
             left_layout.addLayout(lbar)
+
+            program_button_row1 = QHBoxLayout()
+            program_button_row1.setSpacing(6)
+            self._add_button(program_button_row1, '지우기', self.clear, kfont).setMinimumWidth(70)
+            self._add_button(program_button_row1, '예제', self.load_example, kfont).setMinimumWidth(70)
+            self._add_button(program_button_row1, '파일 열기', self.open_file, kfont).setMinimumWidth(88)
+            program_button_row1.addStretch()
+            left_layout.addLayout(program_button_row1)
+
+            program_button_row2 = QHBoxLayout()
+            program_button_row2.setSpacing(6)
+            self._add_button(program_button_row2, '프로그램 추가', self.open_add_program_files, kfont).setMinimumWidth(112)
+            run_button = self._add_button(program_button_row2, '공구 리스트 생성', self.run, kfont)
+            run_button.setMinimumWidth(128)
+            run_button.setStyleSheet('background: #2f6fb0; color: white; padding: 5px 9px;')
+            program_button_row2.addStretch()
+            left_layout.addLayout(program_button_row2)
 
             search_bar = QHBoxLayout()
             self._add_button(search_bar, '다음공구검색', self.find_next_tool_change, kfont)
@@ -663,9 +686,12 @@ else:
             search_bar.addWidget(self.search_status)
             left_layout.addLayout(search_bar)
 
-            input_splitter = QSplitter(Qt.Vertical)
-            input_splitter.setChildrenCollapsible(False)
-            left_layout.addWidget(input_splitter, 1)
+            self.machine_settings_panel = self._build_machine_settings_panel(kfont)
+            left_layout.addWidget(self.machine_settings_panel)
+
+            self.input_splitter = QSplitter(Qt.Vertical)
+            self.input_splitter.setChildrenCollapsible(False)
+            left_layout.addWidget(self.input_splitter, 1)
 
             self.src = ProgramTextEdit()
             self.src.setFont(mono)
@@ -675,7 +701,7 @@ else:
             self.src.filesDropped.connect(self.drop_file)
             self.src.textChanged.connect(self.source_changed)
             self.src.cursorPositionChanged.connect(self.source_cursor_changed)
-            input_splitter.addWidget(self.src)
+            self.input_splitter.addWidget(self.src)
 
             self.filter_panel = QWidget()
             filter_layout = QVBoxLayout(self.filter_panel)
@@ -692,20 +718,23 @@ else:
             self.tool_filter = QListWidget()
             self.tool_filter.setSelectionMode(QAbstractItemView.MultiSelection)
             filter_layout.addWidget(self.tool_filter, 1)
-            input_splitter.addWidget(self.filter_panel)
-            input_splitter.setSizes([480, 160])
+            self.input_splitter.addWidget(self.filter_panel)
+            self.input_splitter.setSizes(INPUT_SPLITTER_INITIAL_SIZES)
+            self.input_splitter.splitterMoved.connect(self.save_splitter_settings)
 
-            right = QWidget()
-            right_layout = QVBoxLayout(right)
+            self.output_panel = QWidget()
+            right_layout = QVBoxLayout(self.output_panel)
             right_layout.setContentsMargins(6, 8, 8, 8)
             right_layout.setSpacing(0)
-            splitter.addWidget(right)
-            splitter.setSizes([430, 750])
+            self.main_splitter.addWidget(self.output_panel)
+            self.main_splitter.setStretchFactor(0, 0)
+            self.main_splitter.setStretchFactor(1, 1)
+            self.main_splitter.setSizes(MAIN_SPLITTER_INITIAL_SIZES)
+            self.main_splitter.splitterMoved.connect(self.save_splitter_settings)
 
             self.stack = QStackedWidget()
             right_layout.addWidget(self.stack, 1)
             self._build_tool_panel()
-            self.viewer = NCViewerWidget()
             self.viewer.attach_tool_filter(self.tool_filter)
             self.stack.addWidget(self.viewer)
             self.set_mode('tool')
@@ -717,6 +746,150 @@ else:
             button.clicked.connect(slot)
             layout.addWidget(button)
             return button
+
+        def _build_machine_settings_panel(self, font):
+            panel = QGroupBox()
+            panel.setStyleSheet('QGroupBox { border: 1px solid #c5ced8; border-radius: 4px; margin-top: 0px; }')
+            layout = QVBoxLayout(panel)
+            layout.setContentsMargins(8, 8, 8, 8)
+            layout.setSpacing(5)
+
+            title = QLabel('장비 타입 및 스펙 설정')
+            title.setFont(QFont('맑은 고딕', 9, QFont.Bold))
+            title.setStyleSheet('color: #1f3a5f; padding: 0px;')
+            layout.addWidget(title)
+
+            self.machine_type_combo = QComboBox()
+            self.machine_type_combo.setFont(font)
+            self.machine_type_combo.addItems(self.viewer.machine_types())
+            self.machine_type_combo.setCurrentText(self.viewer.current_machine_type)
+            self.machine_type_combo.currentIndexChanged.connect(self._viewer_machine_type_changed)
+            layout.addWidget(self.machine_type_combo)
+
+            self.machine_spec_form_widget = QWidget()
+            self.machine_spec_form = QFormLayout(self.machine_spec_form_widget)
+            self.machine_spec_form.setContentsMargins(0, 0, 0, 0)
+            self.machine_spec_form.setSpacing(4)
+            layout.addWidget(self.machine_spec_form_widget)
+
+            self.machine_spec_inputs = {}
+            self._rebuild_machine_spec_form()
+
+            save_button = QPushButton('현재 장비 스펙 기록/저장')
+            save_button.setFont(font)
+            save_button.setStyleSheet('background: #555555; color: white; padding: 5px 9px;')
+            save_button.clicked.connect(self.save_visible_machine_settings)
+            layout.addWidget(save_button)
+
+            self.machine_settings_status = QLabel('')
+            self.machine_settings_status.setStyleSheet('color: #5a6577;')
+            layout.addWidget(self.machine_settings_status)
+            return panel
+
+        def _rebuild_machine_spec_form(self):
+            while self.machine_spec_form.rowCount():
+                self.machine_spec_form.removeRow(0)
+            self.machine_spec_inputs = {}
+            machine_type = self.machine_type_combo.currentText()
+            for key, value in self.viewer.machine_spec(machine_type).items():
+                edit = QLineEdit(str(value))
+                self.machine_spec_inputs[key] = edit
+                self.machine_spec_form.addRow('%s:' % key, edit)
+
+        def _viewer_machine_type_changed(self):
+            machine_type = self.machine_type_combo.currentText()
+            self._rebuild_machine_spec_form()
+            self.viewer.set_machine_type(machine_type)
+            self.machine_settings_status.setText('')
+            if self.current_mode == 'viewer':
+                self.sync_viewer_from_source()
+
+        def save_visible_machine_settings(self):
+            machine_type = self.machine_type_combo.currentText()
+            specs = {key: edit.text() for key, edit in self.machine_spec_inputs.items()}
+            self.viewer.update_machine_spec(machine_type, specs)
+            self.machine_settings_status.setText('장비 스펙 설정이 저장되었습니다.')
+            if self.current_mode == 'viewer':
+                self.sync_viewer_from_source()
+
+        def sync_visible_machine_settings(self):
+            if not hasattr(self, 'machine_type_combo'):
+                return
+            with QSignalBlocker(self.machine_type_combo):
+                self.machine_type_combo.clear()
+                self.machine_type_combo.addItems(self.viewer.machine_types())
+                self.machine_type_combo.setCurrentText(self.viewer.current_machine_type)
+            self._rebuild_machine_spec_form()
+
+        @staticmethod
+        def _normalized_splitter_sizes(value, fallback, count):
+            values = value
+            if isinstance(values, str):
+                values = [part for part in re.split(r'[,;\s]+', values) if part]
+            if not isinstance(values, (list, tuple)) or len(values) != count:
+                return list(fallback)
+            try:
+                sizes = [int(v) for v in values]
+            except (TypeError, ValueError):
+                return list(fallback)
+            if any(size <= 0 for size in sizes) or sum(sizes) <= 0:
+                return list(fallback)
+            return sizes
+
+        def _restore_splitter_sizes(self, splitter, key, fallback):
+            sizes = self._normalized_splitter_sizes(
+                self.layout_settings.value(key, fallback), fallback, len(fallback)
+            )
+            splitter.setSizes(sizes)
+
+        def _restore_input_splitter_sizes(self):
+            self._restore_splitter_sizes(
+                self.input_splitter, 'input_splitter_sizes', INPUT_SPLITTER_INITIAL_SIZES
+            )
+
+        def restore_layout_settings(self):
+            restored_geometry = False
+            geometry = self.layout_settings.value('window_geometry', None)
+            if geometry:
+                try:
+                    restored_geometry = bool(self.restoreGeometry(geometry))
+                except TypeError:
+                    restored_geometry = False
+            state = self.layout_settings.value('window_state', None)
+            if state:
+                try:
+                    self.restoreState(state)
+                except TypeError:
+                    pass
+            self._restore_splitter_sizes(
+                self.main_splitter, 'main_splitter_sizes', MAIN_SPLITTER_INITIAL_SIZES
+            )
+            self._restore_input_splitter_sizes()
+            return restored_geometry
+
+        def _current_valid_splitter_sizes(self, splitter):
+            sizes = [int(size) for size in splitter.sizes()]
+            if any(size <= 0 for size in sizes):
+                return None
+            return sizes
+
+        def save_splitter_settings(self, *_args):
+            main_sizes = self._current_valid_splitter_sizes(self.main_splitter)
+            if main_sizes:
+                self.layout_settings.setValue('main_splitter_sizes', main_sizes)
+            input_sizes = self._current_valid_splitter_sizes(self.input_splitter)
+            if input_sizes:
+                self.layout_settings.setValue('input_splitter_sizes', input_sizes)
+            self.layout_settings.sync()
+
+        def save_layout_settings(self):
+            self.layout_settings.setValue('window_geometry', self.saveGeometry())
+            self.layout_settings.setValue('window_state', self.saveState())
+            self.save_splitter_settings()
+
+        def closeEvent(self, event):
+            self.save_layout_settings()
+            super().closeEvent(event)
 
         def _build_tool_panel(self):
             panel = QWidget()
@@ -777,6 +950,9 @@ else:
             is_viewer = mode == 'viewer'
             self.stack.setCurrentIndex(1 if is_viewer else 0)
             self.filter_panel.setVisible(is_viewer)
+            self.machine_settings_panel.setVisible(is_viewer)
+            if is_viewer:
+                self._restore_input_splitter_sizes()
             self.btn_tool_mode.setChecked(not is_viewer)
             self.btn_viewer_mode.setChecked(is_viewer)
             self._style_mode_buttons()
@@ -1355,3 +1531,4 @@ M30
 
 if __name__ == '__main__':
     main()
+

@@ -383,6 +383,17 @@ class NCViewerWidget(QWidget):
         r_k = np.array([[np.cos(rad_k), -np.sin(rad_k), 0], [np.sin(rad_k), np.cos(rad_k), 0], [0, 0, 1]])
         return r_k @ r_j @ r_i
 
+    def get_5axis_rotation_matrix(self, machine_type, i_deg, j_deg, k_deg):
+        if "5축 밀링 (A to C)" in machine_type:
+            rad_a = np.radians(j_deg)
+            rad_c = np.radians(i_deg)
+            rad_k = np.radians(k_deg)
+            r_a = np.array([[1, 0, 0], [0, np.cos(rad_a), -np.sin(rad_a)], [0, np.sin(rad_a), np.cos(rad_a)]])
+            r_c = np.array([[np.cos(rad_c), -np.sin(rad_c), 0], [np.sin(rad_c), np.cos(rad_c), 0], [0, 0, 1]])
+            r_k = np.array([[np.cos(rad_k), -np.sin(rad_k), 0], [np.sin(rad_k), np.cos(rad_k), 0], [0, 0, 1]])
+            return r_k @ r_c @ r_a
+        return self.get_rotation_matrix(i_deg, j_deg, k_deg)
+
     def process_nc_lines(self, lines):
         self._clear_path_items()
         self.tool_paths.clear()
@@ -536,16 +547,9 @@ class NCViewerWidget(QWidget):
                     pending_k = float(k_m.group(1)) if k_m else 0.0
 
                 if g53_1_pattern.search(line_upper) and g68_pending:
-                    if is_5axis_bc:
-                        active_matrix = self.get_rotation_matrix(pending_i, pending_j, pending_k)
-                    elif is_5axis_ac:
-                        rad_a = np.radians(pending_j)
-                        rad_c = np.radians(pending_i)
-                        rad_k = np.radians(pending_k)
-                        r_a = np.array([[1, 0, 0], [0, np.cos(rad_a), -np.sin(rad_a)], [0, np.sin(rad_a), np.cos(rad_a)]])
-                        r_c = np.array([[np.cos(rad_c), -np.sin(rad_c), 0], [np.sin(rad_c), np.cos(rad_c), 0], [0, 0, 1]])
-                        r_k = np.array([[np.cos(rad_k), -np.sin(rad_k), 0], [np.sin(rad_k), np.cos(rad_k), 0], [0, 0, 1]])
-                        active_matrix = r_k @ r_c @ r_a
+                    active_matrix = self.get_5axis_rotation_matrix(
+                        machine_type, pending_i, pending_j, pending_k
+                    )
                     g68_pending = False
 
             if is_4axis:

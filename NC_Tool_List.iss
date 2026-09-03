@@ -2,7 +2,7 @@
 ; Program Files\NC Tool List 폴더에 설치됩니다.
 
 #define MyAppName "NC Tool List"
-#define MyAppVersion "1.4.0"
+#define MyAppVersion "1.4.2"
 #define MyAppPublisher "S M.HWANG"
 #define MyAppExeName "NC_Tool_List.exe"
 
@@ -24,6 +24,8 @@ WizardStyle=modern
 PrivilegesRequired=admin
 ArchitecturesInstallIn64BitMode=x64compatible
 ChangesAssociations=yes
+CloseApplications=force
+RestartApplications=no
 
 [Languages]
 Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
@@ -57,3 +59,13 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "지금 {#MyAppName} 실행"; Flags: nowait postinstall skipifsilent
+
+[Code]
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ResultCode: Integer;
+begin
+  Result := '';
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /T /IM "{#MyAppExeName}"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Sleep(500);
+end;

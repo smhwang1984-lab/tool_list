@@ -227,6 +227,145 @@ X60 Y10 Z0
             viewer.deleteLater()
             qapp.processEvents()
 
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_main_splitter_keeps_program_panel_minimum_width(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        window = app.App(_root=settings_dir.name)
+        try:
+            self.assertEqual(window.program_panel.minimumWidth(), app.PROGRAM_PANE_MIN_WIDTH)
+            self.assertEqual(app.MAIN_SPLITTER_INITIAL_SIZES[0], app.PROGRAM_PANE_MIN_WIDTH)
+            window.main_splitter.setSizes([120, 1000])
+            qapp.processEvents()
+            self.assertGreaterEqual(window.main_splitter.sizes()[0], app.PROGRAM_PANE_MIN_WIDTH)
+        finally:
+            window.deleteLater()
+            settings_dir.cleanup()
+            qapp.processEvents()
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_v142_ui_layout_defaults_and_machine_settings_panel(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        window = app.App(_root=settings_dir.name)
+        try:
+            self.assertEqual(app.MAIN_SPLITTER_INITIAL_SIZES, [app.PROGRAM_PANE_MIN_WIDTH, 1125])
+            self.assertEqual(app.INPUT_SPLITTER_INITIAL_SIZES, [480, 208])
+            self.assertEqual(window.btn_machine_settings.text(), '장비 설정')
+            self.assertEqual(window.machine_settings_panel.title(), '')
+            panel_labels = [label.text() for label in window.machine_settings_panel.findChildren(app.QLabel)]
+            self.assertIn('장비 타입 및 스펙 설정', panel_labels)
+            self.assertTrue(window.machine_settings_panel.isHidden())
+            window.set_mode('viewer')
+            self.assertFalse(window.machine_settings_panel.isHidden())
+            self.assertGreater(window.machine_type_combo.count(), 0)
+            self.assertGreater(window.machine_spec_form.rowCount(), 0)
+
+            program_layout = window.program_panel.layout()
+            row1 = program_layout.itemAt(1).layout()
+            row2 = program_layout.itemAt(2).layout()
+
+            def button_texts(layout):
+                texts = []
+                for index in range(layout.count()):
+                    widget = layout.itemAt(index).widget()
+                    if isinstance(widget, app.QPushButton):
+                        texts.append(widget.text())
+                return texts
+
+            self.assertEqual(button_texts(row1), ['지우기', '예제', '파일 열기'])
+            self.assertEqual(button_texts(row2), ['프로그램 추가', '공구 리스트 생성'])
+        finally:
+            window.deleteLater()
+            settings_dir.cleanup()
+            qapp.processEvents()
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_v142_splitter_size_settings_normalize_and_save(self):
+        self.assertEqual(
+            app.App._normalized_splitter_sizes(['500', '1000'], [430, 1125], 2),
+            [500, 1000],
+        )
+        self.assertEqual(
+            app.App._normalized_splitter_sizes('480,208', [480, 208], 2),
+            [480, 208],
+        )
+        self.assertEqual(
+            app.App._normalized_splitter_sizes([480, 0], [480, 208], 2),
+            [480, 208],
+        )
+
+        class FakeSettings:
+            store = {}
+
+            def __init__(self, *_args):
+                pass
+
+            def value(self, key, default=None):
+                return self.store.get(key, default)
+
+            def setValue(self, key, value):
+                self.store[key] = value
+
+            def sync(self):
+                pass
+
+        FakeSettings.store = {}
+        original_qsettings = app.QSettings
+        app.QSettings = FakeSettings
+        qapp = app.QApplication.instance() or app.QApplication([])
+        window = app.App()
+        try:
+            window.main_splitter.setSizes([520, 900])
+            window.set_mode('viewer')
+            window.input_splitter.setSizes([480, 208])
+            window.save_layout_settings()
+            self.assertIn('window_geometry', FakeSettings.store)
+            self.assertIn('window_state', FakeSettings.store)
+            self.assertGreater(sum(FakeSettings.store['main_splitter_sizes']), 0)
+            self.assertGreater(sum(FakeSettings.store['input_splitter_sizes']), 0)
+        finally:
+            window.deleteLater()
+            app.QSettings = original_qsettings
+            qapp.processEvents()
+
+    def test_installer_closes_existing_application_before_install(self):
+        iss = Path('NC_Tool_List.iss').read_text(encoding='utf-8-sig')
+        self.assertIn('#define MyAppVersion "1.4.2"', iss)
+        self.assertIn('CloseApplications=force', iss)
+        self.assertIn('RestartApplications=no', iss)
+        self.assertIn('taskkill.exe', iss)
+        self.assertIn('/F /T /IM "{#MyAppExeName}"', iss)
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_5axis_ac_and_bc_machine_settings_apply_different_g68_rotations(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        from nc_viewer_widget import NCViewerWidget
+
+        source = """M6T1
+G43
+G00 X0 Y0 Z0
+G68.2 I90 J0 K0
+G53.1
+G01 X10 Y0 Z0
+"""
+        viewer = NCViewerWidget()
+        try:
+            viewer._save_machine_specs = lambda: None
+
+            viewer.set_machine_type('5축 밀링 (A to C)')
+            self.assertTrue(viewer.set_source_text(source, {'T01': 'BALL EM'}))
+            ac_pt = viewer.line_to_coord_map[5]
+
+            viewer.set_machine_type('5축 밀링 (B to C)')
+            bc_pt = viewer.line_to_coord_map[5]
+
+            self.assertAlmostEqual(ac_pt[0], 0.0, places=6)
+            self.assertAlmostEqual(ac_pt[1], 10.0, places=6)
+            self.assertAlmostEqual(ac_pt[2], 0.0, places=6)
+            self.assertAlmostEqual(bc_pt[0], 10.0, places=6)
+            self.assertAlmostEqual(bc_pt[1], 0.0, places=6)
+            self.assertAlmostEqual(bc_pt[2], 0.0, places=6)
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
     def test_append_nc_programs_adds_programs_below_m30_percent_tail(self):
         base = '%\nO1001\nM30\n%\n'
         extra = ' %\nO1002\nM30\n%\n '
