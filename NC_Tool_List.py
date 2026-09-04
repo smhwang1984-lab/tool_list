@@ -9,7 +9,8 @@ import importlib.util
 import os
 import re
 import sys
-from datetime import date
+import traceback
+from datetime import date, datetime
 from html import escape
 from pathlib import Path
 
@@ -23,8 +24,22 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
 
-APP_VERSION = '1.4.2'
+APP_VERSION = '1.4.3'
 APP_NAME = 'NC 공구 리스트 생성기'
+APP_BUILD_DATE = '2026-09-04'
+APP_CREATOR = 'Hwang.seonmun'
+APP_PURPOSE = 'NC 프로그램에서 공구 리스트를 산출하고 NC 경로를 Viewer로 확인하는 도구'
+OPEN_SOURCE_COMPONENTS = (
+    'Python',
+    'PyQt5',
+    'pyqtgraph',
+    'NumPy',
+    'PyOpenGL',
+    'ReportLab',
+    'PyInstaller',
+    'Inno Setup',
+)
+os.environ.setdefault('QT_OPENGL', 'software')
 PROGRAM_PANE_MIN_WIDTH = 430
 VIEWER_PANE_INITIAL_WIDTH = 1125
 INPUT_SPLITTER_INITIAL_SIZES = [480, 208]
@@ -510,6 +525,20 @@ def resource_path(relative_path):
     return str(base / relative_path)
 
 
+
+def startup_log_path():
+    base = Path(os.environ.get('LOCALAPPDATA') or Path.home())
+    return base / 'NC_Tool_List' / 'startup.log'
+
+
+def write_startup_log(message):
+    try:
+        path = startup_log_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open('a', encoding='utf-8') as handle:
+            handle.write('[%s] %s\n' % (datetime.now().isoformat(timespec='seconds'), message))
+    except Exception:
+        pass
 def missing_viewer_dependencies():
     if getattr(sys, 'frozen', False):
         return []
@@ -518,19 +547,28 @@ def missing_viewer_dependencies():
 
 
 QT_IMPORT_ERROR = None
+VIEWER_IMPORT_ERROR = None
+NCViewerWidget = None
 try:
     from PyQt5.QtCore import Qt, QSettings, QTimer, QSignalBlocker, pyqtSignal
     from PyQt5.QtGui import QFont, QIcon, QTextCursor
     from PyQt5.QtWidgets import (
         QApplication, QAbstractItemView, QCheckBox, QComboBox, QDialog,
         QDialogButtonBox, QFileDialog, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout,
-        QHeaderView, QLabel, QLineEdit, QListWidget, QMainWindow, QMessageBox,
+        QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
         QPushButton, QSplitter, QStackedWidget, QTableWidget, QTableWidgetItem,
         QTextEdit, QVBoxLayout, QWidget,
     )
-    from nc_viewer_widget import NCViewerWidget
+    QApplication.setAttribute(Qt.AA_UseSoftwareOpenGL, True)
 except ImportError as error:
     QT_IMPORT_ERROR = error
+
+if QT_IMPORT_ERROR is None:
+    try:
+        from nc_viewer_widget import NCViewerWidget
+    except Exception as error:
+        VIEWER_IMPORT_ERROR = error
+        write_startup_log('Viewer import failed: %s\n%s' % (error, traceback.format_exc()))
 
 
 # ---------- GUI ----------
@@ -576,6 +614,95 @@ else:
                 super().dropEvent(event)
 
 
+    FALLBACK_MACHINE_SPECS = {
+        "5축 밀링 (A to C)": {
+            "X 행정": "800", "Y 행정": "800", "Z 행정": "600",
+            "A축 범위": "-120~+30", "C축 범위": "360",
+        },
+        "3축 MCT (X Y Z)": {"X 행정": "1000", "Y 행정": "600", "Z 행정": "600"},
+        "4축 MCT (B-Type)": {
+            "X 행정": "1200", "Y 행정": "800", "Z 행정": "800", "B축 범위": "-120~+120",
+        },
+        "2축 선반 (X Z 평면, X 2배)": {"X 행정": "300", "Z 행정": "500", "최대 RPM": "4000"},
+        "5축 밀링 (B to C)": {
+            "X 행정": "600", "Y 행정": "600", "Z 행정": "500",
+            "B축 범위": "-110~+110", "C축 범위": "360",
+        },
+    }
+
+
+    class ViewerFallbackWidget(QWidget):
+        def __init__(self, error=None, parent=None):
+            super().__init__(parent)
+            self.error = error
+            self.settings = QSettings("NC Tool List", "EmbeddedViewer")
+            self.machine_specs = json.loads(json.dumps(FALLBACK_MACHINE_SPECS, ensure_ascii=False))
+            self.current_machine_type = self.settings.value(
+                "machine_type", next(iter(self.machine_specs))
+            )
+            if self.current_machine_type not in self.machine_specs:
+                self.current_machine_type = next(iter(self.machine_specs))
+            self.tool_filter_list = None
+            layout = QVBoxLayout(self)
+            layout.setContentsMargins(12, 12, 12, 12)
+            message = QLabel(
+                "3D Viewer를 이 PC에서 시작하지 못했습니다.\n"
+                "공구 리스트 생성, 복사, PDF 출력은 계속 사용할 수 있습니다.\n"
+                "로그: %s" % startup_log_path()
+            )
+            message.setWordWrap(True)
+            message.setStyleSheet("color: #8a3b00; font-weight: bold;")
+            layout.addWidget(message)
+            detail = QLabel(str(error or VIEWER_IMPORT_ERROR or "OpenGL viewer unavailable"))
+            detail.setWordWrap(True)
+            detail.setStyleSheet("color: #5a6577;")
+            layout.addWidget(detail)
+            layout.addStretch()
+
+        def attach_tool_filter(self, list_widget):
+            self.tool_filter_list = list_widget
+            self.tool_filter_list.setSelectionMode(QAbstractItemView.MultiSelection)
+
+        def clear(self):
+            if self.tool_filter_list is not None:
+                self.tool_filter_list.clear()
+
+        def set_source_text(self, text, tool_name_map=None):
+            if self.tool_filter_list is None:
+                return False
+            self.tool_filter_list.clear()
+            for tool_no in sorted(set((tool_name_map or {}).values())):
+                self.tool_filter_list.addItem(QListWidgetItem(str(tool_no)))
+            return False
+
+        def set_cursor_line(self, _line):
+            return None
+
+        def select_all_tools(self, selected):
+            if self.tool_filter_list is None:
+                return
+            for index in range(self.tool_filter_list.count()):
+                self.tool_filter_list.item(index).setSelected(bool(selected))
+
+        def machine_types(self):
+            return list(self.machine_specs.keys())
+
+        def machine_spec(self, machine_type=None):
+            machine_type = machine_type or self.current_machine_type
+            return dict(self.machine_specs.get(machine_type, {}))
+
+        def set_machine_type(self, machine_type, init_camera=False):
+            if machine_type in self.machine_specs:
+                self.current_machine_type = machine_type
+                self.settings.setValue("machine_type", machine_type)
+
+        def update_machine_spec(self, machine_type, specs):
+            self.machine_specs[str(machine_type)] = {
+                str(key): str(value).strip() for key, value in specs.items()
+            }
+            self.set_machine_type(str(machine_type))
+
+
     class App(QMainWindow):
         def __init__(self, _root=None):
             super().__init__()
@@ -601,6 +728,15 @@ else:
             if not self.restore_layout_settings():
                 QTimer.singleShot(0, self.showMaximized)
 
+
+        def _create_viewer(self):
+            if NCViewerWidget is None:
+                return ViewerFallbackWidget(VIEWER_IMPORT_ERROR, self)
+            try:
+                return NCViewerWidget(self)
+            except Exception as error:
+                write_startup_log('Viewer startup failed: %s\n%s' % (error, traceback.format_exc()))
+                return ViewerFallbackWidget(error, self)
         def _build_ui(self):
             kfont = QFont('맑은 고딕', 10)
             mono = QFont('Consolas', 10)
@@ -623,6 +759,11 @@ else:
             top_layout.addWidget(caption)
             top_layout.addStretch()
 
+            self.btn_about = QPushButton('About')
+            self.btn_about.clicked.connect(self.show_about)
+            self.btn_about.setFont(QFont('맑은 고딕', 9, QFont.Bold))
+            top_layout.addWidget(self.btn_about)
+
             self.btn_tool_mode = QPushButton('툴리스트 산출 모드')
             self.btn_tool_mode.setCheckable(True)
             self.btn_tool_mode.clicked.connect(lambda: self.set_mode('tool'))
@@ -640,7 +781,7 @@ else:
             self.main_splitter = QSplitter(Qt.Horizontal)
             self.main_splitter.setChildrenCollapsible(False)
             root_layout.addWidget(self.main_splitter, 1)
-            self.viewer = NCViewerWidget()
+            self.viewer = self._create_viewer()
 
             self.program_panel = QWidget()
             self.program_panel.setMinimumWidth(PROGRAM_PANE_MIN_WIDTH)
@@ -746,6 +887,32 @@ else:
             button.clicked.connect(slot)
             layout.addWidget(button)
             return button
+
+        def show_about(self):
+            dialog = QDialog(self)
+            dialog.setWindowTitle('About')
+            dialog.resize(460, 360)
+            layout = QVBoxLayout(dialog)
+            title = QLabel('%s v%s' % (APP_NAME, APP_VERSION))
+            title.setFont(QFont('맑은 고딕', 12, QFont.Bold))
+            layout.addWidget(title)
+            viewer = QTextEdit()
+            viewer.setReadOnly(True)
+            viewer.setPlainText(
+                '용도: %s\n'
+                '버전: %s\n'
+                '제작 년월일: %s\n'
+                '제작자: %s\n\n'
+                '사용 오픈소스:\n- %s' % (
+                    APP_PURPOSE, APP_VERSION, APP_BUILD_DATE, APP_CREATOR,
+                    '\n- '.join(OPEN_SOURCE_COMPONENTS),
+                )
+            )
+            layout.addWidget(viewer, 1)
+            buttons = QDialogButtonBox(QDialogButtonBox.Close)
+            buttons.rejected.connect(dialog.reject)
+            layout.addWidget(buttons)
+            dialog.exec_()
 
         def _build_machine_settings_panel(self, font):
             panel = QGroupBox()
@@ -1443,16 +1610,30 @@ else:
 
 
 def main():
+    def log_unhandled_exception(exc_type, exc_value, exc_tb):
+        write_startup_log('Unhandled exception: %s\n%s' % (
+            exc_value, ''.join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        ))
+        sys.__excepthook__(exc_type, exc_value, exc_tb)
+
+    sys.excepthook = log_unhandled_exception
+    write_startup_log('Starting %s v%s frozen=%s argv=%s' % (
+        APP_NAME, APP_VERSION, bool(getattr(sys, 'frozen', False)), sys.argv
+    ))
     missing = missing_viewer_dependencies()
     if missing:
         raise SystemExit('GUI 실행에 필요한 Python 패키지가 없습니다: ' + ', '.join(missing))
-    app = QApplication(sys.argv)
-    window = App()
-    initial_file = startup_file_argument(sys.argv)
-    if initial_file:
-        QTimer.singleShot(0, lambda path=initial_file: window.load_file(path))
-    window.show()
-    sys.exit(app.exec_())
+    try:
+        app = QApplication(sys.argv)
+        window = App()
+        initial_file = startup_file_argument(sys.argv)
+        if initial_file:
+            QTimer.singleShot(0, lambda path=initial_file: window.load_file(path))
+        window.show()
+        sys.exit(app.exec_())
+    except Exception as error:
+        write_startup_log('Fatal startup failure: %s\n%s' % (error, traceback.format_exc()))
+        raise
 
 EXAMPLE = """NC PGM
 %
