@@ -55,6 +55,7 @@ Last updated: 2026-09-03
 - App SHA-256: B93CEE89C8E73A5DEC401A9CC6206F3AD72E77189E1970AD8481406F1F501DA9
 - Signature status: still unsigned.
 - Out of scope (left untouched): lathe (2-axis) coordinate mapping; G90/G91 incremental-mode support for ordinary moves.
+- User field confirmation (2026-09-04): user installed v1.4.5 and confirmed the fix works correctly.
 
 ### 2026-09-04 (v1.4.4)
 
