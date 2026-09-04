@@ -1,14 +1,15 @@
 # -*- coding: utf-8 -*-
 """Embedded PyQt 3D NC path viewer widget."""
 import json
-from math import radians, tan
+from math import cos, radians, sin, tan
 import re
 
 import numpy as np
 import pyqtgraph.opengl as gl
-from PyQt5.QtCore import Qt, QPointF, QRectF, QSettings, QSignalBlocker, pyqtSignal
+from PyQt5.QtCore import Qt, QPointF, QRectF, QSettings, QSignalBlocker, QSize, QTimer, pyqtSignal
 from PyQt5.QtGui import (
-    QBrush, QColor, QIcon, QMatrix4x4, QPainter, QPen, QPixmap, QPolygonF, QVector3D,
+    QBrush, QColor, QIcon, QKeySequence, QMatrix4x4, QPainter, QPainterPath, QPen, QPixmap,
+    QPolygonF, QVector3D,
 )
 from PyQt5.QtWidgets import (
     QAbstractItemView,
@@ -17,6 +18,7 @@ from PyQt5.QtWidgets import (
     QLabel,
     QListWidgetItem,
     QPushButton,
+    QShortcut,
     QSlider,
     QVBoxLayout,
     QWidget,
@@ -29,7 +31,7 @@ from PyQt5.QtWidgets import (
 PX_PER_CM = 96.0 / 2.54
 
 # PG 매칭 자동 재생 최대 배속. NC_Tool_List.py의 동일 상수와 값을 맞춰서 유지한다.
-MAX_PLAYBACK_SPEED = 500
+MAX_PLAYBACK_SPEED = 2000
 
 TOOL_COLOR_MAPS = [
     [1.0, 0.45, 0.10], [0.0, 0.70, 1.0], [0.20, 0.90, 0.25],
@@ -86,12 +88,162 @@ def color_chip_icon(rgb, size=14):
     return QIcon(pixmap)
 
 
+def _make_icon(size, paint_fn):
+    """Renders an icon via QPainter into a transparent pixmap and wraps it as a
+    QIcon. Buttons use these (rather than image files or plain unicode glyphs)
+    so they stay crisp at any DPI/theme without adding assets to the PyInstaller
+    build, and read more clearly than font-dependent symbols like '◀◀'/'▶'."""
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing, True)
+    try:
+        paint_fn(painter, size)
+    finally:
+        painter.end()
+    return QIcon(pixmap)
+
+
+def moon_icon(color, size=20):
+    """Crescent moon (light-mode indicator: click to switch to dark)."""
+    def paint(painter, s):
+        r = s * 0.34
+        cx = cy = s / 2.0
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(QColor(color)))
+        painter.drawEllipse(QPointF(cx, cy), r, r)
+        painter.setCompositionMode(QPainter.CompositionMode_Clear)
+        painter.drawEllipse(QPointF(cx + r * 0.55, cy - r * 0.30), r * 0.82, r * 0.82)
+    return _make_icon(size, paint)
+
+
+def sun_icon(color, size=20):
+    """Sun with rays (dark-mode indicator: click to switch to light)."""
+    def paint(painter, s):
+        cx = cy = s / 2.0
+        r = s * 0.20
+        pen = QPen(QColor(color))
+        pen.setWidthF(max(1.2, s * 0.09))
+        pen.setCapStyle(Qt.RoundCap)
+        painter.setPen(pen)
+        painter.setBrush(QBrush(QColor(color)))
+        painter.drawEllipse(QPointF(cx, cy), r, r)
+        inner = r * 1.55
+        outer = s * 0.46
+        for i in range(8):
+            angle = radians(i * 45.0)
+            x1, y1 = cx + inner * cos(angle), cy + inner * sin(angle)
+            x2, y2 = cx + outer * cos(angle), cy + outer * sin(angle)
+            painter.drawLine(QPointF(x1, y1), QPointF(x2, y2))
+    return _make_icon(size, paint)
+
+
+def play_icon(color, size=22):
+    def paint(painter, s):
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(QColor(color)))
+        m = s * 0.24
+        painter.drawPolygon(QPolygonF([
+            QPointF(m, m * 0.65), QPointF(m, s - m * 0.65), QPointF(s - m * 0.8, s / 2.0),
+        ]))
+    return _make_icon(size, paint)
+
+
+def pause_icon(color, size=22):
+    def paint(painter, s):
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(QColor(color)))
+        bar_w, gap, top = s * 0.20, s * 0.16, s * 0.20
+        h, cx = s - 2 * top, s / 2.0
+        painter.drawRect(QRectF(cx - gap / 2.0 - bar_w, top, bar_w, h))
+        painter.drawRect(QRectF(cx + gap / 2.0, top, bar_w, h))
+    return _make_icon(size, paint)
+
+
+def rewind_icon(color, size=22):
+    """Two left-pointing triangles (⏪-style double-back)."""
+    def paint(painter, s):
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(QColor(color)))
+        top, bottom, mid = s * 0.22, s * 0.78, s / 2.0
+        for cx in (s * 0.34, s * 0.70):
+            painter.drawPolygon(QPolygonF([
+                QPointF(cx + s * 0.16, top), QPointF(cx + s * 0.16, bottom), QPointF(cx - s * 0.16, mid),
+            ]))
+    return _make_icon(size, paint)
+
+
+def skip_icon(color, size=22, forward=True):
+    """Triangle + bar (⏭/⏮-style skip-to-next/previous), used for the prev/next-tool buttons."""
+    def paint(painter, s):
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(QColor(color)))
+        top, bottom, mid = s * 0.20, s * 0.80, s / 2.0
+        if forward:
+            tri = QPolygonF([QPointF(s * 0.28, top), QPointF(s * 0.28, bottom), QPointF(s * 0.70, mid)])
+            bar = QRectF(s * 0.72, top, s * 0.12, bottom - top)
+        else:
+            tri = QPolygonF([QPointF(s * 0.72, top), QPointF(s * 0.72, bottom), QPointF(s * 0.30, mid)])
+            bar = QRectF(s * 0.16, top, s * 0.12, bottom - top)
+        painter.drawPolygon(tri)
+        painter.drawRect(bar)
+    return _make_icon(size, paint)
+
+
+_AXIS_GLYPH_COLORS = {"X": "#FF3333", "Y": "#33AA33", "Z": "#4D68FF"}
+
+
+def plane_icon(letters, size=16):
+    """Two short perpendicular strokes colored like the two axes of a view
+    plane (e.g. 'XY'), used in front of the ISO/XY/XZ/YZ projection buttons."""
+    def paint(painter, s):
+        cx = cy = s / 2.0
+        pen_w = max(1.4, s * 0.14)
+        pen1 = QPen(QColor(_AXIS_GLYPH_COLORS.get(letters[0], "#888888")))
+        pen1.setWidthF(pen_w)
+        pen1.setCapStyle(Qt.RoundCap)
+        painter.setPen(pen1)
+        painter.drawLine(QPointF(cx - s * 0.34, cy), QPointF(cx + s * 0.34, cy))
+        pen2 = QPen(QColor(_AXIS_GLYPH_COLORS.get(letters[1], "#888888")))
+        pen2.setWidthF(pen_w)
+        pen2.setCapStyle(Qt.RoundCap)
+        painter.setPen(pen2)
+        painter.drawLine(QPointF(cx, cy - s * 0.34), QPointF(cx, cy + s * 0.34))
+    return _make_icon(size, paint)
+
+
+def iso_icon(color, size=16):
+    """Small 3-axis gizmo for the ISO view button."""
+    def paint(painter, s):
+        cx, cy = s * 0.5, s * 0.62
+        pen = QPen(QColor(color))
+        pen.setWidthF(max(1.3, s * 0.12))
+        pen.setCapStyle(Qt.RoundCap)
+        painter.setPen(pen)
+        painter.drawLine(QPointF(cx, cy), QPointF(cx, cy - s * 0.42))
+        painter.drawLine(QPointF(cx, cy), QPointF(cx - s * 0.36, cy + s * 0.20))
+        painter.drawLine(QPointF(cx, cy), QPointF(cx + s * 0.36, cy + s * 0.20))
+    return _make_icon(size, paint)
+
+
 class OrthographicGLViewWidget(gl.GLViewWidget):
     """GL viewer that keeps 3D navigation but removes perspective distortion."""
 
     # Fired after every mouse-drag orbit/pan, wheel zoom, or setCameraPosition() call
     # so an overlay (e.g. ViewCubeWidget) can repaint itself to match.
     camera_changed = pyqtSignal()
+    # Fired on a left-button press+release that didn't drag past _CLICK_DRAG_PX —
+    # so it's a genuine click, not the start/end of an orbit. Carries local
+    # (logical-pixel) coordinates for NCViewerWidget.pick_source_line().
+    left_clicked = pyqtSignal(float, float)
+    # Fired on every right-button press — the receiver (NCViewerWidget) owns
+    # the open/close toggle logic for the magnifier lens.
+    right_clicked = pyqtSignal()
+    # Fired on every mouse move over the widget (any button state), so the
+    # magnifier lens can track the cursor while open.
+    mouse_moved = pyqtSignal(float, float)
+
+    _CLICK_DRAG_PX = 4.0
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -101,14 +253,41 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
         self.navigation_sensitivity = 1.0
         self.overlay_widget = None
         self.bottom_bar_widget = None
+        # 렌더된 경로 전체를 감싸는 구의 반지름(원점 기준) — projectionMatrix()가
+        # 깊이 클리핑 범위를 카메라 거리 대신 이 값으로 산정해, 확대해도 긴
+        # 경로가 far 평면에 잘리지 않게 한다. 경로가 없으면 0(거리 기반 fallback).
+        self.scene_radius = 0.0
+        self._left_press_pos = None
+        self._left_press_was_drag = False
         # pyqtgraph's GLViewWidget defaults to ClickFocus and steals arrow keys for
         # camera orbit (its own keyPressEvent) the moment this widget is clicked,
         # which silently breaks program-cursor arrow-key stepping. Keyboard focus
         # must always stay on the program editor.
         self.setFocusPolicy(Qt.NoFocus)
 
+    def mousePressEvent(self, ev):
+        lpos = ev.position() if hasattr(ev, 'position') else ev.localPos()
+        if ev.button() == Qt.LeftButton:
+            self._left_press_pos = lpos
+            self._left_press_was_drag = False
+        elif ev.button() == Qt.RightButton:
+            self.right_clicked.emit()
+        super().mousePressEvent(ev)
+
+    def mouseReleaseEvent(self, ev):
+        if ev.button() == Qt.LeftButton and self._left_press_pos is not None:
+            lpos = ev.position() if hasattr(ev, 'position') else ev.localPos()
+            if not self._left_press_was_drag:
+                self.left_clicked.emit(lpos.x(), lpos.y())
+            self._left_press_pos = None
+        super().mouseReleaseEvent(ev)
+
     def mouseMoveEvent(self, ev):
         lpos = ev.position() if hasattr(ev, 'position') else ev.localPos()
+        if (ev.buttons() & Qt.LeftButton) and self._left_press_pos is not None:
+            moved = lpos - self._left_press_pos
+            if (moved.x() ** 2 + moved.y() ** 2) ** 0.5 > self._CLICK_DRAG_PX:
+                self._left_press_was_drag = True
         if not hasattr(self, 'mousePos'):
             self.mousePos = lpos
         # pyqtgraph's own handler computes diff = lpos - self.mousePos and then
@@ -118,6 +297,7 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
         self.mousePos = lpos - (lpos - self.mousePos) * self.navigation_sensitivity
         super().mouseMoveEvent(ev)
         self.camera_changed.emit()
+        self.mouse_moved.emit(lpos.x(), lpos.y())
 
     def wheelEvent(self, ev):
         delta = ev.angleDelta().x()
@@ -170,8 +350,12 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
         height = max(float(height), 1.0)
         distance = max(float(self.opts.get("distance", 200.0)), 1.0)
         fov = max(float(self.opts.get("fov", 60.0)), 1.0)
-        near_clip = distance * 0.001
-        far_clip = distance * 1000.0
+        # 깊이 클리핑 범위를 카메라 거리(distance)에만 비례시키면, 확대해서
+        # distance가 작아질 때 far 평면도 함께 줄어들어 카메라에서 멀리 뻗은
+        # 긴 경로가 화면 중간에서 잘려 보인다(v1.5.6에서 발견된 회귀). 실제
+        # 렌더된 경로 전체 크기(scene_radius)를 하한으로 삼아, 확대 배율과
+        # 무관하게 전체 경로가 항상 깊이 범위 안에 들어오게 한다.
+        depth = max(distance, self.scene_radius) * 20.0 + 1000.0
         view_height = 2.0 * distance * tan(0.5 * radians(fov))
         view_width = view_height * width / height
 
@@ -181,7 +365,7 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
         top = view_height * ((region[1] + region[3] - y0) / height - 0.5)
 
         transform = QMatrix4x4()
-        transform.ortho(left, right, bottom, top, near_clip, far_clip)
+        transform.ortho(left, right, bottom, top, -depth, depth)
         return transform
 
 
@@ -324,6 +508,72 @@ class ViewCubeWidget(QWidget):
         super().mousePressEvent(event)
 
 
+class MagnifierLensWidget(QWidget):
+    """우클릭으로 켜고 끄는 돋보기 렌즈.
+
+    gl_view를 grabFramebuffer()로 캡처한 정지 이미지를 원형으로 잘라 확대해
+    마우스를 따라다니며 보여주는 순수 시각 보조 오버레이다. WA_Transparent-
+    ForMouseEvents로 모든 마우스 이벤트를 그대로 gl_view에 흘려보내므로,
+    실제 클릭 판정(pick_source_line)은 항상 gl_view가 원래(확대 전) 좌표로
+    받는다 — 렌즈는 "어디를 클릭할지 정밀하게 보여주는" 역할만 한다.
+    카메라가 움직이는 동안에는 보이는 그림과 실제 위치가 어긋나므로 숨긴다."""
+
+    DIAMETER = 220
+    ZOOM = 3.0
+
+    def __init__(self, gl_view, parent=None):
+        super().__init__(parent)
+        self._gl_view = gl_view
+        self.setFixedSize(self.DIAMETER, self.DIAMETER)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self._source = None
+        self._center = QPointF(0.0, 0.0)
+        self.hide()
+
+    def set_source(self, image):
+        self._source = image
+        self.update()
+
+    def move_center_to(self, x, y):
+        """렌즈 중심을 gl_view 좌표 (x, y) 근처로 옮긴다. 커서가 렌즈에 가리지
+        않도록 살짝 위로 띄우고, gl_view 영역을 벗어나지 않게 고정한다."""
+        self._center = QPointF(x, y)
+        half = self.DIAMETER / 2.0
+        target_x, target_y = x - half, y - half - self.DIAMETER * 0.55
+        if self._gl_view is not None:
+            max_x = max(0, self._gl_view.width() - self.DIAMETER)
+            max_y = max(0, self._gl_view.height() - self.DIAMETER)
+            target_x = max(0, min(target_x, max_x))
+            target_y = max(0, min(target_y, max_y))
+        self.move(int(target_x), int(target_y))
+        self.update()
+
+    def paintEvent(self, _event):
+        if self._source is None or self._source.isNull():
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        path = QPainterPath()
+        path.addEllipse(0, 0, self.DIAMETER, self.DIAMETER)
+        painter.setClipPath(path)
+
+        # QImage.devicePixelRatio()(grabFramebuffer가 자동으로 설정)를 Qt가
+        # drawImage()에서 알아서 반영하므로, src_rect는 gl_view의 논리 좌표
+        # 그대로 쓰면 된다(DPI 배율을 직접 곱할 필요 없음).
+        crop = self.DIAMETER / self.ZOOM
+        src_rect = QRectF(
+            self._center.x() - crop / 2.0, self._center.y() - crop / 2.0, crop, crop,
+        )
+        painter.drawImage(QRectF(0, 0, self.DIAMETER, self.DIAMETER), self._source, src_rect)
+
+        pen = QPen(QColor(255, 255, 255, 220))
+        pen.setWidth(3)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+        painter.drawEllipse(1, 1, self.DIAMETER - 2, self.DIAMETER - 2)
+
+
 class PlaybackBarWidget(QWidget):
     """PG 매칭 모드에서 프로그램을 자동으로 넘겨주는 재생 컨트롤 바.
 
@@ -372,20 +622,34 @@ class PlaybackBarWidget(QWidget):
         self.speed_slider.valueChanged.connect(self._on_speed_changed)
         speed_row.addWidget(self.speed_slider, 1)
         self.speed_value_label = QLabel("1x")
-        self.speed_value_label.setFixedWidth(64)
+        self.speed_value_label.setFixedWidth(72)
         speed_row.addWidget(self.speed_value_label)
         outer.addLayout(speed_row)
 
+        # 유니코드 기호(◀◀/▶ 등)는 폰트마다 굵기·정렬이 들쭉날쭉해 시인성이
+        # 떨어져, QPainter로 직접 그린 아이콘으로 바꾼다(_make_icon 계열).
+        # 이 바는 항상 어두운 반투명 패널 위라 아이콘 색은 테마와 무관하게
+        # 흰색으로 고정한다.
+        icon_size = QSize(26, 26)
         button_row = QHBoxLayout()
-        self.prev_tool_button = QPushButton("◀툴")
-        self.rewind_button = QPushButton("◀◀")
-        self.play_pause_button = QPushButton("▶")
-        self.next_tool_button = QPushButton("툴▶")
+        self.prev_tool_button = QPushButton()
+        self.prev_tool_button.setIcon(skip_icon("white", forward=False))
+        self.prev_tool_button.setToolTip("이전 툴")
+        self.rewind_button = QPushButton()
+        self.rewind_button.setIcon(rewind_icon("white"))
+        self.rewind_button.setToolTip("되감기")
+        self.play_pause_button = QPushButton()
+        self.play_pause_button.setIcon(play_icon("white"))
+        self.play_pause_button.setToolTip("재생")
+        self.next_tool_button = QPushButton()
+        self.next_tool_button.setIcon(skip_icon("white", forward=True))
+        self.next_tool_button.setToolTip("다음 툴")
         for button in (
             self.prev_tool_button, self.rewind_button,
             self.play_pause_button, self.next_tool_button,
         ):
             button.setFocusPolicy(Qt.NoFocus)
+            button.setIconSize(icon_size)
             button_row.addWidget(button)
         outer.addLayout(button_row)
 
@@ -406,7 +670,8 @@ class PlaybackBarWidget(QWidget):
 
     def set_playing(self, playing):
         self._playing = bool(playing)
-        self.play_pause_button.setText("❚❚" if self._playing else "▶")
+        self.play_pause_button.setIcon(pause_icon("white") if self._playing else play_icon("white"))
+        self.play_pause_button.setToolTip("일시정지" if self._playing else "재생")
 
     def set_speed(self, value):
         with QSignalBlocker(self.speed_slider):
@@ -420,10 +685,29 @@ class NCViewerWidget(QWidget):
     # Emitted with the source line index where a clicked process-filter entry begins,
     # so the host window can move the program editor's cursor there.
     process_activated = pyqtSignal(int)
+    # Emitted when the dark-mode button (next to the view-cube size slider) is
+    # clicked. The host App owns the theme and calls set_dark_mode() back once
+    # it has re-themed the rest of the app, so the app-wide setting stays the
+    # single source of truth rather than this widget's own QSettings group.
+    dark_mode_toggled = pyqtSignal(bool)
+    # Emitted with the source line index of a 3D path segment the user clicked
+    # on, so the host window can move the program editor's cursor there —
+    # same contract as process_activated, just picked from the drawn path
+    # itself instead of the process filter list.
+    line_activated = pyqtSignal(int)
+
+    _VIEWER_BG_LIGHT = (233, 236, 241, 255)
+    _VIEWER_BG_DARK = (33, 37, 43, 255)
+    _PICK_RADIUS_PX = 12.0
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.settings = QSettings("NC Tool List", "EmbeddedViewer")
+        self._dark_mode = False
+        self._pick_cache_key = None
+        self._pick_world_pts = np.zeros((0, 2, 3), dtype=np.float64)
+        self._pick_src_lines = np.zeros((0,), dtype=np.int64)
+        self._magnifier_active = False
         self.machine_specs = self._load_machine_specs()
         self.current_machine_type = self.settings.value(
             "machine_type", next(iter(self.machine_specs))
@@ -507,6 +791,9 @@ class NCViewerWidget(QWidget):
             ("ISO", "ISO"), ("XY", "XY"), ("XZ", "XZ"), ("YZ", "YZ"),
         ):
             button = QPushButton(label)
+            # 텍스트는 남기고 앞에 축/평면 글리프를 붙여 의미를 강화한다.
+            button.setIcon(iso_icon("#555555") if view_type == "ISO" else plane_icon(view_type))
+            button.setIconSize(QSize(15, 15))
             # 방향키로 프로그램 커서를 옮기는 도중 이 버튼이 포커스를 가져가면
             # 다음 방향키가 커서 대신 버튼 포커스 이동에 쓰이므로 항상 막아둔다.
             button.setFocusPolicy(Qt.NoFocus)
@@ -537,6 +824,17 @@ class NCViewerWidget(QWidget):
         self.view_cube_size_label = QLabel("%dpx" % self.view_cube_size_slider.value())
         self.view_cube_size_label.setFixedWidth(38)
         view_bar.addWidget(self.view_cube_size_label)
+        self.dark_mode_button = QPushButton()
+        self.dark_mode_button.setCheckable(True)
+        self.dark_mode_button.setFixedSize(26, 26)
+        self.dark_mode_button.setToolTip("다크모드 전환")
+        self.dark_mode_button.setFocusPolicy(Qt.NoFocus)
+        self.dark_mode_button.setFlat(True)
+        self.dark_mode_button.clicked.connect(
+            lambda: self.dark_mode_toggled.emit(self.dark_mode_button.isChecked())
+        )
+        view_bar.addWidget(self.dark_mode_button)
+        self._refresh_dark_mode_button()
         layout.addLayout(view_bar)
 
         coord_group = QGroupBox("좌표")
@@ -559,16 +857,22 @@ class NCViewerWidget(QWidget):
         layout.addWidget(coord_group)
 
         self.gl_view = OrthographicGLViewWidget()
-        self.gl_view.setBackgroundColor(33, 37, 43, 255)
+        self.gl_view.setBackgroundColor(*self._VIEWER_BG_LIGHT)
         self.gl_view.navigation_sensitivity = self._initial_sensitivity
         layout.addWidget(self.gl_view, 1)
         self._build_view_cube()
         self._build_playback_bar()
+        self._build_magnifier()
+        self.gl_view.left_clicked.connect(self._on_gl_left_clicked)
+        self.gl_view.right_clicked.connect(self._toggle_magnifier)
+        self.gl_view.mouse_moved.connect(self._on_gl_mouse_moved)
+        self.gl_view.camera_changed.connect(self._on_camera_changed_for_magnifier)
+        self._magnifier_shortcut = QShortcut(QKeySequence("Escape"), self)
+        self._magnifier_shortcut.setContext(Qt.ApplicationShortcut)
+        self._magnifier_shortcut.activated.connect(self._close_magnifier)
 
-        self.grid = gl.GLGridItem()
-        self.grid.setSize(400, 400, 1)
-        self.grid.setSpacing(20, 20, 1)
-        self.gl_view.addItem(self.grid)
+        # 격자판은 넓은 프로그램에서 시야를 가려 제거했다(v1.5.6) — 방향
+        # 기준은 축선(_add_axis_lines)만으로 충분하다.
         self._add_axis_lines()
 
         self.cursor_sphere = gl.GLMeshItem(
@@ -579,6 +883,22 @@ class NCViewerWidget(QWidget):
         )
         self.cursor_sphere.setVisible(False)
         self.gl_view.addItem(self.cursor_sphere)
+
+        # 라인 클릭으로 행 이동했을 때 어느 지점이 집혔는지 잠깐 보여주는
+        # 표시(자동재생 커서 표시용 cursor_sphere와는 별개 — 상태를 두고
+        # 다투지 않도록 전용 구를 하나 더 둔다).
+        self._pick_flash_sphere = gl.GLMeshItem(
+            meshdata=gl.MeshData.sphere(rows=10, cols=20, radius=2.6),
+            smooth=True,
+            color=(1.0, 0.85, 0.15, 1.0),
+            shader="shaded",
+        )
+        self._pick_flash_sphere.setVisible(False)
+        self.gl_view.addItem(self._pick_flash_sphere)
+        self._pick_flash_timer = QTimer(self)
+        self._pick_flash_timer.setSingleShot(True)
+        self._pick_flash_timer.setInterval(700)
+        self._pick_flash_timer.timeout.connect(lambda: self._pick_flash_sphere.setVisible(False))
 
     def _build_view_cube(self):
         """Create the corner orientation cube. Any failure here is swallowed —
@@ -609,6 +929,158 @@ class NCViewerWidget(QWidget):
             bar = None
         self.playback_bar = bar
 
+    def _build_magnifier(self):
+        """돋보기 렌즈 오버레이를 만든다. 실패해도 뷰어 전체를 잃지 않는다."""
+        try:
+            lens = MagnifierLensWidget(self.gl_view, parent=self.gl_view)
+        except Exception:
+            lens = None
+        self.magnifier = lens
+
+    def _toggle_magnifier(self):
+        if self.magnifier is None:
+            return
+        if self._magnifier_active:
+            self._close_magnifier()
+        else:
+            self._magnifier_active = True
+            self._recapture_magnifier_source()
+            self.magnifier.show()
+            self.magnifier.raise_()
+
+    def _close_magnifier(self):
+        if self.magnifier is None or not self._magnifier_active:
+            return
+        self._magnifier_active = False
+        self.magnifier.hide()
+
+    def _recapture_magnifier_source(self):
+        """gl_view의 현재 프레임을 다시 캡처한다. 카메라가 움직이는 동안에는
+        보이는 그림과 실제 위치가 어긋나므로, 그 사이에는 렌즈를 숨긴다."""
+        if self.magnifier is None or not self._magnifier_active:
+            return
+        try:
+            image = self.gl_view.grabFramebuffer()
+        except Exception:
+            return
+        self.magnifier.set_source(image)
+
+    def _on_camera_changed_for_magnifier(self):
+        # 캡처 이미지가 곧바로 낡은 그림이 되므로, 재캡처 전까지는 숨겨서
+        # 실제 위치와 어긋난 렌즈를 보여주지 않는다.
+        if self._magnifier_active and self.magnifier is not None:
+            self.magnifier.hide()
+            QTimer.singleShot(0, self._reshow_magnifier_after_camera_change)
+
+    def _reshow_magnifier_after_camera_change(self):
+        if not self._magnifier_active or self.magnifier is None:
+            return
+        self._recapture_magnifier_source()
+        self.magnifier.show()
+        self.magnifier.raise_()
+
+    def _on_gl_mouse_moved(self, x, y):
+        if self._magnifier_active and self.magnifier is not None:
+            self.magnifier.move_center_to(x, y)
+
+    def _on_gl_left_clicked(self, x, y):
+        line_index = self.pick_source_line(x, y)
+        if line_index is None:
+            return
+        self._flash_pick(line_index)
+        self.line_activated.emit(line_index)
+
+    def _flash_pick(self, line_index):
+        pt = self.line_to_coord_map.get(line_index)
+        if pt is None:
+            return
+        self._pick_flash_sphere.resetTransform()
+        self._pick_flash_sphere.translate(pt[0], pt[1], pt[2])
+        self._pick_flash_sphere.setVisible(True)
+        self._pick_flash_timer.start()
+
+    def _build_pick_cache(self):
+        """필터에서 선택된 공정들의 경로를, 화면 클릭 판정에 쓸 (세계좌표
+        선분, 도착 지점의 src_line) 목록으로 미리 뽑아 둔다. set_source_text로
+        새로 그리거나 필터 선택이 바뀌면 pick_source_line()이 자동으로 다시
+        만든다(캐시 키 = 렌더 서명 + 선택된 공정 집합)."""
+        selected = self.selected_tools()
+        segments = []
+        lines = []
+        for tool, path_data in self.tool_paths.items():
+            if tool not in selected:
+                continue
+            previous_pt = None
+            for node in path_data:
+                if not node.get("valid"):
+                    previous_pt = None
+                    continue
+                pt = node.get("pt")
+                if pt is None:
+                    previous_pt = None
+                    continue
+                if previous_pt is not None:
+                    segments.append((previous_pt, pt))
+                    lines.append(int(node.get("src_line", -1)))
+                previous_pt = pt
+        if segments:
+            self._pick_world_pts = np.array(segments, dtype=np.float64)
+            self._pick_src_lines = np.array(lines, dtype=np.int64)
+        else:
+            self._pick_world_pts = np.zeros((0, 2, 3), dtype=np.float64)
+            self._pick_src_lines = np.zeros((0,), dtype=np.int64)
+        self._pick_cache_key = (self.last_render_signature, frozenset(selected))
+
+    def pick_source_line(self, view_x, view_y, radius_px=None):
+        """gl_view 위의 논리 픽셀 좌표 (view_x, view_y)에서 radius_px 안에 있는
+        가장 가까운 경로 선분을 찾아 그 도착 지점의 src_line을 반환한다.
+        없으면 None."""
+        radius_px = self._PICK_RADIUS_PX if radius_px is None else radius_px
+        key = (self.last_render_signature, frozenset(self.selected_tools()))
+        if key != self._pick_cache_key:
+            self._build_pick_cache()
+        if self._pick_world_pts.shape[0] == 0:
+            return None
+
+        viewport = self.gl_view.getViewport()
+        width, height = max(1, viewport[2]), max(1, viewport[3])
+        mvp = self.gl_view.projectionMatrix(viewport, viewport) * self.gl_view.viewMatrix()
+        # QMatrix4x4는 열(column) 우선으로 저장되므로, column(i)들을 모아
+        # 전치(.T)하면 통상적인 "M @ 열벡터" 규약의 4x4 행렬이 된다.
+        cols = [mvp.column(i) for i in range(4)]
+        m = np.array([[c.x(), c.y(), c.z(), c.w()] for c in cols]).T
+
+        pts = self._pick_world_pts.reshape(-1, 3)
+        ones = np.ones((pts.shape[0], 1), dtype=np.float64)
+        homogeneous = np.concatenate([pts, ones], axis=1)
+        mapped = homogeneous @ m.T
+        w = mapped[:, 3]
+        w_safe = np.where(w == 0, 1.0, w)
+        ndc_x = mapped[:, 0] / w_safe
+        ndc_y = mapped[:, 1] / w_safe
+        screen_x = (ndc_x + 1.0) / 2.0 * width
+        screen_y = (1.0 - ndc_y) / 2.0 * height
+        screen = np.stack([screen_x, screen_y], axis=1).reshape(-1, 2, 2)
+
+        p0, p1 = screen[:, 0, :], screen[:, 1, :]
+        d = p1 - p0
+        denom = d[:, 0] ** 2 + d[:, 1] ** 2
+        denom_safe = np.where(denom == 0, 1.0, denom)
+        t = np.clip(
+            ((view_x - p0[:, 0]) * d[:, 0] + (view_y - p0[:, 1]) * d[:, 1]) / denom_safe,
+            0.0, 1.0,
+        )
+        closest_x = p0[:, 0] + t * d[:, 0]
+        closest_y = p0[:, 1] + t * d[:, 1]
+        dist = np.sqrt((closest_x - view_x) ** 2 + (closest_y - view_y) ** 2)
+        point_dist = np.sqrt((p0[:, 0] - view_x) ** 2 + (p0[:, 1] - view_y) ** 2)
+        dist = np.where(denom == 0, point_dist, dist)
+
+        best = int(np.argmin(dist))
+        if dist[best] <= radius_px:
+            return int(self._pick_src_lines[best])
+        return None
+
     def _on_sensitivity_changed(self, percent):
         ratio = max(0.05, min(2.0, percent / 100.0))
         self.gl_view.navigation_sensitivity = ratio
@@ -622,6 +1094,22 @@ class NCViewerWidget(QWidget):
             self.view_cube.setFixedSize(size, size)
             self.gl_view._reposition_overlay()
             self.view_cube.update()
+
+    def _refresh_dark_mode_button(self):
+        icon_color = "#e4e8f0" if self._dark_mode else "#1f2937"
+        icon = sun_icon(icon_color) if self._dark_mode else moon_icon(icon_color)
+        self.dark_mode_button.setIcon(icon)
+        self.dark_mode_button.setIconSize(QSize(18, 18))
+        with QSignalBlocker(self.dark_mode_button):
+            self.dark_mode_button.setChecked(self._dark_mode)
+
+    def set_dark_mode(self, enabled):
+        """App(NC_Tool_List.py)이 다크모드 토글 시(또는 시작 시 저장된 값으로)
+        호출한다 — 이 위젯 자체는 상태를 저장하지 않고 항상 App이 넘겨주는
+        값을 그대로 반영만 한다."""
+        self._dark_mode = bool(enabled)
+        self._refresh_dark_mode_button()
+        self.gl_view.setBackgroundColor(*self._VIEWER_BG_DARK if self._dark_mode else self._VIEWER_BG_LIGHT)
 
     def _add_axis_lines(self):
         infinite_val = 99999.0
@@ -688,6 +1176,7 @@ class NCViewerWidget(QWidget):
         self.last_render_signature = None
         self.raw_lines = []
         self._clear_path_items()
+        self.gl_view.scene_radius = 0.0
         self.tool_paths.clear()
         self.plot_items.clear()
         self.process_tool_map.clear()
@@ -715,12 +1204,9 @@ class NCViewerWidget(QWidget):
             return
         self.current_machine_type = machine_type
         if "선반" in machine_type:
-            self.grid.setSize(400, 400, 1)
             if init_camera:
                 self.set_camera_projection("XZ")
                 init_camera = False
-        else:
-            self.grid.setSize(400, 400, 1)
         if init_camera:
             self.set_camera_projection("XY")
         self._save_machine_specs()
@@ -1262,11 +1748,28 @@ class NCViewerWidget(QWidget):
         return points
 
     def _build_path_items(self):
+        self.gl_view.scene_radius = self._compute_scene_radius()
         for idx, (tool, path_data) in enumerate(self.tool_paths.items()):
             base_color = tool_color_for_index(idx)
             self.plot_items[tool] = []
             for motion_type, pts_list in self._render_segment_buckets(path_data).items():
                 self.create_segment_item(tool, pts_list, motion_type, base_color)
+
+    def _compute_scene_radius(self):
+        """모든 경로 점을 감싸는 구의 반지름(원점 기준). 경로가 없으면 0을
+        반환해 projectionMatrix()가 거리 기반 기본값으로 되돌아가게 한다."""
+        max_sq = 0.0
+        for path_data in self.tool_paths.values():
+            for node in path_data:
+                if not node.get("valid"):
+                    continue
+                pt = node.get("pt")
+                if pt is None:
+                    continue
+                sq = float(pt[0]) ** 2 + float(pt[1]) ** 2 + float(pt[2]) ** 2
+                if sq > max_sq:
+                    max_sq = sq
+        return max_sq ** 0.5
 
     def create_segment_item(self, tool, pts_list, motion_type, base_color):
         if len(pts_list) < 2:
