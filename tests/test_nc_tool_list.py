@@ -1909,6 +1909,151 @@ G02 X0 Y10 I-10 J0
             viewer.deleteLater()
             qapp.processEvents()
 
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_magnifier_centers_on_right_click_position(self):
+        """돋보기는 우클릭한 지점을 중심으로 나타나야 한다(v1.5.7 요청) —
+        이전에는 마지막 마우스 이동 지점(초기값 (0,0))에 뜨는 문제가 있었다."""
+        from PyQt5.QtCore import QPoint
+        from PyQt5.QtTest import QTest
+        from nc_viewer_widget import NCViewerWidget
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer = NCViewerWidget()
+        try:
+            viewer.resize(800, 600)
+            viewer.show()
+            qapp.processEvents()
+
+            click_pos = QPoint(150, 110)
+            QTest.mouseClick(viewer.gl_view, app.Qt.RightButton, pos=click_pos)
+            qapp.processEvents()
+
+            self.assertTrue(viewer._magnifier_active)
+            self.assertAlmostEqual(viewer.magnifier._center.x(), click_pos.x(), delta=1)
+            self.assertAlmostEqual(viewer.magnifier._center.y(), click_pos.y(), delta=1)
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_left_click_only_activates_line_when_magnifier_active(self):
+        """포인트 클릭(라인 활성화)은 돋보기가 켜져 있을 때만 동작해야 한다
+        (v1.5.7 요청) — 이전에는 돋보기 없이 화면을 찍기만 해도 근처 라인으로
+        커서가 넘어갔다."""
+        from PyQt5.QtCore import QPoint
+        from PyQt5.QtGui import QVector3D
+        from PyQt5.QtTest import QTest
+        from nc_viewer_widget import NCViewerWidget
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer = NCViewerWidget()
+        try:
+            viewer.resize(800, 600)
+            self.assertTrue(viewer.set_source_text(self._minimal_motion_source(), {'T01': 'FACE MILL'}))
+            viewer.set_camera_projection('XY')
+            viewer.show()
+            qapp.processEvents()
+
+            activated = []
+            viewer.line_activated.connect(activated.append)
+
+            target_line, target_pt = None, None
+            for line_idx, pt in viewer.line_to_coord_map.items():
+                if abs(pt[0] - 100) < 1e-6 and abs(pt[1] - 0) < 1e-6:
+                    target_line, target_pt = line_idx, pt
+                    break
+            self.assertIsNotNone(target_line)
+
+            viewport = viewer.gl_view.getViewport()
+            mvp = viewer.gl_view.projectionMatrix(viewport, viewport) * viewer.gl_view.viewMatrix()
+            vec = mvp.map(QVector3D(*target_pt))
+            pos = QPoint(
+                int(round((vec.x() + 1.0) / 2.0 * viewport[2])),
+                int(round((1.0 - vec.y()) / 2.0 * viewport[3])),
+            )
+
+            # 돋보기가 꺼진 상태: 좌클릭해도 라인이 활성화되지 않는다.
+            QTest.mouseClick(viewer.gl_view, app.Qt.LeftButton, pos=pos)
+            qapp.processEvents()
+            self.assertEqual(activated, [])
+
+            # 우클릭으로 돋보기를 켠 뒤에는 같은 위치 좌클릭이 라인을 활성화한다.
+            QTest.mouseClick(viewer.gl_view, app.Qt.RightButton, pos=pos)
+            qapp.processEvents()
+            self.assertTrue(viewer._magnifier_active)
+
+            QTest.mouseClick(viewer.gl_view, app.Qt.LeftButton, pos=pos)
+            qapp.processEvents()
+            self.assertEqual(activated, [target_line])
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_pick_source_line_pg_match_mode_scoped_to_progressed_current_tool(self):
+        """PG 매칭 모드에서는 커서가 위치한 공정의 '진행된' 구간만 클릭으로
+        집혀야 한다 — 다른 공정(필터)의 경로나 아직 진행되지 않은 같은 공정의
+        뒷부분이 잘못 집히던 문제의 회귀 테스트(v1.5.7)."""
+        from PyQt5.QtGui import QVector3D
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer = self._pg_match_viewer()
+        try:
+            viewer.resize(800, 600)
+            viewer.set_camera_projection('XY')
+            viewer.set_pg_match_mode(True)
+
+            # 공정1(P001_T01)의 두 번째 이동(줄 4, X20 Y0)까지만 진행시킨다 —
+            # 아직 줄 6(X20 Y20)까지는 진행되지 않았다.
+            viewer.set_cursor_line(4)
+            self.assertEqual(viewer.line_to_tool_map[4], 'P001_T01')
+
+            def screen_pos(pt):
+                viewport = viewer.gl_view.getViewport()
+                mvp = viewer.gl_view.projectionMatrix(viewport, viewport) * viewer.gl_view.viewMatrix()
+                vec = mvp.map(QVector3D(*pt))
+                return (
+                    (vec.x() + 1.0) / 2.0 * viewport[2],
+                    (1.0 - vec.y()) / 2.0 * viewport[3],
+                )
+
+            # 진행된 구간의 도착점(줄 4)은 집힌다.
+            sx, sy = screen_pos(viewer.line_to_coord_map[4])
+            self.assertEqual(viewer.pick_source_line(sx, sy, radius_px=15), 4)
+
+            # 같은 공정이라도 아직 진행되지 않은 뒷부분(줄 6)은 집히지 않는다.
+            sx6, sy6 = screen_pos(viewer.line_to_coord_map[6])
+            self.assertIsNone(viewer.pick_source_line(sx6, sy6, radius_px=5))
+
+            # 다른 공정(P002_T02, 아직 커서가 도달하지 않음)의 경로도 집히지 않는다.
+            sx10, sy10 = screen_pos(viewer.line_to_coord_map[10])
+            self.assertIsNone(viewer.pick_source_line(sx10, sy10, radius_px=5))
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_viewer_background_stays_dark_regardless_of_theme(self):
+        """3D 캔버스(및 그걸 캡처하는 돋보기)는 라이트/다크 테마와 무관하게
+        항상 어두운 배경을 유지해야 한다(v1.5.7 요청) — 밝은 배경에서 경로
+        색이 잘 안 보이던 문제."""
+        from nc_viewer_widget import NCViewerWidget
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer = NCViewerWidget()
+        try:
+            dark_bg = tuple(viewer.gl_view.opts['bgcolor'])
+            self.assertLess(max(dark_bg[0], dark_bg[1], dark_bg[2]), 0.3)
+
+            viewer.set_dark_mode(False)
+            self.assertEqual(tuple(viewer.gl_view.opts['bgcolor']), dark_bg)
+
+            viewer.set_dark_mode(True)
+            self.assertEqual(tuple(viewer.gl_view.opts['bgcolor']), dark_bg)
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
 
 if __name__ == '__main__':
     unittest.main()

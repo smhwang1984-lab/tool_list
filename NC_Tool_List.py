@@ -26,7 +26,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
 
-APP_VERSION = '1.5.6'
+APP_VERSION = '1.5.7'
 APP_NAME = 'NC 공구 리스트 생성기'
 APP_BUILD_DATE = '2026-09-04'
 APP_CREATOR = 'Hwang.seonmun'
@@ -53,7 +53,8 @@ MAIN_SPLITTER_INITIAL_SIZES = [PROGRAM_PANE_MIN_WIDTH, VIEWER_PANE_INITIAL_WIDTH
 
 # 라이트/다크 테마 색상 토큰. 의미 기반 키로 두어 위젯 각각이 하드코딩된
 # 색 대신 이 값을 참조하고, 다크모드 토글 시 App.apply_theme()이 전체를
-# 다시 칠한다. 뷰어(nc_viewer_widget.py)는 'viewer_bg'만 참조한다.
+# 다시 칠한다. 뷰어(nc_viewer_widget.py)의 3D 캔버스는 테마와 무관하게
+# 항상 어두운 배경을 쓰므로 이 테마를 참조하지 않는다(v1.5.7).
 THEMES = {
     'light': {
         'window_bg': '#f0f4f8', 'panel_bg': '#ffffff', 'text': '#1f2937',
@@ -68,7 +69,6 @@ THEMES = {
         'info_bg': '#eaf1f8', 'info_text': '#40536b', 'error': '#b03a2e',
         'mode_active_bg': '#34577f', 'mode_active_text': '#ffffff',
         'mode_inactive_bg': '#f0f4f8', 'mode_inactive_text': '#1f3a5f',
-        'viewer_bg': (240, 244, 248, 255),
     },
     'dark': {
         'window_bg': '#1b1f27', 'panel_bg': '#242a35', 'text': '#e4e8f0',
@@ -83,7 +83,6 @@ THEMES = {
         'info_bg': '#233047', 'info_text': '#b7c8e6', 'error': '#e06a5a',
         'mode_active_bg': '#3f7fc9', 'mode_active_text': '#ffffff',
         'mode_inactive_bg': '#2a2f3a', 'mode_inactive_text': '#c7d0e0',
-        'viewer_bg': (33, 37, 43, 255),
     },
 }
 

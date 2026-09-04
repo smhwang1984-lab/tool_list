@@ -8,7 +8,7 @@ import numpy as np
 import pyqtgraph.opengl as gl
 from PyQt5.QtCore import Qt, QPointF, QRectF, QSettings, QSignalBlocker, QSize, QTimer, pyqtSignal
 from PyQt5.QtGui import (
-    QBrush, QColor, QIcon, QKeySequence, QMatrix4x4, QPainter, QPainterPath, QPen, QPixmap,
+    QBrush, QColor, QFont, QIcon, QKeySequence, QMatrix4x4, QPainter, QPainterPath, QPen, QPixmap,
     QPolygonF, QVector3D,
 )
 from PyQt5.QtWidgets import (
@@ -236,9 +236,10 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
     # so it's a genuine click, not the start/end of an orbit. Carries local
     # (logical-pixel) coordinates for NCViewerWidget.pick_source_line().
     left_clicked = pyqtSignal(float, float)
-    # Fired on every right-button press — the receiver (NCViewerWidget) owns
-    # the open/close toggle logic for the magnifier lens.
-    right_clicked = pyqtSignal()
+    # Fired on every right-button press, carrying local (logical-pixel)
+    # coordinates — the receiver (NCViewerWidget) owns the open/close toggle
+    # logic for the magnifier lens and centers it on this position.
+    right_clicked = pyqtSignal(float, float)
     # Fired on every mouse move over the widget (any button state), so the
     # magnifier lens can track the cursor while open.
     mouse_moved = pyqtSignal(float, float)
@@ -271,7 +272,7 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
             self._left_press_pos = lpos
             self._left_press_was_drag = False
         elif ev.button() == Qt.RightButton:
-            self.right_clicked.emit()
+            self.right_clicked.emit(lpos.x(), lpos.y())
         super().mousePressEvent(ev)
 
     def mouseReleaseEvent(self, ev):
@@ -573,6 +574,17 @@ class MagnifierLensWidget(QWidget):
         painter.setBrush(Qt.NoBrush)
         painter.drawEllipse(1, 1, self.DIAMETER - 2, self.DIAMETER - 2)
 
+        # 실제로 클릭이 판정되는 지점(원 좌표계 아래 gl_view가 그대로 받는
+        # 실제 커서 위치)은 항상 렌즈 정중앙에 대응한다 — 어디를 클릭할지
+        # 정확히 짚을 수 있도록 가는 십자선으로 표시한다.
+        cx = cy = self.DIAMETER / 2.0
+        cross = 9.0
+        cross_pen = QPen(QColor(255, 60, 40, 230))
+        cross_pen.setWidth(2)
+        painter.setPen(cross_pen)
+        painter.drawLine(QPointF(cx - cross, cy), QPointF(cx + cross, cy))
+        painter.drawLine(QPointF(cx, cy - cross), QPointF(cx, cy + cross))
+
 
 class PlaybackBarWidget(QWidget):
     """PG 매칭 모드에서 프로그램을 자동으로 넘겨주는 재생 컨트롤 바.
@@ -696,9 +708,14 @@ class NCViewerWidget(QWidget):
     # itself instead of the process filter list.
     line_activated = pyqtSignal(int)
 
-    _VIEWER_BG_LIGHT = (233, 236, 241, 255)
-    _VIEWER_BG_DARK = (33, 37, 43, 255)
-    _PICK_RADIUS_PX = 12.0
+    # 3D 캔버스와 돋보기 렌즈(캔버스를 그대로 캡처)는 앱 라이트/다크 테마와
+    # 무관하게 항상 이 어두운 배경을 쓴다 — 경로 선 색이 밝은색 위주라
+    # 흰 배경에서는 시인성이 크게 떨어지는 사용자 피드백 반영(v1.5.7).
+    _VIEWER_BG = (33, 37, 43, 255)
+    # 클릭 판정은 이제 돋보기가 켜져 있을 때만 동작하므로(v1.5.7), 돋보기
+    # 배율(MagnifierLensWidget.ZOOM = 3x)만큼 더 정밀하게 조준할 수 있다는
+    # 전제로 반경을 좁혀 "근처 다른 라인이 잘못 집히는" 문제를 줄인다.
+    _PICK_RADIUS_PX = 4.0
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -784,16 +801,23 @@ class NCViewerWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
+        # "투영" 라벨/버튼은 기존 대비 시인성 요청으로 폰트·아이콘 크기를
+        # 2배로 키운다(v1.5.7). 나머지(감도/큐브/다크모드)는 요청 범위 밖이라
+        # 원래 크기를 유지한다.
+        projection_font = QFont("맑은 고딕", 18)
         view_bar = QHBoxLayout()
         view_bar.setContentsMargins(6, 5, 6, 5)
-        view_bar.addWidget(QLabel("투영"))
+        projection_label = QLabel("투영")
+        projection_label.setFont(projection_font)
+        view_bar.addWidget(projection_label)
         for label, view_type in (
             ("ISO", "ISO"), ("XY", "XY"), ("XZ", "XZ"), ("YZ", "YZ"),
         ):
             button = QPushButton(label)
             # 텍스트는 남기고 앞에 축/평면 글리프를 붙여 의미를 강화한다.
             button.setIcon(iso_icon("#555555") if view_type == "ISO" else plane_icon(view_type))
-            button.setIconSize(QSize(15, 15))
+            button.setIconSize(QSize(30, 30))
+            button.setFont(projection_font)
             # 방향키로 프로그램 커서를 옮기는 도중 이 버튼이 포커스를 가져가면
             # 다음 방향키가 커서 대신 버튼 포커스 이동에 쓰이므로 항상 막아둔다.
             button.setFocusPolicy(Qt.NoFocus)
@@ -837,19 +861,25 @@ class NCViewerWidget(QWidget):
         self._refresh_dark_mode_button()
         layout.addLayout(view_bar)
 
+        # "좌표" 라벨도 시인성 요청으로 폰트·박스 크기를 2배로 키운다(v1.5.7).
+        coord_font = QFont("맑은 고딕", 18)
         coord_group = QGroupBox("좌표")
-        coord_group.setFixedHeight(54)
+        coord_group.setFont(QFont("맑은 고딕", 18, QFont.Bold))
+        coord_group.setFixedHeight(100)
         coord_layout = QHBoxLayout(coord_group)
-        coord_layout.setContentsMargins(12, 2, 12, 2)
-        coord_layout.setSpacing(16)
+        coord_layout.setContentsMargins(12, 4, 12, 4)
+        coord_layout.setSpacing(20)
         self.coord_labels = {}
         colors = {
             "X": "#FF3333", "Y": "#33AA33", "Z": "#4D68FF",
             "A": "#9A8500", "B": "#AA33AA", "C": "#229999",
         }
         for axis in ("X", "Y", "Z", "A", "B", "C"):
-            coord_layout.addWidget(QLabel(axis + ":"))
+            axis_label = QLabel(axis + ":")
+            axis_label.setFont(coord_font)
+            coord_layout.addWidget(axis_label)
             value = QLabel("0.000")
+            value.setFont(coord_font)
             value.setStyleSheet("font-weight: bold; color: %s;" % colors[axis])
             self.coord_labels[axis] = value
             coord_layout.addWidget(value)
@@ -857,14 +887,14 @@ class NCViewerWidget(QWidget):
         layout.addWidget(coord_group)
 
         self.gl_view = OrthographicGLViewWidget()
-        self.gl_view.setBackgroundColor(*self._VIEWER_BG_LIGHT)
+        self.gl_view.setBackgroundColor(*self._VIEWER_BG)
         self.gl_view.navigation_sensitivity = self._initial_sensitivity
         layout.addWidget(self.gl_view, 1)
         self._build_view_cube()
         self._build_playback_bar()
         self._build_magnifier()
         self.gl_view.left_clicked.connect(self._on_gl_left_clicked)
-        self.gl_view.right_clicked.connect(self._toggle_magnifier)
+        self.gl_view.right_clicked.connect(self._on_gl_right_clicked)
         self.gl_view.mouse_moved.connect(self._on_gl_mouse_moved)
         self.gl_view.camera_changed.connect(self._on_camera_changed_for_magnifier)
         self._magnifier_shortcut = QShortcut(QKeySequence("Escape"), self)
@@ -937,13 +967,16 @@ class NCViewerWidget(QWidget):
             lens = None
         self.magnifier = lens
 
-    def _toggle_magnifier(self):
+    def _on_gl_right_clicked(self, x, y):
+        """우클릭 위치에서 돋보기를 켠다(다시 우클릭하면 끈다) — 렌즈는 항상
+        그 우클릭 지점을 중심으로 나타나야 한다는 사용자 요청 반영(v1.5.7)."""
         if self.magnifier is None:
             return
         if self._magnifier_active:
             self._close_magnifier()
         else:
             self._magnifier_active = True
+            self.magnifier.move_center_to(x, y)
             self._recapture_magnifier_source()
             self.magnifier.show()
             self.magnifier.raise_()
@@ -984,6 +1017,12 @@ class NCViewerWidget(QWidget):
             self.magnifier.move_center_to(x, y)
 
     def _on_gl_left_clicked(self, x, y):
+        # 라인 픽킹은 돋보기가 켜져 있을 때만 동작한다 — 꺼진 상태에서는
+        # 순수 카메라 조작(좌클릭 드래그로 궤도 회전)만 하도록 요청받았다.
+        # 돋보기 없이 화면을 찍으면 의도치 않게 근처 라인으로 커서가
+        # 넘어가던 문제(v1.5.6)의 수정(v1.5.7).
+        if not self._magnifier_active:
+            return
         line_index = self.pick_source_line(x, y)
         if line_index is None:
             return
@@ -999,44 +1038,77 @@ class NCViewerWidget(QWidget):
         self._pick_flash_sphere.setVisible(True)
         self._pick_flash_timer.start()
 
+    def _collect_pick_segments(self, path_data, segments, lines, line_limit=None):
+        """path_data를 (세계좌표 선분, 도착 지점 src_line) 쌍으로 뽑아
+        segments/lines에 이어붙인다. line_limit이 주어지면 그 라인을 넘는
+        지점부터는 _render_segments()와 똑같이 잘라낸다 — 클릭 판정 대상이
+        실제로 화면에 그려진 구간과 정확히 일치해야 하기 때문이다."""
+        previous_pt = None
+        for node in path_data:
+            src_line = node.get("src_line", -1)
+            if line_limit is not None and src_line > line_limit:
+                break
+            if not node.get("valid"):
+                previous_pt = None
+                continue
+            pt = node.get("pt")
+            if pt is None:
+                previous_pt = None
+                continue
+            if previous_pt is not None:
+                segments.append((previous_pt, pt))
+                lines.append(int(src_line))
+            previous_pt = pt
+
+    def _pick_cache_scope_key(self):
+        """현재 화면에 실제로 그려진 경로 범위를 식별하는 키. PG 매칭
+        모드에서는 커서 라인이 바뀔 때마다(= 진행된 구간이 늘어날 때마다)
+        픽 캐시도 함께 갱신되어야 한다."""
+        if self.pg_match_mode:
+            return (
+                self.last_render_signature, True, self.current_cursor_line,
+                frozenset(self.selected_tools()),
+            )
+        return (self.last_render_signature, False, frozenset(self.selected_tools()))
+
     def _build_pick_cache(self):
-        """필터에서 선택된 공정들의 경로를, 화면 클릭 판정에 쓸 (세계좌표
-        선분, 도착 지점의 src_line) 목록으로 미리 뽑아 둔다. set_source_text로
-        새로 그리거나 필터 선택이 바뀌면 pick_source_line()이 자동으로 다시
-        만든다(캐시 키 = 렌더 서명 + 선택된 공정 집합)."""
-        selected = self.selected_tools()
+        """화면에 실제로 그려진 경로만, 클릭 판정에 쓸 (세계좌표 선분, 도착
+        지점의 src_line) 목록으로 미리 뽑아 둔다. 일반 모드에서는 필터로
+        선택된 공정들의 정적 경로 전체가 대상이고, PG 매칭 모드에서는
+        커서가 위치한 공정의 커서 이전(진행된) 구간만 대상이다 — 그 외
+        구간이나 다른 공정의 경로는 화면에 보이지 않으므로 클릭으로 집혀서도
+        안 된다(v1.5.7: 진행 중인 필터와 다른 값의 공구경로가 잘못 집히던
+        문제 수정). set_source_text로 새로 그리거나 필터 선택/커서 위치가
+        바뀌면 pick_source_line()이 자동으로 다시 만든다."""
         segments = []
         lines = []
-        for tool, path_data in self.tool_paths.items():
-            if tool not in selected:
-                continue
-            previous_pt = None
-            for node in path_data:
-                if not node.get("valid"):
-                    previous_pt = None
+        if self.pg_match_mode:
+            current_tool = self.line_to_tool_map.get(self.current_cursor_line)
+            if current_tool and current_tool in self.tool_paths and self._tool_selected(current_tool):
+                self._collect_pick_segments(
+                    self.tool_paths[current_tool], segments, lines,
+                    line_limit=self.current_cursor_line,
+                )
+        else:
+            selected = self.selected_tools()
+            for tool, path_data in self.tool_paths.items():
+                if tool not in selected:
                     continue
-                pt = node.get("pt")
-                if pt is None:
-                    previous_pt = None
-                    continue
-                if previous_pt is not None:
-                    segments.append((previous_pt, pt))
-                    lines.append(int(node.get("src_line", -1)))
-                previous_pt = pt
+                self._collect_pick_segments(path_data, segments, lines)
         if segments:
             self._pick_world_pts = np.array(segments, dtype=np.float64)
             self._pick_src_lines = np.array(lines, dtype=np.int64)
         else:
             self._pick_world_pts = np.zeros((0, 2, 3), dtype=np.float64)
             self._pick_src_lines = np.zeros((0,), dtype=np.int64)
-        self._pick_cache_key = (self.last_render_signature, frozenset(selected))
+        self._pick_cache_key = self._pick_cache_scope_key()
 
     def pick_source_line(self, view_x, view_y, radius_px=None):
         """gl_view 위의 논리 픽셀 좌표 (view_x, view_y)에서 radius_px 안에 있는
         가장 가까운 경로 선분을 찾아 그 도착 지점의 src_line을 반환한다.
         없으면 None."""
         radius_px = self._PICK_RADIUS_PX if radius_px is None else radius_px
-        key = (self.last_render_signature, frozenset(self.selected_tools()))
+        key = self._pick_cache_scope_key()
         if key != self._pick_cache_key:
             self._build_pick_cache()
         if self._pick_world_pts.shape[0] == 0:
@@ -1106,10 +1178,10 @@ class NCViewerWidget(QWidget):
     def set_dark_mode(self, enabled):
         """App(NC_Tool_List.py)이 다크모드 토글 시(또는 시작 시 저장된 값으로)
         호출한다 — 이 위젯 자체는 상태를 저장하지 않고 항상 App이 넘겨주는
-        값을 그대로 반영만 한다."""
+        값을 그대로 반영만 한다. 3D 캔버스 배경은 테마와 무관하게 항상
+        어둡게 고정되어 있으므로(v1.5.7) 여기서는 토글 버튼 아이콘만 갱신한다."""
         self._dark_mode = bool(enabled)
         self._refresh_dark_mode_button()
-        self.gl_view.setBackgroundColor(*self._VIEWER_BG_DARK if self._dark_mode else self._VIEWER_BG_LIGHT)
 
     def _add_axis_lines(self):
         infinite_val = 99999.0

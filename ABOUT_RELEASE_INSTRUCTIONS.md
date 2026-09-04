@@ -1,6 +1,6 @@
 # About / Release Instructions
 
-Last updated: 2026-09-04 (v1.5.6)
+Last updated: 2026-09-04 (v1.5.7)
 
 ## About button requirements
 
@@ -34,7 +34,31 @@ Last updated: 2026-09-04 (v1.5.6)
 
 ## Version history
 
-### 2026-09-04 (latest, v1.5.6)
+### 2026-09-04 (latest, v1.5.7)
+
+- Version: 1.5.7
+- Release/build date: 2026-09-04
+- Summary: Three requested fixes/changes to the v1.5.6 viewer, all follow-up corrections to that release's dark-mode/line-picking/magnifier work:
+  1. The 3D canvas (and the magnifier lens, which is just a screenshot of it) now stays on a dark background at all times, regardless of the app's light/dark theme — in light mode the previously-white canvas made the (mostly bright-colored) path lines hard to see.
+  2. Line picking is now gated behind the magnifier: a plain left-click no longer jumps the program cursor to a nearby path line (only orbits the camera as before); picking only fires while the magnifier is open, and the magnifier itself now opens centered on the exact point that was right-clicked (previously it appeared at the last tracked mouse position instead). The picking cache was also rescoped: in PG-matching mode only the *progressed* segment of the *current cursor's* tool/process is eligible to be picked — previously the cache still held the entire selected-tools' path data regardless of PG-matching or cursor position, so clicking could jump to a different process's line or to a not-yet-reached part of the current one.
+  3. The "투영" (projection) row's label/ISO-XY-XZ-YZ buttons and the "좌표" (coordinate) group's label/axis values got their font size and icon size doubled for legibility (both were using the small default/unset font).
+- Creator displayed: Hwang.seonmun
+- Open source used: Python, PyQt5, pyqtgraph, NumPy, PyOpenGL, ReportLab, PyInstaller, Inno Setup (unchanged — no dependency added or removed).
+- Details:
+  - **Dark canvas always-on (`nc_viewer_widget.py`):** `NCViewerWidget._VIEWER_BG_LIGHT`/`_VIEWER_BG_DARK` collapsed into a single `_VIEWER_BG` constant, used both at initial `gl_view.setBackgroundColor()` and never touched again by `set_dark_mode()` (which now only refreshes the sun/moon toggle-button icon). The dead `viewer_bg` entries in `NC_Tool_List.py`'s `THEMES['light']`/`THEMES['dark']` dicts were removed since nothing reads them anymore.
+  - **Click-to-pick gated behind the magnifier (`nc_viewer_widget.py`):** `NCViewerWidget._on_gl_left_clicked()` now returns immediately unless `self._magnifier_active` is true, so `pick_source_line()`/`line_activated` only fire while the lens is open.
+  - **Magnifier opens at the click point:** `OrthographicGLViewWidget.right_clicked` now carries `(float, float)` local coordinates (previously a bare signal), set from the press event's position; `NCViewerWidget._on_gl_right_clicked(x, y)` (renamed from `_toggle_magnifier`) calls `magnifier.move_center_to(x, y)` before showing it. Added a small red crosshair at the lens's exact center (`MagnifierLensWidget.paintEvent`) marking where a click actually lands, since `WA_TransparentForMouseEvents` means the lens is purely visual. `_PICK_RADIUS_PX` tightened 12→4px since picking is now always aimed through the 3x lens.
+  - **Pick cache scoped to what's actually drawn (`nc_viewer_widget.py`):** `_build_pick_cache()` now branches on `pg_match_mode` — off, it behaves as before (all selected tools' full static paths); in PG-matching mode it collects segments from only `line_to_tool_map[current_cursor_line]`'s path, cut off at `current_cursor_line` via the same `line_limit`-break logic `_render_segments()` already uses for the drawn trace (factored into the shared `_collect_pick_segments()` helper), and returns nothing if that tool isn't itself selected. The cache key (`_pick_cache_scope_key()`) now also includes the PG-matching flag and, while in that mode, the current cursor line, so it invalidates itself as the trace grows/shrinks or the tool filter changes.
+  - **Projection/coordinate font & icon size doubled (`nc_viewer_widget.py`):** the "투영" `QLabel` and ISO/XY/XZ/YZ `QPushButton`s now get an explicit `QFont('맑은 고딕', 18)` (icon size 15→30px); the "좌표" `QGroupBox` and its axis-letter/value `QLabel`s get the same 18pt font (title bolded), with the group's fixed height raised 54→100px so the larger text fits. The 감도/큐브/다크모드 controls in the same row were left untouched (out of the requested scope).
+- Verification: 84 unit tests passed (80 existing from v1.5.6 unchanged + 4 new: a real `QTest` right-click centers the magnifier lens on the click position; a real `QTest` left-click does not activate a line while the magnifier is closed but does once it's opened by right-click; in PG-matching mode, `pick_source_line()` finds the progressed segment of the cursor's tool but returns `None` for both the not-yet-progressed rest of that same tool and for the other (unreached) tool/process; the viewer's `gl_view.opts['bgcolor']` stays the same dark value across `set_dark_mode(True)`/`set_dark_mode(False)`). Also built and launched the actual frozen exe: `startup.log` showed a clean `Starting NC 공구 리스트 생성기 v1.5.7 frozen=True` line with no traceback, and the process stayed running (not a crash-exit) for 10+ seconds until explicitly stopped.
+- Installer/package: Created `installer/NC_Tool_List_Setup_v1.5.7.exe` and `installer/NC_Tool_List_Portable_v1.5.7.zip` from a fresh PyInstaller onedir rebuild after deleting `build/` and `dist/` (`upx=False` in the spec, built exe's version resource reads `1.5.7.0`/`S M.HWANG`). Portable ZIP matches the v1.5.0–v1.5.6 layout (`_internal` + `NC_Tool_List.exe` at the archive root, 311 entries).
+- Installer SHA-256: D248D5F8B2AE6044B2A0033DE1B939CDA354E658F7C5A8B4C980CC586B500FC3
+- Portable ZIP SHA-256: 0FA808F83A250DF364418F4743577147D4E409AD2B818E420F9141D9B29D2EED
+- App SHA-256: D1984AC41D22C8F77604FA45074163554DCE69585184A0E62A3B43ED98E7FB2B
+- Signature status: still unsigned.
+- Out of scope (left untouched): actual code-signing; running the installer elevated on this dev machine (the `[Registry]` association behavior is unchanged since v1.5.0); lathe (2-axis) coordinate mapping; G90/G91 incremental-mode support for ordinary moves; a settings UI for cube face labels/colors; the `ViewerFallbackWidget` (no-viewer fallback screen) is intentionally left light-only; the magnifier lens is still a fixed 220px/3x (no size/zoom control); dark-mode icon colors on the ISO/XY/XZ/YZ projection buttons are fixed rather than re-drawn per theme; 감도/큐브/다크모드 button sizes were left as-is (not requested). **v1.5.6's installer/ZIP should be treated as superseded and not distributed** — the always-dark canvas, magnifier-gated picking with correct centering/scoping, and the larger 투영/좌표 fonts described above are not in it.
+
+### 2026-09-04 (v1.5.6)
 
 - Version: 1.5.6
 - Release/build date: 2026-09-04
