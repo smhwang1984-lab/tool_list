@@ -26,8 +26,8 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
 
-APP_VERSION = '1.5.7'
-APP_NAME = 'NC 공구 리스트 생성기'
+APP_VERSION = '1.5.8'
+APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-09-04'
 APP_CREATOR = 'Hwang.seonmun'
 APP_PURPOSE = 'NC 프로그램에서 공구 리스트를 산출하고 NC 경로를 Viewer로 확인하는 도구'
@@ -93,7 +93,7 @@ M6_RE   = re.compile(r'^\s*M0?6\s*T0*(\d+)\b', re.I)
 M6_SEARCH_RE = re.compile(r'^\s*M0?6\s*T0*\d+\b', re.I | re.M)
 M00_STOP_RE = re.compile(r'M0?0(?!\d)', re.I)
 M01_STOP_RE = re.compile(r'M0?1(?!\d)', re.I)
-MAX_PLAYBACK_SPEED = 2000
+MAX_PLAYBACK_SPEED = 5000
 # 키 뒤 숫자만 추출(값이 없으면 매칭 안 됨). 긴 키를 앞에 둬서 FL이 F로 잘못 잡히지 않게 함
 KV_RE   = re.compile(r'\b(LCF|SPINDL|FEED|FL|GL|DC|RE|SIG|PL|F)\s+(-?\d+(?:\.\d+)?)', re.I)
 COMMENT_RE = re.compile(r'\(([^()]*)\)', re.S)
@@ -1268,8 +1268,8 @@ else:
 
             program_button_row2 = QHBoxLayout()
             program_button_row2.setSpacing(6)
-            self._add_button(program_button_row2, '프로그램 추가', self.open_add_program_files, kfont).setMinimumWidth(112)
-            self.run_button = self._add_button(program_button_row2, '공구 리스트 생성', self.run, kfont)
+            self._add_button(program_button_row2, 'PG ADD', self.open_add_program_files, kfont).setMinimumWidth(112)
+            self.run_button = self._add_button(program_button_row2, 'Tool List', self.run, kfont)
             self.run_button.setMinimumWidth(128)
             program_button_row2.addStretch()
             left_layout.addLayout(program_button_row2)
@@ -1348,6 +1348,10 @@ else:
             filter_label.setFont(QFont('맑은 고딕', 9, QFont.Bold))
             filter_bar.addWidget(filter_label)
             filter_bar.addStretch()
+            self.reset_program_button = self._add_button(
+                filter_bar, 'Reset', lambda: self.jump_to_process_line(0), kfont
+            )
+            self.reset_program_button.setToolTip('프로그램 커서를 맨 상단(첫 줄)으로 이동합니다.')
             self.pg_match_check = QCheckBox('PG 매칭')
             self.pg_match_check.setFont(kfont)
             self.pg_match_check.setToolTip(

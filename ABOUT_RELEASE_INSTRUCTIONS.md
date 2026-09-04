@@ -1,6 +1,6 @@
 # About / Release Instructions
 
-Last updated: 2026-09-04 (v1.5.7)
+Last updated: 2026-09-04 (v1.5.8)
 
 ## About button requirements
 
@@ -34,7 +34,35 @@ Last updated: 2026-09-04 (v1.5.7)
 
 ## Version history
 
-### 2026-09-04 (latest, v1.5.7)
+### 2026-09-04 (latest, v1.5.8)
+
+- Version: 1.5.8
+- Release/build date: 2026-09-04
+- Summary: Six follow-up requests on top of v1.5.7:
+  1. The "투영"/"좌표" font+icon sizes from v1.5.7 (18pt/30px) felt too large — scaled down to 0.7x (13pt/21px); the "좌표" group's fixed height was reduced 100→70px to match.
+  2. The "감도"/"큐브" labels and their slider bars, previously at the unset default font and 110px/90px widths, were scaled up 1.5x (14pt font; 165px/135px slider widths; value-label widths 38→57px).
+  3. The app's main title (window title bar, in-app header label, About dialog heading, startup-log line) changed from "NC 공구 리스트 생성기" to "Sum Path" (`APP_NAME` constant) — the app's purpose text, exe filename, install folder, and file-association ProgId are unchanged (out of scope, see below).
+  4. In the program-input row, "프로그램 추가" was renamed to "PG ADD" and "공구 리스트 생성" was renamed to "Tool List" ("지우기"/"예제"/"파일 열기" were left as-is — only these two were requested).
+  5. Auto-playback max speed raised again, 2000x → 5000x.
+  6. A new "Reset" button was added to the filter bar, immediately before the "PG 매칭" checkbox — it moves the program cursor straight to the top of the program (line 0), reusing the existing `jump_to_process_line(0)`.
+- Creator displayed: Hwang.seonmun
+- Open source used: Python, PyQt5, pyqtgraph, NumPy, PyOpenGL, ReportLab, PyInstaller, Inno Setup (unchanged — no dependency added or removed).
+- Details:
+  - **투영/좌표 0.7x (`nc_viewer_widget.py`):** `projection_font`/`coord_font` changed from `QFont('맑은 고딕', 18)` to `QFont('맑은 고딕', 13)`; ISO/XY/XZ/YZ icon size 30→21px; `coord_group.setFixedHeight()` 100→70.
+  - **감도/큐브 1.5x (`nc_viewer_widget.py`):** new `sensitivity_cube_font = QFont('맑은 고딕', 14)` applied to the "감도"/"큐브" `QLabel`s and their value labels (previously unset/inherited default font, ~9pt); `sensitivity_slider`/`view_cube_size_slider` fixed widths 110→165 / 90→135; `sensitivity_value_label`/`view_cube_size_label` fixed widths 38→57.
+  - **App rename (`NC_Tool_List.py`):** `APP_NAME = 'NC 공구 리스트 생성기'` → `'Sum Path'`. This alone drives the window title (`setWindowTitle`), the in-app header `QLabel`, the About dialog's title `QLabel`, and `write_startup_log`'s first line, since all four format off the same constant. Left untouched: `APP_PURPOSE` description text, the PyInstaller/Inno Setup exe filename (`NC_Tool_List.exe`), the install directory (`C:\NC_Tool_List`, the documented TSERP-style path), `version_info.txt`'s `FileDescription`/`ProductName`, and `NC_Tool_List.iss`'s `MyAppName`/Start-Menu/shortcut strings — none of these were named as "메인제목" and changing them would ripple into existing shortcuts/registry entries/plant deployment conventions that weren't part of this request.
+  - **Button renames (`NC_Tool_List.py`):** the `'프로그램 추가'`/`'공구 리스트 생성'` string literals passed to `_add_button()` changed to `'PG ADD'`/`'Tool List'`; `self.run_button` still refers to the same button (its handler/`open_add_program_files` wiring unchanged).
+  - **2000x → 5000x (`NC_Tool_List.py` + `nc_viewer_widget.py`):** both `MAX_PLAYBACK_SPEED` constants bumped to 5000 (kept in sync, as before). No label-width change needed — `"5000x"` is the same character count as `"2000x"`.
+  - **Reset button (`NC_Tool_List.py`):** `self.reset_program_button = self._add_button(filter_bar, 'Reset', lambda: self.jump_to_process_line(0), kfont)` added to `filter_bar` right before `self.pg_match_check` is constructed, so it renders immediately to its left.
+- Verification: 85 unit tests passed (84 existing from v1.5.7, with 2 updated for the renamed buttons/5000x cap and one v1.5.7 magnifier-gated-click test's target point moved off a segment-junction vertex to fix a corner-tie flake the tighter 4px pick radius exposed, + 1 new: a real button click moves the program cursor to line 0 from elsewhere, and the Reset button is confirmed to render before the PG-매칭 checkbox in the filter bar). Also built and launched the actual frozen exe: `startup.log` showed a clean `Starting Sum Path v1.5.8 frozen=True` line with no traceback, and the process stayed running (not a crash-exit) for several seconds until explicitly stopped.
+- Installer/package: Created `installer/NC_Tool_List_Setup_v1.5.8.exe` and `installer/NC_Tool_List_Portable_v1.5.8.zip` from a fresh PyInstaller onedir rebuild after deleting `build/` and `dist/` (`upx=False` in the spec, built exe's version resource reads `1.5.8.0`/`S M.HWANG`). Portable ZIP matches the v1.5.0–v1.5.7 layout (`_internal` + `NC_Tool_List.exe` at the archive root, 311 entries).
+- Installer SHA-256: 75451E23C75DD46A381858A8A593E43F70F58282A8C53754A88340EAD6F523D0
+- Portable ZIP SHA-256: 228F0470F61CDB89605E997E10BA7178E8973D6098744FE2F6116C524CEEAC68
+- App SHA-256: D55739C55E07BBEE9A9723962892A45D38DCC3FD7053380EBFB61FC6A89C4675
+- Signature status: still unsigned.
+- Out of scope (left untouched): actual code-signing; running the installer elevated on this dev machine; the exe filename/install directory/Start-Menu display name/file-association ProgId (all still say "NC Tool List"/"NC_Tool_List" — only the in-app "메인제목" was renamed, see above); lathe (2-axis) coordinate mapping; G90/G91 incremental-mode support for ordinary moves; a settings UI for cube face labels/colors; the `ViewerFallbackWidget` (no-viewer fallback screen) is intentionally left light-only; the magnifier lens is still a fixed 220px/3x; 다크모드 button size was left as-is (not requested this round). **v1.5.7's installer/ZIP should be treated as superseded and not distributed** — the resized 투영/좌표/감도/큐브 UI, "Sum Path" rename, PG ADD/Tool List button labels, 5000x speed cap, and the Reset button described above are not in it.
+
+### 2026-09-04 (v1.5.7)
 
 - Version: 1.5.7
 - Release/build date: 2026-09-04

@@ -31,7 +31,7 @@ from PyQt5.QtWidgets import (
 PX_PER_CM = 96.0 / 2.54
 
 # PG 매칭 자동 재생 최대 배속. NC_Tool_List.py의 동일 상수와 값을 맞춰서 유지한다.
-MAX_PLAYBACK_SPEED = 2000
+MAX_PLAYBACK_SPEED = 5000
 
 TOOL_COLOR_MAPS = [
     [1.0, 0.45, 0.10], [0.0, 0.70, 1.0], [0.20, 0.90, 0.25],
@@ -801,10 +801,9 @@ class NCViewerWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # "투영" 라벨/버튼은 기존 대비 시인성 요청으로 폰트·아이콘 크기를
-        # 2배로 키운다(v1.5.7). 나머지(감도/큐브/다크모드)는 요청 범위 밖이라
-        # 원래 크기를 유지한다.
-        projection_font = QFont("맑은 고딕", 18)
+        # "투영" 라벨/버튼: v1.5.7에 2배(18pt/30px)로 키웠으나 너무 커 보인다는
+        # 피드백으로 v1.5.8에서 그 값의 0.7배로 다시 낮춘다(13pt/21px).
+        projection_font = QFont("맑은 고딕", 13)
         view_bar = QHBoxLayout()
         view_bar.setContentsMargins(6, 5, 6, 5)
         projection_label = QLabel("투영")
@@ -816,7 +815,7 @@ class NCViewerWidget(QWidget):
             button = QPushButton(label)
             # 텍스트는 남기고 앞에 축/평면 글리프를 붙여 의미를 강화한다.
             button.setIcon(iso_icon("#555555") if view_type == "ISO" else plane_icon(view_type))
-            button.setIconSize(QSize(30, 30))
+            button.setIconSize(QSize(21, 21))
             button.setFont(projection_font)
             # 방향키로 프로그램 커서를 옮기는 도중 이 버튼이 포커스를 가져가면
             # 다음 방향키가 커서 대신 버튼 포커스 이동에 쓰이므로 항상 막아둔다.
@@ -824,29 +823,39 @@ class NCViewerWidget(QWidget):
             button.clicked.connect(lambda _checked=False, value=view_type: self.set_camera_projection(value))
             view_bar.addWidget(button)
         view_bar.addStretch()
-        view_bar.addWidget(QLabel("감도"))
+        # "감도"/"큐브" 라벨과 슬라이더(바)는 기존(설정 안 된 기본 폰트, 폭
+        # 110/90px)의 1.5배로 키운다(v1.5.8 요청) — 폰트는 앱 기본 라벨 크기인
+        # 9pt를 기준으로 1.5배(≈14pt)를 명시로 준다.
+        sensitivity_cube_font = QFont("맑은 고딕", 14)
+        sensitivity_label = QLabel("감도")
+        sensitivity_label.setFont(sensitivity_cube_font)
+        view_bar.addWidget(sensitivity_label)
         self.sensitivity_slider = QSlider(Qt.Horizontal)
         self.sensitivity_slider.setRange(5, 200)
-        self.sensitivity_slider.setFixedWidth(110)
+        self.sensitivity_slider.setFixedWidth(165)
         self.sensitivity_slider.setValue(round(self._initial_sensitivity * 100))
         self.sensitivity_slider.setToolTip("마우스 드래그/휠 회전·확대 감도")
         self.sensitivity_slider.setFocusPolicy(Qt.NoFocus)
         self.sensitivity_slider.valueChanged.connect(self._on_sensitivity_changed)
         view_bar.addWidget(self.sensitivity_slider)
         self.sensitivity_value_label = QLabel("%d%%" % self.sensitivity_slider.value())
-        self.sensitivity_value_label.setFixedWidth(38)
+        self.sensitivity_value_label.setFont(sensitivity_cube_font)
+        self.sensitivity_value_label.setFixedWidth(57)
         view_bar.addWidget(self.sensitivity_value_label)
-        view_bar.addWidget(QLabel("큐브"))
+        cube_label = QLabel("큐브")
+        cube_label.setFont(sensitivity_cube_font)
+        view_bar.addWidget(cube_label)
         self.view_cube_size_slider = QSlider(Qt.Horizontal)
         self.view_cube_size_slider.setRange(60, 240)
-        self.view_cube_size_slider.setFixedWidth(90)
+        self.view_cube_size_slider.setFixedWidth(135)
         self.view_cube_size_slider.setValue(self._initial_cube_size)
         self.view_cube_size_slider.setToolTip("방향 큐브 크기")
         self.view_cube_size_slider.setFocusPolicy(Qt.NoFocus)
         self.view_cube_size_slider.valueChanged.connect(self._on_view_cube_size_changed)
         view_bar.addWidget(self.view_cube_size_slider)
         self.view_cube_size_label = QLabel("%dpx" % self.view_cube_size_slider.value())
-        self.view_cube_size_label.setFixedWidth(38)
+        self.view_cube_size_label.setFont(sensitivity_cube_font)
+        self.view_cube_size_label.setFixedWidth(57)
         view_bar.addWidget(self.view_cube_size_label)
         self.dark_mode_button = QPushButton()
         self.dark_mode_button.setCheckable(True)
@@ -861,11 +870,12 @@ class NCViewerWidget(QWidget):
         self._refresh_dark_mode_button()
         layout.addLayout(view_bar)
 
-        # "좌표" 라벨도 시인성 요청으로 폰트·박스 크기를 2배로 키운다(v1.5.7).
-        coord_font = QFont("맑은 고딕", 18)
+        # "좌표" 라벨: v1.5.7에 2배(18pt)로 키웠으나 v1.5.8에서 그 값의
+        # 0.7배로 다시 낮춘다(13pt) — 박스 높이도 같은 비율로 줄인다.
+        coord_font = QFont("맑은 고딕", 13)
         coord_group = QGroupBox("좌표")
-        coord_group.setFont(QFont("맑은 고딕", 18, QFont.Bold))
-        coord_group.setFixedHeight(100)
+        coord_group.setFont(QFont("맑은 고딕", 13, QFont.Bold))
+        coord_group.setFixedHeight(70)
         coord_layout = QHBoxLayout(coord_group)
         coord_layout.setContentsMargins(12, 4, 12, 4)
         coord_layout.setSpacing(20)

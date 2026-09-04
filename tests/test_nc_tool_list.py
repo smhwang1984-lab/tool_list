@@ -294,7 +294,7 @@ X60 Y10 Z0
                 return texts
 
             self.assertEqual(button_texts(row1), ['지우기', '예제', '파일 열기'])
-            self.assertEqual(button_texts(row2), ['프로그램 추가', '공구 리스트 생성'])
+            self.assertEqual(button_texts(row2), ['PG ADD', 'Tool List'])
         finally:
             window.deleteLater()
             settings_dir.cleanup()
@@ -997,6 +997,41 @@ G02 X0 Y10 I-10 J0
             qapp.processEvents()
 
     @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_reset_button_moves_program_cursor_to_top(self):
+        """PG 매칭 체크박스 앞의 'Reset' 버튼은 프로그램 커서를 맨 위(0번
+        줄)로 되돌려야 한다(v1.5.8 요청)."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        window = app.App(_root=settings_dir.name)
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                nc_path = Path(directory) / 'sample.nc'
+                nc_path.write_text(REAL_NC_SAMPLE, encoding='utf-8')
+                window.load_file(str(nc_path))
+                qapp.processEvents()
+
+                window.jump_to_process_line(5)
+                qapp.processEvents()
+                self.assertEqual(window.src.textCursor().blockNumber(), 5)
+
+                # 필터 바 안에서 PG 매칭 체크박스보다 앞에 배치되어야 한다
+                # (Qt는 findChildren을 생성/추가 순서로 반환한다).
+                self.assertEqual(window.reset_program_button.text(), 'Reset')
+                labeled_children = [
+                    w for w in window.filter_panel.findChildren(app.QWidget)
+                    if isinstance(w, (app.QPushButton, app.QCheckBox)) and w.text() in ('Reset', 'PG 매칭')
+                ]
+                self.assertEqual([w.text() for w in labeled_children], ['Reset', 'PG 매칭'])
+
+                window.reset_program_button.click()
+                qapp.processEvents()
+                self.assertEqual(window.src.textCursor().blockNumber(), 0)
+        finally:
+            window.deleteLater()
+            settings_dir.cleanup()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
     def test_app_current_line_is_highlighted_as_full_width_block(self):
         from PyQt5.QtGui import QTextFormat
 
@@ -1520,14 +1555,14 @@ G02 X0 Y10 I-10 J0
             qapp.processEvents()
 
     @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
-    def test_playback_speed_max_is_2000x(self):
+    def test_playback_speed_max_is_5000x(self):
         from nc_viewer_widget import NCViewerWidget
 
         qapp = app.QApplication.instance() or app.QApplication([])
         viewer = NCViewerWidget()
         try:
             self.assertEqual(viewer.playback_bar.speed_slider.minimum(), 1)
-            self.assertEqual(viewer.playback_bar.speed_slider.maximum(), 2000)
+            self.assertEqual(viewer.playback_bar.speed_slider.maximum(), 5000)
         finally:
             viewer.deleteLater()
             qapp.processEvents()
@@ -1535,8 +1570,8 @@ G02 X0 Y10 I-10 J0
         settings_dir = tempfile.TemporaryDirectory()
         window = app.App(_root=settings_dir.name)
         try:
-            window.set_playback_speed(5000)
-            self.assertEqual(window.play_speed, 2000)
+            window.set_playback_speed(6000)
+            self.assertEqual(window.play_speed, 5000)
             window.set_playback_speed(0)
             self.assertEqual(window.play_speed, 1)
         finally:
@@ -1963,10 +1998,18 @@ G02 X0 Y10 I-10 J0
                     target_line, target_pt = line_idx, pt
                     break
             self.assertIsNotNone(target_line)
+            prev_pt = viewer.line_to_coord_map.get(target_line - 1)
+            self.assertIsNotNone(prev_pt)
+
+            # 목표 지점(100,0,0)은 다음 세그먼트(→ 100,100,0)와 정확히 맞닿는
+            # 꼭짓점이라, 정밀도가 좁아진(4px, v1.5.7) 픽 반경에서는 두 세그먼트가
+            # 동일 거리로 집혀 어느 쪽이 뽑힐지 불안정해진다 — 세그먼트 중간
+            # 지점(직교투영이라 월드 중점 = 화면 중점)을 클릭해 모호함을 없앤다.
+            midpoint = tuple((a + b) / 2.0 for a, b in zip(target_pt, prev_pt))
 
             viewport = viewer.gl_view.getViewport()
             mvp = viewer.gl_view.projectionMatrix(viewport, viewport) * viewer.gl_view.viewMatrix()
-            vec = mvp.map(QVector3D(*target_pt))
+            vec = mvp.map(QVector3D(*midpoint))
             pos = QPoint(
                 int(round((vec.x() + 1.0) / 2.0 * viewport[2])),
                 int(round((1.0 - vec.y()) / 2.0 * viewport[3])),
