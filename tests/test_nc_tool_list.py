@@ -253,15 +253,33 @@ X60 Y10 Z0
         try:
             self.assertEqual(app.MAIN_SPLITTER_INITIAL_SIZES, [app.PROGRAM_PANE_MIN_WIDTH, 1125])
             self.assertEqual(app.INPUT_SPLITTER_INITIAL_SIZES, [480, 208])
-            self.assertEqual(window.btn_machine_settings.text(), '장비 설정')
+            self.assertFalse(hasattr(window, 'btn_machine_settings'))
             self.assertEqual(window.machine_settings_panel.title(), '')
-            panel_labels = [label.text() for label in window.machine_settings_panel.findChildren(app.QLabel)]
-            self.assertIn('장비 타입 및 스펙 설정', panel_labels)
+            self.assertIn('장비 타입 및 스펙 설정', window.machine_panel_toggle.text())
             self.assertTrue(window.machine_settings_panel.isHidden())
+            # 접이식 패널은 기본적으로 접혀 있어 프로그램 입력창을 더 넓게 쓴다.
+            self.assertFalse(window.machine_panel_toggle.isChecked())
+            self.assertTrue(window.machine_settings_body.isHidden())
             window.set_mode('viewer')
             self.assertFalse(window.machine_settings_panel.isHidden())
             self.assertGreater(window.machine_type_combo.count(), 0)
             self.assertGreater(window.machine_spec_form.rowCount(), 0)
+
+            window.set_machine_panel_expanded(True)
+            self.assertTrue(window.machine_panel_toggle.isChecked())
+            self.assertFalse(window.machine_settings_body.isHidden())
+            window.save_visible_machine_settings()
+            self.assertFalse(window.machine_panel_toggle.isChecked())
+            self.assertTrue(window.machine_settings_body.isHidden())
+
+            window.set_machine_panel_expanded(True)
+            window.show()
+            qapp.processEvents()
+            window.src.setFocus()
+            qapp.processEvents()
+            self.assertTrue(window.src.hasFocus())
+            self.assertFalse(window.machine_panel_toggle.isChecked())
+            self.assertTrue(window.machine_settings_body.isHidden())
 
             program_layout = window.program_panel.layout()
             row1 = program_layout.itemAt(1).layout()
@@ -1200,6 +1218,696 @@ G02 X0 Y10 I-10 J0
         # QTextEdit(리치 텍스트)로 되돌아가면 위 성능 회귀가 다시 생긴다 — 기반
         # 클래스가 QPlainTextEdit인지를 직접 고정해 둔다.
         self.assertTrue(issubclass(app.ProgramTextEdit, app.QPlainTextEdit))
+
+    # ---- v1.5.4: PG 매칭 자동 재생 ----
+    def test_line_has_program_stop_detects_m00_and_m01_only(self):
+        for line in ('M0', 'M00', 'M1', 'M01', 'G54M01', ' M01 '):
+            self.assertTrue(app.line_has_program_stop(line), line)
+        for line in (
+            'M02', 'M03', 'M05', 'M06', 'M08', 'M09', 'M10', 'M11', 'M30',
+            '(M01 STOP)', '',
+        ):
+            self.assertFalse(app.line_has_program_stop(line), line)
+
+    def test_line_stops_playback_respects_each_option_independently(self):
+        # 세 옵션 모두 꺼져 있으면 아무 것도 멈추지 않는다.
+        self.assertFalse(app.line_stops_playback('M00', 'G43', False, False, False))
+        self.assertFalse(app.line_stops_playback('M01', 'G43', False, False, False))
+        self.assertFalse(app.line_stops_playback('G43 H1', 'G43', False, False, False))
+
+        # 정지(M00/M0)만 켠 경우 M01은 무시한다.
+        self.assertTrue(app.line_stops_playback('M00', '', False, True, False))
+        self.assertFalse(app.line_stops_playback('M01', '', False, True, False))
+
+        # 옵션정지(M01/M1)만 켠 경우 M00은 무시한다.
+        self.assertTrue(app.line_stops_playback('M01', '', False, False, True))
+        self.assertFalse(app.line_stops_playback('M00', '', False, False, True))
+
+        # 텍스트 정지는 검색어가 포함된 줄에서만, 대소문자 무시하고 멈춘다.
+        self.assertTrue(app.line_stops_playback('G43 H1 Z50.', 'g43', True, False, False))
+        self.assertFalse(app.line_stops_playback('G0 X0 Y0', 'G43', True, False, False))
+        # 검색어가 비어 있으면 텍스트 정지는 동작하지 않는다.
+        self.assertFalse(app.line_stops_playback('G43 H1', '', True, False, False))
+
+    @staticmethod
+    def _build_playback_sample_text(first_run=20, second_run=20):
+        """모션 줄 first_run개 -> M01 -> 모션 줄 second_run개 -> M30."""
+        lines = ['%', 'O2000']
+        for i in range(first_run):
+            lines.append('N%d G01 X%d Y0' % (i, i))
+        lines.append('M01')
+        for i in range(second_run):
+            lines.append('N%d G01 X%d Y0' % (first_run + i, first_run + i))
+        lines.append('M30')
+        return '\n'.join(lines)
+
+    def _make_window_with_text(self, text, settings_dir):
+        window = app.App(_root=settings_dir)
+        window.src.setPlainText(text)
+        window.set_mode('viewer')
+        window.pg_match_check.setChecked(True)
+        window.jump_to_process_line(0)
+        return window
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_playback_advances_expected_lines_per_tick(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        try:
+            text = self._build_playback_sample_text(first_run=200, second_run=1)
+            window = self._make_window_with_text(text, settings_dir.name)
+            try:
+                # 50ms 틱 * 20배속 = 초당 20줄 -> 틱당 정확히 1줄.
+                window.set_playback_speed(20)
+                window._playback_tick()
+                self.assertEqual(window.src.textCursor().blockNumber(), 1)
+
+                # 50ms 틱 * 100배속 = 초당 100줄 -> 틱당 정확히 5줄.
+                window.jump_to_process_line(0)
+                window._play_carry = 0.0
+                window.set_playback_speed(100)
+                window._playback_tick()
+                self.assertEqual(window.src.textCursor().blockNumber(), 5)
+            finally:
+                window.deleteLater()
+                qapp.processEvents()
+        finally:
+            settings_dir.cleanup()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_playback_stops_exactly_on_m01_even_when_tick_skips_past_it(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        try:
+            text = self._build_playback_sample_text(first_run=50, second_run=50)
+            window = self._make_window_with_text(text, settings_dir.name)
+            try:
+                window.set_playback_speed(200)  # 틱당 10줄 -> M01을 건너뛰기 쉬운 배속
+                window.start_playback()
+                self.assertTrue(window.play_timer.isActive())
+                for _ in range(200):
+                    window._playback_tick()
+                    if not window.play_timer.isActive():
+                        break
+                self.assertFalse(window.play_timer.isActive())
+                stop_block = window.src.document().findBlockByNumber(
+                    window.src.textCursor().blockNumber()
+                )
+                self.assertEqual(stop_block.text().strip(), 'M01')
+            finally:
+                window.deleteLater()
+                qapp.processEvents()
+        finally:
+            settings_dir.cleanup()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_playback_skips_m01_when_option_stop_unchecked(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        try:
+            text = self._build_playback_sample_text(first_run=50, second_run=50)
+            window = self._make_window_with_text(text, settings_dir.name)
+            try:
+                window.stop_m01_check.setChecked(False)
+                window.set_playback_speed(200)
+                window.start_playback()
+                for _ in range(200):
+                    window._playback_tick()
+                    if not window.play_timer.isActive():
+                        break
+                self.assertFalse(window.play_timer.isActive())
+                last_line = window.src.document().blockCount() - 1
+                self.assertEqual(window.src.textCursor().blockNumber(), last_line)
+            finally:
+                window.deleteLater()
+                qapp.processEvents()
+        finally:
+            settings_dir.cleanup()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_playback_stops_on_text_when_text_stop_checked(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        try:
+            lines = ['%', 'O2000']
+            for i in range(30):
+                lines.append('N%d G01 X%d Y0' % (i, i))
+            lines.insert(16, 'G43 H1 Z50.')
+            lines.append('M30')
+            text = '\n'.join(lines)
+            window = self._make_window_with_text(text, settings_dir.name)
+            try:
+                window.stop_m00_check.setChecked(False)
+                window.stop_m01_check.setChecked(False)
+                window.stop_text_check.setChecked(True)
+                window.stop_text_input.setText('G43')
+                window.set_playback_speed(200)
+                window.start_playback()
+                for _ in range(200):
+                    window._playback_tick()
+                    if not window.play_timer.isActive():
+                        break
+                self.assertFalse(window.play_timer.isActive())
+                stop_block = window.src.document().findBlockByNumber(
+                    window.src.textCursor().blockNumber()
+                )
+                self.assertIn('G43', stop_block.text())
+            finally:
+                window.deleteLater()
+                qapp.processEvents()
+        finally:
+            settings_dir.cleanup()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_playback_stops_at_end_of_document(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        try:
+            text = self._build_playback_sample_text(first_run=5, second_run=5)
+            window = self._make_window_with_text(text, settings_dir.name)
+            try:
+                # M01 줄 바로 다음부터 재생을 시작해 정지 코드를 건너뛴다.
+                window.jump_to_process_line(window.src.document().blockCount() - 6)
+                window.set_playback_speed(200)
+                window.start_playback()
+                for _ in range(200):
+                    window._playback_tick()
+                    if not window.play_timer.isActive():
+                        break
+                self.assertFalse(window.play_timer.isActive())
+                last_line = window.src.document().blockCount() - 1
+                self.assertEqual(window.src.textCursor().blockNumber(), last_line)
+            finally:
+                window.deleteLater()
+                qapp.processEvents()
+        finally:
+            settings_dir.cleanup()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_playback_pauses_when_pg_match_mode_turned_off(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        try:
+            text = self._build_playback_sample_text(first_run=100, second_run=1)
+            window = self._make_window_with_text(text, settings_dir.name)
+            try:
+                window.start_playback()
+                self.assertTrue(window.play_timer.isActive())
+                window.pg_match_check.setChecked(False)
+                self.assertFalse(window.play_timer.isActive())
+                self.assertFalse(window.viewer.playback_bar.isEnabled())
+            finally:
+                window.deleteLater()
+                qapp.processEvents()
+        finally:
+            settings_dir.cleanup()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_playback_pauses_when_leaving_viewer_mode(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        try:
+            text = self._build_playback_sample_text(first_run=100, second_run=1)
+            window = self._make_window_with_text(text, settings_dir.name)
+            try:
+                window.start_playback()
+                self.assertTrue(window.play_timer.isActive())
+                window.set_mode('tool')
+                self.assertFalse(window.play_timer.isActive())
+            finally:
+                window.deleteLater()
+                qapp.processEvents()
+        finally:
+            settings_dir.cleanup()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_playback_prev_next_tool_jump_between_process_start_lines(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        try:
+            window = app.App(_root=settings_dir.name)
+            try:
+                with tempfile.TemporaryDirectory() as directory:
+                    nc_path = Path(directory) / 'sample.nc'
+                    nc_path.write_text(REAL_NC_SAMPLE, encoding='utf-8')
+                    window.load_file(str(nc_path))
+                window.set_mode('viewer')
+                window.pg_match_check.setChecked(True)
+                qapp.processEvents()
+
+                first_lines = sorted(window.viewer.process_first_line.values())
+                self.assertGreaterEqual(len(first_lines), 3)
+
+                window.jump_to_process_line(first_lines[0])
+                window.playback_next_tool()
+                self.assertEqual(window.src.textCursor().blockNumber(), first_lines[1])
+
+                window.playback_next_tool()
+                self.assertEqual(window.src.textCursor().blockNumber(), first_lines[2])
+
+                window.playback_prev_tool()
+                self.assertEqual(window.src.textCursor().blockNumber(), first_lines[1])
+            finally:
+                window.deleteLater()
+                qapp.processEvents()
+        finally:
+            settings_dir.cleanup()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_playback_rewind_returns_to_current_process_start_line(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        try:
+            window = app.App(_root=settings_dir.name)
+            try:
+                with tempfile.TemporaryDirectory() as directory:
+                    nc_path = Path(directory) / 'sample.nc'
+                    nc_path.write_text(REAL_NC_SAMPLE, encoding='utf-8')
+                    window.load_file(str(nc_path))
+                window.set_mode('viewer')
+                window.pg_match_check.setChecked(True)
+                qapp.processEvents()
+
+                first_lines = sorted(window.viewer.process_first_line.values())
+                start_line = first_lines[1]
+                window.jump_to_process_line(start_line + 1)
+                window.playback_rewind()
+                self.assertEqual(window.src.textCursor().blockNumber(), start_line)
+                self.assertFalse(window.play_timer.isActive())
+            finally:
+                window.deleteLater()
+                qapp.processEvents()
+        finally:
+            settings_dir.cleanup()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_gl_view_and_playback_bar_never_take_keyboard_focus(self):
+        from nc_viewer_widget import NCViewerWidget
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer = NCViewerWidget()
+        try:
+            self.assertEqual(viewer.gl_view.focusPolicy(), app.Qt.NoFocus)
+            self.assertIsNotNone(viewer.playback_bar)
+            self.assertEqual(viewer.playback_bar.speed_slider.focusPolicy(), app.Qt.NoFocus)
+            for button in (
+                viewer.playback_bar.prev_tool_button, viewer.playback_bar.rewind_button,
+                viewer.playback_bar.play_pause_button, viewer.playback_bar.next_tool_button,
+            ):
+                self.assertEqual(button.focusPolicy(), app.Qt.NoFocus)
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_playback_speed_max_is_2000x(self):
+        from nc_viewer_widget import NCViewerWidget
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer = NCViewerWidget()
+        try:
+            self.assertEqual(viewer.playback_bar.speed_slider.minimum(), 1)
+            self.assertEqual(viewer.playback_bar.speed_slider.maximum(), 2000)
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+        settings_dir = tempfile.TemporaryDirectory()
+        window = app.App(_root=settings_dir.name)
+        try:
+            window.set_playback_speed(5000)
+            self.assertEqual(window.play_speed, 2000)
+            window.set_playback_speed(0)
+            self.assertEqual(window.play_speed, 1)
+        finally:
+            window.deleteLater()
+            settings_dir.cleanup()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_clicking_3d_viewer_does_not_break_arrow_key_program_stepping(self):
+        # 회귀 재현: 3D 뷰어를 클릭하면 pyqtgraph GLViewWidget이 ClickFocus로
+        # 키보드 포커스를 가져가 버려서, 그 뒤의 방향키가 프로그램 커서 대신
+        # 카메라 회전에 쓰였다. gl_view의 NoFocus가 이를 막는지 실제 클릭으로 확인한다.
+        from PyQt5.QtTest import QTest
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        window = app.App(_root=settings_dir.name)
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                nc_path = Path(directory) / 'sample.nc'
+                nc_path.write_text(REAL_NC_SAMPLE, encoding='utf-8')
+                window.load_file(str(nc_path))
+                window.set_mode('viewer')
+                window.show()
+                qapp.processEvents()
+
+                window.src.setFocus()
+                self.assertTrue(window.src.hasFocus())
+
+                QTest.mouseClick(window.viewer.gl_view, app.Qt.LeftButton)
+                qapp.processEvents()
+                self.assertTrue(window.src.hasFocus())
+                self.assertFalse(window.viewer.gl_view.hasFocus())
+
+                before = window.src.textCursor().blockNumber()
+                QTest.keyClick(window.src, app.Qt.Key_Down)
+                qapp.processEvents()
+                self.assertGreater(window.src.textCursor().blockNumber(), before)
+        finally:
+            window.deleteLater()
+            settings_dir.cleanup()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_view_cube_default_size_is_doubled_and_slider_updates_and_persists(self):
+        import nc_viewer_widget as viewer_module
+
+        class FakeSettings:
+            store = {}
+
+            def __init__(self, *_args):
+                pass
+
+            def value(self, key, default=None):
+                return self.store.get(key, default)
+
+            def setValue(self, key, value):
+                self.store[key] = value
+
+            def sync(self):
+                pass
+
+        FakeSettings.store = {}
+        original_qsettings = viewer_module.QSettings
+        viewer_module.QSettings = FakeSettings
+        qapp = app.QApplication.instance() or app.QApplication([])
+        try:
+            first = viewer_module.NCViewerWidget()
+            self.assertEqual(first.view_cube.width(), 160)
+            self.assertEqual(first.view_cube.height(), 160)
+
+            first.view_cube_size_slider.setValue(200)
+            self.assertEqual(first.view_cube.width(), 200)
+            self.assertEqual(FakeSettings.store['view_cube_size'], 200)
+
+            second = viewer_module.NCViewerWidget()
+            self.assertEqual(second.view_cube_size_slider.value(), 200)
+            self.assertEqual(second.view_cube.width(), 200)
+            first.deleteLater()
+            second.deleteLater()
+            qapp.processEvents()
+        finally:
+            viewer_module.QSettings = original_qsettings
+
+    # ---------- v1.5.6 ----------
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_stop_text_input_is_independent_of_search_text(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        try:
+            text = self._build_playback_sample_text(first_run=30, second_run=1)
+            window = self._make_window_with_text(text, settings_dir.name)
+            try:
+                window.stop_m00_check.setChecked(False)
+                window.stop_m01_check.setChecked(False)
+                window.stop_text_check.setChecked(True)
+                window.stop_text_input.setText('NOMATCH')
+                window.search_text.setText('N5')  # 문자 검색에만 넣고 정지 입력창엔 안 넣음
+                window.set_playback_speed(200)
+                window.start_playback()
+                for _ in range(200):
+                    window._playback_tick()
+                    if not window.play_timer.isActive():
+                        break
+                # 정지 문자(NOMATCH)가 없으니 문서 끝까지 진행되어야 한다 —
+                # "문자 검색" 값(N5)이 새어 들어가 중간에 멈추면 실패.
+                self.assertFalse(window.play_timer.isActive())
+                last_line = window.src.document().blockCount() - 1
+                self.assertEqual(window.src.textCursor().blockNumber(), last_line)
+            finally:
+                window.deleteLater()
+                qapp.processEvents()
+        finally:
+            settings_dir.cleanup()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_stop_text_input_persists_independently_via_settings(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        try:
+            first = app.App(_root=settings_dir.name)
+            first.stop_text_check.setChecked(True)
+            first.stop_text_input.setText('G43')
+            first._save_playback_stop_options()
+            first.deleteLater()
+            qapp.processEvents()
+
+            second = app.App(_root=settings_dir.name)
+            try:
+                self.assertTrue(second.stop_text_check.isChecked())
+                self.assertEqual(second.stop_text_input.text(), 'G43')
+                self.assertEqual(second.search_text.text(), '')
+            finally:
+                second.deleteLater()
+                qapp.processEvents()
+        finally:
+            settings_dir.cleanup()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_machine_panel_toggle_is_filled_color_block(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        window = app.App(_root=settings_dir.name)
+        try:
+            style = window.machine_panel_toggle.styleSheet()
+            self.assertIn(window.theme['accent'], style)
+            self.assertNotIn('transparent', style)
+        finally:
+            window.deleteLater()
+            settings_dir.cleanup()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_dark_mode_toggle_switches_theme_and_persists(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        try:
+            first = app.App(_root=settings_dir.name)
+            self.assertEqual(first.theme_name, 'light')
+            first.apply_theme('dark')
+            self.assertEqual(first.theme_name, 'dark')
+            self.assertIn(app.THEMES['dark']['accent'], first.run_button.styleSheet())
+            if hasattr(first.viewer, 'set_dark_mode'):
+                self.assertTrue(first.viewer._dark_mode)
+            first.deleteLater()
+            qapp.processEvents()
+
+            second = app.App(_root=settings_dir.name)
+            try:
+                self.assertEqual(second.theme_name, 'dark')
+            finally:
+                second.deleteLater()
+                qapp.processEvents()
+        finally:
+            settings_dir.cleanup()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_viewer_dark_mode_button_click_notifies_app(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        window = app.App(_root=settings_dir.name)
+        try:
+            self.assertEqual(window.theme_name, 'light')
+            window.viewer.dark_mode_button.setChecked(True)
+            window.viewer.dark_mode_button.clicked.emit(True)
+            qapp.processEvents()
+            self.assertEqual(window.theme_name, 'dark')
+        finally:
+            window.deleteLater()
+            settings_dir.cleanup()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_playback_bar_buttons_have_icons(self):
+        from nc_viewer_widget import NCViewerWidget
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer = NCViewerWidget()
+        try:
+            for button in (
+                viewer.playback_bar.prev_tool_button, viewer.playback_bar.rewind_button,
+                viewer.playback_bar.play_pause_button, viewer.playback_bar.next_tool_button,
+            ):
+                self.assertFalse(button.icon().isNull())
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    def _minimal_motion_source(self):
+        return (
+            "M6T1\nG43\n"
+            "G00 X0 Y0 Z0\n"
+            "G01 X100 Y0 Z0\n"
+            "X100 Y100 Z0\n"
+            "X0 Y100 Z0\n"
+        )
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_grid_item_removed_from_viewer(self):
+        from nc_viewer_widget import NCViewerWidget
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer = NCViewerWidget()
+        try:
+            self.assertFalse(hasattr(viewer, 'grid'))
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_projection_depth_range_does_not_shrink_with_scene_radius(self):
+        """확대(=distance 감소) 상태에서도 far 평면이 실제 경로 크기보다
+        작아지지 않는지 far-near 깊이 범위로 확인한다(회귀: v1.5.6 이전에는
+        depth가 distance에만 비례해, 확대하면 긴 경로가 화면 중간에서
+        잘렸다)."""
+        from nc_viewer_widget import NCViewerWidget
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer = NCViewerWidget()
+        try:
+            viewer.gl_view.opts['distance'] = 5.0
+            viewport = (0, 0, 800, 600)
+
+            viewer.gl_view.scene_radius = 0.0
+            small_scene_matrix = viewer.gl_view.projectionMatrix(viewport, viewport)
+            viewer.gl_view.scene_radius = 5000.0
+            large_scene_matrix = viewer.gl_view.projectionMatrix(viewport, viewport)
+
+            # ortho 행렬의 z-scale(= -2/(far-near))은 depth 범위가 클수록
+            # 절댓값이 작아진다 — scene_radius가 커지면 depth 범위도 커져야 한다.
+            small_z_scale = abs(small_scene_matrix.row(2).z())
+            large_z_scale = abs(large_scene_matrix.row(2).z())
+            self.assertLess(large_z_scale, small_z_scale)
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_scene_radius_set_from_loaded_path(self):
+        from nc_viewer_widget import NCViewerWidget
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer = NCViewerWidget()
+        try:
+            self.assertEqual(viewer.gl_view.scene_radius, 0.0)
+            viewer.set_source_text(self._minimal_motion_source(), {'T01': 'FACE MILL'})
+            # X100 Y100 지점이 있으니 반지름은 최소 sqrt(100^2+100^2) 이상.
+            self.assertGreaterEqual(viewer.gl_view.scene_radius, (100.0 ** 2 + 100.0 ** 2) ** 0.5 - 1e-6)
+            viewer.clear()
+            self.assertEqual(viewer.gl_view.scene_radius, 0.0)
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_pick_source_line_finds_nearest_segment_and_respects_radius(self):
+        from PyQt5.QtGui import QVector3D
+        from nc_viewer_widget import NCViewerWidget
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer = NCViewerWidget()
+        try:
+            viewer.resize(800, 600)
+            self.assertTrue(viewer.set_source_text(self._minimal_motion_source(), {'T01': 'FACE MILL'}))
+            viewer.set_camera_projection('XY')
+
+            target_line, target_pt = None, None
+            for line_idx, pt in viewer.line_to_coord_map.items():
+                if abs(pt[0] - 100) < 1e-6 and abs(pt[1] - 0) < 1e-6:
+                    target_line, target_pt = line_idx, pt
+                    break
+            self.assertIsNotNone(target_line)
+
+            viewport = viewer.gl_view.getViewport()
+            mvp = viewer.gl_view.projectionMatrix(viewport, viewport) * viewer.gl_view.viewMatrix()
+            vec = mvp.map(QVector3D(*target_pt))
+            screen_x = (vec.x() + 1.0) / 2.0 * viewport[2]
+            screen_y = (1.0 - vec.y()) / 2.0 * viewport[3]
+
+            self.assertEqual(viewer.pick_source_line(screen_x, screen_y, radius_px=15), target_line)
+            # 경로에서 멀리 떨어진 지점은 좁은 반경 안에서 아무것도 못 집는다.
+            self.assertIsNone(viewer.pick_source_line(5, 5, radius_px=5))
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_left_click_activates_line_but_drag_does_not(self):
+        from PyQt5.QtCore import QPoint
+        from PyQt5.QtTest import QTest
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                nc_path = Path(directory) / 'sample.nc'
+                nc_path.write_text(REAL_NC_SAMPLE, encoding='utf-8')
+                window = app.App(_root=settings_dir.name)
+                try:
+                    window.load_file(str(nc_path))
+                    window.set_mode('viewer')
+                    window.show()
+                    qapp.processEvents()
+
+                    center = window.viewer.gl_view.rect().center()
+                    QTest.mouseClick(window.viewer.gl_view, app.Qt.LeftButton, pos=center)
+                    qapp.processEvents()
+
+                    QTest.mousePress(window.viewer.gl_view, app.Qt.LeftButton, pos=center)
+                    QTest.mouseMove(window.viewer.gl_view, pos=center + QPoint(40, 40))
+                    QTest.mouseRelease(
+                        window.viewer.gl_view, app.Qt.LeftButton, pos=center + QPoint(40, 40)
+                    )
+                    qapp.processEvents()
+                    # 드래그(카메라 회전)는 라인 클릭으로 오인되면 안 된다 —
+                    # 여기서는 예외 없이 끝나는지만 확인한다(회전 자체는
+                    # test_clicking_3d_viewer_does_not_break_arrow_key_program_stepping가
+                    # 이미 별도로 검증).
+                finally:
+                    window.deleteLater()
+                    qapp.processEvents()
+        finally:
+            settings_dir.cleanup()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_magnifier_toggles_on_right_click_and_escape_closes_it(self):
+        from PyQt5.QtTest import QTest
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        from nc_viewer_widget import NCViewerWidget
+
+        viewer = NCViewerWidget()
+        try:
+            viewer.resize(800, 600)
+            viewer.show()
+            qapp.processEvents()
+            self.assertFalse(viewer._magnifier_active)
+
+            center = viewer.gl_view.rect().center()
+            QTest.mouseClick(viewer.gl_view, app.Qt.RightButton, pos=center)
+            qapp.processEvents()
+            self.assertTrue(viewer._magnifier_active)
+            self.assertTrue(viewer.magnifier.isVisible())
+
+            viewer._magnifier_shortcut.activated.emit()
+            qapp.processEvents()
+            self.assertFalse(viewer._magnifier_active)
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
 
 
 if __name__ == '__main__':

@@ -26,7 +26,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
 
-APP_VERSION = '1.5.3'
+APP_VERSION = '1.5.6'
 APP_NAME = 'NC 공구 리스트 생성기'
 APP_BUILD_DATE = '2026-09-04'
 APP_CREATOR = 'Hwang.seonmun'
@@ -51,11 +51,50 @@ VIEWER_PANE_INITIAL_WIDTH = 1125
 INPUT_SPLITTER_INITIAL_SIZES = [480, 208]
 MAIN_SPLITTER_INITIAL_SIZES = [PROGRAM_PANE_MIN_WIDTH, VIEWER_PANE_INITIAL_WIDTH]
 
+# 라이트/다크 테마 색상 토큰. 의미 기반 키로 두어 위젯 각각이 하드코딩된
+# 색 대신 이 값을 참조하고, 다크모드 토글 시 App.apply_theme()이 전체를
+# 다시 칠한다. 뷰어(nc_viewer_widget.py)는 'viewer_bg'만 참조한다.
+THEMES = {
+    'light': {
+        'window_bg': '#f0f4f8', 'panel_bg': '#ffffff', 'text': '#1f2937',
+        'muted_text': '#5a6577', 'faint_text': '#8a94a3', 'border': '#c5ced8',
+        'header_bg': '#1f3a5f', 'header_text': '#ffffff', 'header_caption': '#c8d4e2',
+        'accent': '#2f6fb0', 'accent_text': '#ffffff', 'accent_hover': '#255a92',
+        'success': '#4c7f31', 'success_text': '#ffffff',
+        'neutral_button': '#555555', 'neutral_button_text': '#ffffff',
+        'editor_bg': '#ffffff', 'editor_text': '#1f2937', 'current_line': '#dbe7f5',
+        'list_bg': '#ffffff', 'list_text': '#1f2937', 'list_hover': '#eaf1f8',
+        'list_selected_bg': '#2f6fb0', 'list_selected_text': '#ffffff',
+        'info_bg': '#eaf1f8', 'info_text': '#40536b', 'error': '#b03a2e',
+        'mode_active_bg': '#34577f', 'mode_active_text': '#ffffff',
+        'mode_inactive_bg': '#f0f4f8', 'mode_inactive_text': '#1f3a5f',
+        'viewer_bg': (240, 244, 248, 255),
+    },
+    'dark': {
+        'window_bg': '#1b1f27', 'panel_bg': '#242a35', 'text': '#e4e8f0',
+        'muted_text': '#9aa5b8', 'faint_text': '#7a8494', 'border': '#3a4250',
+        'header_bg': '#10192b', 'header_text': '#e4e8f0', 'header_caption': '#8ea3c4',
+        'accent': '#3f7fc9', 'accent_text': '#ffffff', 'accent_hover': '#5090d6',
+        'success': '#4f9a38', 'success_text': '#ffffff',
+        'neutral_button': '#4a5164', 'neutral_button_text': '#ffffff',
+        'editor_bg': '#1a1f29', 'editor_text': '#dbe3f0', 'current_line': '#2c3a52',
+        'list_bg': '#20262f', 'list_text': '#dbe3f0', 'list_hover': '#2c3644',
+        'list_selected_bg': '#3f7fc9', 'list_selected_text': '#ffffff',
+        'info_bg': '#233047', 'info_text': '#b7c8e6', 'error': '#e06a5a',
+        'mode_active_bg': '#3f7fc9', 'mode_active_text': '#ffffff',
+        'mode_inactive_bg': '#2a2f3a', 'mode_inactive_text': '#c7d0e0',
+        'viewer_bg': (33, 37, 43, 255),
+    },
+}
+
 # ---------- 파싱 로직 ----------
 TOOL_RE = re.compile(r'\(\s*T(\d+)\s*//\s*(.*?)\s*\[SO\s*([\d.]+)\]\s*//\s*T\d+\s*([^)]*?)\s*\)', re.I)
 N_RE    = re.compile(r'^\s*N(\d+)\s*\(\s*#\d+\s*:\s*Tool\s*Change', re.I)
 M6_RE   = re.compile(r'^\s*M0?6\s*T0*(\d+)\b', re.I)
 M6_SEARCH_RE = re.compile(r'^\s*M0?6\s*T0*\d+\b', re.I | re.M)
+M00_STOP_RE = re.compile(r'M0?0(?!\d)', re.I)
+M01_STOP_RE = re.compile(r'M0?1(?!\d)', re.I)
+MAX_PLAYBACK_SPEED = 2000
 # 키 뒤 숫자만 추출(값이 없으면 매칭 안 됨). 긴 키를 앞에 둬서 FL이 F로 잘못 잡히지 않게 함
 KV_RE   = re.compile(r'\b(LCF|SPINDL|FEED|FL|GL|DC|RE|SIG|PL|F)\s+(-?\d+(?:\.\d+)?)', re.I)
 COMMENT_RE = re.compile(r'\(([^()]*)\)', re.S)
@@ -297,6 +336,38 @@ def find_next_regex_span(text, pattern, start=0):
 
 def find_next_tool_change_span(text, start=0):
     return find_next_regex_span(text, M6_SEARCH_RE, start)
+
+
+def _stop_scan_code(line):
+    """정지 코드 검사를 위해 주석(괄호/세미콜론 이후)을 제거하고 공백을 없앤다."""
+    code = re.sub(r'\([^)]*\)', ' ', str(line or '')).split(';')[0]
+    return code.replace(' ', '')
+
+
+def line_has_m00_stop(line):
+    """M00/M0 (프로그램 정지)가 있는 줄인지. 주석은 제외."""
+    return M00_STOP_RE.search(_stop_scan_code(line)) is not None
+
+
+def line_has_m01_stop(line):
+    """M01/M1 (옵셔널 정지)이 있는 줄인지. 주석은 제외."""
+    return M01_STOP_RE.search(_stop_scan_code(line)) is not None
+
+
+def line_has_program_stop(line):
+    """M00/M0/M01/M1 (프로그램 정지·옵셔널 정지)가 있는 줄인지. 주석은 제외."""
+    return line_has_m00_stop(line) or line_has_m01_stop(line)
+
+
+def line_stops_playback(line, needle='', stop_text=False, stop_m00=True, stop_m01=True):
+    """PG 매칭 자동 재생이 이 줄에서 멈춰야 하는지. 세 옵션 모두 해제면 멈추지 않는다."""
+    if stop_m00 and line_has_m00_stop(line):
+        return True
+    if stop_m01 and line_has_m01_stop(line):
+        return True
+    if stop_text and needle:
+        return needle.lower() in str(line or '').lower()
+    return False
 
 
 def find_next_literal_span(text, needle, start=0):
@@ -779,10 +850,15 @@ else:
         # 계속 쓴다(Qt C++ 쪽에서도 QPlainTextEdit::ExtraSelection은 QTextEdit::
         # ExtraSelection의 typedef라 같은 타입이다).
         filesDropped = pyqtSignal(list)
+        focusGained = pyqtSignal()
 
         def __init__(self, parent=None):
             super().__init__(parent)
             self.setAcceptDrops(True)
+
+        def focusInEvent(self, event):
+            super().focusInEvent(event)
+            self.focusGained.emit()
 
         def setReadOnly(self, read_only):
             super().setReadOnly(read_only)
@@ -889,6 +965,10 @@ else:
             # 폴백에서는 그릴 경로 자체가 없으므로 아무 일도 하지 않는다.
             return None
 
+        def set_dark_mode(self, _enabled):
+            # 폴백 화면은 3D를 그리지 않아 배경 전환이 필요 없다.
+            return None
+
         def select_all_tools(self, selected):
             if self.tool_filter_list is None:
                 return
@@ -932,11 +1012,26 @@ else:
                 self.layout_settings = QSettings('NC Tool List', 'MainWindow')
             else:
                 self.layout_settings = QSettings(str(Path(_root) / 'ui_layout.ini'), QSettings.IniFormat)
+            # PG 매칭 자동 재생: 50ms(20Hz) 고정 틱으로 배속과 무관하게 화면 갱신
+            # 빈도를 일정하게 유지하고, 한 틱에 여러 줄을 건너뛰어 배속을 맞춘다.
+            self.play_timer = QTimer(self)
+            self.play_timer.setInterval(50)
+            self.play_timer.timeout.connect(self._playback_tick)
+            self.play_speed = self._load_playback_speed()
+            self._play_carry = 0.0
+            self._search_status_error = False
+
+            # 다크모드: _build_ui()가 위젯을 만들 때부터 올바른 색을 쓰도록
+            # UI 생성 전에 테마를 먼저 정한다. 큐브 크기 슬라이더 옆 토글
+            # 버튼(뷰어 쪽)이 실제 전환을 담당한다.
+            self.theme_name = 'dark' if self._load_dark_mode() else 'light'
+            self.theme = THEMES[self.theme_name]
 
             self.setWindowTitle('%s v%s' % (APP_NAME, APP_VERSION))
             self.resize(sum(MAIN_SPLITTER_INITIAL_SIZES), 760)
             self.set_window_icon()
             self._build_ui()
+            self.apply_theme(self.theme_name)
             if not self.restore_layout_settings():
                 QTimer.singleShot(0, self.showMaximized)
 
@@ -975,6 +1070,140 @@ else:
             except Exception as error:
                 write_startup_log('OpenGL context unavailable: %r' % (error,))
 
+        # ---------- 다크모드 ----------
+        def _load_dark_mode(self):
+            raw = self.layout_settings.value('dark_mode', False)
+            if isinstance(raw, str):
+                return raw.strip().lower() in ('1', 'true', 'yes')
+            return bool(raw)
+
+        def toggle_dark_mode(self, enabled):
+            self.apply_theme('dark' if enabled else 'light')
+
+        def apply_theme(self, name):
+            """전체 앱 배색을 전환한다. QApplication 전역 스타일시트로 기본
+            위젯들을 칠하고, 하드코딩된 색을 쓰던 개별 위젯들을 다시 그린다."""
+            self.theme_name = name
+            self.theme = THEMES[name]
+            self.layout_settings.setValue('dark_mode', name == 'dark')
+
+            app_instance = QApplication.instance()
+            if app_instance is not None:
+                app_instance.setStyleSheet(self._build_global_stylesheet(self.theme))
+
+            self._apply_widget_themes()
+            # 상태에 따라 달라지는 스타일은 해당 상태를 그대로 다시 넣어 갱신한다.
+            self._style_mode_buttons()
+            if hasattr(self, 'machine_panel_toggle'):
+                self.set_machine_panel_expanded(self.machine_panel_toggle.isChecked())
+            if hasattr(self, 'search_status'):
+                self.set_search_status(self.search_status.text(), self._search_status_error)
+            if hasattr(self, 'viewer') and hasattr(self.viewer, 'set_dark_mode'):
+                self.viewer.set_dark_mode(name == 'dark')
+            self._highlight_current_line()
+
+        @staticmethod
+        def _build_global_stylesheet(t):
+            """QMainWindow/QDialog를 포함한 기본 위젯 전체에 적용되는 전역
+            스타일시트. 개별 위젯의 setStyleSheet() 인스턴스 지정값이 항상
+            우선하므로, 아래 규칙은 그 값이 없는 속성에만 실제로 적용된다."""
+            return (
+                'QMainWindow, QWidget, QDialog { background: %(window_bg)s; color: %(text)s; }'
+                'QLabel { color: %(text)s; }'
+                'QPlainTextEdit, QTextEdit, QLineEdit {'
+                ' background: %(editor_bg)s; color: %(editor_text)s; border: 1px solid %(border)s; }'
+                'QPushButton {'
+                ' background: %(panel_bg)s; color: %(text)s; border: 1px solid %(border)s;'
+                ' border-radius: 3px; padding: 4px 8px; }'
+                'QPushButton:hover { background: %(list_hover)s; }'
+                'QPushButton:disabled { color: %(faint_text)s; }'
+                'QComboBox {'
+                ' background: %(editor_bg)s; color: %(editor_text)s; border: 1px solid %(border)s; }'
+                'QComboBox QAbstractItemView {'
+                ' background: %(editor_bg)s; color: %(editor_text)s;'
+                ' selection-background-color: %(list_selected_bg)s; selection-color: %(list_selected_text)s; }'
+                'QCheckBox { color: %(text)s; }'
+                'QGroupBox { color: %(text)s; }'
+                'QTableWidget {'
+                ' background: %(list_bg)s; color: %(list_text)s; gridline-color: %(border)s;'
+                ' alternate-background-color: %(list_hover)s;'
+                ' selection-background-color: %(list_selected_bg)s; selection-color: %(list_selected_text)s; }'
+                'QHeaderView::section {'
+                ' background: %(panel_bg)s; color: %(text)s; border: 1px solid %(border)s; padding: 3px; }'
+                'QListWidget { background: %(list_bg)s; color: %(list_text)s; border: 1px solid %(border)s; }'
+                'QSplitter::handle { background: %(border)s; }'
+            ) % t
+
+        def _apply_widget_themes(self):
+            """하드코딩된 인라인 색을 쓰던 각 위젯을 현재 self.theme 값으로 다시 칠한다."""
+            self._style_header_bar(self.top_bar)
+            self._style_header_caption(self.top_caption)
+            self._style_accent_button(self.run_button)
+            self._style_accent_button(self.copy_button)
+            self._style_success_button(self.pdf_button)
+            self._style_neutral_button(self.machine_save_button)
+            self._style_groupbox_border(self.machine_settings_panel)
+            self._style_tool_filter_list(self.tool_filter)
+            self._style_info_panel(self.metadata_summary)
+            self._style_muted(self.count)
+            self._style_muted(self.machine_settings_status)
+            self._style_faint(self.tool_panel_hint)
+
+        def _style_muted(self, widget):
+            widget.setStyleSheet('color: %s;' % self.theme['muted_text'])
+
+        def _style_faint(self, widget):
+            widget.setStyleSheet('color: %s;' % self.theme['faint_text'])
+
+        def _style_header_bar(self, widget):
+            widget.setStyleSheet(
+                'background: %s; color: %s;' % (self.theme['header_bg'], self.theme['header_text'])
+            )
+
+        def _style_header_caption(self, widget):
+            widget.setStyleSheet('color: %s;' % self.theme['header_caption'])
+
+        def _style_accent_button(self, widget):
+            widget.setStyleSheet(
+                'background: %s; color: %s; padding: 5px 9px;'
+                % (self.theme['accent'], self.theme['accent_text'])
+            )
+
+        def _style_success_button(self, widget):
+            widget.setStyleSheet(
+                'background: %s; color: %s; padding: 5px 9px;'
+                % (self.theme['success'], self.theme['success_text'])
+            )
+
+        def _style_neutral_button(self, widget):
+            widget.setStyleSheet(
+                'background: %s; color: %s; padding: 5px 9px;'
+                % (self.theme['neutral_button'], self.theme['neutral_button_text'])
+            )
+
+        def _style_info_panel(self, widget):
+            widget.setStyleSheet(
+                'background: %s; color: %s; padding: 4px 6px;'
+                % (self.theme['info_bg'], self.theme['info_text'])
+            )
+
+        def _style_groupbox_border(self, widget):
+            widget.setStyleSheet(
+                'QGroupBox { border: 1px solid %s; border-radius: 4px; margin-top: 0px; }'
+                % self.theme['border']
+            )
+
+        def _style_tool_filter_list(self, widget):
+            t = self.theme
+            widget.setStyleSheet(
+                'QListWidget { background: %s; border: 1px solid %s; }'
+                'QListWidget::item { padding: 5px 6px; color: %s; }'
+                'QListWidget::item:hover { background: %s; }'
+                'QListWidget::item:selected { background: %s; color: %s; }'
+                % (t['list_bg'], t['border'], t['list_text'], t['list_hover'],
+                   t['list_selected_bg'], t['list_selected_text'])
+            )
+
         def _build_ui(self):
             kfont = QFont('맑은 고딕', 10)
             mono = QFont('Consolas', 10)
@@ -985,16 +1214,14 @@ else:
             root_layout.setSpacing(0)
             self.setCentralWidget(central)
 
-            top = QWidget()
-            top.setStyleSheet('background: #1f3a5f; color: white;')
-            top_layout = QHBoxLayout(top)
+            self.top_bar = QWidget()
+            top_layout = QHBoxLayout(self.top_bar)
             top_layout.setContentsMargins(14, 7, 10, 7)
             title = QLabel('%s v%s' % (APP_NAME, APP_VERSION))
             title.setFont(QFont('맑은 고딕', 13, QFont.Bold))
             top_layout.addWidget(title)
-            caption = QLabel('NC 프로그램을 넣고 공구 리스트를 생성하세요')
-            caption.setStyleSheet('color: #c8d4e2;')
-            top_layout.addWidget(caption)
+            self.top_caption = QLabel('NC 프로그램을 넣고 공구 리스트를 생성하세요')
+            top_layout.addWidget(self.top_caption)
             top_layout.addStretch()
 
             self.btn_about = QPushButton('About')
@@ -1008,13 +1235,10 @@ else:
             self.btn_viewer_mode = QPushButton('Viewer 모드')
             self.btn_viewer_mode.setCheckable(True)
             self.btn_viewer_mode.clicked.connect(lambda: self.set_mode('viewer'))
-            self.btn_machine_settings = QPushButton('장비 설정')
-            self.btn_machine_settings.setMinimumWidth(90)
-            self.btn_machine_settings.clicked.connect(self.open_machine_settings)
-            for button in (self.btn_tool_mode, self.btn_viewer_mode, self.btn_machine_settings):
+            for button in (self.btn_tool_mode, self.btn_viewer_mode):
                 button.setFont(QFont('맑은 고딕', 9, QFont.Bold))
                 top_layout.addWidget(button)
-            root_layout.addWidget(top)
+            root_layout.addWidget(self.top_bar)
 
             self.main_splitter = QSplitter(Qt.Horizontal)
             self.main_splitter.setChildrenCollapsible(False)
@@ -1046,9 +1270,8 @@ else:
             program_button_row2 = QHBoxLayout()
             program_button_row2.setSpacing(6)
             self._add_button(program_button_row2, '프로그램 추가', self.open_add_program_files, kfont).setMinimumWidth(112)
-            run_button = self._add_button(program_button_row2, '공구 리스트 생성', self.run, kfont)
-            run_button.setMinimumWidth(128)
-            run_button.setStyleSheet('background: #2f6fb0; color: white; padding: 5px 9px;')
+            self.run_button = self._add_button(program_button_row2, '공구 리스트 생성', self.run, kfont)
+            self.run_button.setMinimumWidth(128)
             program_button_row2.addStretch()
             left_layout.addLayout(program_button_row2)
 
@@ -1061,7 +1284,6 @@ else:
             search_bar.addWidget(self.search_text, 1)
             self._add_button(search_bar, '검색', self.find_next_text, kfont)
             self.search_status = QLabel('')
-            self.search_status.setStyleSheet('color: #5a6577;')
             search_bar.addWidget(self.search_status)
             left_layout.addLayout(search_bar)
 
@@ -1081,6 +1303,7 @@ else:
             self.src.textChanged.connect(self.source_changed)
             self.src.cursorPositionChanged.connect(self.source_cursor_changed)
             self.src.cursorPositionChanged.connect(self._highlight_current_line)
+            self.src.focusGained.connect(lambda: self.set_machine_panel_expanded(False))
             self._highlight_current_line()
             self.input_splitter.addWidget(self.src)
 
@@ -1088,6 +1311,39 @@ else:
             filter_layout = QVBoxLayout(self.filter_panel)
             filter_layout.setContentsMargins(0, 5, 0, 0)
             filter_layout.setSpacing(4)
+
+            stop_bar = QHBoxLayout()
+            self.stop_text_check = QCheckBox('텍스트 정지')
+            self.stop_text_check.setFont(kfont)
+            self.stop_text_check.setToolTip(
+                '오른쪽 입력창의 문자열이 포함된 줄에서 자동 재생을 멈춥니다.\n'
+                '위쪽 "문자 검색"과는 별개의 값입니다.'
+            )
+            self.stop_text_input = QLineEdit()
+            self.stop_text_input.setFont(kfont)
+            self.stop_text_input.setPlaceholderText('정지 문자')
+            self.stop_text_input.setFixedWidth(120)
+            self.stop_text_input.setToolTip(self.stop_text_check.toolTip())
+            self.stop_m00_check = QCheckBox('정지')
+            self.stop_m00_check.setFont(kfont)
+            self.stop_m00_check.setToolTip('M0 또는 M00에서 자동 재생을 멈춥니다.')
+            self.stop_m01_check = QCheckBox('옵션정지')
+            self.stop_m01_check.setFont(kfont)
+            self.stop_m01_check.setToolTip('M1 또는 M01에서 자동 재생을 멈춥니다.')
+            self._load_playback_stop_options()
+            self.stop_text_check.toggled.connect(self._on_stop_text_check_toggled)
+            self.stop_text_check.toggled.connect(self._save_playback_stop_options)
+            self.stop_text_input.textChanged.connect(self._save_playback_stop_options)
+            self.stop_m00_check.toggled.connect(self._save_playback_stop_options)
+            self.stop_m01_check.toggled.connect(self._save_playback_stop_options)
+            self.stop_text_input.setEnabled(self.stop_text_check.isChecked())
+            stop_bar.addWidget(self.stop_text_check)
+            stop_bar.addWidget(self.stop_text_input)
+            stop_bar.addWidget(self.stop_m00_check)
+            stop_bar.addWidget(self.stop_m01_check)
+            stop_bar.addStretch()
+            filter_layout.addLayout(stop_bar)
+
             filter_bar = QHBoxLayout()
             filter_label = QLabel('공정별 경로 필터 선택')
             filter_label.setFont(QFont('맑은 고딕', 9, QFont.Bold))
@@ -1108,12 +1364,7 @@ else:
             self.tool_filter.setSelectionMode(QAbstractItemView.MultiSelection)
             self.tool_filter.setFont(QFont('맑은 고딕', 10, QFont.Bold))
             self.tool_filter.setIconSize(QSize(14, 14))
-            self.tool_filter.setStyleSheet(
-                'QListWidget { background: white; border: 1px solid #c5ced8; }'
-                'QListWidget::item { padding: 5px 6px; color: #1f2937; }'
-                'QListWidget::item:hover { background: #eaf1f8; }'
-                'QListWidget::item:selected { background: #2f6fb0; color: white; }'
-            )
+            self._style_tool_filter_list(self.tool_filter)
             filter_layout.addWidget(self.tool_filter, 1)
             self.input_splitter.addWidget(self.filter_panel)
             self.input_splitter.setSizes(INPUT_SPLITTER_INITIAL_SIZES)
@@ -1135,6 +1386,19 @@ else:
             self.viewer.attach_tool_filter(self.tool_filter)
             if hasattr(self.viewer, 'process_activated'):
                 self.viewer.process_activated.connect(self.jump_to_process_line)
+            if hasattr(self.viewer, 'line_activated'):
+                self.viewer.line_activated.connect(self.jump_to_process_line)
+            if hasattr(self.viewer, 'dark_mode_toggled'):
+                self.viewer.dark_mode_toggled.connect(self.toggle_dark_mode)
+            playback_bar = getattr(self.viewer, 'playback_bar', None)
+            if playback_bar is not None:
+                playback_bar.play_clicked.connect(self.start_playback)
+                playback_bar.pause_clicked.connect(self.pause_playback)
+                playback_bar.rewind_clicked.connect(self.playback_rewind)
+                playback_bar.prev_tool_clicked.connect(self.playback_prev_tool)
+                playback_bar.next_tool_clicked.connect(self.playback_next_tool)
+                playback_bar.speed_changed.connect(self.set_playback_speed)
+                playback_bar.set_speed(self.play_speed)
             self.stack.addWidget(self.viewer)
             self.set_mode('tool')
 
@@ -1286,44 +1550,88 @@ else:
             layout.addWidget(buttons)
             dialog.exec_()
 
+        MACHINE_PANEL_TITLE = '장비 타입 및 스펙 설정'
+
         def _build_machine_settings_panel(self, font):
             panel = QGroupBox()
-            panel.setStyleSheet('QGroupBox { border: 1px solid #c5ced8; border-radius: 4px; margin-top: 0px; }')
+            self._style_groupbox_border(panel)
             layout = QVBoxLayout(panel)
             layout.setContentsMargins(8, 8, 8, 8)
             layout.setSpacing(5)
 
-            title = QLabel('장비 타입 및 스펙 설정')
-            title.setFont(QFont('맑은 고딕', 9, QFont.Bold))
-            title.setStyleSheet('color: #1f3a5f; padding: 0px;')
-            layout.addWidget(title)
+            # 접이식 헤더: 클릭하면 아래 본문(장비 타입/스펙 폼)을 펼치거나 접는다.
+            # 프로그램 입력창을 더 넓게 쓰기 위해 기본은 접힘 상태다. 어디 있는지
+            # 눈에 잘 띄도록 투명 텍스트가 아닌 채워진 색상 블럭으로 표시한다.
+            self.machine_panel_toggle = QPushButton()
+            self.machine_panel_toggle.setCheckable(True)
+            self.machine_panel_toggle.setFlat(True)
+            self.machine_panel_toggle.setCursor(Qt.PointingHandCursor)
+            self.machine_panel_toggle.setFont(QFont('맑은 고딕', 9, QFont.Bold))
+            self.machine_panel_toggle.toggled.connect(self._on_machine_panel_toggled)
+            layout.addWidget(self.machine_panel_toggle)
+
+            self.machine_settings_body = QWidget()
+            body_layout = QVBoxLayout(self.machine_settings_body)
+            body_layout.setContentsMargins(0, 0, 0, 0)
+            body_layout.setSpacing(5)
+            layout.addWidget(self.machine_settings_body)
 
             self.machine_type_combo = QComboBox()
             self.machine_type_combo.setFont(font)
             self.machine_type_combo.addItems(self.viewer.machine_types())
             self.machine_type_combo.setCurrentText(self.viewer.current_machine_type)
             self.machine_type_combo.currentIndexChanged.connect(self._viewer_machine_type_changed)
-            layout.addWidget(self.machine_type_combo)
+            body_layout.addWidget(self.machine_type_combo)
 
             self.machine_spec_form_widget = QWidget()
             self.machine_spec_form = QFormLayout(self.machine_spec_form_widget)
             self.machine_spec_form.setContentsMargins(0, 0, 0, 0)
             self.machine_spec_form.setSpacing(4)
-            layout.addWidget(self.machine_spec_form_widget)
+            body_layout.addWidget(self.machine_spec_form_widget)
 
             self.machine_spec_inputs = {}
             self._rebuild_machine_spec_form()
 
-            save_button = QPushButton('현재 장비 스펙 기록/저장')
-            save_button.setFont(font)
-            save_button.setStyleSheet('background: #555555; color: white; padding: 5px 9px;')
-            save_button.clicked.connect(self.save_visible_machine_settings)
-            layout.addWidget(save_button)
+            self.machine_save_button = QPushButton('현재 장비 스펙 기록/저장')
+            self.machine_save_button.setFont(font)
+            self._style_neutral_button(self.machine_save_button)
+            self.machine_save_button.clicked.connect(self.save_visible_machine_settings)
+            body_layout.addWidget(self.machine_save_button)
 
+            # 접힘 여부와 무관하게 항상 보이도록 본문(body_layout)이 아닌 패널
+            # 바깥 레이아웃에 둔다 — 저장 후 자동으로 접혀도 상태 문구는 남는다.
             self.machine_settings_status = QLabel('')
-            self.machine_settings_status.setStyleSheet('color: #5a6577;')
+            self._style_muted(self.machine_settings_status)
             layout.addWidget(self.machine_settings_status)
+
+            self.set_machine_panel_expanded(self._load_machine_panel_expanded())
             return panel
+
+        def _load_machine_panel_expanded(self):
+            raw = self.layout_settings.value('machine_panel_expanded', False)
+            if isinstance(raw, str):
+                return raw.strip().lower() in ('1', 'true', 'yes')
+            return bool(raw)
+
+        def _on_machine_panel_toggled(self, expanded):
+            self.set_machine_panel_expanded(expanded)
+
+        def set_machine_panel_expanded(self, expanded):
+            expanded = bool(expanded)
+            arrow = '▼' if expanded else '▶'
+            self.machine_panel_toggle.setText('%s %s' % (arrow, self.MACHINE_PANEL_TITLE))
+            with QSignalBlocker(self.machine_panel_toggle):
+                self.machine_panel_toggle.setChecked(expanded)
+            self.machine_settings_body.setVisible(expanded)
+            self.layout_settings.setValue('machine_panel_expanded', expanded)
+            # 채워진 색상 블럭 헤더 — 접힘/펼침 어느 쪽이든 항상 눈에 띄게 한다.
+            t = self.theme
+            self.machine_panel_toggle.setStyleSheet(
+                'QPushButton { text-align: left; border: none; border-radius: 4px;'
+                ' background: %s; color: %s; padding: 6px 10px; }'
+                'QPushButton:hover { background: %s; }'
+                % (t['accent'], t['accent_text'], t['accent_hover'])
+            )
 
         def _rebuild_machine_spec_form(self):
             while self.machine_spec_form.rowCount():
@@ -1350,6 +1658,8 @@ else:
             self.machine_settings_status.setText('장비 스펙 설정이 저장되었습니다.')
             if self.current_mode == 'viewer':
                 self.sync_viewer_from_source()
+            # 저장이 끝나면 프로그램 입력창을 더 넓게 쓰도록 자동으로 접는다.
+            self.set_machine_panel_expanded(False)
 
         def sync_visible_machine_settings(self):
             if not hasattr(self, 'machine_type_combo'):
@@ -1441,7 +1751,7 @@ else:
             label.setFont(QFont('맑은 고딕', 10, QFont.Bold))
             rbar.addWidget(label)
             self.count = QLabel('공구 0개')
-            self.count.setStyleSheet('color: #5a6577;')
+            self._style_muted(self.count)
             rbar.addWidget(self.count)
             rbar.addStretch()
             self._add_button(rbar, '삭제', self.delete_selected)
@@ -1450,14 +1760,14 @@ else:
             self._add_button(rbar, '이름 경우의 수', self.show_type_list)
             self.with_header = QCheckBox('머리글 포함')
             rbar.addWidget(self.with_header)
-            pdf_button = self._add_button(rbar, 'PDF 출력', self.export_pdf)
-            pdf_button.setStyleSheet('background: #4c7f31; color: white; padding: 5px 9px;')
-            copy_button = self._add_button(rbar, '표 복사', self.copy_table)
-            copy_button.setStyleSheet('background: #2f6fb0; color: white; padding: 5px 9px;')
+            self.pdf_button = self._add_button(rbar, 'PDF 출력', self.export_pdf)
+            self._style_success_button(self.pdf_button)
+            self.copy_button = self._add_button(rbar, '표 복사', self.copy_table)
+            self._style_accent_button(self.copy_button)
             layout.addLayout(rbar)
 
             self.metadata_summary = QLabel('출력 정보: -')
-            self.metadata_summary.setStyleSheet('background: #eaf1f8; color: #40536b; padding: 4px 6px;')
+            self._style_info_panel(self.metadata_summary)
             layout.addWidget(self.metadata_summary)
 
             self.table = QTableWidget(0, len(COLUMNS))
@@ -1474,9 +1784,9 @@ else:
             self.table.doubleClicked.connect(lambda _index: self.edit_selected())
             layout.addWidget(self.table, 1)
 
-            hint = QLabel('행을 더블클릭하거나 수정/추가 버튼으로 직접 편집할 수 있습니다. (N번호 ~ M6 사이 괄호 주석을 읽음)')
-            hint.setStyleSheet('color: #8a94a3;')
-            layout.addWidget(hint)
+            self.tool_panel_hint = QLabel('행을 더블클릭하거나 수정/추가 버튼으로 직접 편집할 수 있습니다. (N번호 ~ M6 사이 괄호 주석을 읽음)')
+            self._style_faint(self.tool_panel_hint)
+            layout.addWidget(self.tool_panel_hint)
             self.stack.addWidget(panel)
 
         def set_window_icon(self):
@@ -1485,6 +1795,8 @@ else:
                 self.setWindowIcon(QIcon(icon_path))
 
         def set_mode(self, mode):
+            if mode != 'viewer':
+                self.pause_playback()
             self.current_mode = mode
             is_viewer = mode == 'viewer'
             self.stack.setCurrentIndex(1 if is_viewer else 0)
@@ -1500,11 +1812,15 @@ else:
                 self.log_gl_info()
 
         def _style_mode_buttons(self):
-            active = 'background: #34577f; color: white; padding: 5px 9px;'
-            inactive = 'background: #f0f4f8; color: #1f3a5f; padding: 5px 9px;'
+            t = self.theme
+            active = 'background: %s; color: %s; padding: 5px 9px;' % (
+                t['mode_active_bg'], t['mode_active_text']
+            )
+            inactive = 'background: %s; color: %s; padding: 5px 9px;' % (
+                t['mode_inactive_bg'], t['mode_inactive_text']
+            )
             self.btn_tool_mode.setStyleSheet(active if self.current_mode == 'tool' else inactive)
             self.btn_viewer_mode.setStyleSheet(active if self.current_mode == 'viewer' else inactive)
-            self.btn_machine_settings.setStyleSheet(inactive)
 
         def source_changed(self):
             if self.current_mode == 'viewer':
@@ -1523,6 +1839,7 @@ else:
             """
             self.viewer.set_pg_match_mode(enabled)
             if not enabled:
+                self.pause_playback()
                 return
             self.src.setFocus()
             selected = getattr(self.viewer, 'selected_tools', None)
@@ -1555,10 +1872,142 @@ else:
             self.src.ensureCursorVisible()
             self.src.setFocus()
 
+        def _load_playback_speed(self):
+            raw = self.layout_settings.value('playback_speed', 1)
+            try:
+                value = int(float(raw))
+            except (TypeError, ValueError):
+                value = 1
+            return max(1, min(MAX_PLAYBACK_SPEED, value))
+
+        def set_playback_speed(self, value):
+            self.play_speed = max(1, min(MAX_PLAYBACK_SPEED, int(value)))
+            self.layout_settings.setValue('playback_speed', self.play_speed)
+
+        @staticmethod
+        def _as_bool_setting(raw, default):
+            if raw is None:
+                return default
+            if isinstance(raw, str):
+                return raw.strip().lower() in ('1', 'true', 'yes')
+            return bool(raw)
+
+        def _load_playback_stop_options(self):
+            """정지 옵션 체크 상태와 텍스트 정지 입력값을 layout_settings에서 복원한다.
+            기본값: 정지·옵션정지 켜짐, 텍스트 정지 꺼짐, 정지 문자 비어 있음."""
+            self.stop_text_check.setChecked(
+                self._as_bool_setting(self.layout_settings.value('stop_at_text', None), False)
+            )
+            self.stop_text_input.setText(str(self.layout_settings.value('stop_text_value', '') or ''))
+            self.stop_m00_check.setChecked(
+                self._as_bool_setting(self.layout_settings.value('stop_at_m00', None), True)
+            )
+            self.stop_m01_check.setChecked(
+                self._as_bool_setting(self.layout_settings.value('stop_at_m01', None), True)
+            )
+
+        def _on_stop_text_check_toggled(self, checked):
+            self.stop_text_input.setEnabled(checked)
+
+        def _save_playback_stop_options(self, *_args):
+            self.layout_settings.setValue('stop_at_text', self.stop_text_check.isChecked())
+            self.layout_settings.setValue('stop_text_value', self.stop_text_input.text())
+            self.layout_settings.setValue('stop_at_m00', self.stop_m00_check.isChecked())
+            self.layout_settings.setValue('stop_at_m01', self.stop_m01_check.isChecked())
+
+        def start_playback(self):
+            """PG 매칭 자동 재생을 시작한다. PG 매칭이 꺼져 있거나 뷰어 모드가 아니면 무시한다."""
+            if self.current_mode != 'viewer' or not getattr(self.viewer, 'pg_match_mode', False):
+                return
+            self._play_carry = 0.0
+            self.play_timer.start()
+            bar = getattr(self.viewer, 'playback_bar', None)
+            if bar is not None:
+                bar.set_playing(True)
+
+        def pause_playback(self):
+            self.play_timer.stop()
+            bar = getattr(self.viewer, 'playback_bar', None)
+            if bar is not None:
+                bar.set_playing(False)
+
+        def _playback_tick(self):
+            """50ms마다 호출된다. 배속에 맞는 줄 수만큼 커서를 전진시키고, 그 사이에
+            체크된 정지 옵션(텍스트 정지/정지/옵션정지)이나 문서 끝을 만나면 그
+            줄에서 멈춘다."""
+            if self.current_mode != 'viewer' or not getattr(self.viewer, 'pg_match_mode', False):
+                self.pause_playback()
+                return
+            document = self.src.document()
+            total_lines = document.blockCount()
+            current_line = self.src.textCursor().blockNumber()
+            self._play_carry += self.play_speed * (self.play_timer.interval() / 1000.0)
+            steps = int(self._play_carry)
+            if steps <= 0:
+                return
+            self._play_carry -= steps
+            target_line = min(current_line + steps, total_lines - 1)
+            needle = self.stop_text_input.text()
+            stop_text = self.stop_text_check.isChecked()
+            stop_m00 = self.stop_m00_check.isChecked()
+            stop_m01 = self.stop_m01_check.isChecked()
+            stop_line = None
+            for line_index in range(current_line + 1, target_line + 1):
+                block = document.findBlockByNumber(line_index)
+                if block.isValid() and line_stops_playback(
+                    block.text(), needle, stop_text, stop_m00, stop_m01
+                ):
+                    stop_line = line_index
+                    break
+            destination = stop_line if stop_line is not None else target_line
+            if destination != current_line:
+                self.jump_to_process_line(destination)
+            if stop_line is not None or destination >= total_lines - 1:
+                self.pause_playback()
+
+        def playback_rewind(self):
+            """현재 커서가 속한 공정의 시작 줄로 되감고 정지한다."""
+            self.pause_playback()
+            first_line_map = getattr(self.viewer, 'process_first_line', None)
+            line_to_tool = getattr(self.viewer, 'line_to_tool_map', None)
+            start_line = 0
+            if first_line_map and line_to_tool is not None:
+                current_process = line_to_tool.get(self.src.textCursor().blockNumber())
+                start_line = first_line_map.get(current_process, 0)
+            self.jump_to_process_line(start_line)
+
+        def playback_prev_tool(self):
+            self._jump_relative_tool(-1)
+
+        def playback_next_tool(self):
+            self._jump_relative_tool(1)
+
+        def _jump_relative_tool(self, direction):
+            """필터에서 선택된 공정들의 시작 줄 중, 현재 커서 기준 앞/뒤로 가장 가까운
+            곳으로 점프한다. 재생 중이었으면 재생 상태를 유지한다."""
+            first_line_map = getattr(self.viewer, 'process_first_line', None)
+            selected = getattr(self.viewer, 'selected_tools', None)
+            if not first_line_map or not callable(selected):
+                return
+            selected_processes = selected()
+            ordered_lines = sorted(
+                line for key, line in first_line_map.items() if key in selected_processes
+            )
+            if not ordered_lines:
+                return
+            current_line = self.src.textCursor().blockNumber()
+            if direction > 0:
+                later = [line for line in ordered_lines if line > current_line]
+                target = later[0] if later else ordered_lines[-1]
+            else:
+                earlier = [line for line in ordered_lines if line < current_line]
+                target = earlier[-1] if earlier else ordered_lines[0]
+            self.jump_to_process_line(target)
+
         def _highlight_current_line(self):
             """읽기전용 프로그램 편집기에서 커서가 있는 행을 가로 전체 폭 블럭으로 칠한다."""
             selection = QTextEdit.ExtraSelection()
-            selection.format.setBackground(QColor('#dbe7f5'))
+            selection.format.setBackground(QColor(self.theme['current_line']))
             selection.format.setProperty(QTextFormat.FullWidthSelection, True)
             selection.cursor = self.src.textCursor()
             selection.cursor.clearSelection()
@@ -1586,47 +2035,6 @@ else:
             self.viewer.set_source_text(source_text, self.tool_name_map(rows or self.current_rows()))
             self.viewer.set_cursor_line(self.src.textCursor().blockNumber())
 
-        def open_machine_settings(self):
-            dialog = QDialog(self)
-            dialog.setWindowTitle('장비 타입 및 스펙 설정')
-            dialog.setMinimumWidth(420)
-            body = QVBoxLayout(dialog)
-            body.addWidget(QLabel('장비 타입'))
-            combo = QComboBox()
-            combo.addItems(self.viewer.machine_types())
-            combo.setCurrentText(self.viewer.current_machine_type)
-            body.addWidget(combo)
-            form_widget = QWidget()
-            form = QFormLayout(form_widget)
-            body.addWidget(form)
-            inputs = {}
-
-            def rebuild_form():
-                while form.rowCount():
-                    form.removeRow(0)
-                inputs.clear()
-                for key, value in self.viewer.machine_spec(combo.currentText()).items():
-                    edit = QLineEdit(str(value))
-                    inputs[key] = edit
-                    form.addRow(key, edit)
-
-            combo.currentIndexChanged.connect(rebuild_form)
-            rebuild_form()
-            buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
-            body.addWidget(buttons)
-
-            def save():
-                self.viewer.update_machine_spec(
-                    combo.currentText(), {key: edit.text() for key, edit in inputs.items()}
-                )
-                if self.current_mode == 'viewer':
-                    self.sync_viewer_from_source()
-                dialog.accept()
-
-            buttons.accepted.connect(save)
-            buttons.rejected.connect(dialog.reject)
-            dialog.exec_()
-
         def update_count(self):
             self.count.setText('공구 %d개' % self.table.rowCount())
 
@@ -1649,7 +2057,8 @@ else:
             self.src.setFocus()
 
         def set_search_status(self, text, error=False):
-            color = '#b03a2e' if error else '#5a6577'
+            self._search_status_error = error
+            color = self.theme['error'] if error else self.theme['muted_text']
             self.search_status.setText(text)
             self.search_status.setStyleSheet('color: %s;' % color)
 
