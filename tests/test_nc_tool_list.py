@@ -1,6 +1,7 @@
 import math
 import os
 import re
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -349,18 +350,26 @@ X60 Y10 Z0
         self.assertIn('upx=False', spec)
     def test_installer_uses_c_drive_onedir_package_without_direct_taskkill(self):
         iss = Path('NC_Tool_List.iss').read_text(encoding='utf-8-sig')
-        self.assertIn('#define MyAppVersion "1.4.5"', iss)
+        self.assertIn('#define MyAppVersion "1.5.0"', iss)
         self.assertIn('DefaultDirName=C:\\NC_Tool_List', iss)
         self.assertIn('UsePreviousAppDir=no', iss)
         self.assertIn('PrivilegesRequired=admin', iss)
-        self.assertIn('ChangesAssociations=no', iss)
         self.assertIn('CloseApplications=force', iss)
         self.assertIn('RestartApplications=no', iss)
         self.assertIn('Source: "dist\\NC_Tool_List\\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs', iss)
-        self.assertNotIn('[Registry]', iss)
-        self.assertNotIn('HKLM', iss)
         self.assertNotIn('taskkill.exe', iss)
         self.assertNotIn('/F /T /IM "{#MyAppExeName}"', iss)
+
+    def test_installer_registers_nc_mpf_tap_file_associations(self):
+        # v1.5.0 요청 사항 2: 설치 시 .nc/.mpf/.tap을 이 앱의 기본 프로그램으로 자동 등록.
+        iss = Path('NC_Tool_List.iss').read_text(encoding='utf-8-sig')
+        self.assertIn('ChangesAssociations=yes', iss)
+        self.assertIn('[Registry]', iss)
+        for ext in ('.nc', '.mpf', '.tap'):
+            self.assertIn('Subkey: "%s"; ValueType: string; ValueName: ""; ValueData: "NCToolList.NCProgram"' % ext, iss)
+        self.assertIn('Subkey: "NCToolList.NCProgram\\shell\\open\\command"', iss)
+        self.assertEqual(app.FILE_ASSOCIATION_PROG_ID, 'NCToolList.NCProgram')
+        self.assertEqual(app.FILE_ASSOCIATION_EXTENSIONS, ('.nc', '.mpf', '.tap'))
     @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
     def test_5axis_ac_and_bc_machine_settings_apply_different_g68_rotations(self):
         qapp = app.QApplication.instance() or app.QApplication([])
@@ -596,6 +605,169 @@ G02 X0 Y10 I-10 J0
             app.default_pdf_filename(metadata),
             'K10M41017_OP10_O1017_TOOL_LIST.pdf',
         )
+
+    # ---- v1.5.0: 업데이트 경로 지정 / 수동 업데이트 ----
+    def test_app_settings_and_update_root_round_trip(self):
+        with tempfile.TemporaryDirectory() as directory:
+            original = os.environ.get('APPDATA')
+            os.environ['APPDATA'] = directory
+            try:
+                self.assertEqual(app.update_root_setting(), app.DEFAULT_UPDATE_ROOT)
+                app.save_update_root_setting(r'D:\Custom\Update_Files')
+                self.assertEqual(app.update_root_setting(), r'D:\Custom\Update_Files')
+                # 빈 값으로 저장하면 기본 경로로 폴백
+                app.save_update_root_setting('   ')
+                self.assertEqual(app.update_root_setting(), app.DEFAULT_UPDATE_ROOT)
+            finally:
+                if original is None:
+                    os.environ.pop('APPDATA', None)
+                else:
+                    os.environ['APPDATA'] = original
+
+    def test_parse_installer_version_matches_expected_filename_pattern(self):
+        self.assertEqual(app.parse_installer_version('NC_Tool_List_Setup_v1.5.1.exe'), (1, 5, 1))
+        self.assertEqual(app.parse_installer_version('nc_tool_list_setup_v2.0.0.exe'), (2, 0, 0))
+        self.assertIsNone(app.parse_installer_version('NC_Tool_List_Portable_v1.5.1.zip'))
+        self.assertIsNone(app.parse_installer_version('random.exe'))
+        self.assertIsNone(app.parse_installer_version(''))
+
+    def test_find_latest_installer_selects_highest_version_and_ignores_others(self):
+        with tempfile.TemporaryDirectory() as directory:
+            directory_path = Path(directory)
+            for name in (
+                'NC_Tool_List_Setup_v1.4.5.exe',
+                'NC_Tool_List_Setup_v1.5.1.exe',
+                'NC_Tool_List_Setup_v1.5.0.exe',
+                'NC_Tool_List_Portable_v1.5.1.zip',
+                'readme.txt',
+            ):
+                (directory_path / name).write_text('x', encoding='utf-8')
+            result = app.find_latest_installer(directory)
+            self.assertIsNotNone(result)
+            path, version = result
+            self.assertEqual(path.name, 'NC_Tool_List_Setup_v1.5.1.exe')
+            self.assertEqual(version, (1, 5, 1))
+
+    def test_find_latest_installer_returns_none_for_missing_or_empty_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            missing = str(Path(directory) / 'does_not_exist')
+            self.assertIsNone(app.find_latest_installer(missing))
+            self.assertIsNone(app.find_latest_installer(directory))
+
+    def test_current_version_tuple_matches_app_version(self):
+        self.assertEqual(
+            app.current_version_tuple(),
+            tuple(int(part) for part in app.APP_VERSION.split('.')),
+        )
+        self.assertEqual(app.current_version_tuple('1.4.9'), (1, 4, 9))
+        self.assertGreater(app.current_version_tuple('1.5.1'), app.current_version_tuple('1.5.0'))
+
+    def test_copy_installer_to_temp_copies_file_into_temp_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / 'NC_Tool_List_Setup_v1.5.1.exe'
+            source.write_text('installer bytes', encoding='utf-8')
+            destination = app.copy_installer_to_temp(source)
+            try:
+                self.assertTrue(destination.exists())
+                self.assertEqual(destination.name, source.name)
+                self.assertEqual(destination.read_text(encoding='utf-8'), 'installer bytes')
+            finally:
+                destination.unlink(missing_ok=True)
+
+    # ---- v1.5.0: 확장자 기본 프로그램 등록 ----
+    def test_file_association_constants_and_command_string(self):
+        self.assertEqual(app.FILE_ASSOCIATION_EXTENSIONS, ('.nc', '.mpf', '.tap'))
+        self.assertEqual(app.FILE_ASSOCIATION_PROG_ID, 'NCToolList.NCProgram')
+        command = app.file_association_command()
+        self.assertIn(sys.executable, command)
+        self.assertTrue(command.strip().endswith('"%1"'))
+
+    @unittest.skipUnless(os.name == 'nt', 'file association registry only applies on Windows')
+    def test_register_and_unregister_file_associations_round_trip(self):
+        try:
+            registered = app.register_file_associations()
+        except OSError as error:
+            self.skipTest('레지스트리에 접근할 수 없습니다: %s' % error)
+            return
+        try:
+            self.assertTrue(registered)
+            self.assertTrue(app.file_associations_status())
+        finally:
+            app.unregister_file_associations()
+        self.assertFalse(app.file_associations_status())
+
+    # ---- v1.5.0: 공정별 경로 필터 클릭 시 프로그램 위치 자동 이동 ----
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_viewer_process_filter_click_emits_first_line_of_that_process(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        from PyQt5.QtCore import Qt
+        from PyQt5.QtWidgets import QListWidget
+        from nc_viewer_widget import NCViewerWidget
+
+        source = (
+            "G00 X0 Y0 Z0\n"
+            "M6T1\n"
+            "G43\n"
+            "G00 X10 Y0 Z0\n"
+            "G01 X20 Y0 Z0\n"
+            "M6T2\n"
+            "G43\n"
+            "G00 X30 Y0 Z0\n"
+        )
+        viewer = NCViewerWidget()
+        list_widget = QListWidget()
+        viewer.attach_tool_filter(list_widget)
+        try:
+            viewer.set_source_text(source, {'T01': 'FACE MILL', 'T02': 'DRILL'})
+            keys = list(viewer.tool_paths)
+            self.assertEqual(keys, ['Initial', 'P001_T01', 'P002_T02'])
+            self.assertEqual(viewer.process_first_line['Initial'], 0)
+            self.assertEqual(viewer.process_first_line['P001_T01'], 1)
+            self.assertEqual(viewer.process_first_line['P002_T02'], 5)
+
+            received = []
+            viewer.process_activated.connect(received.append)
+            second_process_item = list_widget.item(2)
+            self.assertEqual(second_process_item.data(Qt.UserRole), 'P002_T02')
+            list_widget.itemClicked.emit(second_process_item)
+            self.assertEqual(received, [5])
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_app_process_filter_click_moves_program_cursor_to_process_start(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        window = app.App(_root=settings_dir.name)
+        source = (
+            "G00 X0 Y0 Z0\n"
+            "M6T1\n"
+            "G43\n"
+            "G00 X10 Y0 Z0\n"
+            "G01 X20 Y0 Z0\n"
+            "M6T2\n"
+            "G43\n"
+            "G00 X30 Y0 Z0\n"
+        )
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                nc_path = Path(directory) / 'sample.nc'
+                nc_path.write_text(source, encoding='utf-8')
+                window.load_file(str(nc_path))
+                window.set_mode('viewer')
+                qapp.processEvents()
+
+                second_item = window.tool_filter.item(2)
+                self.assertEqual(second_item.data(app.Qt.UserRole), 'P002_T02')
+                window.tool_filter.itemClicked.emit(second_item)
+                qapp.processEvents()
+
+                self.assertEqual(window.src.textCursor().blockNumber(), 5)
+        finally:
+            window.deleteLater()
+            settings_dir.cleanup()
+            qapp.processEvents()
 
 
 if __name__ == '__main__':

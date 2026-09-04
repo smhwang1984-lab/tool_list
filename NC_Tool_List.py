@@ -8,7 +8,9 @@ import json
 import importlib.util
 import os
 import re
+import shutil
 import sys
+import tempfile
 import traceback
 from datetime import date, datetime
 from html import escape
@@ -24,7 +26,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
 
-APP_VERSION = '1.4.5'
+APP_VERSION = '1.5.0'
 APP_NAME = 'NC 공구 리스트 생성기'
 APP_BUILD_DATE = '2026-09-04'
 APP_CREATOR = 'Hwang.seonmun'
@@ -39,6 +41,11 @@ OPEN_SOURCE_COMPONENTS = (
     'PyInstaller',
     'Inno Setup',
 )
+DEFAULT_UPDATE_ROOT = r'\\192.168.0.210\생산부서\05. 생산자료\Update_Files'
+UPDATE_INSTALLER_RE = re.compile(r'^NC_Tool_List_Setup_v(\d+)\.(\d+)\.(\d+)\.exe$', re.I)
+FILE_ASSOCIATION_EXTENSIONS = ('.nc', '.mpf', '.tap')
+FILE_ASSOCIATION_PROG_ID = 'NCToolList.NCProgram'
+
 PROGRAM_PANE_MIN_WIDTH = 430
 VIEWER_PANE_INITIAL_WIDTH = 1125
 INPUT_SPLITTER_INITIAL_SIZES = [480, 208]
@@ -388,6 +395,192 @@ def save_name_types(items):
     with path.open('w', encoding='utf-8') as fp:
         json.dump([{'name': abbr, 'type': typ} for abbr, typ in items], fp,
                   ensure_ascii=False, indent=2)
+
+
+# ---------- 앱 설정(업데이트 경로 등) ----------
+def app_settings_path():
+    """Return a user-writable path even when installed in Program Files."""
+    return Path(os.environ.get('APPDATA', str(Path.home()))) / 'NC Tool List' / 'app_settings.json'
+
+
+def load_app_settings():
+    try:
+        with app_settings_path().open('r', encoding='utf-8') as fp:
+            saved = json.load(fp)
+        if isinstance(saved, dict):
+            return saved
+    except (OSError, ValueError, TypeError):
+        pass
+    return {}
+
+
+def save_app_settings(settings):
+    path = app_settings_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open('w', encoding='utf-8') as fp:
+        json.dump(settings, fp, ensure_ascii=False, indent=2)
+
+
+def update_root_setting():
+    """PC별로 지정한 업데이트 경로. 지정된 값이 없으면 기본 공유 경로를 사용."""
+    value = str(load_app_settings().get('update_root') or '').strip()
+    return value or DEFAULT_UPDATE_ROOT
+
+
+def save_update_root_setting(update_root):
+    settings = load_app_settings()
+    settings['update_root'] = str(update_root or '').strip()
+    save_app_settings(settings)
+
+
+# ---------- 수동 업데이트 ----------
+def current_version_tuple(version=None):
+    return tuple(int(part) for part in (version or APP_VERSION).split('.'))
+
+
+def parse_installer_version(filename):
+    """'NC_Tool_List_Setup_v1.5.1.exe' -> (1, 5, 1); 형식이 다르면 None."""
+    match = UPDATE_INSTALLER_RE.match(str(filename or '').strip())
+    if not match:
+        return None
+    return tuple(int(part) for part in match.groups())
+
+
+def find_latest_installer(update_root):
+    """update_root 아래에서 가장 높은 버전의 설치 파일을 찾아 (경로, 버전튜플)을 반환. 없으면 None."""
+    try:
+        entries = list(Path(update_root).iterdir())
+    except OSError:
+        return None
+    best = None
+    for entry in entries:
+        try:
+            if not entry.is_file():
+                continue
+        except OSError:
+            continue
+        version = parse_installer_version(entry.name)
+        if version is None:
+            continue
+        if best is None or version > best[1]:
+            best = (entry, version)
+    return best
+
+
+def copy_installer_to_temp(source_path):
+    """네트워크 공유가 끊기거나 파일이 잠겨도 설치가 실패하지 않도록 임시 폴더로 먼저 복사."""
+    source_path = Path(source_path)
+    destination = Path(tempfile.gettempdir()) / source_path.name
+    shutil.copy2(source_path, destination)
+    return destination
+
+
+# ---------- 확장자 기본 프로그램 등록 ----------
+def file_association_command():
+    """앱 실행 파일(또는 소스 실행 시 python.exe)을 인자와 함께 호출하는 명령 문자열."""
+    if getattr(sys, 'frozen', False):
+        return '"%s" "%%1"' % sys.executable
+    return '"%s" "%s" "%%1"' % (sys.executable, os.path.abspath(__file__))
+
+
+def file_association_icon_path():
+    if getattr(sys, 'frozen', False):
+        return sys.executable
+    return resource_path('assets/nc_tool_list.ico')
+
+
+def _delete_registry_tree(root, path):
+    import winreg
+    try:
+        key = winreg.OpenKey(root, path, 0, winreg.KEY_ALL_ACCESS)
+    except OSError:
+        return
+    with key:
+        while True:
+            try:
+                subkey_name = winreg.EnumKey(key, 0)
+            except OSError:
+                break
+            _delete_registry_tree(root, path + '\\' + subkey_name)
+    try:
+        winreg.DeleteKey(root, path)
+    except OSError:
+        pass
+
+
+def notify_shell_associations_changed():
+    try:
+        import ctypes
+        SHCNE_ASSOCCHANGED = 0x08000000
+        SHCNF_IDLIST = 0x0000
+        ctypes.windll.shell32.SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, None, None)
+    except Exception:
+        pass
+
+
+def register_file_associations():
+    """현재 사용자(HKCU) 범위로 .nc/.mpf/.tap을 이 앱의 기본 프로그램으로 등록. 관리자 권한 불필요."""
+    if os.name != 'nt':
+        return False
+    import winreg
+    root = winreg.HKEY_CURRENT_USER
+    command = file_association_command()
+    icon_path = file_association_icon_path()
+    prog_id_key = r'Software\Classes\%s' % FILE_ASSOCIATION_PROG_ID
+    with winreg.CreateKey(root, prog_id_key) as key:
+        winreg.SetValueEx(key, '', 0, winreg.REG_SZ, 'NC 프로그램')
+    with winreg.CreateKey(root, prog_id_key + r'\DefaultIcon') as key:
+        winreg.SetValueEx(key, '', 0, winreg.REG_SZ, icon_path)
+    with winreg.CreateKey(root, prog_id_key + r'\shell\open\command') as key:
+        winreg.SetValueEx(key, '', 0, winreg.REG_SZ, command)
+    for ext in FILE_ASSOCIATION_EXTENSIONS:
+        ext_key = r'Software\Classes\%s' % ext
+        with winreg.CreateKey(root, ext_key) as key:
+            winreg.SetValueEx(key, '', 0, winreg.REG_SZ, FILE_ASSOCIATION_PROG_ID)
+        with winreg.CreateKey(root, ext_key + r'\OpenWithProgids') as key:
+            winreg.SetValueEx(key, FILE_ASSOCIATION_PROG_ID, 0, winreg.REG_SZ, '')
+    notify_shell_associations_changed()
+    return True
+
+
+def unregister_file_associations():
+    """About에서 등록한 HKCU 연결을 해제. 설치 프로그램이 등록한 HKLM 연결은 건드리지 않음."""
+    if os.name != 'nt':
+        return False
+    import winreg
+    root = winreg.HKEY_CURRENT_USER
+    for ext in FILE_ASSOCIATION_EXTENSIONS:
+        try:
+            winreg.DeleteKey(root, r'Software\Classes\%s\OpenWithProgids' % ext)
+        except OSError:
+            pass
+        try:
+            with winreg.OpenKey(root, r'Software\Classes\%s' % ext, 0,
+                                 winreg.KEY_READ | winreg.KEY_WRITE) as key:
+                value, _kind = winreg.QueryValueEx(key, '')
+                if value == FILE_ASSOCIATION_PROG_ID:
+                    winreg.DeleteValue(key, '')
+        except OSError:
+            pass
+    _delete_registry_tree(root, r'Software\Classes\%s' % FILE_ASSOCIATION_PROG_ID)
+    notify_shell_associations_changed()
+    return True
+
+
+def file_associations_status():
+    """확장자 3종이 모두 이 앱의 ProgId로 연결돼 있으면 True (HKCU/HKLM 어느 쪽이든 인정)."""
+    if os.name != 'nt':
+        return False
+    import winreg
+    for ext in FILE_ASSOCIATION_EXTENSIONS:
+        try:
+            with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, ext) as key:
+                value, _kind = winreg.QueryValueEx(key, '')
+        except OSError:
+            return False
+        if value != FILE_ASSOCIATION_PROG_ID:
+            return False
+    return True
 
 
 def derive_type(name, name_types=None):
@@ -910,6 +1103,8 @@ else:
             right_layout.addWidget(self.stack, 1)
             self._build_tool_panel()
             self.viewer.attach_tool_filter(self.tool_filter)
+            if hasattr(self.viewer, 'process_activated'):
+                self.viewer.process_activated.connect(self.jump_to_process_line)
             self.stack.addWidget(self.viewer)
             self.set_mode('tool')
 
@@ -924,13 +1119,14 @@ else:
         def show_about(self):
             dialog = QDialog(self)
             dialog.setWindowTitle('About')
-            dialog.resize(460, 360)
+            dialog.resize(520, 600)
             layout = QVBoxLayout(dialog)
             title = QLabel('%s v%s' % (APP_NAME, APP_VERSION))
             title.setFont(QFont('맑은 고딕', 12, QFont.Bold))
             layout.addWidget(title)
             viewer = QTextEdit()
             viewer.setReadOnly(True)
+            viewer.setMaximumHeight(150)
             viewer.setPlainText(
                 '용도: %s\n'
                 '버전: %s\n'
@@ -941,7 +1137,120 @@ else:
                     '\n- '.join(OPEN_SOURCE_COMPONENTS),
                 )
             )
-            layout.addWidget(viewer, 1)
+            layout.addWidget(viewer)
+
+            # --- 업데이트 경로 및 수동 업데이트 ---
+            update_group = QGroupBox('업데이트')
+            update_layout = QVBoxLayout(update_group)
+            update_path_row = QHBoxLayout()
+            update_path_row.addWidget(QLabel('업데이트 경로'))
+            update_root_edit = QLineEdit(update_root_setting())
+            update_path_row.addWidget(update_root_edit, 1)
+            update_layout.addLayout(update_path_row)
+
+            update_status_label = QLabel('')
+            update_status_label.setWordWrap(True)
+            update_status_label.setStyleSheet('color: #5a6577;')
+
+            pending_update = {}
+
+            def browse_update_root():
+                path = QFileDialog.getExistingDirectory(
+                    dialog, '업데이트 경로 선택', update_root_edit.text() or DEFAULT_UPDATE_ROOT,
+                )
+                if path:
+                    update_root_edit.setText(path)
+
+            def reset_update_root():
+                update_root_edit.setText(DEFAULT_UPDATE_ROOT)
+
+            def save_update_root():
+                save_update_root_setting(update_root_edit.text().strip() or DEFAULT_UPDATE_ROOT)
+                update_status_label.setText('업데이트 경로를 저장했습니다.')
+
+            def check_for_update():
+                root = update_root_edit.text().strip() or DEFAULT_UPDATE_ROOT
+                result = find_latest_installer(root)
+                if result is None:
+                    pending_update.pop('path', None)
+                    install_button.setEnabled(False)
+                    update_status_label.setText('업데이트 파일을 찾을 수 없습니다.\n%s' % root)
+                    return
+                path, version = result
+                version_text = '.'.join(str(part) for part in version)
+                if version > current_version_tuple():
+                    pending_update['path'] = path
+                    install_button.setEnabled(True)
+                    update_status_label.setText('새 버전 발견: v%s (현재 v%s)' % (version_text, APP_VERSION))
+                else:
+                    pending_update.pop('path', None)
+                    install_button.setEnabled(False)
+                    update_status_label.setText('현재 버전이 최신입니다. (v%s)' % APP_VERSION)
+
+            def install_update():
+                path = pending_update.get('path')
+                if not path:
+                    return
+                if QMessageBox.question(
+                    dialog, '업데이트 설치',
+                    '설치 파일을 실행하면 프로그램이 종료됩니다. 계속할까요?\n%s' % path,
+                ) != QMessageBox.Yes:
+                    return
+                try:
+                    temp_path = copy_installer_to_temp(path)
+                except OSError as error:
+                    QMessageBox.critical(dialog, '업데이트 실패', '설치 파일을 복사하지 못했습니다.\n%s' % error)
+                    return
+                open_error = open_file_with_default_app(temp_path)
+                if open_error:
+                    QMessageBox.critical(dialog, '업데이트 실패', '설치 파일을 실행하지 못했습니다.\n%s' % open_error)
+                    return
+                QApplication.instance().quit()
+
+            update_button_row = QHBoxLayout()
+            self._add_button(update_button_row, '찾아보기', browse_update_root)
+            self._add_button(update_button_row, '기본값 복원', reset_update_root)
+            self._add_button(update_button_row, '경로 저장', save_update_root)
+            self._add_button(update_button_row, '업데이트 확인', check_for_update)
+            install_button = self._add_button(update_button_row, '지금 설치', install_update)
+            install_button.setEnabled(False)
+            update_layout.addLayout(update_button_row)
+            update_layout.addWidget(update_status_label)
+            layout.addWidget(update_group)
+
+            # --- 확장자 기본 프로그램 등록 ---
+            assoc_group = QGroupBox('확장자 기본 프로그램 등록 (%s)' % ', '.join(FILE_ASSOCIATION_EXTENSIONS))
+            assoc_layout = QVBoxLayout(assoc_group)
+            assoc_status_label = QLabel('')
+            assoc_status_label.setWordWrap(True)
+            assoc_status_label.setStyleSheet('color: #5a6577;')
+
+            def refresh_assoc_status():
+                connected = file_associations_status()
+                assoc_status_label.setText('연결됨' if connected else '연결 안 됨')
+
+            def do_register():
+                try:
+                    register_file_associations()
+                except OSError as error:
+                    QMessageBox.critical(dialog, '등록 실패', str(error))
+                refresh_assoc_status()
+
+            def do_unregister():
+                try:
+                    unregister_file_associations()
+                except OSError as error:
+                    QMessageBox.critical(dialog, '해제 실패', str(error))
+                refresh_assoc_status()
+
+            assoc_button_row = QHBoxLayout()
+            self._add_button(assoc_button_row, '등록', do_register)
+            self._add_button(assoc_button_row, '해제', do_unregister)
+            assoc_layout.addLayout(assoc_button_row)
+            assoc_layout.addWidget(assoc_status_label)
+            layout.addWidget(assoc_group)
+            refresh_assoc_status()
+
             buttons = QDialogButtonBox(QDialogButtonBox.Close)
             buttons.rejected.connect(dialog.reject)
             layout.addWidget(buttons)
@@ -1175,6 +1484,17 @@ else:
             if self.current_mode == 'viewer':
                 self.viewer.set_cursor_line(self.src.textCursor().blockNumber())
 
+        def jump_to_process_line(self, line_index):
+            """공정별 필터 항목을 클릭하면 프로그램 입력창의 해당 위치로 이동/선택한다."""
+            block = self.src.document().findBlockByNumber(max(0, int(line_index)))
+            if not block.isValid():
+                return
+            cursor = QTextCursor(block)
+            cursor.movePosition(QTextCursor.EndOfBlock, QTextCursor.KeepAnchor)
+            self.src.setTextCursor(cursor)
+            self.src.ensureCursorVisible()
+            self.src.setFocus()
+
         def parsed_program_data(self, source_text=None):
             source_text = self.src.toPlainText() if source_text is None else source_text
             if source_text != self._last_parsed_source:
@@ -1399,7 +1719,7 @@ else:
                 self,
                 'NC 프로그램 파일 선택',
                 str(Path(self.current_file_path).parent) if self.current_file_path else os.getcwd(),
-                'NC/텍스트 파일 (*.nc *.txt *.tap *.min *.prg);;모든 파일 (*.*)',
+                'NC/텍스트 파일 (*.nc *.mpf *.txt *.tap *.min *.prg);;모든 파일 (*.*)',
             )
             if path:
                 self.load_file(path)
@@ -1409,7 +1729,7 @@ else:
                 self,
                 '추가할 NC 프로그램 파일 선택',
                 str(Path(self.current_file_path).parent) if self.current_file_path else os.getcwd(),
-                'NC/텍스트 파일 (*.nc *.txt *.tap *.min *.prg);;모든 파일 (*.*)',
+                'NC/텍스트 파일 (*.nc *.mpf *.txt *.tap *.min *.prg);;모든 파일 (*.*)',
             )
             if paths:
                 self.add_program_files(paths)

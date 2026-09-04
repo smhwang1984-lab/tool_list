@@ -1,6 +1,6 @@
 # About / Release Instructions
 
-Last updated: 2026-09-03
+Last updated: 2026-09-04
 
 ## About button requirements
 
@@ -19,7 +19,8 @@ Last updated: 2026-09-03
 - Do not modify unrelated behavior or features while preparing this release.
 - Prefer PyInstaller onedir packaging with UPX disabled for Windows security software compatibility.
 - Install the complete `dist/NC_Tool_List` folder, including `_internal`, rather than a single self-extracting executable.
-- Prefer TSERP-style installation under `C:\NC_Tool_List` when matching existing accepted plant PC deployment behavior; keep HKLM file association writes disabled unless explicitly needed.
+- Prefer TSERP-style installation under `C:\NC_Tool_List` when matching existing accepted plant PC deployment behavior.
+- As of v1.5.0, the user explicitly asked for `.nc`/`.mpf`/`.tap` to be registered as this app's default program, so the installer now writes HKCR file-association registry entries (`ChangesAssociations=yes`) with `uninsdeletekey`/`uninsdeletevalue` so they're removed cleanly on uninstall. Do not revert this without the user asking.
 
 ## Version history maintenance
 
@@ -33,7 +34,26 @@ Last updated: 2026-09-03
 
 ## Version history
 
-### 2026-09-04 (latest)
+### 2026-09-04 (latest, v1.5.0)
+
+- Version: 1.5.0
+- Release/build date: 2026-09-04
+- Summary: Three requested features for the next version:
+  1. User-configurable update root path + manual update from the About popup (default `\\192.168.0.210\생산부서\05. 생산자료\Update_Files`).
+  2. `.nc`/`.mpf`/`.tap` registered as this app's default program.
+  3. Clicking a process-filter entry now jumps the program editor's cursor to that process's start line.
+- Creator displayed: Hwang.seonmun
+- Open source used: Python, PyQt5, pyqtgraph, NumPy, PyOpenGL, ReportLab, PyInstaller, Inno Setup (unchanged).
+- Details:
+  - **Update root + manual update (`NC_Tool_List.py`):** new `%APPDATA%\NC Tool List\app_settings.json` stores a per-PC `update_root` override (`load_app_settings`/`save_app_settings`/`update_root_setting`/`save_update_root_setting`); falls back to the default UNC share when unset. About popup gained an "업데이트" group: path field + 찾아보기/기본값 복원/경로 저장/업데이트 확인/지금 설치 buttons. `find_latest_installer` scans the root for `NC_Tool_List_Setup_v<major>.<minor>.<patch>.exe`, picks the highest version via `parse_installer_version`, and only enables install when it's newer than `APP_VERSION`. Install copies the network exe to `%TEMP%` first (`copy_installer_to_temp`, avoids share/lock issues), confirms with the user that the app will close, launches it via the existing `open_file_with_default_app` (`os.startfile`), then quits.
+  - **File association (`NC_Tool_List.py` + `NC_Tool_List.iss`):** installer now writes HKCR entries at install time (admin, already required) registering `.nc`/`.mpf`/`.tap` under ProgId `NCToolList.NCProgram` pointing at the installed exe, all under `uninsdeletekey`/`uninsdeletevalue` so uninstall removes them. `ChangesAssociations` flipped from `no` to `yes`. About popup adds a "확장자 기본 프로그램 등록" group with 등록/해제 buttons that write/remove the same ProgId under `HKCU\Software\Classes` (no admin required, works even for a portable/no-installer deployment) via `register_file_associations`/`unregister_file_associations`, and a status label (`file_associations_status`, checked through the merged `HKEY_CLASSES_ROOT` view so it reports true regardless of which of HKCU/HKLM made the association) refreshed after each action; `SHChangeNotify(SHCNE_ASSOCCHANGED)` tells Explorer to pick up the change immediately. File-open/add dialogs' filter also gained `*.mpf`.
+  - **Process filter → program cursor jump (`nc_viewer_widget.py` + `NC_Tool_List.py`):** `NCViewerWidget.process_nc_lines` now records each process key's first source line in `process_first_line` (including the `"Initial"` pre-M6 segment at line 0). A new `process_activated(int)` Qt signal fires from a new `itemClicked`-driven handler (`_on_tool_filter_item_clicked`) on the filter list — deliberately using `itemClicked` rather than `itemSelectionChanged` so 전체/해제 and multi-select don't also yank the cursor, only an explicit click on one entry does. The main window connects it (`hasattr` guarded, since the OpenGL-less `ViewerFallbackWidget` doesn't define the signal) to a new `jump_to_process_line`, which moves/selects that line in the program editor and scrolls it into view.
+- Verification: 39 unit tests passed (28 existing + 11 new: update-root settings round-trip, installer filename/version parsing, latest-version selection incl. ignoring lower/invalid names, `copy_installer_to_temp`, file-association constants/command string, a real HKCU register→verify→unregister→verify round trip with cleanup confirmed afterward via a separate registry read, a viewer-level test that a filter-item click emits the correct first line, an App-level integration test that the click actually moves `QTextEdit` cursor to that line, and an updated `.iss` test asserting the `[Registry]`/`ChangesAssociations=yes` associations exist). Also manually smoke-tested that `show_about()` builds and opens without raising (via a monkeypatched non-blocking `QDialog.exec_`), and confirmed the HKCU test round trip left no `NCToolList.NCProgram` key and no leftover `.nc`/`.mpf`/`.tap` default values behind on the dev machine.
+- Installer/package: not yet created for 1.5.0 — pending user confirmation to build (this PC could not reach `\\192.168.0.210` to test a real update-share scan; that logic was verified against a local temp directory standing in for the share instead, real share access is a plant-PC verification item).
+- Signature status: still unsigned.
+- Out of scope (left untouched): actual code-signing; testing the update flow against the real `\\192.168.0.210` share from this dev machine; lathe (2-axis) coordinate mapping; G90/G91 incremental-mode support for ordinary moves.
+
+### 2026-09-04 (v1.4.5)
 
 - Version: 1.4.5
 - Release/build date: 2026-09-04

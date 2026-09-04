@@ -6,7 +6,7 @@ import re
 
 import numpy as np
 import pyqtgraph.opengl as gl
-from PyQt5.QtCore import Qt, QSettings, QSignalBlocker
+from PyQt5.QtCore import Qt, QSettings, QSignalBlocker, pyqtSignal
 from PyQt5.QtGui import QColor, QIcon, QMatrix4x4, QPixmap
 from PyQt5.QtWidgets import (
     QAbstractItemView,
@@ -109,6 +109,10 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
 class NCViewerWidget(QWidget):
     """Viewer-only widget used inside the main tool-list application."""
 
+    # Emitted with the source line index where a clicked process-filter entry begins,
+    # so the host window can move the program editor's cursor there.
+    process_activated = pyqtSignal(int)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.settings = QSettings("NC Tool List", "EmbeddedViewer")
@@ -129,6 +133,7 @@ class NCViewerWidget(QWidget):
         self.last_render_signature = None
         self.line_to_coord_map = {}
         self.line_to_tool_map = {}
+        self.process_first_line = {}
         self.modal_state_map = {}
         self.dynamic_trace_items = []
         self.current_cursor_line = 0
@@ -234,10 +239,23 @@ class NCViewerWidget(QWidget):
                 self.tool_filter_list.itemSelectionChanged.disconnect(self.update_visible_paths)
             except TypeError:
                 pass
+            try:
+                self.tool_filter_list.itemClicked.disconnect(self._on_tool_filter_item_clicked)
+            except TypeError:
+                pass
         self.tool_filter_list = list_widget
         self.tool_filter_list.setSelectionMode(QAbstractItemView.MultiSelection)
         self.tool_filter_list.itemSelectionChanged.connect(self.update_visible_paths)
+        # A user click (not a programmatic 전체/해제 selection) also jumps the program
+        # editor to where that process starts.
+        self.tool_filter_list.itemClicked.connect(self._on_tool_filter_item_clicked)
         self._refresh_tool_filter()
+
+    def _on_tool_filter_item_clicked(self, item):
+        process_key = item.data(Qt.UserRole)
+        line_index = self.process_first_line.get(process_key)
+        if line_index is not None:
+            self.process_activated.emit(line_index)
 
     def set_tool_name_map(self, tool_name_map):
         self.tool_name_map = dict(tool_name_map or {})
@@ -271,6 +289,7 @@ class NCViewerWidget(QWidget):
         self.process_tool_map.clear()
         self.line_to_coord_map.clear()
         self.line_to_tool_map.clear()
+        self.process_first_line.clear()
         self.modal_state_map.clear()
         self.current_cursor_line = 0
         self._refresh_tool_filter()
@@ -419,6 +438,7 @@ class NCViewerWidget(QWidget):
         self.process_tool_map.clear()
         self.line_to_coord_map.clear()
         self.line_to_tool_map.clear()
+        self.process_first_line.clear()
         self.modal_state_map.clear()
 
         machine_type = self.current_machine_type
@@ -437,6 +457,7 @@ class NCViewerWidget(QWidget):
         current_tool = "Initial"
         self.tool_paths[current_tool] = []
         self.process_tool_map[current_tool] = ""
+        self.process_first_line[current_tool] = 0
 
         cx, cy, cz = 0.0, 0.0, 0.0
         cc_deg = 0.0
@@ -545,6 +566,7 @@ class NCViewerWidget(QWidget):
                 current_tool = self._make_process_key(process_no, detected_t)
                 self.tool_paths[current_tool] = []
                 self.process_tool_map[current_tool] = detected_t
+                self.process_first_line[current_tool] = idx
                 self.tool_paths[current_tool].append({
                     "pt": [cx, cy, cz], "type": current_motion, "valid": g43_active, "src_line": idx,
                 })

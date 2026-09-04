@@ -2,7 +2,7 @@
 ; C:\NC_Tool_List 폴더에 설치됩니다.
 
 #define MyAppName "NC Tool List"
-#define MyAppVersion "1.4.5"
+#define MyAppVersion "1.5.0"
 #define MyAppPublisher "S M.HWANG"
 #define MyAppExeName "NC_Tool_List.exe"
 
@@ -32,7 +32,8 @@ VersionInfoProductVersion={#MyAppVersion}
 ; C 드라이브 루트 아래 전용 폴더 생성을 위해 관리자 권한 요청
 PrivilegesRequired=admin
 ArchitecturesInstallIn64BitMode=x64compatible
-ChangesAssociations=no
+; .nc/.mpf/.tap을 이 앱의 기본 프로그램으로 등록(요청 사항 2)
+ChangesAssociations=yes
 CloseApplications=force
 RestartApplications=no
 
@@ -45,6 +46,17 @@ Name: "desktopicon"; Description: "바탕화면에 바로가기 만들기"; Grou
 [Files]
 Source: "dist\NC_Tool_List\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
+[Registry]
+; .nc/.mpf/.tap 확장자를 이 앱의 기본 프로그램으로 등록 (요청 사항 2). 제거 시 함께 삭제됨.
+Root: HKCR; Subkey: "NCToolList.NCProgram"; ValueType: string; ValueName: ""; ValueData: "NC 프로그램"; Flags: uninsdeletekey
+Root: HKCR; Subkey: "NCToolList.NCProgram\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#MyAppExeName},0"
+Root: HKCR; Subkey: "NCToolList.NCProgram\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""
+Root: HKCR; Subkey: ".nc"; ValueType: string; ValueName: ""; ValueData: "NCToolList.NCProgram"; Flags: uninsdeletevalue
+Root: HKCR; Subkey: ".nc\OpenWithProgids"; ValueType: string; ValueName: "NCToolList.NCProgram"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKCR; Subkey: ".mpf"; ValueType: string; ValueName: ""; ValueData: "NCToolList.NCProgram"; Flags: uninsdeletevalue
+Root: HKCR; Subkey: ".mpf\OpenWithProgids"; ValueType: string; ValueName: "NCToolList.NCProgram"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKCR; Subkey: ".tap"; ValueType: string; ValueName: ""; ValueData: "NCToolList.NCProgram"; Flags: uninsdeletevalue
+Root: HKCR; Subkey: ".tap\OpenWithProgids"; ValueType: string; ValueName: "NCToolList.NCProgram"; ValueData: ""; Flags: uninsdeletevalue
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
