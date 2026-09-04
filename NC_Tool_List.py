@@ -26,7 +26,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
 
-APP_VERSION = '1.5.2'
+APP_VERSION = '1.5.3'
 APP_NAME = 'NC 공구 리스트 생성기'
 APP_BUILD_DATE = '2026-09-04'
 APP_CREATOR = 'Hwang.seonmun'
@@ -748,7 +748,7 @@ try:
         QApplication, QAbstractItemView, QCheckBox, QComboBox, QDialog,
         QDialogButtonBox, QFileDialog, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout,
         QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
-        QPushButton, QSplitter, QStackedWidget, QTableWidget, QTableWidgetItem,
+        QPlainTextEdit, QPushButton, QSplitter, QStackedWidget, QTableWidget, QTableWidgetItem,
         QTextEdit, QVBoxLayout, QWidget,
     )
 except ImportError as error:
@@ -768,7 +768,16 @@ if QT_IMPORT_ERROR is not None:
         def __init__(self, *args, **kwargs):
             raise RuntimeError('GUI 실행에 필요한 패키지가 없습니다: %s' % QT_IMPORT_ERROR)
 else:
-    class ProgramTextEdit(QTextEdit):
+    class ProgramTextEdit(QPlainTextEdit):
+        # QTextEdit(리치 텍스트)이 아닌 QPlainTextEdit을 쓴다 — 3만 줄대의 NoWrap
+        # 문서를 실제 레이아웃(스플리터)에 얹은 채 setExtraSelections()를 호출하면
+        # QTextEdit은 사실상 멈춘 것처럼 보일 정도로 느려진다(줄 강조 도입 후
+        # 발견된 회귀, v1.5.2). QPlainTextEdit은 대용량 평문 문서를 위해 설계된
+        # 위젯이라 같은 조건에서 즉시 끝난다. 공개 API가 거의 동일해 아래
+        # toPlainText/setPlainText/textCursor/document 등은 그대로 쓸 수 있고,
+        # ExtraSelection만 QPlainTextEdit에 별도 별칭이 없어 QTextEdit.ExtraSelection을
+        # 계속 쓴다(Qt C++ 쪽에서도 QPlainTextEdit::ExtraSelection은 QTextEdit::
+        # ExtraSelection의 typedef라 같은 타입이다).
         filesDropped = pyqtSignal(list)
 
         def __init__(self, parent=None):
@@ -1065,7 +1074,7 @@ else:
 
             self.src = ProgramTextEdit()
             self.src.setFont(mono)
-            self.src.setLineWrapMode(QTextEdit.NoWrap)
+            self.src.setLineWrapMode(QPlainTextEdit.NoWrap)
             self.src.setReadOnly(True)
             self.src.setAcceptDrops(True)
             self.src.filesDropped.connect(self.drop_file)

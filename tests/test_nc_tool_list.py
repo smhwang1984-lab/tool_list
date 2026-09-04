@@ -3,6 +3,7 @@ import os
 import re
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -1165,6 +1166,40 @@ G02 X0 Y10 I-10 J0
         finally:
             viewer.deleteLater()
             qapp.processEvents()
+
+    # ---- v1.5.3: 대용량 파일 로드 시 행 강조가 사실상 멈추던 회귀 수정 ----
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    @unittest.skipUnless(Path('ncdata.nc').exists(), 'ncdata.nc sample not present')
+    def test_loading_large_real_program_does_not_hang(self):
+        # v1.5.2에서 도입한 현재 행 강조(_highlight_current_line)가 QTextEdit +
+        # NoWrap + 3만 줄대 문서 + 스플리터 내장이라는 조합에서 setExtraSelections()를
+        # 사실상 멈춘 것처럼 보일 만큼 느리게 만들었다(현장 리포트: "파일 불러오기중
+        # 멈춤"). 아주 작은 REAL_NC_SAMPLE로는 이 문제가 재현되지 않으므로, 실제
+        # 대용량 샘플(ncdata.nc, 3만 줄 이상)로 명시적인 시간 제한을 두고 검증한다.
+        # ProgramTextEdit을 QPlainTextEdit 기반으로 바꾼 것이 이 회귀의 수정이다.
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        window = app.App(_root=settings_dir.name)
+        try:
+            started = time.time()
+            window.load_file('ncdata.nc')
+            elapsed = time.time() - started
+            # 정상 동작이면 1초 안팎, 회귀 상태면 setExtraSelections() 한 줄에서
+            # 20초 이상(사실상 무한정) 멈춘다 — 넉넉히 잡아도 5초는 이 둘을 가른다.
+            self.assertLess(elapsed, 5.0)
+            self.assertTrue(window.src.toPlainText())
+            selections = window.src.extraSelections()
+            self.assertEqual(len(selections), 1)
+        finally:
+            window.deleteLater()
+            settings_dir.cleanup()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_program_editor_is_plain_text_edit_not_rich_text_edit(self):
+        # QTextEdit(리치 텍스트)로 되돌아가면 위 성능 회귀가 다시 생긴다 — 기반
+        # 클래스가 QPlainTextEdit인지를 직접 고정해 둔다.
+        self.assertTrue(issubclass(app.ProgramTextEdit, app.QPlainTextEdit))
 
 
 if __name__ == '__main__':
