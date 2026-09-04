@@ -1,6 +1,6 @@
 # About / Release Instructions
 
-Last updated: 2026-09-04 (v1.5.4)
+Last updated: 2026-09-04 (v1.5.5)
 
 ## About button requirements
 
@@ -34,7 +34,31 @@ Last updated: 2026-09-04 (v1.5.4)
 
 ## Version history
 
-### 2026-09-04 (latest, v1.5.4)
+### 2026-09-04 (latest, v1.5.5)
+
+- Version: 1.5.5
+- Release/build date: 2026-09-04
+- Summary: Three requested UI changes to the program-input/viewer panel:
+  1. The "장비 타입 및 스펙 설정" (machine type/spec settings) panel is now collapsible — a clickable header (▶/▼ + title) shows/hides the type combo, spec form, and save button, so the program input pane can be wider when the panel isn't in use. Collapsed by default; auto-collapses after "현재 장비 스펙 기록/저장" is clicked and whenever the program input editor gains keyboard focus. Expand/collapse state persists via `QSettings`.
+  2. The now-redundant top-bar "장비 설정" button and its separate dialog (duplicating the same settings panel) were removed — the collapsible panel is the only entry point.
+  3. A new row was added directly above "공정별 경로 필터 선택": three checkboxes — 텍스트 정지 / 정지 / 옵션정지 (label text only, no parenthetical codes; the M0/M00 and M1/M01 detail is in each checkbox's tooltip) — that independently control what the PG-matching auto-playback stops on. 텍스트 정지 reuses the existing "문자 검색" input as its match string (case-insensitive substring). Defaults: 정지 and 옵션정지 checked, 텍스트 정지 unchecked (matches pre-v1.5.5 behavior). Checkbox state persists via `QSettings`.
+  4. Auto-playback max speed raised from 200x to 500x (`MAX_PLAYBACK_SPEED` constant in both `NC_Tool_List.py` and `nc_viewer_widget.py`); the speed slider range and its value-label width were updated to match.
+- Creator displayed: Hwang.seonmun
+- Open source used: Python, PyQt5, pyqtgraph, NumPy, PyOpenGL, ReportLab, PyInstaller, Inno Setup (unchanged — no dependency added or removed).
+- Details:
+  - **Collapsible machine settings panel (`NC_Tool_List.py`, `_build_machine_settings_panel`):** the previous static title `QLabel` was replaced with a checkable, flat `QPushButton` header (`self.machine_panel_toggle`) whose text toggles between `▶ 장비 타입 및 스펙 설정` / `▼ 장비 타입 및 스펙 설정`. The combo/spec-form/save-button now live in a `self.machine_settings_body` container whose visibility follows the header's checked state via `set_machine_panel_expanded()`. The status label (`machine_settings_status`) stays in the panel's outer layout (not inside the collapsible body) so the "저장되었습니다" message remains visible even after the panel auto-collapses. Expanded/collapsed state is read/written under the `machine_panel_expanded` `QSettings` key (`_load_machine_panel_expanded`), defaulting to collapsed. Auto-collapse triggers: end of `save_visible_machine_settings()`, and a new `ProgramTextEdit.focusGained` signal (emitted from an added `focusInEvent` override) wired to `self.src.focusGained.connect(lambda: self.set_machine_panel_expanded(False))`.
+  - **Removed duplicate entry point:** the top-bar `장비 설정` `QPushButton` (and its `_style_mode_buttons` styling line) and the `open_machine_settings()` method (a separate `QDialog` with its own combo/form/save, functionally identical to the panel) were deleted in full; `QDialog`/`QFormLayout`/`QComboBox`/`QLineEdit` imports remain in use elsewhere (About dialog, row editor, type-list editor) so no import changes were needed.
+  - **Stop-option row and playback logic (`NC_Tool_List.py`):** `PROGRAM_STOP_RE` was split into `M00_STOP_RE` (`M0?0(?!\d)`) and `M01_STOP_RE` (`M0?1(?!\d)`); new pure functions `line_has_m00_stop`/`line_has_m01_stop` back a reworked `line_has_program_stop` (kept as their OR, so its existing test/behavior are unchanged) plus a new `line_stops_playback(line, needle, stop_text, stop_m00, stop_m01)` that combines all three conditions (returns `False` for all three unchecked, rather than falling back to any default). `_playback_tick()` now calls `line_stops_playback()` with the three checkbox states and the current `search_text` value instead of the old hardcoded `line_has_program_stop()` call. New checkboxes `stop_text_check`/`stop_m00_check`/`stop_m01_check` sit in a new row inserted above the existing filter-header row inside `filter_layout`; their checked state is persisted via `_load_playback_stop_options()`/`_save_playback_stop_options()` under `stop_at_text`/`stop_at_m00`/`stop_at_m01` `QSettings` keys.
+  - **500x speed cap:** new `MAX_PLAYBACK_SPEED = 500` module constant added to both `NC_Tool_List.py` (used by `_load_playback_speed`/`set_playback_speed`, replacing the hardcoded `200` clamp) and `nc_viewer_widget.py` (used by `PlaybackBarWidget`'s `speed_slider.setRange(1, MAX_PLAYBACK_SPEED)`, replacing `setRange(1, 200)`); the slider's value label width grew from 56px to 64px so "500x" doesn't clip. The two constants are independent (the viewer module is optionally imported and must not depend on the main module) but kept numerically in sync intentionally.
+- Verification: 68 unit tests passed (60 existing pre-v1.5.5 + 8 new: `line_stops_playback()` behavior for each option independently including the all-off and empty-search-text cases; `_playback_tick()` skips past M01 when 옵션정지 is unchecked and runs to end of document instead; `_playback_tick()` stops on a 텍스트 정지 match when only that option is checked; the collapsible panel's default-collapsed state, expand/collapse toggling, auto-collapse after save, and auto-collapse when the program editor gains real keyboard focus (via `window.show()` + `QTest`-style `setFocus()`/`processEvents()`, matching the existing focus-test pattern); the speed slider's 1–500 range and `set_playback_speed()` clamping 1000→500 and 0→1). Also built and launched the actual frozen exe twice: `startup.log` showed a clean `Starting NC 공구 리스트 생성기 v1.5.5 frozen=True` line both times with no traceback, and the process stayed running (not a crash-exit) until explicitly stopped.
+- Installer/package: Created `installer/NC_Tool_List_Setup_v1.5.5.exe` and `installer/NC_Tool_List_Portable_v1.5.5.zip` from a fresh PyInstaller onedir rebuild after deleting `build/` and `dist/` (`dist/NC_Tool_List/_internal/OpenGL` confirmed absent, no `freeglut`/`gle32`/`gle64` DLLs present, `upx=False` in the spec, built exe's version resource reads `1.5.5.0`/`S M.HWANG`). Portable ZIP matches the v1.5.0–v1.5.4 layout (`_internal` + `NC_Tool_List.exe` at the archive root, 311 entries).
+- Installer SHA-256: C48C7C2EB3E84C772EBAB7DE804FD4D1F200D697428BC8BF167D6CE1C61EB1DB
+- Portable ZIP SHA-256: 9AA4F4EA38D020310D581A42597C6BE925DAAEAE4FBA6B1A154D71254E1BF8B0
+- App SHA-256: CC059AF33DF7FF78CA5FF4E2AD312691B7310FEE65FCF7D3DB75A91388B900EB
+- Signature status: still unsigned.
+- Out of scope (left untouched): actual code-signing; running the installer elevated on this dev machine (the `[Registry]` association behavior is unchanged since v1.5.0); lathe (2-axis) coordinate mapping; G90/G91 incremental-mode support for ordinary moves; a settings UI for cube face labels/colors. **v1.5.4's installer/ZIP should be treated as superseded and not distributed** — the collapsible machine-settings panel, stop-option row, and 500x speed cap described above are not in it.
+
+### 2026-09-04 (v1.5.4)
 
 - Version: 1.5.4
 - Release/build date: 2026-09-04

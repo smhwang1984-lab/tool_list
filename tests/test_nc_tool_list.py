@@ -253,15 +253,33 @@ X60 Y10 Z0
         try:
             self.assertEqual(app.MAIN_SPLITTER_INITIAL_SIZES, [app.PROGRAM_PANE_MIN_WIDTH, 1125])
             self.assertEqual(app.INPUT_SPLITTER_INITIAL_SIZES, [480, 208])
-            self.assertEqual(window.btn_machine_settings.text(), '장비 설정')
+            self.assertFalse(hasattr(window, 'btn_machine_settings'))
             self.assertEqual(window.machine_settings_panel.title(), '')
-            panel_labels = [label.text() for label in window.machine_settings_panel.findChildren(app.QLabel)]
-            self.assertIn('장비 타입 및 스펙 설정', panel_labels)
+            self.assertIn('장비 타입 및 스펙 설정', window.machine_panel_toggle.text())
             self.assertTrue(window.machine_settings_panel.isHidden())
+            # 접이식 패널은 기본적으로 접혀 있어 프로그램 입력창을 더 넓게 쓴다.
+            self.assertFalse(window.machine_panel_toggle.isChecked())
+            self.assertTrue(window.machine_settings_body.isHidden())
             window.set_mode('viewer')
             self.assertFalse(window.machine_settings_panel.isHidden())
             self.assertGreater(window.machine_type_combo.count(), 0)
             self.assertGreater(window.machine_spec_form.rowCount(), 0)
+
+            window.set_machine_panel_expanded(True)
+            self.assertTrue(window.machine_panel_toggle.isChecked())
+            self.assertFalse(window.machine_settings_body.isHidden())
+            window.save_visible_machine_settings()
+            self.assertFalse(window.machine_panel_toggle.isChecked())
+            self.assertTrue(window.machine_settings_body.isHidden())
+
+            window.set_machine_panel_expanded(True)
+            window.show()
+            qapp.processEvents()
+            window.src.setFocus()
+            qapp.processEvents()
+            self.assertTrue(window.src.hasFocus())
+            self.assertFalse(window.machine_panel_toggle.isChecked())
+            self.assertTrue(window.machine_settings_body.isHidden())
 
             program_layout = window.program_panel.layout()
             row1 = program_layout.itemAt(1).layout()
@@ -1211,6 +1229,26 @@ G02 X0 Y10 I-10 J0
         ):
             self.assertFalse(app.line_has_program_stop(line), line)
 
+    def test_line_stops_playback_respects_each_option_independently(self):
+        # 세 옵션 모두 꺼져 있으면 아무 것도 멈추지 않는다.
+        self.assertFalse(app.line_stops_playback('M00', 'G43', False, False, False))
+        self.assertFalse(app.line_stops_playback('M01', 'G43', False, False, False))
+        self.assertFalse(app.line_stops_playback('G43 H1', 'G43', False, False, False))
+
+        # 정지(M00/M0)만 켠 경우 M01은 무시한다.
+        self.assertTrue(app.line_stops_playback('M00', '', False, True, False))
+        self.assertFalse(app.line_stops_playback('M01', '', False, True, False))
+
+        # 옵션정지(M01/M1)만 켠 경우 M00은 무시한다.
+        self.assertTrue(app.line_stops_playback('M01', '', False, False, True))
+        self.assertFalse(app.line_stops_playback('M00', '', False, False, True))
+
+        # 텍스트 정지는 검색어가 포함된 줄에서만, 대소문자 무시하고 멈춘다.
+        self.assertTrue(app.line_stops_playback('G43 H1 Z50.', 'g43', True, False, False))
+        self.assertFalse(app.line_stops_playback('G0 X0 Y0', 'G43', True, False, False))
+        # 검색어가 비어 있으면 텍스트 정지는 동작하지 않는다.
+        self.assertFalse(app.line_stops_playback('G43 H1', '', True, False, False))
+
     @staticmethod
     def _build_playback_sample_text(first_run=20, second_run=20):
         """모션 줄 first_run개 -> M01 -> 모션 줄 second_run개 -> M30."""
@@ -1276,6 +1314,64 @@ G02 X0 Y10 I-10 J0
                     window.src.textCursor().blockNumber()
                 )
                 self.assertEqual(stop_block.text().strip(), 'M01')
+            finally:
+                window.deleteLater()
+                qapp.processEvents()
+        finally:
+            settings_dir.cleanup()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_playback_skips_m01_when_option_stop_unchecked(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        try:
+            text = self._build_playback_sample_text(first_run=50, second_run=50)
+            window = self._make_window_with_text(text, settings_dir.name)
+            try:
+                window.stop_m01_check.setChecked(False)
+                window.set_playback_speed(200)
+                window.start_playback()
+                for _ in range(200):
+                    window._playback_tick()
+                    if not window.play_timer.isActive():
+                        break
+                self.assertFalse(window.play_timer.isActive())
+                last_line = window.src.document().blockCount() - 1
+                self.assertEqual(window.src.textCursor().blockNumber(), last_line)
+            finally:
+                window.deleteLater()
+                qapp.processEvents()
+        finally:
+            settings_dir.cleanup()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_playback_stops_on_text_when_text_stop_checked(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        try:
+            lines = ['%', 'O2000']
+            for i in range(30):
+                lines.append('N%d G01 X%d Y0' % (i, i))
+            lines.insert(16, 'G43 H1 Z50.')
+            lines.append('M30')
+            text = '\n'.join(lines)
+            window = self._make_window_with_text(text, settings_dir.name)
+            try:
+                window.stop_m00_check.setChecked(False)
+                window.stop_m01_check.setChecked(False)
+                window.stop_text_check.setChecked(True)
+                window.search_text.setText('G43')
+                window.set_playback_speed(200)
+                window.start_playback()
+                for _ in range(200):
+                    window._playback_tick()
+                    if not window.play_timer.isActive():
+                        break
+                self.assertFalse(window.play_timer.isActive())
+                stop_block = window.src.document().findBlockByNumber(
+                    window.src.textCursor().blockNumber()
+                )
+                self.assertIn('G43', stop_block.text())
             finally:
                 window.deleteLater()
                 qapp.processEvents()
@@ -1421,6 +1517,31 @@ G02 X0 Y10 I-10 J0
                 self.assertEqual(button.focusPolicy(), app.Qt.NoFocus)
         finally:
             viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_playback_speed_max_is_500x(self):
+        from nc_viewer_widget import NCViewerWidget
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer = NCViewerWidget()
+        try:
+            self.assertEqual(viewer.playback_bar.speed_slider.minimum(), 1)
+            self.assertEqual(viewer.playback_bar.speed_slider.maximum(), 500)
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+        settings_dir = tempfile.TemporaryDirectory()
+        window = app.App(_root=settings_dir.name)
+        try:
+            window.set_playback_speed(1000)
+            self.assertEqual(window.play_speed, 500)
+            window.set_playback_speed(0)
+            self.assertEqual(window.play_speed, 1)
+        finally:
+            window.deleteLater()
+            settings_dir.cleanup()
             qapp.processEvents()
 
     @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')

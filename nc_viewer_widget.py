@@ -28,6 +28,9 @@ from PyQt5.QtWidgets import (
 # 수준의 여백 지정이라 크게 문제되지 않는다.
 PX_PER_CM = 96.0 / 2.54
 
+# PG 매칭 자동 재생 최대 배속. NC_Tool_List.py의 동일 상수와 값을 맞춰서 유지한다.
+MAX_PLAYBACK_SPEED = 500
+
 TOOL_COLOR_MAPS = [
     [1.0, 0.45, 0.10], [0.0, 0.70, 1.0], [0.20, 0.90, 0.25],
     [1.0, 0.25, 0.65], [0.95, 0.85, 0.10], [0.60, 0.35, 1.0],
@@ -362,14 +365,14 @@ class PlaybackBarWidget(QWidget):
         speed_row = QHBoxLayout()
         speed_row.addWidget(QLabel("속도"))
         self.speed_slider = QSlider(Qt.Horizontal)
-        self.speed_slider.setRange(1, 200)
+        self.speed_slider.setRange(1, MAX_PLAYBACK_SPEED)
         self.speed_slider.setValue(1)
         self.speed_slider.setFixedHeight(34)
         self.speed_slider.setFocusPolicy(Qt.NoFocus)
         self.speed_slider.valueChanged.connect(self._on_speed_changed)
         speed_row.addWidget(self.speed_slider, 1)
         self.speed_value_label = QLabel("1x")
-        self.speed_value_label.setFixedWidth(56)
+        self.speed_value_label.setFixedWidth(64)
         speed_row.addWidget(self.speed_value_label)
         outer.addLayout(speed_row)
 
