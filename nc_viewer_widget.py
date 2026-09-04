@@ -396,6 +396,11 @@ class ViewCubeWidget(QWidget):
     OpenGL init failures on some plant PCs (v1.4.3→v1.4.4), so a second GL
     surface is avoided; a schematic cube from 8 projected points doesn't need one.
     Clicking a face snaps the camera to that view via face_clicked(elevation, azimuth).
+    A circular ring drawn around the cube (v1.5.10) offers a second, non-snapping
+    interaction: dragging inside that ring band orbits the camera live via
+    gl_view.orbit(), the same way dragging the 3D viewport itself does — added
+    because a plain cube-face click always snaps instantly, which made it easy to
+    accidentally jump to the wrong view while only trying to nudge the angle.
     """
 
     face_clicked = pyqtSignal(float, float)
@@ -416,8 +421,14 @@ class ViewCubeWidget(QWidget):
         super().__init__(parent)
         self._gl_view = gl_view
         self._face_polygons = []
+        # 큐브 바깥을 감싸는 고리(십자 눈금이 있는 원형 띠) 반경 — _paint()에서
+        # 큐브 반경(half)에 맞춰 매 프레임 갱신된다. 고리 드래그 판정에 쓴다.
+        self._ring_inner_radius = 0.0
+        self._ring_outer_radius = 0.0
+        self._ring_dragging = False
+        self._ring_last_pos = None
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setToolTip('드래그: 회전 | 면 클릭: 해당 뷰로 전환')
+        self.setToolTip('고리 드래그: 부드럽게 회전 | 큐브 면 클릭: 해당 뷰로 즉시 전환')
 
     def paintEvent(self, _event):
         painter = QPainter(self)
@@ -451,6 +462,9 @@ class ViewCubeWidget(QWidget):
         if half <= 4:
             return
         cx, cy = self.width() / 2.0, self.height() / 2.0
+        # 큐브 바깥 ~ 위젯 가장자리 사이 띠를 드래그용 고리로 쓴다(v1.5.10).
+        self._ring_inner_radius = half
+        self._ring_outer_radius = raw_half
 
         def project(point):
             v = rotation.map(QVector3D(*point))
@@ -495,6 +509,45 @@ class ViewCubeWidget(QWidget):
                 Qt.AlignCenter, label,
             )
 
+        self._paint_drag_ring(painter, cx, cy)
+
+    def _paint_drag_ring(self, painter, cx, cy):
+        """큐브를 감싸는 원형 고리(십자 눈금)를 그린다. 큐브 면을 직접 클릭하면
+        지금처럼 그 뷰로 즉시 스냅되지만, 큐브 클릭만으로 원하는 각도를 정밀
+        조준하기 어렵고 자칫 건드리면 화면이 확 튀어버린다는 피드백(v1.5.9)에
+        따라, 이 고리를 드래그하면 스냅 없이 부드럽게(라이브로) 회전한다."""
+        outer = self._ring_outer_radius
+        inner = self._ring_inner_radius
+        if outer <= inner:
+            return
+        ring_color = QColor(150, 200, 255, 130) if self._ring_dragging else QColor(150, 165, 185, 90)
+        pen = QPen(ring_color)
+        pen.setWidthF(max(1.5, (outer - inner) * 0.22))
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+        mid = (inner + outer) / 2.0
+        painter.drawEllipse(QPointF(cx, cy), mid, mid)
+        # "십자로" — 상/하/좌/우 4곳에 짧은 눈금을 그려 고리를 잡는 위치임을 암시한다.
+        tick_pen = QPen(QColor(210, 225, 245, 200) if self._ring_dragging else QColor(170, 180, 195, 150))
+        tick_pen.setWidthF(max(1.2, (outer - inner) * 0.14))
+        painter.setPen(tick_pen)
+        for angle_deg in (0.0, 90.0, 180.0, 270.0):
+            angle = radians(angle_deg)
+            dx, dy = sin(angle), -cos(angle)
+            painter.drawLine(
+                QPointF(cx + dx * inner, cy + dy * inner),
+                QPointF(cx + dx * outer, cy + dy * outer),
+            )
+
+    def _ring_hit(self, pos):
+        """pos(위젯 로컬 좌표)가 드래그 고리 띠 안에 있으면 True."""
+        if self._ring_outer_radius <= self._ring_inner_radius:
+            return False
+        dx = pos.x() - self.width() / 2.0
+        dy = pos.y() - self.height() / 2.0
+        dist = (dx * dx + dy * dy) ** 0.5
+        return self._ring_inner_radius <= dist <= self._ring_outer_radius
+
     def mousePressEvent(self, event):
         if event.button() != Qt.LeftButton:
             super().mousePressEvent(event)
@@ -506,7 +559,38 @@ class ViewCubeWidget(QWidget):
             if polygon.containsPoint(point, Qt.OddEvenFill):
                 self.face_clicked.emit(elevation_target, azimuth_target)
                 return
+        # 큐브 면 바깥, 고리 띠 안을 눌렀으면 스냅 대신 드래그 회전을 시작한다.
+        if self._ring_hit(point):
+            self._ring_dragging = True
+            self._ring_last_pos = point
+            self.update()
+            return
         super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if not self._ring_dragging:
+            super().mouseMoveEvent(event)
+            return
+        point = QPointF(event.pos())
+        diff = point - self._ring_last_pos
+        self._ring_last_pos = point
+        sensitivity = getattr(self._gl_view, "navigation_sensitivity", 1.0)
+        # pyqtgraph GLViewWidget.orbit()과 같은 부호 규약(수평 드래그 반대 방향
+        # = azimuth, 수직 드래그 = elevation)을 써서 메인 뷰포트를 직접 드래그할
+        # 때와 같은 방향감으로 움직인다.
+        self._gl_view.orbit(-diff.x() * sensitivity, diff.y() * sensitivity)
+        # orbit()은 opts만 바꾸고 camera_changed는 쏘지 않으므로, 돋보기 등
+        # 카메라 변경에 반응하는 다른 오버레이도 함께 갱신되도록 직접 emit한다.
+        camera_changed = getattr(self._gl_view, "camera_changed", None)
+        if camera_changed is not None:
+            camera_changed.emit()
+
+    def mouseReleaseEvent(self, event):
+        if self._ring_dragging and event.button() == Qt.LeftButton:
+            self._ring_dragging = False
+            self.update()
+            return
+        super().mouseReleaseEvent(event)
 
 
 class MagnifierLensWidget(QWidget):

@@ -1,6 +1,6 @@
 # About / Release Instructions
 
-Last updated: 2026-09-04 (v1.5.9)
+Last updated: 2026-09-05 (v1.5.10)
 
 ## About button requirements
 
@@ -34,7 +34,24 @@ Last updated: 2026-09-04 (v1.5.9)
 
 ## Version history
 
-### 2026-09-04 (latest, v1.5.9)
+### 2026-09-05 (latest, v1.5.10)
+
+- Version: 1.5.10
+- Release/build date: 2026-09-05
+- Summary: Implements v1.5.9's deferred item 3 — a draggable ring around the 3D viewer's orientation cube (ViewCubeWidget), confirmed by the user (after an AskUserQuestion clarification) to be a ring that can be dragged for smooth camera rotation, as opposed to the cube's existing instant-snap-on-click faces.
+- Creator displayed: Hwang.seonmun
+- Open source used: Python, PyQt5, pyqtgraph, NumPy, PyOpenGL, ReportLab, PyInstaller, Inno Setup (unchanged — no dependency added or removed).
+- Details:
+  - **Drag ring (`nc_viewer_widget.py`, `ViewCubeWidget`):** a circular ring (with four small cross-shaped tick marks at 0°/90°/180°/270° for grip affordance) is now painted in the annulus between the cube's outer radius (`half`) and the widget's own bounding radius (`raw_half`), recomputed every `_paint()` call and stored as `_ring_inner_radius`/`_ring_outer_radius`. `mousePressEvent()` still checks cube face polygons first (unchanged snap-on-click behavior); a miss that lands within the ring band (`_ring_hit()`) now starts a drag (`_ring_dragging=True`) instead of falling through to a no-op. New `mouseMoveEvent()`/`mouseReleaseEvent()` overrides: while dragging, each mouse move calls `gl_view.orbit(-dx * sensitivity, dy * sensitivity)` — the same sign convention and `navigation_sensitivity` scaling pyqtgraph's own `GLViewWidget.mouseMoveEvent()` uses for a plain viewport drag, so the ring feels identical in direction/speed to dragging the 3D view itself — and manually emits `gl_view.camera_changed` (since `orbit()` mutates `opts` directly without going through `setCameraPosition()`, which is what normally fires that signal), so other camera-reactive overlays (the magnifier lens) keep working correctly during a ring drag. The ring is drawn slightly brighter/highlighted while actively being dragged. The widget's tooltip was updated from "드래그: 회전 | 면 클릭: 해당 뷰로 전환" to "고리 드래그: 부드럽게 회전 | 큐브 면 클릭: 해당 뷰로 즉시 전환" to describe the actual two distinct interactions.
+- Verification: 91 unit tests passed (90 existing from v1.5.9 + 1 new: a synthetic press/move/release sequence on a point inside the ring band confirms `_ring_dragging` toggles correctly, `face_clicked` never fires during the drag, and `gl_view.opts['azimuth']`/`['elevation']` change by a bounded, non-snapping amount). Ran the full suite twice in a row (both 91/91 green) to rule out interaction with the earlier splitter-test flake fix. Also built and launched the actual frozen exe: `startup.log` showed a clean `Starting Sum Path v1.5.10 frozen=True` line with no traceback, and the process stayed running (not a crash-exit) for several seconds until explicitly stopped.
+- Installer/package: Created `installer/NC_Tool_List_Setup_v1.5.10.exe` and `installer/NC_Tool_List_Portable_v1.5.10.zip` from a fresh PyInstaller onedir rebuild after deleting `build/` and `dist/` (`upx=False` in the spec, built exe's version resource reads `1.5.10.0`/`S M.HWANG`). Portable ZIP matches the v1.5.0–v1.5.9 layout (`_internal` + `NC_Tool_List.exe` at the archive root, 311 entries).
+- Installer SHA-256: DDA60AC1FF2DB9C4B9F4AC8D28EB99F8B39C677B3F9F91ED227F6AA39B33F1DA
+- Portable ZIP SHA-256: 885C94E4E7605F70B4807D3A340FB2B5CC517DAB8D1DCE12D0575640014D846A
+- App SHA-256: 70BBC116817A72EC8B36BA9E5CAA09805CD540644883EF5855F2F7A0D0576B4B
+- Signature status: still unsigned.
+- Out of scope (left untouched): actual code-signing; the exe filename/install directory/Start-Menu display name/file-association ProgId (still "NC Tool List"/"NC_Tool_List"); lathe (2-axis) coordinate mapping; G90/G91 incremental-mode support; a settings UI for cube face labels/colors or ring size/color; the `ViewerFallbackWidget` fallback screen (intentionally light-only); the magnifier lens (still fixed 220px/3x); the ring doesn't currently support Ctrl-modified pan the way the main viewport drag does (out of scope — the ring is orbit-only, matching what was asked). **v1.5.9's installer/ZIP should be treated as superseded and not distributed** — the drag-ring described above is not in it.
+
+### 2026-09-04 (v1.5.9)
 
 - Version: 1.5.9
 - Release/build date: 2026-09-04

@@ -1309,6 +1309,69 @@ G02 X0 Y10 I-10 J0
             viewer.deleteLater()
             qapp.processEvents()
 
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_view_cube_ring_drag_orbits_without_snapping(self):
+        """큐브 바깥 고리를 드래그하면(v1.5.10) 면 클릭처럼 즉시 스냅되지
+        않고, 메인 뷰포트를 드래그할 때처럼 카메라가 부드럽게(라이브로)
+        회전해야 한다."""
+        from PyQt5.QtCore import QEvent, QPointF
+        from PyQt5.QtGui import QMouseEvent
+        from nc_viewer_widget import NCViewerWidget
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer = NCViewerWidget()
+        try:
+            cube = viewer.view_cube
+            # 생성 시 setFixedSize()가 이미 적용되어 있어 resize()는 무시된다
+            # (다른 view_cube 크기 테스트들처럼 setFixedSize로 실제로 바꿔야 한다).
+            cube.setFixedSize(80, 80)
+            from PyQt5.QtGui import QPixmap
+            # _paint()가 실제로 한 번 실행되어야 고리 반경(_ring_inner/outer_radius)이 채워진다.
+            cube.render(QPixmap(80, 80))
+            self.assertGreater(cube._ring_outer_radius, cube._ring_inner_radius)
+
+            # 위젯 중심(40,40)에서 반경 33만큼 떨어진 점 — half(26)~raw_half(40)
+            # 사이 고리 띠 안이라 어떤 큐브 면과도 겹치지 않는다.
+            ring_point = QPointF(40 + 33, 40)
+            self.assertTrue(cube._ring_hit(ring_point))
+
+            start_elevation = viewer.gl_view.opts['elevation']
+            start_azimuth = viewer.gl_view.opts['azimuth']
+            face_clicks = []
+            cube.face_clicked.connect(lambda *args: face_clicks.append(args))
+
+            press = QMouseEvent(
+                QEvent.MouseButtonPress, ring_point,
+                app.Qt.LeftButton, app.Qt.LeftButton, app.Qt.NoModifier,
+            )
+            cube.mousePressEvent(press)
+            self.assertTrue(cube._ring_dragging)
+            self.assertEqual(face_clicks, [])
+
+            # 기본 카메라 elevation이 90(수직 하향)이라 +방향 이동은 클리핑돼
+            # 변화가 없어 보일 수 있으므로, 값이 줄어드는 방향(y가 음수)으로 크게 움직인다.
+            move = QMouseEvent(
+                QEvent.MouseMove, ring_point + QPointF(25, -25),
+                app.Qt.LeftButton, app.Qt.LeftButton, app.Qt.NoModifier,
+            )
+            cube.mouseMoveEvent(move)
+            # 스냅이 아니라 실제 드래그량만큼만 회전해야 한다(임의의 정해진 각도로 튀지 않음).
+            self.assertNotEqual(viewer.gl_view.opts['azimuth'], start_azimuth)
+            self.assertNotEqual(viewer.gl_view.opts['elevation'], start_elevation)
+            self.assertLess(abs(viewer.gl_view.opts['azimuth'] - start_azimuth), 90)
+            self.assertLess(abs(viewer.gl_view.opts['elevation'] - start_elevation), 90)
+            self.assertEqual(face_clicks, [])
+
+            release = QMouseEvent(
+                QEvent.MouseButtonRelease, ring_point + QPointF(15, 4),
+                app.Qt.LeftButton, app.Qt.LeftButton, app.Qt.NoModifier,
+            )
+            cube.mouseReleaseEvent(release)
+            self.assertFalse(cube._ring_dragging)
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
     # ---- v1.5.3: 대용량 파일 로드 시 행 강조가 사실상 멈추던 회귀 수정 ----
     @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
     @unittest.skipUnless(Path('ncdata.nc').exists(), 'ncdata.nc sample not present')
