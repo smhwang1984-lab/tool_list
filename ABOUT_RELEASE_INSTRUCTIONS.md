@@ -1,6 +1,6 @@
 # About / Release Instructions
 
-Last updated: 2026-09-04 (v1.5.8)
+Last updated: 2026-09-04 (v1.5.9)
 
 ## About button requirements
 
@@ -34,7 +34,39 @@ Last updated: 2026-09-04 (v1.5.8)
 
 ## Version history
 
-### 2026-09-04 (latest, v1.5.8)
+### 2026-09-04 (latest, v1.5.9)
+
+- Version: 1.5.9
+- Release/build date: 2026-09-04
+- Summary: Six of seven items the user requested after confirming v1.5.8's install (numbered 1/2/3/5/6/6/7 in the request, with two items both labeled "6"); item 3 (a proposed ring/compass control around the ViewCube) is deliberately **not** implemented this round — it's a substantial new interactive widget and the request text supports multiple designs, so it needs a quick confirmation before being built rather than a guess. Everything else:
+  1. The program-input buttons (지우기/예제/파일 열기/PG ADD/Tool List), previously split across two rows, are now on one row.
+  2. The "NC 프로그램을 넣고 공구 리스트를 생성하세요" caption next to the title was removed.
+  3. *(reserved — see above; not implemented this round)*
+  4. In the 3D viewer's toolbar: extra spacing was added between the 감도 and 큐브 slider groups (they were crowding together at the enlarged v1.5.8 sizes); the whole 감도+큐브+다크모드 button group was shifted left by ~2cm (a fixed trailing spacer, rather than sitting flush against the panel's right edge); the dark/light-mode toggle button and its icon were enlarged.
+  5. The top bar's About/툴리스트 산출 모드/Viewer 모드 buttons moved from the far right (past a stretch) to sit right next to the title, and their font+padding were enlarged 1.3x.
+  6. In the tool-list panel, the control buttons (삭제/수정/＋ 행 추가/이름 경우의 수/머리글 포함/PDF 출력/표 복사) moved from the panel's right edge to sit left, right after the count label.
+  7. The tool-list table's column widths and font were enlarged 1.6x.
+  - (Also addressed via a separate mid-turn request in the same session): auto-playback max speed raised again, 2000x → 5000x.
+- Creator displayed: Hwang.seonmun
+- Open source used: Python, PyQt5, pyqtgraph, NumPy, PyOpenGL, ReportLab, PyInstaller, Inno Setup (unchanged — no dependency added or removed).
+- Details:
+  - **Program buttons merged to one row (`NC_Tool_List.py`):** `program_button_row1`/`program_button_row2` collapsed into a single `program_button_row` holding all five buttons in original left-to-right order, followed by one `addStretch()`.
+  - **Caption removed (`NC_Tool_List.py`):** `self.top_caption` `QLabel` and its construction/`addWidget()` call deleted from the top bar; the now-unused `_style_header_caption()` helper and its call in `_apply_widget_themes()` were removed too (the `header_caption` theme tokens are left in `THEMES` as harmless unused entries).
+  - **Top bar left-aligned + 1.3x (`NC_Tool_List.py`):** `top_layout.addStretch()` moved from before the About/mode buttons to after them; all three now share a new `top_bar_button_font = QFont('맑은 고딕', 12, QFont.Bold)` (was 9pt); `_style_mode_buttons()`'s inline padding raised `5px 9px` → `7px 12px` (same 1.3x ratio).
+  - **Tool-panel controls left-aligned (`NC_Tool_List.py`):** in `_build_tool_panel()`'s `rbar`, `addStretch()` moved from right after the count label to after the last button (표 복사), so 삭제/수정/추가/이름경우의수/머리글/PDF/복사 now sit packed on the left.
+  - **감도/큐브 spacing + 2cm left shift + dark-icon enlarge (`nc_viewer_widget.py`):** `view_bar.addSpacing(18)` inserted both between the 감도 value label and the 큐브 label, and between the 큐브 value label and the dark-mode button; a trailing `view_bar.addSpacing(round(2 * PX_PER_CM))` (reusing the existing `PX_PER_CM` constant) added after the dark-mode button so the whole 감도~큐브~다크모드 group sits ~2cm in from the panel's right edge instead of flush against it. `dark_mode_button` grew 26px → 36px, its icon 18px → 26px (`sun_icon`/`moon_icon` called with `size=26` so the source pixmap doesn't get blurrily upscaled).
+  - **Tool-list table 1.6x (`NC_Tool_List.py`):** `COL_WIDTH` values all multiplied by 1.6 (e.g. `NO` 45→72, `HOLDER` 120→192); `self.table.setFont(QFont('맑은 고딕', 14))` and `self.table.horizontalHeader().setFont(QFont('맑은 고딕', 14, QFont.Bold))` added (row height grows automatically with Qt's font-driven default section size — no explicit row-height override needed).
+  - **5000x speed cap:** both `MAX_PLAYBACK_SPEED` constants (in `NC_Tool_List.py` and `nc_viewer_widget.py`) bumped 2000 → 5000, matching the v1.5.7/v1.5.8 pattern.
+  - **Test-suite flake fixed (`tests/test_nc_tool_list.py`):** `test_main_splitter_keeps_program_panel_minimum_width` intermittently failed depending on test execution order — `App.__init__`'s `QTimer.singleShot(0, self.showMaximized)` (queued whenever `restore_layout_settings()` finds no saved geometry, which is every test using a fresh settings dir) is not reliably cancelled by `deleteLater()`, and firing during a *different* test's `processEvents()` call maximizes that window onto the `QT_QPA_PLATFORM=offscreen` test platform's small fixed 800x600 virtual screen — smaller than the splitter's combined minimum widths, so `QSplitter` can't honor `PROGRAM_PANE_MIN_WIDTH` (430px) and falls back to an even split (396/396). Root-caused by direct reproduction (bisecting the exact 89-test alphabetical order down to a 2-test pair, then confirming the mechanism with `isMaximized()`/`availableGeometry()` prints). Fixed at the test level (the shipped app's behavior is unchanged) by flushing pending events and explicitly restoring the window to `showNormal()` + its intended `resize()` before asserting.
+- Verification: 89 unit tests passed (85 existing from v1.5.8, 1 updated for the merged single-row buttons, + 4 new: caption removed / top-bar buttons ordered left of the trailing stretch; tool-panel control buttons packed left with only a trailing stretch; table column widths match the new `COL_WIDTH` 1.6x values and the table font is 14pt; the dark-mode button and its icon report the enlarged sizes). Ran the full suite twice in a row to confirm the splitter-test fix holds (both 89/89 green, no flake). Also built and launched the actual frozen exe: `startup.log` showed a clean `Starting Sum Path v1.5.9 frozen=True` line with no traceback, and the process stayed running (not a crash-exit) for several seconds until explicitly stopped.
+- Installer/package: Created `installer/NC_Tool_List_Setup_v1.5.9.exe` and `installer/NC_Tool_List_Portable_v1.5.9.zip` from a fresh PyInstaller onedir rebuild after deleting `build/` and `dist/` (`upx=False` in the spec, built exe's version resource reads `1.5.9.0`/`S M.HWANG`). Portable ZIP matches the v1.5.0–v1.5.8 layout (`_internal` + `NC_Tool_List.exe` at the archive root, 311 entries).
+- Installer SHA-256: 5558C35EB34F0A2C6B0360BD455B2436A1F17FFC26869A63F98BD92A1844843A
+- Portable ZIP SHA-256: 6027AEC9D64ADA14126A3242374FE2E4EF48E1B046E71A93AD0C8B7B6D7188BB
+- App SHA-256: 67EBC77AB3292229E09047B67ADE152909CCBBD2F7EEC4BFCE8B3E4155E1F1EB
+- Signature status: still unsigned.
+- Out of scope (left untouched this round, pending confirmation): **item 3 — a ring/compass-shaped control wrapped around the 3D-viewer's orientation cube, so that dragging/clicking the ring (not the cube itself) sets the camera direction without the abrupt "click near the cube and the render angle jumps" behavior the user described.** Also left untouched: actual code-signing; the exe filename/install directory/Start-Menu display name/file-association ProgId (still "NC Tool List"/"NC_Tool_List"); lathe (2-axis) coordinate mapping; G90/G91 incremental-mode support; a settings UI for cube face labels/colors; the `ViewerFallbackWidget` fallback screen (intentionally light-only); the magnifier lens (still fixed 220px/3x). **v1.5.8's installer/ZIP should be treated as superseded and not distributed** — the single-row program buttons, removed caption, left-aligned top-bar/tool-panel buttons with enlarged top-bar font, spaced-out and left-shifted 감도/큐브/다크모드 group with a bigger dark-mode icon, 1.6x tool-list table, and 5000x speed cap described above are not in it.
+
+### 2026-09-04 (v1.5.8)
 
 - Version: 1.5.8
 - Release/build date: 2026-09-04

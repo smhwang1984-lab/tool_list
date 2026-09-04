@@ -236,6 +236,17 @@ X60 Y10 Z0
         settings_dir = tempfile.TemporaryDirectory()
         window = app.App(_root=settings_dir.name)
         try:
+            # App.__init__이 예약하는 QTimer.singleShot(0, showMaximized)이
+            # deleteLater()만으로는 실제로 파괴되지 않고 남아 있는 이전 테스트의
+            # 창의 것이든 이 창 자신의 것이든, 이 processEvents() 즈음에 불시에
+            # 실행되면 offscreen 플랫폼의 작은 가상 화면(800x600)에 맞춰
+            # 최대화되어(스플리터 계산에 필요한 폭보다 작아짐) 아래 검증이
+            # 흔들릴 수 있다 — 먼저 그 타이머가 끝나길 기다린 뒤, 테스트가
+            # 기대하는 원래 크기로 명시적으로 되돌린다.
+            qapp.processEvents()
+            window.showNormal()
+            window.resize(sum(app.MAIN_SPLITTER_INITIAL_SIZES), 760)
+            qapp.processEvents()
             self.assertEqual(window.program_panel.minimumWidth(), app.PROGRAM_PANE_MIN_WIDTH)
             self.assertEqual(app.MAIN_SPLITTER_INITIAL_SIZES[0], app.PROGRAM_PANE_MIN_WIDTH)
             window.main_splitter.setSizes([120, 1000])
@@ -282,8 +293,8 @@ X60 Y10 Z0
             self.assertTrue(window.machine_settings_body.isHidden())
 
             program_layout = window.program_panel.layout()
-            row1 = program_layout.itemAt(1).layout()
-            row2 = program_layout.itemAt(2).layout()
+            # v1.5.9: 원래 2줄이던 프로그램 버튼들을 1줄로 재배치했다.
+            row = program_layout.itemAt(1).layout()
 
             def button_texts(layout):
                 texts = []
@@ -293,12 +304,90 @@ X60 Y10 Z0
                         texts.append(widget.text())
                 return texts
 
-            self.assertEqual(button_texts(row1), ['지우기', '예제', '파일 열기'])
-            self.assertEqual(button_texts(row2), ['PG ADD', 'Tool List'])
+            self.assertEqual(
+                button_texts(row), ['지우기', '예제', '파일 열기', 'PG ADD', 'Tool List']
+            )
         finally:
             window.deleteLater()
             settings_dir.cleanup()
             qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_top_caption_removed_and_top_bar_buttons_left_aligned(self):
+        """"NC 프로그램을 넣고 공구 리스트를 생성하세요" 안내 문구는 제거되고,
+        About/모드 버튼은 오른쪽 끝이 아니라 제목 바로 옆(왼쪽)에 배치되어야
+        한다(v1.5.9 요청)."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        window = app.App(_root=settings_dir.name)
+        try:
+            self.assertFalse(hasattr(window, 'top_caption'))
+            top_layout = window.top_bar.layout()
+            widgets = [top_layout.itemAt(i).widget() for i in range(top_layout.count())]
+            widgets = [w for w in widgets if w is not None]
+            # title 다음 곧바로 About/툴리스트/뷰어 버튼이 와야 하고(stretch는
+            # addStretch()라 itemAt().widget()이 None이라 widgets 리스트에는
+            # 나타나지 않는다), 안내 문구 QLabel은 더 이상 없다.
+            self.assertEqual(widgets[1:4], [window.btn_about, window.btn_tool_mode, window.btn_viewer_mode])
+        finally:
+            window.deleteLater()
+            settings_dir.cleanup()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_tool_panel_control_buttons_left_aligned(self):
+        """공구 리스트 패널의 조작 버튼(삭제/수정/추가/PDF/복사 등)이 패널
+        오른쪽 끝이 아니라 라벨 바로 옆(왼쪽)에 모여 있어야 한다(v1.5.9 요청)
+        — addStretch()가 버튼들 뒤(맨 끝)에만 있어야 한다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        window = app.App(_root=settings_dir.name)
+        try:
+            panel = window.pdf_button.parentWidget()
+            rbar = panel.layout().itemAt(0).layout()
+            items = [rbar.itemAt(i) for i in range(rbar.count())]
+            self.assertIsNotNone(items[-1].spacerItem())
+            for item in items[:-1]:
+                self.assertIsNone(item.spacerItem())
+            self.assertIs(items[-2].widget(), window.copy_button)
+        finally:
+            window.deleteLater()
+            settings_dir.cleanup()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_tool_list_table_cells_and_font_scaled_1_6x(self):
+        """툴 리스트 표기 칸(열 폭)과 폰트가 기존 값의 1.6배로 커져야 한다
+        (v1.5.9 요청)."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        window = app.App(_root=settings_dir.name)
+        try:
+            self.assertEqual(window.table.font().pointSize(), 14)
+            for index, (key, _label) in enumerate(app.COLUMNS):
+                self.assertEqual(window.table.columnWidth(index), app.COL_WIDTH[key])
+            self.assertEqual(app.COL_WIDTH['NO'], 72)
+            self.assertEqual(app.COL_WIDTH['HOLDER'], 192)
+        finally:
+            window.deleteLater()
+            settings_dir.cleanup()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_dark_mode_button_and_icon_enlarged(self):
+        """다크/라이트 모드 토글 버튼과 아이콘 크기가 더 커져야 한다(v1.5.9 요청)."""
+        from nc_viewer_widget import NCViewerWidget
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer = NCViewerWidget()
+        try:
+            self.assertEqual(viewer.dark_mode_button.size().width(), 36)
+            self.assertEqual(viewer.dark_mode_button.size().height(), 36)
+            self.assertEqual(viewer.dark_mode_button.iconSize().width(), 26)
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
     @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
     def test_v142_splitter_size_settings_normalize_and_save(self):
         self.assertEqual(

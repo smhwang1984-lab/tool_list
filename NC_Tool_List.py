@@ -26,7 +26,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
 
-APP_VERSION = '1.5.8'
+APP_VERSION = '1.5.9'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-09-04'
 APP_CREATOR = 'Hwang.seonmun'
@@ -117,10 +117,11 @@ COLUMNS = [
     ('SIG', 'SIG'), ('PL', 'PL'), ('SO', 'SO'), ('GL', 'GL'),
     ('HOLDER', '홀더'), ('SPINDL', 'SPINDL'), ('FEED', 'FEED'), ('REMARK', 'REMARK'),
 ]
+# v1.5.9: 표기 셀(칸) 크기를 요청대로 기존 값의 1.6배로 키움.
 COL_WIDTH = {
-    'NO': 45, 'TYPE': 80, 'NAME': 95, 'D': 45, 'FL': 45, 'LCF': 50, 'F': 35,
-    'R': 45, 'SIG': 45, 'PL': 55, 'SO': 45, 'GL': 50, 'HOLDER': 120,
-    'SPINDL': 60, 'FEED': 55, 'REMARK': 110,
+    'NO': 72, 'TYPE': 128, 'NAME': 152, 'D': 72, 'FL': 72, 'LCF': 80, 'F': 56,
+    'R': 72, 'SIG': 72, 'PL': 88, 'SO': 72, 'GL': 80, 'HOLDER': 192,
+    'SPINDL': 96, 'FEED': 88, 'REMARK': 176,
 }
 
 # TOOL_LIST_PG.xlsx의 A:P 열 폭 비율
@@ -1136,7 +1137,6 @@ else:
         def _apply_widget_themes(self):
             """하드코딩된 인라인 색을 쓰던 각 위젯을 현재 self.theme 값으로 다시 칠한다."""
             self._style_header_bar(self.top_bar)
-            self._style_header_caption(self.top_caption)
             self._style_accent_button(self.run_button)
             self._style_accent_button(self.copy_button)
             self._style_success_button(self.pdf_button)
@@ -1158,9 +1158,6 @@ else:
             widget.setStyleSheet(
                 'background: %s; color: %s;' % (self.theme['header_bg'], self.theme['header_text'])
             )
-
-        def _style_header_caption(self, widget):
-            widget.setStyleSheet('color: %s;' % self.theme['header_caption'])
 
         def _style_accent_button(self, widget):
             widget.setStyleSheet(
@@ -1219,13 +1216,15 @@ else:
             title = QLabel('%s v%s' % (APP_NAME, APP_VERSION))
             title.setFont(QFont('맑은 고딕', 13, QFont.Bold))
             top_layout.addWidget(title)
-            self.top_caption = QLabel('NC 프로그램을 넣고 공구 리스트를 생성하세요')
-            top_layout.addWidget(self.top_caption)
-            top_layout.addStretch()
 
+            # About/모드 전환 버튼은 창 오른쪽 끝(addStretch 뒤)이 아니라 제목
+            # 바로 옆(왼쪽)에 붙도록 배치하고, 폰트·패딩을 기존의 1.3배로
+            # 키운다(v1.5.9 요청) — 9pt → 12pt, padding 5px 9px → 7px 12px
+            # (패딩은 _style_mode_buttons에서 함께 적용).
+            top_bar_button_font = QFont('맑은 고딕', 12, QFont.Bold)
             self.btn_about = QPushButton('About')
             self.btn_about.clicked.connect(self.show_about)
-            self.btn_about.setFont(QFont('맑은 고딕', 9, QFont.Bold))
+            self.btn_about.setFont(top_bar_button_font)
             top_layout.addWidget(self.btn_about)
 
             self.btn_tool_mode = QPushButton('툴리스트 산출 모드')
@@ -1235,8 +1234,9 @@ else:
             self.btn_viewer_mode.setCheckable(True)
             self.btn_viewer_mode.clicked.connect(lambda: self.set_mode('viewer'))
             for button in (self.btn_tool_mode, self.btn_viewer_mode):
-                button.setFont(QFont('맑은 고딕', 9, QFont.Bold))
+                button.setFont(top_bar_button_font)
                 top_layout.addWidget(button)
+            top_layout.addStretch()
             root_layout.addWidget(self.top_bar)
 
             self.main_splitter = QSplitter(Qt.Horizontal)
@@ -1258,21 +1258,18 @@ else:
             lbar.addStretch()
             left_layout.addLayout(lbar)
 
-            program_button_row1 = QHBoxLayout()
-            program_button_row1.setSpacing(6)
-            self._add_button(program_button_row1, '지우기', self.clear, kfont).setMinimumWidth(70)
-            self._add_button(program_button_row1, '예제', self.load_example, kfont).setMinimumWidth(70)
-            self._add_button(program_button_row1, '파일 열기', self.open_file, kfont).setMinimumWidth(88)
-            program_button_row1.addStretch()
-            left_layout.addLayout(program_button_row1)
-
-            program_button_row2 = QHBoxLayout()
-            program_button_row2.setSpacing(6)
-            self._add_button(program_button_row2, 'PG ADD', self.open_add_program_files, kfont).setMinimumWidth(112)
-            self.run_button = self._add_button(program_button_row2, 'Tool List', self.run, kfont)
+            # 지우기/예제/파일 열기/PG ADD/Tool List를 한 줄로 배치한다
+            # (원래 2줄로 요청했던 것을 v1.5.9에서 1줄로 재배치).
+            program_button_row = QHBoxLayout()
+            program_button_row.setSpacing(6)
+            self._add_button(program_button_row, '지우기', self.clear, kfont).setMinimumWidth(70)
+            self._add_button(program_button_row, '예제', self.load_example, kfont).setMinimumWidth(70)
+            self._add_button(program_button_row, '파일 열기', self.open_file, kfont).setMinimumWidth(88)
+            self._add_button(program_button_row, 'PG ADD', self.open_add_program_files, kfont).setMinimumWidth(112)
+            self.run_button = self._add_button(program_button_row, 'Tool List', self.run, kfont)
             self.run_button.setMinimumWidth(128)
-            program_button_row2.addStretch()
-            left_layout.addLayout(program_button_row2)
+            program_button_row.addStretch()
+            left_layout.addLayout(program_button_row)
 
             search_bar = QHBoxLayout()
             self._add_button(search_bar, '다음공구검색', self.find_next_tool_change, kfont)
@@ -1756,7 +1753,8 @@ else:
             self.count = QLabel('공구 0개')
             self._style_muted(self.count)
             rbar.addWidget(self.count)
-            rbar.addStretch()
+            # 조작 버튼들을 패널 오른쪽 끝이 아니라 왼쪽(라벨 바로 옆)에 모아
+            # 배치한다(v1.5.9 요청) — addStretch()를 버튼들 뒤로 옮긴다.
             self._add_button(rbar, '삭제', self.delete_selected)
             self._add_button(rbar, '수정', self.edit_selected)
             self._add_button(rbar, '＋ 행 추가', self.add_row)
@@ -1767,6 +1765,7 @@ else:
             self._style_success_button(self.pdf_button)
             self.copy_button = self._add_button(rbar, '표 복사', self.copy_table)
             self._style_accent_button(self.copy_button)
+            rbar.addStretch()
             layout.addLayout(rbar)
 
             self.metadata_summary = QLabel('출력 정보: -')
@@ -1775,6 +1774,10 @@ else:
 
             self.table = QTableWidget(0, len(COLUMNS))
             self.table.setHorizontalHeaderLabels([label for _key, label in COLUMNS])
+            # v1.5.9: 표기 폰트를 기존(미지정 기본 폰트, ~9pt)의 1.6배로 키운다
+            # — 행 높이는 Qt가 이 폰트 크기에 맞춰 함께 자동으로 커진다.
+            self.table.setFont(QFont('맑은 고딕', 14))
+            self.table.horizontalHeader().setFont(QFont('맑은 고딕', 14, QFont.Bold))
             self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
             self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
             self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -1816,10 +1819,11 @@ else:
 
         def _style_mode_buttons(self):
             t = self.theme
-            active = 'background: %s; color: %s; padding: 5px 9px;' % (
+            # 패딩도 상단 바 버튼 폰트와 같은 비율(1.3배: 5px 9px -> 7px 12px)로 키운다.
+            active = 'background: %s; color: %s; padding: 7px 12px;' % (
                 t['mode_active_bg'], t['mode_active_text']
             )
-            inactive = 'background: %s; color: %s; padding: 5px 9px;' % (
+            inactive = 'background: %s; color: %s; padding: 7px 12px;' % (
                 t['mode_inactive_bg'], t['mode_inactive_text']
             )
             self.btn_tool_mode.setStyleSheet(active if self.current_mode == 'tool' else inactive)

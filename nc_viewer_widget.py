@@ -842,6 +842,9 @@ class NCViewerWidget(QWidget):
         self.sensitivity_value_label.setFont(sensitivity_cube_font)
         self.sensitivity_value_label.setFixedWidth(57)
         view_bar.addWidget(self.sensitivity_value_label)
+        # 감도 값 라벨과 "큐브" 라벨이 커진 폰트/바 폭 탓에 붙어 보이는(겹침)
+        # 문제가 있어 그 사이에 여유 간격을 더 준다(v1.5.9 요청).
+        view_bar.addSpacing(18)
         cube_label = QLabel("큐브")
         cube_label.setFont(sensitivity_cube_font)
         view_bar.addWidget(cube_label)
@@ -857,9 +860,12 @@ class NCViewerWidget(QWidget):
         self.view_cube_size_label.setFont(sensitivity_cube_font)
         self.view_cube_size_label.setFixedWidth(57)
         view_bar.addWidget(self.view_cube_size_label)
+        view_bar.addSpacing(18)
         self.dark_mode_button = QPushButton()
         self.dark_mode_button.setCheckable(True)
-        self.dark_mode_button.setFixedSize(26, 26)
+        # 다크/라이트 아이콘이 잘 안 보인다는 요청으로 버튼·아이콘 크기를
+        # 키운다(v1.5.9): 26px -> 36px 버튼, 18px -> 26px 아이콘.
+        self.dark_mode_button.setFixedSize(36, 36)
         self.dark_mode_button.setToolTip("다크모드 전환")
         self.dark_mode_button.setFocusPolicy(Qt.NoFocus)
         self.dark_mode_button.setFlat(True)
@@ -868,6 +874,10 @@ class NCViewerWidget(QWidget):
         )
         view_bar.addWidget(self.dark_mode_button)
         self._refresh_dark_mode_button()
+        # "감도 바~큐브 바~다크모드 버튼" 그룹 전체를 오른쪽 끝에서 2cm 정도
+        # 안쪽(왼쪽)으로 옮겨 배치한다(v1.5.9 요청) — 그룹 뒤에 고정폭 여백을
+        # 둬서 패널 오른쪽 가장자리에서 살짝 띄운다.
+        view_bar.addSpacing(round(2 * PX_PER_CM))
         layout.addLayout(view_bar)
 
         # "좌표" 라벨: v1.5.7에 2배(18pt)로 키웠으나 v1.5.8에서 그 값의
@@ -1179,9 +1189,11 @@ class NCViewerWidget(QWidget):
 
     def _refresh_dark_mode_button(self):
         icon_color = "#e4e8f0" if self._dark_mode else "#1f2937"
-        icon = sun_icon(icon_color) if self._dark_mode else moon_icon(icon_color)
+        # v1.5.9: 아이콘이 잘 안 보인다는 요청으로 26px로 확대(소스 픽스맵도
+        # 같이 키워야 확대해도 흐려지지 않는다).
+        icon = sun_icon(icon_color, size=26) if self._dark_mode else moon_icon(icon_color, size=26)
         self.dark_mode_button.setIcon(icon)
-        self.dark_mode_button.setIconSize(QSize(18, 18))
+        self.dark_mode_button.setIconSize(QSize(26, 26))
         with QSignalBlocker(self.dark_mode_button):
             self.dark_mode_button.setChecked(self._dark_mode)
 
