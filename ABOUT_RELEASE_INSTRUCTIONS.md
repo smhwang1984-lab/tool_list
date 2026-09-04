@@ -50,8 +50,19 @@ Last updated: 2026-09-03
 - Installer SHA-256: 587ED5C5A195A917EB9C3080738BBFE0D6FE0A038F2334686DB8E3B48DFF5FA5
 - Portable ZIP SHA-256: DF6BDAF97CFD26B349C0CB245A76710C25CE8FFCC219AD04755A937B8526F4F0
 - App SHA-256: A40B176D5B3B98C2A1E829163F960DA35AB89EA9A6F812EAD8477E532304965F
-- Not yet done for 1.4.3: an actual admin-elevated install/uninstall pass to `C:\NC_Tool_List` (skipped here to avoid making a system-level change to this machine without confirmation) and a real test on a PC with security software installed.
+- Not yet done for 1.4.3: an actual admin-elevated install/uninstall pass to `C:\NC_Tool_List` (skipped here to avoid making a system-level change to this machine without confirmation).
 - Signature status: still unsigned; code signing remains the real fix for SmartScreen/"Unknown Publisher" — see "보안 PC 대응 판단" 근본 해결책.
+
+### Field test on one secured plant PC (2026-09-04)
+
+- Install succeeded via `NC_Tool_List_Setup_v1.4.3.exe`; the window flashed and closed immediately on launch, but only on this one PC — other PCs tested fine.
+- `startup.log` on the affected PC showed only the `Starting NC 공구 리스트 생성기 v1.4.3` line with no exception/traceback recorded, meaning the process died before or during Qt/window init, not from a caught Python exception.
+- Windows Event Viewer (`Application` log, exported as evtx) showed:
+  - `Application Error` (Id 1000): Faulting application `NC_Tool_List.exe` 1.4.3.0, faulting module `ntdll.dll`, exception code `0xC0000409` (STATUS_STACK_BUFFER_OVERRUN / __fastfail).
+  - `Windows Error Reporting` (Id 1001): Fault bucket type 5, Event Name `BEX64`.
+- AhnLab V3 was installed on the affected PC but showed no threat/detection record. Tested with the app path excluded from AhnLab, and again with AhnLab real-time protection fully disabled — the exact same crash still occurred both times.
+- Conclusion: ruled out AhnLab as the cause. The crash is treated as specific to that one PC's environment (background hooking agent other than AhnLab, or a GPU/graphics driver incompatibility with the bundled software-OpenGL fallback) rather than a defect introduced in v1.4.3 — the app starts cleanly (per `startup.log`) and only this one PC, among those tested, reproduces it.
+- Follow-up if this recurs: identify any other security/monitoring agent (keyboard-security, document DRM, asset-management) on the affected PC, and/or test the app in Windows Safe Mode there to isolate a background hook vs. a graphics-driver cause.
 
 ### 2026-09-03
 
