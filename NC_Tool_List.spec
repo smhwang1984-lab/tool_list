@@ -8,7 +8,7 @@ viewer_hiddenimports = [
     'numpy',
     'PyQt5.QtCore', 'PyQt5.QtGui', 'PyQt5.QtWidgets', 'PyQt5.QtOpenGL',
     'pyqtgraph', 'pyqtgraph.opengl',
-] + collect_submodules('pyqtgraph.opengl')
+] + collect_submodules('pyqtgraph.opengl') + collect_submodules('OpenGL')
 
 a = Analysis(
     ['NC_Tool_List.py'],
@@ -19,7 +19,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['scipy', 'torch', 'matplotlib', 'IPython', 'jupyter_rfb', 'PySide6', 'PyQt6', 'PySide2', 'OpenGL.Tk', 'OpenGL.GLUT', 'OpenGL.raw.GLUT', 'OpenGL.raw.GLX', 'OpenGL.raw.GLES1', 'OpenGL.raw.GLES2', 'OpenGL.raw.GLES3'],
+    excludes=['scipy', 'torch', 'matplotlib', 'IPython', 'jupyter_rfb', 'PySide6', 'PyQt6', 'PySide2', 'OpenGL.Tk', 'OpenGL.GLUT'],
     noarchive=False,
     optimize=0,
 )

@@ -24,7 +24,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
 
-APP_VERSION = '1.4.3'
+APP_VERSION = '1.4.4'
 APP_NAME = 'NC 공구 리스트 생성기'
 APP_BUILD_DATE = '2026-09-04'
 APP_CREATOR = 'Hwang.seonmun'
@@ -39,7 +39,6 @@ OPEN_SOURCE_COMPONENTS = (
     'PyInstaller',
     'Inno Setup',
 )
-os.environ.setdefault('QT_OPENGL', 'software')
 PROGRAM_PANE_MIN_WIDTH = 430
 VIEWER_PANE_INITIAL_WIDTH = 1125
 INPUT_SPLITTER_INITIAL_SIZES = [480, 208]
@@ -559,7 +558,6 @@ try:
         QPushButton, QSplitter, QStackedWidget, QTableWidget, QTableWidgetItem,
         QTextEdit, QVBoxLayout, QWidget,
     )
-    QApplication.setAttribute(Qt.AA_UseSoftwareOpenGL, True)
 except ImportError as error:
     QT_IMPORT_ERROR = error
 
@@ -716,6 +714,7 @@ else:
             self.viewer_update_timer = QTimer(self)
             self.viewer_update_timer.setSingleShot(True)
             self.viewer_update_timer.timeout.connect(self.sync_viewer_from_source)
+            self._gl_info_logged = False
             if _root is None:
                 self.layout_settings = QSettings('NC Tool List', 'MainWindow')
             else:
@@ -737,6 +736,32 @@ else:
             except Exception as error:
                 write_startup_log('Viewer startup failed: %s\n%s' % (error, traceback.format_exc()))
                 return ViewerFallbackWidget(error, self)
+
+        def log_gl_info(self):
+            """Record the live GL context once; the packaged app has no console."""
+            if self._gl_info_logged:
+                return
+            self._gl_info_logged = True
+            view = getattr(self.viewer, 'gl_view', None)
+            if view is None:
+                return
+            try:
+                from OpenGL.GL import glGetString, GL_RENDERER, GL_VENDOR, GL_VERSION
+                view.makeCurrent()
+                try:
+                    values = []
+                    for label, token in (('vendor', GL_VENDOR), ('renderer', GL_RENDERER),
+                                         ('version', GL_VERSION)):
+                        value = glGetString(token)
+                        values.append('%s=%s' % (
+                            label, value.decode('utf-8', 'replace') if isinstance(value, bytes) else value
+                        ))
+                    write_startup_log('OpenGL ' + ' '.join(values))
+                finally:
+                    view.doneCurrent()
+            except Exception as error:
+                write_startup_log('OpenGL context unavailable: %r' % (error,))
+
         def _build_ui(self):
             kfont = QFont('맑은 고딕', 10)
             mono = QFont('Consolas', 10)
@@ -1125,6 +1150,7 @@ else:
             self._style_mode_buttons()
             if is_viewer:
                 self.sync_viewer_from_source()
+                self.log_gl_info()
 
         def _style_mode_buttons(self):
             active = 'background: #34577f; color: white; padding: 5px 9px;'

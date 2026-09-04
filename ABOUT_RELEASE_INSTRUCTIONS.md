@@ -33,6 +33,30 @@ Last updated: 2026-09-03
 
 ## Version history
 
+### 2026-09-04 (later)
+
+- Version: 1.4.4
+- Release/build date: 2026-09-04
+- Summary: Fixed the v1.4.3 regression that made the 3D viewer render a fully black screen with no toolpath lines on a normally working PC.
+- Creator displayed: Hwang.seonmun
+- Open source used: Python, PyQt5, pyqtgraph, NumPy, PyOpenGL, ReportLab, PyInstaller, Inno Setup (unchanged).
+- Root cause (measured, not guessed): v1.4.3 added `os.environ.setdefault('QT_OPENGL', 'software')` and `QApplication.setAttribute(Qt.AA_UseSoftwareOpenGL, True)` as secured-PC hardening. That makes Qt build its context on `opengl32sw.dll` (Mesa llvmpipe) while pyqtgraph's PyOpenGL keeps dispatching into the system `opengl32.dll`. PyOpenGL therefore has no current context and every GL call fails — `GLError 1282 (GL_INVALID_OPERATION)` starting at `glClearColor`, so even the configured background never paints. Qt's `paintGL` swallows the exception, leaving a black viewport instead of a crash. `nc_viewer_widget.py` was unchanged since v1.4.2, confirming the regression came from these two lines.
+- A/B measurement on the affected PC (offscreen `grabFramebuffer` pixel sampling of the real viewer widget):
+  - Fixed build: 23 distinct colors, background `#21252B` 89.1%, pure black 0.0% → lines rendered.
+  - v1.4.3 setting: 1 distinct color, background 0.0%, pure black 100.0% → blank black screen.
+- Fix:
+  - Removed both software-OpenGL lines from `NC_Tool_List.py`. This forcing never delivered its intended benefit either — the secured PC still crashed with it in place — so there is no trade-off in removing it.
+  - Restored `collect_submodules('OpenGL')` in `NC_Tool_List.spec` and dropped the `OpenGL.raw.GLX` / `OpenGL.raw.GLES1-3` / `OpenGL.raw.GLUT` excludes added in v1.4.3. PyOpenGL resolves submodules dynamically, so these only break the frozen build — source runs would not reveal it. `OpenGL.Tk` / `OpenGL.GLUT` excludes and the `OpenGL\DLLS` folder exclusion are kept (genuinely unused).
+  - Inverted the unit test that previously asserted `QT_OPENGL == 'software'` — it was locking the bug in. It now guards against software-OpenGL forcing ever returning.
+- New diagnostic: the app logs `OpenGL vendor=... renderer=... version=...` to `startup.log` the first time Viewer mode opens. The packaged app has no console, which is why this class of GL failure was invisible until a user reported it; the log line now makes it checkable on any PC.
+- Kept from v1.4.3: onedir + `upx=False`, exe version resource (`version_info.txt`), installer `VersionInfo*`/icon settings, startup logging, viewer fallback screen.
+- Verification: 22 unit tests passed; offscreen render check confirmed lines draw; rebuilt frozen exe launched and logged a healthy hardware context (`vendor=Intel renderer=Intel(R) Iris(R) Plus Graphics version=4.6.0`), which also validates the `.spec` restoration in the packaged build.
+- Installer/package: Created `installer/NC_Tool_List_Setup_v1.4.4.exe` and `installer/NC_Tool_List_Portable_v1.4.4.zip`.
+- Installer SHA-256: 5BB4B17D426C0293AC563568850F1E5F713DA40FD7DDC5557019B8DF4F595608
+- Portable ZIP SHA-256: 94ED0500413368DF1E67957A590AC4F826FE5EE42DECB6E4A685B6593EB9D07F
+- App SHA-256: EE12403F94A075AB334946EB9B3389D1033ED12BE61A49AC0AEBC2F9B53104CB
+- Signature status: still unsigned.
+
 ### 2026-09-04
 
 - Version: 1.4.3

@@ -327,21 +327,28 @@ X60 Y10 Z0
             app.QSettings = original_qsettings
             qapp.processEvents()
 
-    def test_startup_uses_software_opengl_and_logs(self):
-        self.assertEqual(os.environ.get('QT_OPENGL'), 'software')
+    def test_startup_never_forces_software_opengl_and_logs(self):
+        # Forcing software OpenGL gives Qt an opengl32sw context while PyOpenGL keeps
+        # calling system opengl32, so every GL call fails and the viewer renders black.
+        source = Path('NC_Tool_List.py').read_text(encoding='utf-8-sig')
+        self.assertNotIn('AA_UseSoftwareOpenGL', source)
+        self.assertNotIn("'QT_OPENGL'", source)
+        self.assertNotEqual(os.environ.get('QT_OPENGL'), 'software')
         self.assertTrue(callable(app.write_startup_log))
         self.assertIn('NC_Tool_List', str(app.startup_log_path()))
 
-    def test_spec_limits_opengl_collection_for_security_compatibility(self):
+    def test_spec_keeps_opengl_collection_and_security_hardening(self):
         spec = Path('NC_Tool_List.spec').read_text(encoding='utf-8-sig')
-        self.assertNotIn("collect_submodules('OpenGL')", spec)
+        # PyOpenGL resolves its submodules dynamically, so the frozen build needs them all.
+        self.assertIn("collect_submodules('OpenGL')", spec)
+        self.assertNotIn("'OpenGL.raw.GLX'", spec)
         self.assertIn("'OpenGL.GLUT'", spec)
         self.assertIn('excluded_binary_fragments', spec)
         self.assertIn('freeglut', spec)
         self.assertIn('upx=False', spec)
     def test_installer_uses_c_drive_onedir_package_without_direct_taskkill(self):
         iss = Path('NC_Tool_List.iss').read_text(encoding='utf-8-sig')
-        self.assertIn('#define MyAppVersion "1.4.3"', iss)
+        self.assertIn('#define MyAppVersion "1.4.4"', iss)
         self.assertIn('DefaultDirName=C:\\NC_Tool_List', iss)
         self.assertIn('UsePreviousAppDir=no', iss)
         self.assertIn('PrivilegesRequired=admin', iss)
