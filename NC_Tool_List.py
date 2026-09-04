@@ -26,7 +26,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
 
-APP_VERSION = '1.5.0'
+APP_VERSION = '1.5.3'
 APP_NAME = 'NC 공구 리스트 생성기'
 APP_BUILD_DATE = '2026-09-04'
 APP_CREATOR = 'Hwang.seonmun'
@@ -743,12 +743,12 @@ VIEWER_IMPORT_ERROR = None
 NCViewerWidget = None
 try:
     from PyQt5.QtCore import Qt, QSettings, QSize, QTimer, QSignalBlocker, pyqtSignal
-    from PyQt5.QtGui import QFont, QIcon, QTextCursor
+    from PyQt5.QtGui import QColor, QFont, QIcon, QTextCursor, QTextFormat
     from PyQt5.QtWidgets import (
         QApplication, QAbstractItemView, QCheckBox, QComboBox, QDialog,
         QDialogButtonBox, QFileDialog, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout,
         QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
-        QPushButton, QSplitter, QStackedWidget, QTableWidget, QTableWidgetItem,
+        QPlainTextEdit, QPushButton, QSplitter, QStackedWidget, QTableWidget, QTableWidgetItem,
         QTextEdit, QVBoxLayout, QWidget,
     )
 except ImportError as error:
@@ -768,7 +768,16 @@ if QT_IMPORT_ERROR is not None:
         def __init__(self, *args, **kwargs):
             raise RuntimeError('GUI 실행에 필요한 패키지가 없습니다: %s' % QT_IMPORT_ERROR)
 else:
-    class ProgramTextEdit(QTextEdit):
+    class ProgramTextEdit(QPlainTextEdit):
+        # QTextEdit(리치 텍스트)이 아닌 QPlainTextEdit을 쓴다 — 3만 줄대의 NoWrap
+        # 문서를 실제 레이아웃(스플리터)에 얹은 채 setExtraSelections()를 호출하면
+        # QTextEdit은 사실상 멈춘 것처럼 보일 정도로 느려진다(줄 강조 도입 후
+        # 발견된 회귀, v1.5.2). QPlainTextEdit은 대용량 평문 문서를 위해 설계된
+        # 위젯이라 같은 조건에서 즉시 끝난다. 공개 API가 거의 동일해 아래
+        # toPlainText/setPlainText/textCursor/document 등은 그대로 쓸 수 있고,
+        # ExtraSelection만 QPlainTextEdit에 별도 별칭이 없어 QTextEdit.ExtraSelection을
+        # 계속 쓴다(Qt C++ 쪽에서도 QPlainTextEdit::ExtraSelection은 QTextEdit::
+        # ExtraSelection의 typedef라 같은 타입이다).
         filesDropped = pyqtSignal(list)
 
         def __init__(self, parent=None):
@@ -778,6 +787,13 @@ else:
         def setReadOnly(self, read_only):
             super().setReadOnly(read_only)
             self.setAcceptDrops(True)
+            if read_only:
+                # Qt의 setReadOnly(True)는 상호작용 플래그를 TextSelectableByMouse
+                # 하나로 덮어써서 키보드 커서를 없애버린다. 방향키/PgUp/PgDn으로
+                # 커서를 옮기려면 TextSelectableByKeyboard를 다시 켜줘야 한다.
+                self.setTextInteractionFlags(
+                    Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard
+                )
 
         def _drop_paths(self, event):
             if not event.mimeData().hasUrls():
@@ -867,6 +883,10 @@ else:
             return False
 
         def set_cursor_line(self, _line):
+            return None
+
+        def set_pg_match_mode(self, _enabled):
+            # 폴백에서는 그릴 경로 자체가 없으므로 아무 일도 하지 않는다.
             return None
 
         def select_all_tools(self, selected):
@@ -1054,12 +1074,14 @@ else:
 
             self.src = ProgramTextEdit()
             self.src.setFont(mono)
-            self.src.setLineWrapMode(QTextEdit.NoWrap)
+            self.src.setLineWrapMode(QPlainTextEdit.NoWrap)
             self.src.setReadOnly(True)
             self.src.setAcceptDrops(True)
             self.src.filesDropped.connect(self.drop_file)
             self.src.textChanged.connect(self.source_changed)
             self.src.cursorPositionChanged.connect(self.source_cursor_changed)
+            self.src.cursorPositionChanged.connect(self._highlight_current_line)
+            self._highlight_current_line()
             self.input_splitter.addWidget(self.src)
 
             self.filter_panel = QWidget()
@@ -1071,6 +1093,14 @@ else:
             filter_label.setFont(QFont('맑은 고딕', 9, QFont.Bold))
             filter_bar.addWidget(filter_label)
             filter_bar.addStretch()
+            self.pg_match_check = QCheckBox('PG 매칭')
+            self.pg_match_check.setFont(kfont)
+            self.pg_match_check.setToolTip(
+                '체크하면 그려진 경로를 지우고, 커서가 있는 공정만\n'
+                '프로그램 방향키에 맞춰 실시간으로 그리고 지웁니다.'
+            )
+            self.pg_match_check.toggled.connect(self.toggle_pg_match_mode)
+            filter_bar.addWidget(self.pg_match_check)
             self._add_button(filter_bar, '전체', lambda: self.viewer.select_all_tools(True), kfont)
             self._add_button(filter_bar, '해제', lambda: self.viewer.select_all_tools(False), kfont)
             filter_layout.addLayout(filter_bar)
@@ -1484,16 +1514,55 @@ else:
             if self.current_mode == 'viewer':
                 self.viewer.set_cursor_line(self.src.textCursor().blockNumber())
 
+        def toggle_pg_match_mode(self, enabled):
+            """PG 매칭 모드를 켜고 끈다.
+
+            켤 때는 프로그램 입력창에 포커스를 줘서 방향키가 바로 먹게 하고, 커서가
+            필터에서 선택되지 않은 공정 위에 있으면(= 아무것도 그려지지 않아 고장으로
+            오인할 상황) 선택된 공정 중 첫 번째의 시작 줄로 커서를 옮겨준다.
+            """
+            self.viewer.set_pg_match_mode(enabled)
+            if not enabled:
+                return
+            self.src.setFocus()
+            selected = getattr(self.viewer, 'selected_tools', None)
+            first_line_map = getattr(self.viewer, 'process_first_line', None)
+            line_to_tool = getattr(self.viewer, 'line_to_tool_map', None)
+            if not callable(selected) or not first_line_map or line_to_tool is None:
+                return
+            selected_processes = selected()
+            if not selected_processes:
+                return
+            current_process = line_to_tool.get(self.src.textCursor().blockNumber())
+            if current_process in selected_processes:
+                return
+            for process_key in first_line_map:
+                if process_key in selected_processes:
+                    self.jump_to_process_line(first_line_map[process_key])
+                    return
+
         def jump_to_process_line(self, line_index):
-            """공정별 필터 항목을 클릭하면 프로그램 입력창의 해당 위치로 이동/선택한다."""
+            """공정별 필터 항목을 클릭하면 프로그램 입력창의 해당 위치로 이동한다.
+
+            텍스트를 선택(KeepAnchor)하지 않고 커서만 놓는다 — 행 강조는
+            _highlight_current_line의 전체 폭 블럭이 담당하므로 파란 선택 영역과
+            겹치지 않고, 방향키 첫 입력이 선택 해제로 소비되는 것도 막는다.
+            """
             block = self.src.document().findBlockByNumber(max(0, int(line_index)))
             if not block.isValid():
                 return
-            cursor = QTextCursor(block)
-            cursor.movePosition(QTextCursor.EndOfBlock, QTextCursor.KeepAnchor)
-            self.src.setTextCursor(cursor)
+            self.src.setTextCursor(QTextCursor(block))
             self.src.ensureCursorVisible()
             self.src.setFocus()
+
+        def _highlight_current_line(self):
+            """읽기전용 프로그램 편집기에서 커서가 있는 행을 가로 전체 폭 블럭으로 칠한다."""
+            selection = QTextEdit.ExtraSelection()
+            selection.format.setBackground(QColor('#dbe7f5'))
+            selection.format.setProperty(QTextFormat.FullWidthSelection, True)
+            selection.cursor = self.src.textCursor()
+            selection.cursor.clearSelection()
+            self.src.setExtraSelections([selection])
 
         def parsed_program_data(self, source_text=None):
             source_text = self.src.toPlainText() if source_text is None else source_text
@@ -1747,6 +1816,7 @@ else:
             self.current_file_path = path
             with QSignalBlocker(self.src):
                 self.src.setPlainText(data)
+            self._highlight_current_line()
             self.invalidate_parse_cache()
             self.run()
 
@@ -1773,6 +1843,7 @@ else:
                     cursor = self.src.textCursor()
                     cursor.movePosition(QTextCursor.End)
                     cursor.insertText('\n\n' + append_text)
+            self._highlight_current_line()
             self.invalidate_parse_cache()
             self.run()
 

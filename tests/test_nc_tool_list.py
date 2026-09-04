@@ -3,6 +3,7 @@ import os
 import re
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -350,7 +351,15 @@ X60 Y10 Z0
         self.assertIn('upx=False', spec)
     def test_installer_uses_c_drive_onedir_package_without_direct_taskkill(self):
         iss = Path('NC_Tool_List.iss').read_text(encoding='utf-8-sig')
-        self.assertIn('#define MyAppVersion "1.5.0"', iss)
+        # 설치 스크립트와 EXE 버전 리소스는 앱 버전과 항상 같아야 한다
+        # (버전을 올릴 때 한쪽만 고치는 동기화 누락을 막는다).
+        self.assertIn('#define MyAppVersion "%s"' % app.APP_VERSION, iss)
+        version_resource = Path('version_info.txt').read_text(encoding='utf-8-sig')
+        major, minor, patch = app.current_version_tuple()
+        self.assertIn('filevers=(%d, %d, %d, 0)' % (major, minor, patch), version_resource)
+        self.assertIn('prodvers=(%d, %d, %d, 0)' % (major, minor, patch), version_resource)
+        self.assertIn("u'FileVersion', u'%s.0'" % app.APP_VERSION, version_resource)
+        self.assertIn("u'ProductVersion', u'%s.0'" % app.APP_VERSION, version_resource)
         self.assertIn('DefaultDirName=C:\\NC_Tool_List', iss)
         self.assertIn('UsePreviousAppDir=no', iss)
         self.assertIn('PrivilegesRequired=admin', iss)
@@ -768,6 +777,429 @@ G02 X0 Y10 I-10 J0
             window.deleteLater()
             settings_dir.cleanup()
             qapp.processEvents()
+
+    # ---- v1.5.1: PG 매칭 모드 (정적 경로를 지우고 커서 공정만 실시간 추적) ----
+    PG_MATCH_SOURCE = (
+        "G00 X0 Y0 Z0\n"
+        "M6T1\n"
+        "G43\n"
+        "G00 X10 Y0 Z0\n"
+        "G01 X20 Y0 Z0\n"
+        "G01 X20 Y10 Z0\n"
+        "G01 X20 Y20 Z0\n"
+        "M6T2\n"
+        "G43\n"
+        "G00 X30 Y0 Z0\n"
+        "G01 X40 Y0 Z0\n"
+    )
+
+    def _pg_match_viewer(self):
+        from PyQt5.QtWidgets import QListWidget
+        from nc_viewer_widget import NCViewerWidget
+
+        viewer = NCViewerWidget()
+        viewer.attach_tool_filter(QListWidget())
+        viewer.set_source_text(self.PG_MATCH_SOURCE, {'T01': 'FACE MILL', 'T02': 'DRILL'})
+        return viewer
+
+    def _visible_trace_point_count(self, viewer):
+        total = 0
+        for item in viewer.dynamic_trace_items:
+            if not item.visible():
+                continue
+            pos = getattr(item, 'pos', None)
+            if pos is not None:
+                total += len(pos)
+        return total
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_pg_match_mode_hides_static_paths(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer = self._pg_match_viewer()
+        try:
+            self.assertFalse(viewer.pg_match_mode)
+            self.assertTrue(
+                any(item.visible() for items in viewer.plot_items.values() for item in items)
+            )
+
+            viewer.set_pg_match_mode(True)
+            self.assertTrue(viewer.pg_match_mode)
+            for items in viewer.plot_items.values():
+                for item in items:
+                    self.assertFalse(item.visible())
+
+            viewer.set_pg_match_mode(False)
+            self.assertTrue(
+                any(item.visible() for items in viewer.plot_items.values() for item in items)
+            )
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_pg_match_mode_traces_only_cursor_process(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer = self._pg_match_viewer()
+        try:
+            viewer.set_pg_match_mode(True)
+
+            # 공정 2(P002_T02) 마지막 줄에 커서를 두면 그 공정만 추적된다.
+            viewer.set_cursor_line(10)
+            self.assertEqual(viewer.line_to_tool_map[10], 'P002_T02')
+            second_points = self._visible_trace_point_count(viewer)
+            self.assertGreater(second_points, 0)
+
+            # 공정 1(P001_T01)로 커서를 올리면 트레이스가 그 공정 기준으로 다시 구성된다.
+            viewer.set_cursor_line(6)
+            self.assertEqual(viewer.line_to_tool_map[6], 'P001_T01')
+            first_points = self._visible_trace_point_count(viewer)
+            self.assertGreater(first_points, 0)
+            self.assertNotEqual(first_points, second_points)
+
+            # 커서 공정을 필터에서 해제하면 아무것도 그려지지 않는다.
+            viewer.select_all_tools(False)
+            self.assertEqual(self._visible_trace_point_count(viewer), 0)
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_pg_match_mode_trace_grows_and_shrinks_with_cursor(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer = self._pg_match_viewer()
+        try:
+            viewer.set_pg_match_mode(True)
+
+            # 같은 공정 안에서 커서를 내리면 라인이 자라고, 올리면 지워진다.
+            viewer.set_cursor_line(4)
+            short_trace = self._visible_trace_point_count(viewer)
+            viewer.set_cursor_line(6)
+            long_trace = self._visible_trace_point_count(viewer)
+            viewer.set_cursor_line(4)
+            back_trace = self._visible_trace_point_count(viewer)
+
+            self.assertGreater(long_trace, short_trace)
+            self.assertEqual(back_trace, short_trace)
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_app_pg_match_checkbox_toggles_viewer_mode(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        window = app.App(_root=settings_dir.name)
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                nc_path = Path(directory) / 'sample.nc'
+                nc_path.write_text(self.PG_MATCH_SOURCE, encoding='utf-8')
+                window.load_file(str(nc_path))
+                window.set_mode('viewer')
+                qapp.processEvents()
+
+                # 앱을 새로 띄우면 항상 해제 상태로 시작한다.
+                self.assertFalse(window.pg_match_check.isChecked())
+                self.assertFalse(window.viewer.pg_match_mode)
+
+                window.pg_match_check.setChecked(True)
+                qapp.processEvents()
+                self.assertTrue(window.viewer.pg_match_mode)
+                for items in window.viewer.plot_items.values():
+                    for item in items:
+                        self.assertFalse(item.visible())
+
+                window.pg_match_check.setChecked(False)
+                qapp.processEvents()
+                self.assertFalse(window.viewer.pg_match_mode)
+                self.assertTrue(
+                    any(
+                        item.visible()
+                        for items in window.viewer.plot_items.values()
+                        for item in items
+                    )
+                )
+        finally:
+            window.deleteLater()
+            settings_dir.cleanup()
+            qapp.processEvents()
+
+    # ---- v1.5.2: 읽기전용 편집기의 키보드 커서 + 행 강조 ----
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_readonly_program_editor_keeps_keyboard_cursor(self):
+        # Qt의 setReadOnly(True)는 상호작용 플래그를 TextSelectableByMouse 하나로
+        # 덮어써서 키보드 커서를 없애버린다. ProgramTextEdit는 이를 복원해야 한다.
+        qapp = app.QApplication.instance() or app.QApplication([])
+        editor = app.ProgramTextEdit()
+        editor.setReadOnly(True)
+        flags = editor.textInteractionFlags()
+        self.assertTrue(bool(flags & app.Qt.TextSelectableByKeyboard))
+        self.assertTrue(bool(flags & app.Qt.TextSelectableByMouse))
+        self.assertTrue(editor.isReadOnly())
+        editor.deleteLater()
+        qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_app_arrow_and_pagedown_keys_move_program_cursor(self):
+        from PyQt5.QtTest import QTest
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        window = app.App(_root=settings_dir.name)
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                nc_path = Path(directory) / 'sample.nc'
+                nc_path.write_text(REAL_NC_SAMPLE, encoding='utf-8')
+                window.load_file(str(nc_path))
+                window.set_mode('viewer')
+                qapp.processEvents()
+
+                window.src.setFocus()
+                before = window.src.textCursor().blockNumber()
+                QTest.keyClick(window.src, app.Qt.Key_Down)
+                QTest.keyClick(window.src, app.Qt.Key_Down)
+                qapp.processEvents()
+                after_down = window.src.textCursor().blockNumber()
+                self.assertGreater(after_down, before)
+
+                QTest.keyClick(window.src, app.Qt.Key_PageDown)
+                qapp.processEvents()
+                after_pagedown = window.src.textCursor().blockNumber()
+                self.assertGreater(after_pagedown, after_down)
+
+                QTest.keyClick(window.src, app.Qt.Key_Up)
+                qapp.processEvents()
+                after_up = window.src.textCursor().blockNumber()
+                self.assertLess(after_up, after_pagedown)
+
+                # 뷰어 모드에서 방향키 이동이 3D 커서 라인도 그대로 따라간다.
+                self.assertEqual(window.viewer.current_cursor_line, after_up)
+        finally:
+            window.deleteLater()
+            settings_dir.cleanup()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_app_current_line_is_highlighted_as_full_width_block(self):
+        from PyQt5.QtGui import QTextFormat
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        window = app.App(_root=settings_dir.name)
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                nc_path = Path(directory) / 'sample.nc'
+                nc_path.write_text(REAL_NC_SAMPLE, encoding='utf-8')
+                window.load_file(str(nc_path))
+                qapp.processEvents()
+
+                selections = window.src.extraSelections()
+                self.assertEqual(len(selections), 1)
+                self.assertTrue(
+                    selections[0].format.boolProperty(QTextFormat.FullWidthSelection)
+                )
+                self.assertEqual(selections[0].cursor.blockNumber(), 0)
+
+                window.jump_to_process_line(5)
+                qapp.processEvents()
+                moved = window.src.extraSelections()
+                self.assertEqual(len(moved), 1)
+                self.assertEqual(moved[0].cursor.blockNumber(), 5)
+                # jump_to_process_line은 앵커 선택을 만들지 않는다 — 강조가 그 역할을 한다.
+                self.assertFalse(window.src.textCursor().hasSelection())
+        finally:
+            window.deleteLater()
+            settings_dir.cleanup()
+            qapp.processEvents()
+
+    # ---- v1.5.2: 3D 뷰 마우스 감도 조정 ----
+    def _fresh_gl_view(self):
+        from nc_viewer_widget import OrthographicGLViewWidget
+        gl_view = OrthographicGLViewWidget()
+        gl_view.opts['azimuth'] = 45.0
+        gl_view.opts['elevation'] = 30.0
+        gl_view.opts['distance'] = 200.0
+        return gl_view
+
+    def _fire_mouse_move(self, gl_view, dx, dy=0.0):
+        from PyQt5.QtCore import QPointF
+        from PyQt5.QtCore import QEvent
+        from PyQt5.QtGui import QMouseEvent
+        gl_view.mousePos = QPointF(0.0, 0.0)
+        event = QMouseEvent(
+            QEvent.MouseMove, QPointF(dx, dy),
+            app.Qt.NoButton, app.Qt.LeftButton, app.Qt.NoModifier,
+        )
+        gl_view.mouseMoveEvent(event)
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_navigation_sensitivity_scales_mouse_drag_rotation(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        full = self._fresh_gl_view()
+        reduced = self._fresh_gl_view()
+        reduced.navigation_sensitivity = 0.4
+        try:
+            self._fire_mouse_move(full, 100.0)
+            self._fire_mouse_move(reduced, 100.0)
+            full_delta = full.opts['azimuth'] - 45.0
+            reduced_delta = reduced.opts['azimuth'] - 45.0
+            self.assertNotEqual(full_delta, 0.0)
+            self.assertAlmostEqual(reduced_delta, full_delta * 0.4, places=5)
+        finally:
+            full.deleteLater()
+            reduced.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_navigation_sensitivity_scales_wheel_zoom(self):
+        from PyQt5.QtCore import QPoint
+
+        class FakeWheelEvent:
+            def __init__(self, dy):
+                self._dy = dy
+
+            def angleDelta(self):
+                return QPoint(0, self._dy)
+
+            def modifiers(self):
+                return app.Qt.NoModifier
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        full = self._fresh_gl_view()
+        reduced = self._fresh_gl_view()
+        reduced.navigation_sensitivity = 0.4
+        try:
+            full.wheelEvent(FakeWheelEvent(240))
+            reduced.wheelEvent(FakeWheelEvent(240))
+            # 0.999**delta 형태라 배율이 아닌 지수이므로, log 비교로 감도가 실제로
+            # delta에 곱해졌는지 확인한다 (delta=0이면 배율은 항상 1이 되어 버림).
+            full_ratio = math.log(full.opts['distance'] / 200.0)
+            reduced_ratio = math.log(reduced.opts['distance'] / 200.0)
+            self.assertNotEqual(full_ratio, 0.0)
+            self.assertAlmostEqual(reduced_ratio, full_ratio * 0.4, places=5)
+        finally:
+            full.deleteLater()
+            reduced.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_navigation_sensitivity_persists_via_settings(self):
+        import nc_viewer_widget as viewer_module
+
+        class FakeSettings:
+            store = {}
+
+            def __init__(self, *_args):
+                pass
+
+            def value(self, key, default=None):
+                return self.store.get(key, default)
+
+            def setValue(self, key, value):
+                self.store[key] = value
+
+            def sync(self):
+                pass
+
+        FakeSettings.store = {}
+        original_qsettings = viewer_module.QSettings
+        viewer_module.QSettings = FakeSettings
+        qapp = app.QApplication.instance() or app.QApplication([])
+        try:
+            first = viewer_module.NCViewerWidget()
+            first.sensitivity_slider.setValue(70)
+            self.assertAlmostEqual(FakeSettings.store['navigation_sensitivity'], 0.70, places=5)
+
+            second = viewer_module.NCViewerWidget()
+            self.assertEqual(second.sensitivity_slider.value(), 70)
+            self.assertAlmostEqual(second.gl_view.navigation_sensitivity, 0.70, places=5)
+            first.deleteLater()
+            second.deleteLater()
+            qapp.processEvents()
+        finally:
+            viewer_module.QSettings = original_qsettings
+
+    # ---- v1.5.2: 3D 뷰 방향 큐브 ----
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_view_cube_face_click_sets_expected_camera_angles(self):
+        from nc_viewer_widget import NCViewerWidget
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer = NCViewerWidget()
+        try:
+            self.assertIsNotNone(viewer.view_cube)
+            viewer.view_cube.resize(80, 80)
+
+            viewer.view_cube.face_clicked.emit(90.0, -90.0)  # 윗면 -> XY
+            self.assertEqual(viewer.gl_view.opts['elevation'], 90.0)
+            self.assertEqual(viewer.gl_view.opts['azimuth'], -90.0)
+
+            viewer.view_cube.face_clicked.emit(0.0, -90.0)  # 앞면 -> XZ
+            self.assertEqual(viewer.gl_view.opts['elevation'], 0.0)
+            self.assertEqual(viewer.gl_view.opts['azimuth'], -90.0)
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_view_cube_paints_and_hit_tests_without_raising(self):
+        from PyQt5.QtGui import QPixmap
+        from nc_viewer_widget import NCViewerWidget
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer = NCViewerWidget()
+        try:
+            cube = viewer.view_cube
+            self.assertIsNotNone(cube)
+            cube.resize(80, 80)
+            pixmap = QPixmap(80, 80)
+            cube.render(pixmap)
+            self.assertGreater(len(cube._face_polygons), 0)
+            # 큐브 중앙을 클릭해도 예외 없이 처리된다(어떤 면이든 맞을 수도, 안 맞을 수도 있음).
+            from PyQt5.QtCore import QPoint
+            from PyQt5.QtGui import QMouseEvent
+            from PyQt5.QtCore import QEvent, QPointF
+            click = QMouseEvent(
+                QEvent.MouseButtonPress, QPointF(40, 40),
+                app.Qt.LeftButton, app.Qt.LeftButton, app.Qt.NoModifier,
+            )
+            cube.mousePressEvent(click)
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    # ---- v1.5.3: 대용량 파일 로드 시 행 강조가 사실상 멈추던 회귀 수정 ----
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    @unittest.skipUnless(Path('ncdata.nc').exists(), 'ncdata.nc sample not present')
+    def test_loading_large_real_program_does_not_hang(self):
+        # v1.5.2에서 도입한 현재 행 강조(_highlight_current_line)가 QTextEdit +
+        # NoWrap + 3만 줄대 문서 + 스플리터 내장이라는 조합에서 setExtraSelections()를
+        # 사실상 멈춘 것처럼 보일 만큼 느리게 만들었다(현장 리포트: "파일 불러오기중
+        # 멈춤"). 아주 작은 REAL_NC_SAMPLE로는 이 문제가 재현되지 않으므로, 실제
+        # 대용량 샘플(ncdata.nc, 3만 줄 이상)로 명시적인 시간 제한을 두고 검증한다.
+        # ProgramTextEdit을 QPlainTextEdit 기반으로 바꾼 것이 이 회귀의 수정이다.
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        window = app.App(_root=settings_dir.name)
+        try:
+            started = time.time()
+            window.load_file('ncdata.nc')
+            elapsed = time.time() - started
+            # 정상 동작이면 1초 안팎, 회귀 상태면 setExtraSelections() 한 줄에서
+            # 20초 이상(사실상 무한정) 멈춘다 — 넉넉히 잡아도 5초는 이 둘을 가른다.
+            self.assertLess(elapsed, 5.0)
+            self.assertTrue(window.src.toPlainText())
+            selections = window.src.extraSelections()
+            self.assertEqual(len(selections), 1)
+        finally:
+            window.deleteLater()
+            settings_dir.cleanup()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_program_editor_is_plain_text_edit_not_rich_text_edit(self):
+        # QTextEdit(리치 텍스트)로 되돌아가면 위 성능 회귀가 다시 생긴다 — 기반
+        # 클래스가 QPlainTextEdit인지를 직접 고정해 둔다.
+        self.assertTrue(issubclass(app.ProgramTextEdit, app.QPlainTextEdit))
 
 
 if __name__ == '__main__':

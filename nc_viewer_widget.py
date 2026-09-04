@@ -6,8 +6,10 @@ import re
 
 import numpy as np
 import pyqtgraph.opengl as gl
-from PyQt5.QtCore import Qt, QSettings, QSignalBlocker, pyqtSignal
-from PyQt5.QtGui import QColor, QIcon, QMatrix4x4, QPixmap
+from PyQt5.QtCore import Qt, QPointF, QRectF, QSettings, QSignalBlocker, pyqtSignal
+from PyQt5.QtGui import (
+    QBrush, QColor, QIcon, QMatrix4x4, QPainter, QPen, QPixmap, QPolygonF, QVector3D,
+)
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QGroupBox,
@@ -15,6 +17,7 @@ from PyQt5.QtWidgets import (
     QLabel,
     QListWidgetItem,
     QPushButton,
+    QSlider,
     QVBoxLayout,
     QWidget,
 )
@@ -78,9 +81,57 @@ def color_chip_icon(rgb, size=14):
 class OrthographicGLViewWidget(gl.GLViewWidget):
     """GL viewer that keeps 3D navigation but removes perspective distortion."""
 
+    # Fired after every mouse-drag orbit/pan, wheel zoom, or setCameraPosition() call
+    # so an overlay (e.g. ViewCubeWidget) can repaint itself to match.
+    camera_changed = pyqtSignal()
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.use_orthographic_projection = True
+        # Multiplies mouse-drag/wheel movement before it reaches pyqtgraph's own
+        # orbit/pan/zoom handling. 1.0 = library default; lower = less sensitive.
+        self.navigation_sensitivity = 1.0
+        self.overlay_widget = None
+
+    def mouseMoveEvent(self, ev):
+        lpos = ev.position() if hasattr(ev, 'position') else ev.localPos()
+        if not hasattr(self, 'mousePos'):
+            self.mousePos = lpos
+        # pyqtgraph's own handler computes diff = lpos - self.mousePos and then
+        # overwrites self.mousePos with the true lpos. Pulling the stored point
+        # toward lpos by (1 - sensitivity) shrinks that diff without touching
+        # pyqtgraph's orbit()/pan() math, so it keeps working across library versions.
+        self.mousePos = lpos - (lpos - self.mousePos) * self.navigation_sensitivity
+        super().mouseMoveEvent(ev)
+        self.camera_changed.emit()
+
+    def wheelEvent(self, ev):
+        delta = ev.angleDelta().x()
+        if delta == 0:
+            delta = ev.angleDelta().y()
+        delta *= self.navigation_sensitivity
+        if ev.modifiers() & Qt.ControlModifier:
+            self.opts['fov'] *= 0.999 ** delta
+        else:
+            self.opts['distance'] *= 0.999 ** delta
+        self.update()
+        self.camera_changed.emit()
+
+    def setCameraPosition(self, *args, **kwargs):
+        super().setCameraPosition(*args, **kwargs)
+        self.camera_changed.emit()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._reposition_overlay()
+
+    def _reposition_overlay(self):
+        if self.overlay_widget is None:
+            return
+        margin = 10
+        self.overlay_widget.move(
+            max(0, self.width() - self.overlay_widget.width() - margin), margin
+        )
 
     def projectionMatrix(self, region, viewport):
         if not self.use_orthographic_projection:
@@ -104,6 +155,130 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
         transform = QMatrix4x4()
         transform.ortho(left, right, bottom, top, near_clip, far_clip)
         return transform
+
+
+def _cube_face_corners(normal):
+    """Return the 4 corners (as (x, y, z) tuples) of an axis-aligned unit cube's
+    face whose outward normal is *normal*, walked around the perimeter so the
+    result is a valid (non-self-intersecting) quad in any winding direction."""
+    nx, ny, nz = normal
+    if nx != 0:
+        u, v = (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)
+    elif ny != 0:
+        u, v = (1.0, 0.0, 0.0), (0.0, 0.0, 1.0)
+    else:
+        u, v = (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)
+    corners = []
+    for su, sv in ((1, 1), (-1, 1), (-1, -1), (1, -1)):
+        corners.append(tuple(
+            normal[axis] + su * u[axis] + sv * v[axis] for axis in range(3)
+        ))
+    return corners
+
+
+class ViewCubeWidget(QWidget):
+    """CAD-style orientation cube overlaid on the viewer's top-right corner.
+
+    Drawn with QPainter rather than OpenGL — this app has a field history of
+    OpenGL init failures on some plant PCs (v1.4.3→v1.4.4), so a second GL
+    surface is avoided; a schematic cube from 8 projected points doesn't need one.
+    Clicking a face snaps the camera to that view via face_clicked(elevation, azimuth).
+    """
+
+    face_clicked = pyqtSignal(float, float)
+
+    # (outward normal, elevation, azimuth, label) — angles match
+    # NCViewerWidget.set_camera_angles's convention (same as the ISO/XY/XZ/YZ
+    # buttons) so a face click snaps to the same view those buttons produce.
+    _FACES = (
+        ((0.0, 0.0, 1.0), 90.0, -90.0, "XY"),
+        ((0.0, 0.0, -1.0), -90.0, -90.0, "-XY"),
+        ((0.0, -1.0, 0.0), 0.0, -90.0, "XZ"),
+        ((0.0, 1.0, 0.0), 0.0, 90.0, "-XZ"),
+        ((1.0, 0.0, 0.0), 0.0, 0.0, "YZ"),
+        ((-1.0, 0.0, 0.0), 0.0, 180.0, "-YZ"),
+    )
+
+    def __init__(self, gl_view, parent=None):
+        super().__init__(parent)
+        self._gl_view = gl_view
+        self._face_polygons = []
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setToolTip('드래그: 회전 | 면 클릭: 해당 뷰로 전환')
+
+    def paintEvent(self, _event):
+        painter = QPainter(self)
+        try:
+            painter.setRenderHint(QPainter.Antialiasing, True)
+            self._paint(painter)
+        finally:
+            painter.end()
+
+    def _paint(self, painter):
+        opts = getattr(self._gl_view, 'opts', None)
+        if opts is None:
+            return
+        try:
+            elevation = float(opts.get('elevation', 30.0))
+            azimuth = float(opts.get('azimuth', -45.0))
+        except (TypeError, ValueError):
+            return
+
+        # Mirrors GLViewWidget.viewMatrix()'s rotation (translation dropped — this
+        # only needs orientation) so the cube always matches the real 3D view.
+        rotation = QMatrix4x4()
+        rotation.rotate(elevation - 90.0, 1, 0, 0)
+        rotation.rotate(azimuth + 90.0, 0, 0, -1)
+
+        half = min(self.width(), self.height()) / 2.0 - 14.0
+        if half <= 4:
+            return
+        cx, cy = self.width() / 2.0, self.height() / 2.0
+
+        def project(point):
+            v = rotation.map(QVector3D(*point))
+            # Qt's Y grows downward; view space here has Y growing toward the camera.
+            return (cx + v.x() * half, cy - v.y() * half), v.z()
+
+        faces = []
+        for normal, elevation_target, azimuth_target, label in self._FACES:
+            projected = [project(corner) for corner in _cube_face_corners(normal)]
+            depth = sum(z for _xy, z in projected) / 4.0
+            cx_face = sum(xy[0] for xy, _z in projected) / 4.0
+            cy_face = sum(xy[1] for xy, _z in projected) / 4.0
+            polygon = QPolygonF([QPointF(x, y) for (x, y), _z in projected])
+            faces.append((depth, polygon, cx_face, cy_face, elevation_target, azimuth_target, label))
+
+        # Farthest first so nearer faces paint on top, like a solid object.
+        faces.sort(key=lambda item: item[0])
+        self._face_polygons = [
+            (polygon, elevation_target, azimuth_target)
+            for _depth, polygon, _cx, _cy, elevation_target, azimuth_target, _label in faces
+        ]
+
+        max_depth = max((depth for depth, *_ in faces), default=1.0) or 1.0
+        for depth, polygon, cx_face, cy_face, _elev, _azim, label in faces:
+            facing = depth > 0.05 * max_depth
+            painter.setPen(QPen(QColor(55, 65, 80), 1))
+            painter.setBrush(QBrush(QColor(120, 165, 210) if facing else QColor(72, 80, 94)))
+            painter.drawPolygon(polygon)
+            painter.setPen(QColor(255, 255, 255) if facing else QColor(150, 155, 165))
+            painter.drawText(
+                QRectF(cx_face - 18, cy_face - 8, 36, 16), Qt.AlignCenter, label
+            )
+
+    def mousePressEvent(self, event):
+        if event.button() != Qt.LeftButton:
+            super().mousePressEvent(event)
+            return
+        point = QPointF(event.pos())
+        # Iterate nearest-painted-first (reverse of paint order) so an overlapping
+        # click resolves to whatever's visually on top.
+        for polygon, elevation_target, azimuth_target in reversed(self._face_polygons):
+            if polygon.containsPoint(point, Qt.OddEvenFill):
+                self.face_clicked.emit(elevation_target, azimuth_target)
+                return
+        super().mousePressEvent(event)
 
 
 class NCViewerWidget(QWidget):
@@ -137,9 +312,23 @@ class NCViewerWidget(QWidget):
         self.modal_state_map = {}
         self.dynamic_trace_items = []
         self.current_cursor_line = 0
+        # "PG 매칭" 모드: 정적 경로를 모두 감추고, 커서가 위치한 공정의 실시간
+        # 트레이스만 남겨 프로그램 줄과 경로를 1:1로 대조할 수 있게 한다.
+        # 일시적인 확인용 모드라 QSettings에 저장하지 않는다.
+        self.pg_match_mode = False
+        # 마우스 감도는 PC/마우스마다 맞는 값이 달라 PG 매칭과 달리 저장한다.
+        self._initial_sensitivity = self._load_navigation_sensitivity()
 
         self._build_ui()
         self.set_machine_type(self.current_machine_type, init_camera=True)
+
+    def _load_navigation_sensitivity(self):
+        raw = self.settings.value("navigation_sensitivity", 0.4)
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            value = 0.4
+        return max(0.05, min(2.0, value))
 
     def _load_machine_specs(self):
         raw = self.settings.value("machine_specs", "")
@@ -179,6 +368,17 @@ class NCViewerWidget(QWidget):
             button.clicked.connect(lambda _checked=False, value=view_type: self.set_camera_projection(value))
             view_bar.addWidget(button)
         view_bar.addStretch()
+        view_bar.addWidget(QLabel("감도"))
+        self.sensitivity_slider = QSlider(Qt.Horizontal)
+        self.sensitivity_slider.setRange(5, 200)
+        self.sensitivity_slider.setFixedWidth(110)
+        self.sensitivity_slider.setValue(round(self._initial_sensitivity * 100))
+        self.sensitivity_slider.setToolTip("마우스 드래그/휠 회전·확대 감도")
+        self.sensitivity_slider.valueChanged.connect(self._on_sensitivity_changed)
+        view_bar.addWidget(self.sensitivity_slider)
+        self.sensitivity_value_label = QLabel("%d%%" % self.sensitivity_slider.value())
+        self.sensitivity_value_label.setFixedWidth(38)
+        view_bar.addWidget(self.sensitivity_value_label)
         layout.addLayout(view_bar)
 
         coord_group = QGroupBox("좌표")
@@ -202,7 +402,9 @@ class NCViewerWidget(QWidget):
 
         self.gl_view = OrthographicGLViewWidget()
         self.gl_view.setBackgroundColor(33, 37, 43, 255)
+        self.gl_view.navigation_sensitivity = self._initial_sensitivity
         layout.addWidget(self.gl_view, 1)
+        self._build_view_cube()
 
         self.grid = gl.GLGridItem()
         self.grid.setSize(400, 400, 1)
@@ -218,6 +420,29 @@ class NCViewerWidget(QWidget):
         )
         self.cursor_sphere.setVisible(False)
         self.gl_view.addItem(self.cursor_sphere)
+
+    def _build_view_cube(self):
+        """Create the corner orientation cube. Any failure here is swallowed —
+        losing the cube overlay beats losing the whole 3D viewer on a PC where
+        this doesn't work for some reason."""
+        try:
+            view_cube = ViewCubeWidget(self.gl_view, parent=self.gl_view)
+            view_cube.setFixedSize(80, 80)
+            self.gl_view.overlay_widget = view_cube
+            self.gl_view._reposition_overlay()
+            self.gl_view.camera_changed.connect(view_cube.update)
+            view_cube.face_clicked.connect(self.set_camera_angles)
+            view_cube.raise_()
+        except Exception:
+            self.gl_view.overlay_widget = None
+            view_cube = None
+        self.view_cube = view_cube
+
+    def _on_sensitivity_changed(self, percent):
+        ratio = max(0.05, min(2.0, percent / 100.0))
+        self.gl_view.navigation_sensitivity = ratio
+        self.sensitivity_value_label.setText("%d%%" % percent)
+        self.settings.setValue("navigation_sensitivity", ratio)
 
     def _add_axis_lines(self):
         infinite_val = 99999.0
@@ -332,15 +557,27 @@ class NCViewerWidget(QWidget):
         }
         self.set_machine_type(machine_type)
 
+    # 뷰 큐브의 6개 면과 같은 각도 규약: elevation/azimuth는
+    # GLViewWidget.cameraPosition()의 구면 좌표와 동일하게 해석된다.
+    _VIEW_PROJECTIONS = {
+        "ISO": (30, -45),
+        "XY": (90, -90),
+        "XZ": (0, -90),
+        "YZ": (0, 0),
+    }
+
+    def set_camera_angles(self, elevation, azimuth, distance=None):
+        """카메라 방향만 바꾼다. distance를 안 주면 현재 줌 배율을 유지한다."""
+        kwargs = {"elevation": elevation, "azimuth": azimuth}
+        if distance is not None:
+            kwargs["distance"] = distance
+        self.gl_view.setCameraPosition(**kwargs)
+
     def set_camera_projection(self, view_type):
-        if view_type == "ISO":
-            self.gl_view.setCameraPosition(distance=200, elevation=30, azimuth=-45)
-        elif view_type == "XY":
-            self.gl_view.setCameraPosition(distance=200, elevation=90, azimuth=-90)
-        elif view_type == "XZ":
-            self.gl_view.setCameraPosition(distance=200, elevation=0, azimuth=-90)
-        elif view_type == "YZ":
-            self.gl_view.setCameraPosition(distance=200, elevation=0, azimuth=0)
+        preset = self._VIEW_PROJECTIONS.get(view_type)
+        if preset is not None:
+            elevation, azimuth = preset
+            self.set_camera_angles(elevation, azimuth, distance=200)
 
     def _clear_path_items(self):
         for item_list in self.plot_items.values():
@@ -915,11 +1152,18 @@ class NCViewerWidget(QWidget):
     def _tool_selected(self, tool):
         return tool in self.selected_tools()
 
+    def set_pg_match_mode(self, enabled):
+        """정적 경로를 숨기고 커서 공정의 실시간 트레이스만 남기는 모드를 토글한다."""
+        self.pg_match_mode = bool(enabled)
+        # update_visible_paths()가 끝에서 set_cursor_line()을 부르므로 트레이스도 함께 갱신된다.
+        self.update_visible_paths()
+
     def update_visible_paths(self):
         selected_items = self.selected_tools()
         for tool, plot_item_list in self.plot_items.items():
+            visible = (not self.pg_match_mode) and (tool in selected_items)
             for item in plot_item_list:
-                item.setVisible(tool in selected_items)
+                item.setVisible(visible)
         self.set_cursor_line(self.current_cursor_line)
 
     def update_trace_item(self, index, pts_list, motion_type, base_color):
