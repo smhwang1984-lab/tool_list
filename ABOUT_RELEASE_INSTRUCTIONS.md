@@ -34,7 +34,27 @@ Last updated: 2026-09-04
 
 ## Version history
 
-### 2026-09-04 (latest, v1.5.0)
+### 2026-09-04 (latest, v1.5.1)
+
+- Version: 1.5.1
+- Release/build date: 2026-09-04
+- Summary: One requested feature for the next version — a "PG 매칭" checkbox next to 전체 in the process path filter bar. When checked, the viewer clears the drawn static paths and draws only the cursor's process, growing and erasing in real time as the program cursor moves with the arrow keys, so a program line can be matched 1:1 against the actual tool path.
+- Creator displayed: Hwang.seonmun
+- Open source used: Python, PyQt5, pyqtgraph, NumPy, PyOpenGL, ReportLab, PyInstaller, Inno Setup (unchanged from v1.5.0 — no dependency added or removed).
+- Details:
+  - **PG 매칭 mode (`nc_viewer_widget.py`):** the dynamic-trace machinery already drew "from the process's first line up to the cursor line" (`_render_segment_buckets(path_data, line_limit)` + `update_trace_item`), but it was invisible underneath the always-on static paths. So the feature is just a mode flag: new `pg_match_mode` state (deliberately NOT persisted to `QSettings` — a temporary inspection mode should always start off) and `set_pg_match_mode()`, with `update_visible_paths()` changed to `visible = (not self.pg_match_mode) and (tool in selected_items)`. `set_cursor_line` is untouched: it already resolves the cursor's process via `line_to_tool_map` (populated for *every* line including blanks/comments, so arrow-keying past a comment doesn't make the line flicker away) and honors the filter selection via `_tool_selected`. Because `process_nc_lines` → `_refresh_tool_filter` → `update_visible_paths` is the load path, opening a new file while the mode is on does not make static paths reappear.
+  - **Checkbox + handler (`NC_Tool_List.py`):** `QCheckBox('PG 매칭')` added to `filter_bar` immediately left of the 전체 button, with a tooltip explaining the behavior. New `toggle_pg_match_mode` forwards to the viewer; when switching on it also focuses the program editor so the arrow keys work immediately, and — if the cursor happens to sit on a process that is *not* selected in the filter, which would draw nothing and read as a malfunction — jumps the cursor to the first selected process's start line by reusing the existing `jump_to_process_line`. With no process selected at all it leaves the cursor alone. `ViewerFallbackWidget` gained a no-op `set_pg_match_mode` so a PC where the 3D viewer fails to initialize does not die with `AttributeError`.
+  - **Confirmed behaviors (user-approved during planning):** only the cursor's process is drawn even when several processes are selected; the trace baseline is that process's first line (not cumulative from the top of the program); the checkbox never persists across restarts.
+  - **Version-sync test hardening:** `test_installer_uses_c_drive_onedir_package_without_direct_taskkill` had the version string hardcoded as `1.5.0`, so it broke on every version bump. It now asserts the `.iss` version equals `app.APP_VERSION`, and additionally covers `version_info.txt` (`filevers`/`prodvers`/`FileVersion`/`ProductVersion`) against the same source of truth — `version_info.txt` previously had no test at all.
+- Verification: 43 unit tests passed (39 existing + 4 new: static paths all hidden when the mode is on and restored when off; only the cursor's process is traced and nothing is drawn once that process is deselected; the trace grows when the cursor moves down and returns to exactly its former size when moved back up; and an App-level test that the checkbox toggles `viewer.pg_match_mode` and hides the static items, starting unchecked). Also headless-smoke-tested against the real `ncdata.nc` (11 processes): static items 20 visible → 0 on check → 20 on uncheck; simulated arrow-key travel of 30 lines took the trace from 2 to 62 points and back to 2; and the auto-jump path was exercised by selecting only the last process while parking the cursor on `Initial`, confirming the cursor moved to that process's start line (30823) with focus on the program editor, and that a zero-selection state leaves the cursor untouched.
+- Installer/package: Created `installer/NC_Tool_List_Setup_v1.5.1.exe` and `installer/NC_Tool_List_Portable_v1.5.1.zip` from a fresh PyInstaller onedir rebuild after deleting `build/` and `dist/` (`dist/NC_Tool_List/_internal/OpenGL` confirmed absent, no `freeglut`/`gle32`/`gle64` DLLs present, `upx=False` in the spec, built exe's version resource reads 1.5.1.0). Portable ZIP was rebuilt to match the v1.5.0 layout exactly — `_internal` and `NC_Tool_List.exe` at the archive root, 311 entries — after a first attempt wrapped everything in an extra `NC_Tool_List` folder. Launched the built exe directly; `startup.log` showed a clean `Starting NC 공구 리스트 생성기 v1.5.1 frozen=True` line with no traceback, and it closed normally with exit code 0.
+- Installer SHA-256: A5E47ACB0514DF59629551FC1079572A489528F0D80FE3C84754B10A8D5C28CC
+- Portable ZIP SHA-256: F3910516400B88BC83C66A200FB4F4A6A0FE20F59D64AC7C334CA0C39DE5B373
+- App SHA-256: E661E6B654EBE9CC21B7945FFDB78A32D17C5DBE6612A3C52F8D3155F33743C2
+- Signature status: still unsigned.
+- Out of scope (left untouched): actual code-signing; running the installer elevated on this dev machine (the `[Registry]` association behavior is unchanged from v1.5.0, so plant-PC install verification carries over); lathe (2-axis) coordinate mapping; G90/G91 incremental-mode support for ordinary moves.
+
+### 2026-09-04 (v1.5.0)
 
 - Version: 1.5.0
 - Release/build date: 2026-09-04
