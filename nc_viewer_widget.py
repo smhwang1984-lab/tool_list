@@ -23,6 +23,11 @@ from PyQt5.QtWidgets import (
 )
 
 
+# 96 DPI(윈도우 100% 배율) 기준 1cm의 픽셀 근사값. 오버레이 여백을 "몇 cm"
+# 단위로 요청받았을 때 쓴다 — 실제 배율이 다르면 다소 어긋나지만 "정도"
+# 수준의 여백 지정이라 크게 문제되지 않는다.
+PX_PER_CM = 96.0 / 2.54
+
 TOOL_COLOR_MAPS = [
     [1.0, 0.45, 0.10], [0.0, 0.70, 1.0], [0.20, 0.90, 0.25],
     [1.0, 0.25, 0.65], [0.95, 0.85, 0.10], [0.60, 0.35, 1.0],
@@ -133,23 +138,22 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
         self._reposition_bottom_bar()
 
     def _reposition_bottom_bar(self):
-        """Keeps the playback bar centered near the bottom, 70% of the view's width."""
+        """Keeps the playback bar centered near the bottom, 70% of the view's width,
+        floating about 2cm above the very bottom edge."""
         if self.bottom_bar_widget is None:
             return
         bar = self.bottom_bar_widget
         width = max(200, round(self.width() * 0.7))
         bar.setFixedWidth(width)
         height = bar.sizeHint().height()
-        margin_bottom = 16
-        # Anchored between the view's vertical center and its bottom edge.
-        y = round(self.height() * 0.5 + (self.height() * 0.5 - height) / 2)
-        y = min(y, self.height() - height - margin_bottom)
+        margin_bottom = round(2 * PX_PER_CM)
+        y = self.height() - height - margin_bottom
         bar.move((self.width() - width) // 2, max(0, y))
 
     def _reposition_overlay(self):
         if self.overlay_widget is None:
             return
-        margin = 10
+        margin = round(2 * PX_PER_CM)
         self.overlay_widget.move(
             max(0, self.width() - self.overlay_widget.width() - margin), margin
         )
@@ -337,31 +341,35 @@ class PlaybackBarWidget(QWidget):
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setStyleSheet(
             "PlaybackBarWidget { background-color: rgba(33, 37, 43, 190);"
-            " border-radius: 8px; }"
-            " QLabel { color: white; }"
+            " border-radius: 14px; }"
+            " QLabel { color: white; font-size: 15px; }"
             " QPushButton { color: white; background-color: rgba(255, 255, 255, 30);"
-            " border: 1px solid rgba(255, 255, 255, 60); border-radius: 4px;"
-            " padding: 3px 10px; }"
+            " border: 1px solid rgba(255, 255, 255, 60); border-radius: 8px;"
+            " padding: 18px 27px; font-size: 17px; font-weight: bold; }"
             " QPushButton:hover { background-color: rgba(255, 255, 255, 55); }"
             " QPushButton:disabled { color: rgba(255, 255, 255, 90); }"
         )
         self.setEnabled(False)
         self._playing = False
 
+        # 전체 높이(~3배)와 버튼 크기(~2.5배)를 원래(80px 큐브 시절과 같은 시기에
+        # 만든 60px 높이 바) 대비로 키워 달라는 사용자 요청 반영. 슬라이더도
+        # 자간을 맞춰 함께 키운다.
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(10, 6, 10, 8)
-        outer.setSpacing(4)
+        outer.setContentsMargins(26, 24, 26, 26)
+        outer.setSpacing(26)
 
         speed_row = QHBoxLayout()
         speed_row.addWidget(QLabel("속도"))
         self.speed_slider = QSlider(Qt.Horizontal)
         self.speed_slider.setRange(1, 200)
         self.speed_slider.setValue(1)
+        self.speed_slider.setFixedHeight(34)
         self.speed_slider.setFocusPolicy(Qt.NoFocus)
         self.speed_slider.valueChanged.connect(self._on_speed_changed)
         speed_row.addWidget(self.speed_slider, 1)
         self.speed_value_label = QLabel("1x")
-        self.speed_value_label.setFixedWidth(42)
+        self.speed_value_label.setFixedWidth(56)
         speed_row.addWidget(self.speed_value_label)
         outer.addLayout(speed_row)
 
