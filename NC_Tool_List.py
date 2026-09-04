@@ -26,7 +26,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
 
-APP_VERSION = '1.5.10'
+APP_VERSION = '1.6.0'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-09-04'
 APP_CREATOR = 'Hwang.seonmun'
@@ -118,11 +118,17 @@ COLUMNS = [
     ('HOLDER', '홀더'), ('SPINDL', 'SPINDL'), ('FEED', 'FEED'), ('REMARK', 'REMARK'),
 ]
 # v1.5.9: 표기 셀(칸) 크기를 요청대로 기존 값의 1.6배로 키움.
-COL_WIDTH = {
+_COL_WIDTH_BASE = {
     'NO': 72, 'TYPE': 128, 'NAME': 152, 'D': 72, 'FL': 72, 'LCF': 80, 'F': 56,
     'R': 72, 'SIG': 72, 'PL': 88, 'SO': 72, 'GL': 80, 'HOLDER': 192,
     'SPINDL': 96, 'FEED': 88, 'REMARK': 176,
 }
+# v1.6.0: 복사용 표 셀 좌우에 글자가 가려지지 않도록 폰트 한글자 폭의
+# 절반(표 폰트 14pt 기준 근사치) 만큼 양쪽 여백을 추가한다. 여백은
+# QTableWidget::item의 padding으로 그리므로, 실제 글자가 그려지는 폭이
+# 줄어들지 않도록 칸 너비 자체도 그만큼 넓힌다.
+TABLE_CELL_PADDING_PX = 8
+COL_WIDTH = {key: width + TABLE_CELL_PADDING_PX * 2 for key, width in _COL_WIDTH_BASE.items()}
 
 # TOOL_LIST_PG.xlsx의 A:P 열 폭 비율
 PDF_COLUMN_WEIGHTS = [48, 100, 150, 40, 40, 40, 40, 40, 40, 40, 40, 60, 140, 70, 70, 88]
@@ -1072,7 +1078,8 @@ else:
 
         # ---------- 다크모드 ----------
         def _load_dark_mode(self):
-            raw = self.layout_settings.value('dark_mode', False)
+            # v1.6.0: 최초 실행(저장된 설정 없음) 시 다크모드를 기본값으로 시작한다.
+            raw = self.layout_settings.value('dark_mode', True)
             if isinstance(raw, str):
                 return raw.strip().lower() in ('1', 'true', 'yes')
             return bool(raw)
@@ -1107,6 +1114,7 @@ else:
             """QMainWindow/QDialog를 포함한 기본 위젯 전체에 적용되는 전역
             스타일시트. 개별 위젯의 setStyleSheet() 인스턴스 지정값이 항상
             우선하므로, 아래 규칙은 그 값이 없는 속성에만 실제로 적용된다."""
+            t = dict(t, table_cell_padding=TABLE_CELL_PADDING_PX)
             return (
                 'QMainWindow, QWidget, QDialog { background: %(window_bg)s; color: %(text)s; }'
                 'QLabel { color: %(text)s; }'
@@ -1128,6 +1136,7 @@ else:
                 ' background: %(list_bg)s; color: %(list_text)s; gridline-color: %(border)s;'
                 ' alternate-background-color: %(list_hover)s;'
                 ' selection-background-color: %(list_selected_bg)s; selection-color: %(list_selected_text)s; }'
+                'QTableWidget::item { padding: 0 %(table_cell_padding)dpx; }'
                 'QHeaderView::section {'
                 ' background: %(panel_bg)s; color: %(text)s; border: 1px solid %(border)s; padding: 3px; }'
                 'QListWidget { background: %(list_bg)s; color: %(list_text)s; border: 1px solid %(border)s; }'
@@ -1138,8 +1147,8 @@ else:
             """하드코딩된 인라인 색을 쓰던 각 위젯을 현재 self.theme 값으로 다시 칠한다."""
             self._style_header_bar(self.top_bar)
             self._style_accent_button(self.run_button)
-            self._style_accent_button(self.copy_button)
-            self._style_success_button(self.pdf_button)
+            self._style_accent_button_large(self.copy_button)
+            self._style_success_button_large(self.pdf_button)
             self._style_neutral_button(self.machine_save_button)
             self._style_groupbox_border(self.machine_settings_panel)
             self._style_tool_filter_list(self.tool_filter)
@@ -1165,11 +1174,21 @@ else:
                 % (self.theme['accent'], self.theme['accent_text'])
             )
 
+        def _style_accent_button_large(self, widget):
+            # '표 복사' 버튼 전용: 폰트/버튼 크기를 1.3배로 키운다(v1.6.0).
+            self._style_accent_button(widget)
+            widget.setStyleSheet(widget.styleSheet() + ' padding: 7px 12px;')
+
         def _style_success_button(self, widget):
             widget.setStyleSheet(
                 'background: %s; color: %s; padding: 5px 9px;'
                 % (self.theme['success'], self.theme['success_text'])
             )
+
+        def _style_success_button_large(self, widget):
+            # 'PDF 출력' 버튼 전용: '표 복사'와 같은 행이라 크기를 맞춘다(v1.6.0).
+            self._style_success_button(widget)
+            widget.setStyleSheet(widget.styleSheet() + ' padding: 7px 12px;')
 
         def _style_neutral_button(self, widget):
             widget.setStyleSheet(
@@ -1227,6 +1246,12 @@ else:
             self.btn_about.setFont(top_bar_button_font)
             top_layout.addWidget(self.btn_about)
 
+            # 장비 패널의 ▶/▼ 접기 버튼과 시각적으로 구분되도록, 모드 전환
+            # 버튼 2개를 About 버튼 끝에서 약 5cm 정도 띄워서 배치한다
+            # (96DPI 가정, v1.6.0 요청).
+            MODE_BUTTON_GAP_PX = round(5 * 96.0 / 2.54)
+            top_layout.addSpacing(MODE_BUTTON_GAP_PX)
+
             self.btn_tool_mode = QPushButton('툴리스트 산출 모드')
             self.btn_tool_mode.setCheckable(True)
             self.btn_tool_mode.clicked.connect(lambda: self.set_mode('tool'))
@@ -1271,6 +1296,11 @@ else:
             program_button_row.addStretch()
             left_layout.addLayout(program_button_row)
 
+            # 장비 타입 및 스펙 설정 패널을 다음공구검색 행보다 위쪽에
+            # 배치한다(v1.6.0 요청 — 두 행의 상하 순서 교체).
+            self.machine_settings_panel = self._build_machine_settings_panel(kfont)
+            left_layout.addWidget(self.machine_settings_panel)
+
             search_bar = QHBoxLayout()
             self._add_button(search_bar, '다음공구검색', self.find_next_tool_change, kfont)
             search_bar.addWidget(QLabel('문자 검색'))
@@ -1282,9 +1312,6 @@ else:
             self.search_status = QLabel('')
             search_bar.addWidget(self.search_status)
             left_layout.addLayout(search_bar)
-
-            self.machine_settings_panel = self._build_machine_settings_panel(kfont)
-            left_layout.addWidget(self.machine_settings_panel)
 
             self.input_splitter = QSplitter(Qt.Vertical)
             self.input_splitter.setChildrenCollapsible(False)
@@ -1413,14 +1440,17 @@ else:
         def show_about(self):
             dialog = QDialog(self)
             dialog.setWindowTitle('About')
-            dialog.resize(520, 600)
+            dialog.setFixedWidth(520)
             layout = QVBoxLayout(dialog)
             title = QLabel('%s v%s' % (APP_NAME, APP_VERSION))
             title.setFont(QFont('맑은 고딕', 12, QFont.Bold))
             layout.addWidget(title)
             viewer = QTextEdit()
             viewer.setReadOnly(True)
-            viewer.setMaximumHeight(150)
+            # v1.6.0: 오픈소스 목록이 늘어나도 세로 스크롤바가 생기지 않도록,
+            # 고정 높이 대신 실제 내용 길이에 맞춰 자동으로 늘어나게 한다.
+            viewer.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            viewer.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
             viewer.setPlainText(
                 '용도: %s\n'
                 '버전: %s\n'
@@ -1431,6 +1461,8 @@ else:
                     '\n- '.join(OPEN_SOURCE_COMPONENTS),
                 )
             )
+            viewer.document().setTextWidth(480)
+            viewer.setFixedHeight(int(viewer.document().size().height()) + 16)
             layout.addWidget(viewer)
 
             # --- 업데이트 경로 및 수동 업데이트 ---
@@ -1755,16 +1787,24 @@ else:
             rbar.addWidget(self.count)
             # 조작 버튼들을 패널 오른쪽 끝이 아니라 왼쪽(라벨 바로 옆)에 모아
             # 배치한다(v1.5.9 요청) — addStretch()를 버튼들 뒤로 옮긴다.
-            self._add_button(rbar, '삭제', self.delete_selected)
-            self._add_button(rbar, '수정', self.edit_selected)
-            self._add_button(rbar, '＋ 행 추가', self.add_row)
-            self._add_button(rbar, '이름 경우의 수', self.show_type_list)
+            # '표 복사'까지 이 행의 버튼들은 폰트/크기를 1.3배로 키운다(v1.6.0).
+            row_button_font = QFont('맑은 고딕', 13)
+            row_button_style = 'padding: 5px 10px;'
+            btn_delete = self._add_button(rbar, '삭제', self.delete_selected, row_button_font)
+            btn_delete.setStyleSheet(row_button_style)
+            btn_edit = self._add_button(rbar, '수정', self.edit_selected, row_button_font)
+            btn_edit.setStyleSheet(row_button_style)
+            btn_add_row = self._add_button(rbar, '＋ 행 추가', self.add_row, row_button_font)
+            btn_add_row.setStyleSheet(row_button_style)
+            btn_type_list = self._add_button(rbar, '이름 경우의 수', self.show_type_list, row_button_font)
+            btn_type_list.setStyleSheet(row_button_style)
             self.with_header = QCheckBox('머리글 포함')
+            self.with_header.setFont(row_button_font)
             rbar.addWidget(self.with_header)
-            self.pdf_button = self._add_button(rbar, 'PDF 출력', self.export_pdf)
-            self._style_success_button(self.pdf_button)
-            self.copy_button = self._add_button(rbar, '표 복사', self.copy_table)
-            self._style_accent_button(self.copy_button)
+            self.pdf_button = self._add_button(rbar, 'PDF 출력', self.export_pdf, row_button_font)
+            self._style_success_button_large(self.pdf_button)
+            self.copy_button = self._add_button(rbar, '표 복사', self.copy_table, row_button_font)
+            self._style_accent_button_large(self.copy_button)
             rbar.addStretch()
             layout.addLayout(rbar)
 
