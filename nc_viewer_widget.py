@@ -7,7 +7,7 @@ import re
 import numpy as np
 import pyqtgraph.opengl as gl
 from PyQt5.QtCore import Qt, QSettings, QSignalBlocker
-from PyQt5.QtGui import QColor, QMatrix4x4
+from PyQt5.QtGui import QColor, QIcon, QMatrix4x4, QPixmap
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QGroupBox,
@@ -29,6 +29,18 @@ TOOL_COLOR_MAPS = [
 
 RAPID_MOVE_COLOR = [1.0, 0.0, 0.0]
 RAPID_MOVE_ALPHA = 1.0
+
+# G17/G18/G19 arc-plane axis mapping: (u_axis_idx, v_axis_idx, w_axis_idx, u_offset_letter, v_offset_letter)
+# u/v span the arc plane, w is interpolated linearly (helical move); letters pick which of I/J/K
+# supplies the plane's center offsets, following the Fanuc convention (G18 uses I/K, G19 uses J/K).
+ARC_PLANE_AXES = {
+    "G17": (0, 1, 2, "i", "j"),
+    "G18": (2, 0, 1, "k", "i"),
+    "G19": (1, 2, 0, "j", "k"),
+}
+ARC_CHORD_TOLERANCE_MM = 0.05
+ARC_MIN_SEGMENTS = 6
+ARC_MAX_SEGMENTS = 720
 
 
 DEFAULT_MACHINE_SPECS = {
@@ -54,6 +66,13 @@ def tool_color_for_index(index):
 
 def qcolor_from_float_rgb(rgb):
     return QColor(*(max(0, min(255, int(channel * 255))) for channel in rgb))
+
+
+def color_chip_icon(rgb, size=14):
+    """Small solid-color square used as a per-tool legend swatch in the filter list."""
+    pixmap = QPixmap(size, size)
+    pixmap.fill(qcolor_from_float_rgb(rgb))
+    return QIcon(pixmap)
 
 
 class OrthographicGLViewWidget(gl.GLViewWidget):
@@ -358,9 +377,8 @@ class NCViewerWidget(QWidget):
         with QSignalBlocker(self.tool_filter_list):
             self.tool_filter_list.clear()
             for idx, tool in enumerate(self.tool_paths):
-                item = QListWidgetItem(self._tool_display_text(tool))
+                item = QListWidgetItem(color_chip_icon(tool_color_for_index(idx)), self._tool_display_text(tool))
                 item.setData(Qt.UserRole, tool)
-                item.setForeground(qcolor_from_float_rgb(tool_color_for_index(idx)))
                 self.tool_filter_list.addItem(item)
                 if not keep_selection or tool in selected:
                     item.setSelected(True)
@@ -427,6 +445,7 @@ class NCViewerWidget(QWidget):
 
         g43_active = False
         current_motion = "G00"
+        current_plane = "G17"
         polar_interpolation = False
         g68_pending = False
         pending_i, pending_j, pending_k = 0.0, 0.0, 0.0
@@ -452,6 +471,9 @@ class NCViewerWidget(QWidget):
         g12_1_pattern = re.compile(r"G12\.1|G112")
         g13_1_pattern = re.compile(r"G13\.1|G113")
         motion_pattern = re.compile(r"(G0[0-3]|G[0-3])(?![\.\d])")
+        g17_pattern = re.compile(r"G17(?!\d)")
+        g18_pattern = re.compile(r"G18(?!\d)")
+        g19_pattern = re.compile(r"G19(?!\d)")
         i_pattern = re.compile(r"I\s*([+-]?\d*\.?\d+)")
         j_pattern = re.compile(r"J\s*([+-]?\d*\.?\d+)")
         k_pattern = re.compile(r"K\s*([+-]?\d*\.?\d+)")
@@ -481,6 +503,13 @@ class NCViewerWidget(QWidget):
                 continue
 
             self.line_to_tool_map[idx] = current_tool
+
+            if g17_pattern.search(line_upper):
+                current_plane = "G17"
+            elif g18_pattern.search(line_upper):
+                current_plane = "G18"
+            elif g19_pattern.search(line_upper):
+                current_plane = "G19"
 
             if g12_1_pattern.search(line_upper):
                 polar_interpolation = True
@@ -584,7 +613,18 @@ class NCViewerWidget(QWidget):
             c_match = c_pattern.search(line_upper)
             r_cycle_match = r_pattern.search(line_upper)
 
-            if x_match or y_match or z_match or c_match or (cycle_active and r_cycle_match):
+            # A full-circle arc (e.g. "G02 I50 J0") carries no X/Y/Z word at all, so it needs
+            # its own entry into this block. Guard against G68.2/G53.1 tilt-plane lines, which
+            # reuse I/J/K for an unrelated rotation vector while current_motion is still
+            # modally G02/G03 from an earlier line.
+            is_arc_motion = current_motion in ("G02", "G03")
+            arc_center_present = (
+                is_arc_motion
+                and not (g68_pattern.search(line_upper) or g53_1_pattern.search(line_upper))
+                and (i_pattern.search(line_upper) or j_pattern.search(line_upper) or k_pattern.search(line_upper))
+            )
+
+            if x_match or y_match or z_match or c_match or (cycle_active and r_cycle_match) or arc_center_present:
                 start_pt = [cx, cy, cz]
 
                 if is_lathe:
@@ -608,6 +648,7 @@ class NCViewerWidget(QWidget):
                         ]
                     else:
                         target_pt = [cy, cx, cz]
+                    local_target_pt = target_pt
                 else:
                     if x_match:
                         cx = float(x_match.group(1))
@@ -615,10 +656,15 @@ class NCViewerWidget(QWidget):
                         cy = float(y_match.group(1))
                     if z_match:
                         cz = float(z_match.group(1))
-                    coord_vec = np.array([cx, cy, cz])
+                    # Keep the pre-rotation ("local") point around so arcs can be built in the
+                    # same unrotated coordinate space as start_pt, then rotate the whole arc as
+                    # a batch below — mixing an unrotated start with a rotated end (as before)
+                    # produced garbled 4/5-axis arcs.
+                    local_target_pt = [cx, cy, cz]
+                    coord_vec = np.array(local_target_pt)
                     target_pt = (
                         active_matrix @ coord_vec
-                    ).tolist() if (is_5axis_ac or is_5axis_bc or is_4axis) else [cx, cy, cz]
+                    ).tolist() if (is_5axis_ac or is_5axis_bc or is_4axis) else list(local_target_pt)
 
                 if cycle_active and (g43_active or is_lathe):
                     target_x = cx
@@ -648,16 +694,37 @@ class NCViewerWidget(QWidget):
                     self.line_to_coord_map[idx] = final_z_pt
                     continue
 
-                if current_motion in ("G02", "G03") and (g43_active or is_lathe):
+                if is_arc_motion and is_lathe:
+                    # Lathe target_pt is already in the lathe's own (cylindrical/XY-style)
+                    # space with no rotation matrix involved, so the original single-space
+                    # arc computation is still correct here — left untouched.
                     arc_pts = self._arc_points(
-                        line_upper, start_pt, target_pt, current_motion,
-                        i_pattern, j_pattern, r_pattern,
+                        line_upper, start_pt, target_pt, current_motion, "G17",
+                        i_pattern, j_pattern, k_pattern, r_pattern,
                     )
                     for pt in arc_pts:
                         self.tool_paths[current_tool].append({
                             "pt": pt, "type": current_motion, "valid": True, "src_line": idx,
                         })
                     self.line_to_coord_map[idx] = target_pt
+                elif is_arc_motion:
+                    local_arc_pts = self._arc_points(
+                        line_upper, start_pt, local_target_pt, current_motion, current_plane,
+                        i_pattern, j_pattern, k_pattern, r_pattern,
+                    )
+                    point_valid = g43_active
+                    last_pt = None
+                    for local_pt in local_arc_pts:
+                        rotated_pt = (
+                            (active_matrix @ np.array(local_pt)).tolist()
+                            if (is_5axis_ac or is_5axis_bc or is_4axis) else local_pt
+                        )
+                        self.tool_paths[current_tool].append({
+                            "pt": rotated_pt, "type": current_motion, "valid": point_valid, "src_line": idx,
+                        })
+                        last_pt = rotated_pt
+                    if point_valid:
+                        self.line_to_coord_map[idx] = last_pt if last_pt is not None else target_pt
                 else:
                     self.tool_paths[current_tool].append({
                         "pt": target_pt,
@@ -677,39 +744,83 @@ class NCViewerWidget(QWidget):
         self._refresh_tool_filter()
         self.set_cursor_line(self.current_cursor_line)
 
-    def _arc_points(self, line_upper, start_pt, target_pt, current_motion, i_pattern, j_pattern, r_pattern):
-        i_val = float(i_pattern.search(line_upper).group(1)) if i_pattern.search(line_upper) else 0.0
-        j_val = float(j_pattern.search(line_upper).group(1)) if j_pattern.search(line_upper) else 0.0
-        center_x = start_pt[0] + i_val
-        center_y = start_pt[1] + j_val
+    def _arc_points(self, line_upper, start_pt, target_pt, current_motion, plane,
+                     i_pattern, j_pattern, k_pattern, r_pattern):
+        """Interpolate a G02/G03 arc in the given plane (G17/G18/G19).
+
+        Returns points in the SAME coordinate space as start_pt/target_pt — the caller is
+        responsible for rotating the result if it needs to live in a 4/5-axis rotated frame.
+        The third (out-of-plane) axis is interpolated linearly, so this also covers helical
+        moves that change Z (or the plane's equivalent) while arcing.
+        """
+        u_idx, v_idx, w_idx, u_letter, v_letter = ARC_PLANE_AXES.get(plane, ARC_PLANE_AXES["G17"])
+        offset_patterns = {"i": i_pattern, "j": j_pattern, "k": k_pattern}
+        u_match = offset_patterns[u_letter].search(line_upper)
+        v_match = offset_patterns[v_letter].search(line_upper)
+        u_off = float(u_match.group(1)) if u_match else 0.0
+        v_off = float(v_match.group(1)) if v_match else 0.0
+
+        start_u, start_v, start_w = start_pt[u_idx], start_pt[v_idx], start_pt[w_idx]
+        target_u, target_v, target_w = target_pt[u_idx], target_pt[v_idx], target_pt[w_idx]
+
+        center_u = start_u + u_off
+        center_v = start_v + v_off
+
         r_match = r_pattern.search(line_upper)
         if r_match:
-            radius = float(r_match.group(1))
-            dx = target_pt[0] - start_pt[0]
-            dy = target_pt[1] - start_pt[1]
-            dist = np.hypot(dx, dy)
+            radius_spec = float(r_match.group(1))
+            du = target_u - start_u
+            dv = target_v - start_v
+            dist = np.hypot(du, dv)
             if dist > 0:
-                h = np.sqrt(max(0.0, radius ** 2 - (dist / 2) ** 2))
-                sign = 1 if (current_motion == "G03" if radius > 0 else current_motion == "G02") else -1
-                center_x = start_pt[0] + dx / 2 - sign * h * (dy / dist)
-                center_y = start_pt[1] + dy / 2 + sign * h * (dx / dist)
+                h = np.sqrt(max(0.0, radius_spec ** 2 - (dist / 2) ** 2))
+                sign = 1 if (current_motion == "G03" if radius_spec > 0 else current_motion == "G02") else -1
+                center_u = start_u + du / 2 - sign * h * (dv / dist)
+                center_v = start_v + dv / 2 + sign * h * (du / dist)
 
-        angle_start = np.arctan2(start_pt[1] - center_y, start_pt[0] - center_x)
-        angle_end = np.arctan2(target_pt[1] - center_y, target_pt[0] - center_x)
+        radius_start = np.hypot(start_u - center_u, start_v - center_v)
+        radius_end = np.hypot(target_u - center_u, target_v - center_v)
+        radius = (radius_start + radius_end) / 2.0
+        if radius <= 1e-9:
+            # Degenerate spec (I/J/K/R all resolve to zero radius) — nothing sensible to draw.
+            point = [0.0, 0.0, 0.0]
+            point[u_idx], point[v_idx], point[w_idx] = target_u, target_v, target_w
+            return [point]
+
+        angle_start = np.arctan2(start_v - center_v, start_u - center_u)
+        angle_end = np.arctan2(target_v - center_v, target_u - center_u)
         if current_motion == "G02" and angle_end >= angle_start:
             angle_end -= 2 * np.pi
         elif current_motion == "G03" and angle_end <= angle_start:
             angle_end += 2 * np.pi
-        segments = max(2, int(abs(angle_end - angle_start) * 10))
+        delta_angle = angle_end - angle_start
+
+        # Chord-error-based adaptive resolution: bigger arcs get finer angular steps so the
+        # rendered chord never strays far from the true circle, small arcs get coarser steps
+        # (clamped by ARC_MIN_SEGMENTS below) so point count stays bounded either way.
+        if radius > ARC_CHORD_TOLERANCE_MM:
+            max_step = 2 * np.arccos(max(-1.0, 1.0 - ARC_CHORD_TOLERANCE_MM / radius))
+        else:
+            max_step = np.pi / 6
+        segments = int(np.ceil(abs(delta_angle) / max_step)) + 1 if max_step > 0 else ARC_MIN_SEGMENTS
+        segments = max(ARC_MIN_SEGMENTS, min(ARC_MAX_SEGMENTS, segments))
+
         angles = np.linspace(angle_start, angle_end, segments)
         points = []
-        for angle in angles[1:]:
-            ratio = (angle - angle_start) / (angle_end - angle_start)
-            points.append([
-                center_x + np.cos(angle) * np.hypot(start_pt[0] - center_x, start_pt[1] - center_y),
-                center_y + np.sin(angle) * np.hypot(start_pt[0] - center_x, start_pt[1] - center_y),
-                start_pt[2] + (target_pt[2] - start_pt[2]) * ratio,
-            ])
+        last_index = segments - 1
+        for step, angle in enumerate(angles[1:], start=1):
+            ratio = step / last_index
+            point = [0.0, 0.0, 0.0]
+            if step == last_index:
+                # Snap the final point to the commanded target exactly, rather than the
+                # parametric circle formula, so small I/J rounding never leaves a visible gap
+                # to the next segment.
+                point[u_idx], point[v_idx] = target_u, target_v
+            else:
+                point[u_idx] = center_u + np.cos(angle) * radius
+                point[v_idx] = center_v + np.sin(angle) * radius
+            point[w_idx] = start_w + (target_w - start_w) * ratio
+            points.append(point)
         return points
 
     def _build_path_items(self):

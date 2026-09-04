@@ -24,7 +24,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
 
-APP_VERSION = '1.4.4'
+APP_VERSION = '1.4.5'
 APP_NAME = 'NC 공구 리스트 생성기'
 APP_BUILD_DATE = '2026-09-04'
 APP_CREATOR = 'Hwang.seonmun'
@@ -549,7 +549,7 @@ QT_IMPORT_ERROR = None
 VIEWER_IMPORT_ERROR = None
 NCViewerWidget = None
 try:
-    from PyQt5.QtCore import Qt, QSettings, QTimer, QSignalBlocker, pyqtSignal
+    from PyQt5.QtCore import Qt, QSettings, QSize, QTimer, QSignalBlocker, pyqtSignal
     from PyQt5.QtGui import QFont, QIcon, QTextCursor
     from PyQt5.QtWidgets import (
         QApplication, QAbstractItemView, QCheckBox, QComboBox, QDialog,
@@ -883,6 +883,14 @@ else:
             filter_layout.addLayout(filter_bar)
             self.tool_filter = QListWidget()
             self.tool_filter.setSelectionMode(QAbstractItemView.MultiSelection)
+            self.tool_filter.setFont(QFont('맑은 고딕', 10, QFont.Bold))
+            self.tool_filter.setIconSize(QSize(14, 14))
+            self.tool_filter.setStyleSheet(
+                'QListWidget { background: white; border: 1px solid #c5ced8; }'
+                'QListWidget::item { padding: 5px 6px; color: #1f2937; }'
+                'QListWidget::item:hover { background: #eaf1f8; }'
+                'QListWidget::item:selected { background: #2f6fb0; color: white; }'
+            )
             filter_layout.addWidget(self.tool_filter, 1)
             self.input_splitter.addWidget(self.filter_panel)
             self.input_splitter.setSizes(INPUT_SPLITTER_INITIAL_SIZES)

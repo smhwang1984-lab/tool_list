@@ -33,7 +33,30 @@ Last updated: 2026-09-03
 
 ## Version history
 
-### 2026-09-04 (later)
+### 2026-09-04 (latest)
+
+- Version: 1.4.5
+- Release/build date: 2026-09-04
+- Summary: Fixed G02/G03 circular interpolation defects across 3/4/5-axis, and improved the process filter list's readability.
+- Creator displayed: Hwang.seonmun
+- Open source used: Python, PyQt5, pyqtgraph, NumPy, PyOpenGL, ReportLab, PyInstaller, Inno Setup (unchanged).
+- Context: G2/G3 arc code already existed in `nc_viewer_widget.py` (`_arc_points`), but had several defects reported by the user as "arcs not rendering correctly" across 3/4/5-axis programs. User confirmed 3-axis I/J/R arcs were already fine, which matched the root-cause analysis (the 4/5-axis rotation matrix is only non-identity for 4/5-axis machines, so the coordinate-frame bug below was invisible on 3-axis).
+- Arc fixes in `nc_viewer_widget.py`:
+  - **4/5-axis coordinate-frame bug (the actual reported defect):** the arc's start point was captured pre-rotation while its end point was already rotated by the active 4/5-axis matrix, so the two endpoints lived in different coordinate spaces and the interpolated arc was garbled. Fixed by building the whole arc in the pre-rotation ("local") frame — matching `start_pt` — and rotating every generated arc point as one batch with `active_matrix`, the same pattern the existing canned-cycle code already used. Verified empirically: the pre-fix code produced a ~14-unit discontinuity jump between a rapid move's endpoint and the following arc's first point once a G68.2/G53.1 tilt was active; the fix reduces this to a normal small interpolation step. Lathe arcs were left untouched (no rotation matrix involved there).
+  - Full-circle arcs (`G02 I.. J..` with no X/Y/Z word) previously never entered the motion-parsing block at all and were silently dropped; now detected via the presence of I/J/K parameters (guarded against colliding with the unrelated G68.2 I/J/K tilt-vector usage).
+  - G17/G18/G19 plane selection is now tracked and honored — arcs on G18 (ZX, using I/K) and G19 (YZ, using J/K) planes are computed in their own plane instead of always assuming XY.
+  - Segment count switched from a fixed angle-based formula (which turned very short arcs, e.g. small corner fillets, into a single straight line) to chord-error-based adaptive resolution with a minimum segment floor, so short arcs stay curved and long arcs don't over-generate points.
+  - The arc's final point is snapped exactly to the commanded end coordinate rather than the parametric circle formula, so small I/J rounding no longer leaves a visible gap to the next segment.
+- Filter list readability (`nc_viewer_widget.py` + `NC_Tool_List.py`): per-tool color moved from the list item's text color (low contrast against the default light background) to a small color-swatch icon (`color_chip_icon`) next to the label; the list now uses a larger bold font and a high-contrast selected-row style (blue background, white text) matching the app's existing button color scheme.
+- Verification: 28 unit tests passed (22 existing + 6 new arc regression tests covering G02/G03 direction, short-arc minimum segments, full circles, G18/G19 planes, helical Z interpolation, and the 4/5-axis coordinate-frame fix specifically). Offscreen-rendered screenshot confirmed arcs draw as curves (including a complete circle from a single I/J-only line) and the filter list shows color chips with readable bold selected rows. Rebuilt frozen exe launched and logged a healthy GL context.
+- Installer/package: Created `installer/NC_Tool_List_Setup_v1.4.5.exe` and `installer/NC_Tool_List_Portable_v1.4.5.zip`.
+- Installer SHA-256: 31C8DAD8C5EE5A51CA20F032F4BF46754EA7C791AEADCE50242D5DDFCEF88BF5
+- Portable ZIP SHA-256: 66EBE6DD72BD287D3153EC75EB2DD25292E630EAD756EBB41982887C36AA1857
+- App SHA-256: B93CEE89C8E73A5DEC401A9CC6206F3AD72E77189E1970AD8481406F1F501DA9
+- Signature status: still unsigned.
+- Out of scope (left untouched): lathe (2-axis) coordinate mapping; G90/G91 incremental-mode support for ordinary moves.
+
+### 2026-09-04 (v1.4.4)
 
 - Version: 1.4.4
 - Release/build date: 2026-09-04

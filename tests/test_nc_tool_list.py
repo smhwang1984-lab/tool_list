@@ -1,3 +1,4 @@
+import math
 import os
 import re
 import tempfile
@@ -348,7 +349,7 @@ X60 Y10 Z0
         self.assertIn('upx=False', spec)
     def test_installer_uses_c_drive_onedir_package_without_direct_taskkill(self):
         iss = Path('NC_Tool_List.iss').read_text(encoding='utf-8-sig')
-        self.assertIn('#define MyAppVersion "1.4.4"', iss)
+        self.assertIn('#define MyAppVersion "1.4.5"', iss)
         self.assertIn('DefaultDirName=C:\\NC_Tool_List', iss)
         self.assertIn('UsePreviousAppDir=no', iss)
         self.assertIn('PrivilegesRequired=admin', iss)
@@ -392,6 +393,185 @@ G01 X10 Y0 Z0
         finally:
             viewer.deleteLater()
             qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_g02_g03_quarter_arc_traces_a_circle_in_opposite_directions(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        from nc_viewer_widget import NCViewerWidget
+
+        def arc_points(motion):
+            source = """M6T1
+G43
+G00 X10 Y0 Z0
+%s X-10 Y0 I-10 J0
+""" % motion
+            viewer = NCViewerWidget()
+            viewer._save_machine_specs = lambda: None
+            viewer.set_machine_type('3축 MCT (X Y Z)')
+            self.assertTrue(viewer.set_source_text(source, {'T01': 'BALL EM'}))
+            pts = [n['pt'] for n in viewer.tool_paths['P001_T01'] if n['valid']]
+            viewer.deleteLater()
+            return pts
+
+        qapp.processEvents()
+        g02_pts = arc_points('G02')
+        g03_pts = arc_points('G03')
+        qapp.processEvents()
+
+        for pts in (g02_pts, g03_pts):
+            self.assertGreaterEqual(len(pts), 6)
+            for x, y, _z in pts:
+                self.assertAlmostEqual(math.hypot(x, y), 10.0, places=2)
+            self.assertAlmostEqual(pts[-1][0], -10.0, places=6)
+            self.assertAlmostEqual(pts[-1][1], 0.0, places=6)
+
+        # G02 (clockwise) and G03 (counter-clockwise) must take opposite sides of the chord.
+        g02_mid_y = g02_pts[len(g02_pts) // 2][1]
+        g03_mid_y = g03_pts[len(g03_pts) // 2][1]
+        self.assertTrue((g02_mid_y > 0) != (g03_mid_y > 0))
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_short_arc_is_not_collapsed_into_a_straight_line(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        from nc_viewer_widget import NCViewerWidget
+
+        radius = 50.0
+        angle = math.radians(10)
+        start = (radius, 0.0)
+        end = (radius * math.cos(angle), radius * math.sin(angle))
+        source = """M6T1
+G43
+G00 X%s Y%s Z0
+G03 X%s Y%s I%s J0
+""" % (start[0], start[1], end[0], end[1], -radius)
+
+        viewer = NCViewerWidget()
+        try:
+            viewer._save_machine_specs = lambda: None
+            viewer.set_machine_type('3축 MCT (X Y Z)')
+            self.assertTrue(viewer.set_source_text(source, {'T01': 'BALL EM'}))
+            pts = [n['pt'] for n in viewer.tool_paths['P001_T01'] if n['valid']]
+            # A 2-point result would mean the short arc degenerated into a straight chord.
+            self.assertGreaterEqual(len(pts), 6)
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_full_circle_arc_without_axis_words_is_drawn(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        from nc_viewer_widget import NCViewerWidget
+
+        source = """M6T1
+G43
+G00 X10 Y0 Z0
+G02 I-10 J0
+"""
+        viewer = NCViewerWidget()
+        try:
+            viewer._save_machine_specs = lambda: None
+            viewer.set_machine_type('3축 MCT (X Y Z)')
+            self.assertTrue(viewer.set_source_text(source, {'T01': 'BALL EM'}))
+            pts = [n['pt'] for n in viewer.tool_paths['P001_T01'] if n['valid']]
+            self.assertGreater(len(pts), 10)
+            for x, y, _z in pts:
+                self.assertAlmostEqual(math.hypot(x, y), 10.0, places=2)
+            # The circle must close back near its starting point.
+            self.assertAlmostEqual(pts[-1][0], 10.0, places=1)
+            self.assertAlmostEqual(pts[-1][1], 0.0, places=1)
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_g18_and_g19_plane_arcs_use_the_correct_axis_pair(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        from nc_viewer_widget import NCViewerWidget
+
+        g18_source = """M6T1
+G43
+G18
+G00 X10 Y0 Z0
+G02 X0 Z10 I-10 K0
+"""
+        g19_source = """M6T1
+G43
+G19
+G00 X0 Y10 Z0
+G02 Y0 Z10 J-10 K0
+"""
+        for source, plane_axes in ((g18_source, (0, 2)), (g19_source, (1, 2))):
+            viewer = NCViewerWidget()
+            try:
+                viewer._save_machine_specs = lambda: None
+                viewer.set_machine_type('3축 MCT (X Y Z)')
+                self.assertTrue(viewer.set_source_text(source, {'T01': 'BALL EM'}))
+                pts = [n['pt'] for n in viewer.tool_paths['P001_T01'] if n['valid']]
+                self.assertGreaterEqual(len(pts), 6)
+                a_idx, b_idx = plane_axes
+                for pt in pts:
+                    self.assertAlmostEqual(math.hypot(pt[a_idx], pt[b_idx]), 10.0, places=2)
+            finally:
+                viewer.deleteLater()
+                qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_helical_arc_interpolates_z_monotonically(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        from nc_viewer_widget import NCViewerWidget
+
+        source = """M6T1
+G43
+G00 X10 Y0 Z0
+G02 X0 Y10 Z-5 I-10 J0
+"""
+        viewer = NCViewerWidget()
+        try:
+            viewer._save_machine_specs = lambda: None
+            viewer.set_machine_type('3축 MCT (X Y Z)')
+            self.assertTrue(viewer.set_source_text(source, {'T01': 'BALL EM'}))
+            pts = [n['pt'] for n in viewer.tool_paths['P001_T01'] if n['valid']]
+            z_values = [pt[2] for pt in pts]
+            self.assertTrue(all(z_values[i] >= z_values[i + 1] - 1e-9 for i in range(len(z_values) - 1)))
+            self.assertAlmostEqual(z_values[-1], -5.0, places=6)
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_5axis_arc_rotates_with_the_same_matrix_as_straight_moves(self):
+        # Regression test for the v1.4.3-era bug where an arc's start point (pre-rotation)
+        # and end point (already rotated) were mixed into one coordinate space, producing a
+        # large jump instead of a continuous path once a G68.2/G53.1 tilt was active.
+        qapp = app.QApplication.instance() or app.QApplication([])
+        from nc_viewer_widget import NCViewerWidget
+
+        source = """M6T1
+G43
+G68.2 I0 J0 K90
+G53.1
+G00 X10 Y0 Z0
+G02 X0 Y10 I-10 J0
+"""
+        viewer = NCViewerWidget()
+        try:
+            viewer._save_machine_specs = lambda: None
+            viewer.set_machine_type('5축 밀링 (A to C)')
+            self.assertTrue(viewer.set_source_text(source, {'T01': 'BALL EM'}))
+            nodes = [n for n in viewer.tool_paths['P001_T01'] if n['valid']]
+            rapid_end = nodes[0]['pt']
+            first_arc_pt = nodes[1]['pt']
+            jump = math.dist(rapid_end, first_arc_pt)
+            # A correctly rotated arc continues from the rapid move with a small step; the
+            # pre-fix bug produced a jump of roughly 14 units here.
+            self.assertLess(jump, 3.0)
+            last_arc_pt = nodes[-1]['pt']
+            self.assertAlmostEqual(last_arc_pt[0], -10.0, places=6)
+            self.assertAlmostEqual(last_arc_pt[1], 0.0, places=5)
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
     def test_append_nc_programs_adds_programs_below_m30_percent_tail(self):
         base = '%\nO1001\nM30\n%\n'
         extra = ' %\nO1002\nM30\n%\n '
