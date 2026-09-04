@@ -236,6 +236,17 @@ X60 Y10 Z0
         settings_dir = tempfile.TemporaryDirectory()
         window = app.App(_root=settings_dir.name)
         try:
+            # App.__init__이 예약하는 QTimer.singleShot(0, showMaximized)이
+            # deleteLater()만으로는 실제로 파괴되지 않고 남아 있는 이전 테스트의
+            # 창의 것이든 이 창 자신의 것이든, 이 processEvents() 즈음에 불시에
+            # 실행되면 offscreen 플랫폼의 작은 가상 화면(800x600)에 맞춰
+            # 최대화되어(스플리터 계산에 필요한 폭보다 작아짐) 아래 검증이
+            # 흔들릴 수 있다 — 먼저 그 타이머가 끝나길 기다린 뒤, 테스트가
+            # 기대하는 원래 크기로 명시적으로 되돌린다.
+            qapp.processEvents()
+            window.showNormal()
+            window.resize(sum(app.MAIN_SPLITTER_INITIAL_SIZES), 760)
+            qapp.processEvents()
             self.assertEqual(window.program_panel.minimumWidth(), app.PROGRAM_PANE_MIN_WIDTH)
             self.assertEqual(app.MAIN_SPLITTER_INITIAL_SIZES[0], app.PROGRAM_PANE_MIN_WIDTH)
             window.main_splitter.setSizes([120, 1000])
@@ -282,8 +293,8 @@ X60 Y10 Z0
             self.assertTrue(window.machine_settings_body.isHidden())
 
             program_layout = window.program_panel.layout()
-            row1 = program_layout.itemAt(1).layout()
-            row2 = program_layout.itemAt(2).layout()
+            # v1.5.9: 원래 2줄이던 프로그램 버튼들을 1줄로 재배치했다.
+            row = program_layout.itemAt(1).layout()
 
             def button_texts(layout):
                 texts = []
@@ -293,12 +304,90 @@ X60 Y10 Z0
                         texts.append(widget.text())
                 return texts
 
-            self.assertEqual(button_texts(row1), ['지우기', '예제', '파일 열기'])
-            self.assertEqual(button_texts(row2), ['프로그램 추가', '공구 리스트 생성'])
+            self.assertEqual(
+                button_texts(row), ['지우기', '예제', '파일 열기', 'PG ADD', 'Tool List']
+            )
         finally:
             window.deleteLater()
             settings_dir.cleanup()
             qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_top_caption_removed_and_top_bar_buttons_left_aligned(self):
+        """"NC 프로그램을 넣고 공구 리스트를 생성하세요" 안내 문구는 제거되고,
+        About/모드 버튼은 오른쪽 끝이 아니라 제목 바로 옆(왼쪽)에 배치되어야
+        한다(v1.5.9 요청)."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        window = app.App(_root=settings_dir.name)
+        try:
+            self.assertFalse(hasattr(window, 'top_caption'))
+            top_layout = window.top_bar.layout()
+            widgets = [top_layout.itemAt(i).widget() for i in range(top_layout.count())]
+            widgets = [w for w in widgets if w is not None]
+            # title 다음 곧바로 About/툴리스트/뷰어 버튼이 와야 하고(stretch는
+            # addStretch()라 itemAt().widget()이 None이라 widgets 리스트에는
+            # 나타나지 않는다), 안내 문구 QLabel은 더 이상 없다.
+            self.assertEqual(widgets[1:4], [window.btn_about, window.btn_tool_mode, window.btn_viewer_mode])
+        finally:
+            window.deleteLater()
+            settings_dir.cleanup()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_tool_panel_control_buttons_left_aligned(self):
+        """공구 리스트 패널의 조작 버튼(삭제/수정/추가/PDF/복사 등)이 패널
+        오른쪽 끝이 아니라 라벨 바로 옆(왼쪽)에 모여 있어야 한다(v1.5.9 요청)
+        — addStretch()가 버튼들 뒤(맨 끝)에만 있어야 한다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        window = app.App(_root=settings_dir.name)
+        try:
+            panel = window.pdf_button.parentWidget()
+            rbar = panel.layout().itemAt(0).layout()
+            items = [rbar.itemAt(i) for i in range(rbar.count())]
+            self.assertIsNotNone(items[-1].spacerItem())
+            for item in items[:-1]:
+                self.assertIsNone(item.spacerItem())
+            self.assertIs(items[-2].widget(), window.copy_button)
+        finally:
+            window.deleteLater()
+            settings_dir.cleanup()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_tool_list_table_cells_and_font_scaled_1_6x(self):
+        """툴 리스트 표기 칸(열 폭)과 폰트가 기존 값의 1.6배로 커져야 한다
+        (v1.5.9 요청)."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        window = app.App(_root=settings_dir.name)
+        try:
+            self.assertEqual(window.table.font().pointSize(), 14)
+            for index, (key, _label) in enumerate(app.COLUMNS):
+                self.assertEqual(window.table.columnWidth(index), app.COL_WIDTH[key])
+            self.assertEqual(app.COL_WIDTH['NO'], 72)
+            self.assertEqual(app.COL_WIDTH['HOLDER'], 192)
+        finally:
+            window.deleteLater()
+            settings_dir.cleanup()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_dark_mode_button_and_icon_enlarged(self):
+        """다크/라이트 모드 토글 버튼과 아이콘 크기가 더 커져야 한다(v1.5.9 요청)."""
+        from nc_viewer_widget import NCViewerWidget
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer = NCViewerWidget()
+        try:
+            self.assertEqual(viewer.dark_mode_button.size().width(), 36)
+            self.assertEqual(viewer.dark_mode_button.size().height(), 36)
+            self.assertEqual(viewer.dark_mode_button.iconSize().width(), 26)
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
     @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
     def test_v142_splitter_size_settings_normalize_and_save(self):
         self.assertEqual(
@@ -997,6 +1086,41 @@ G02 X0 Y10 I-10 J0
             qapp.processEvents()
 
     @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_reset_button_moves_program_cursor_to_top(self):
+        """PG 매칭 체크박스 앞의 'Reset' 버튼은 프로그램 커서를 맨 위(0번
+        줄)로 되돌려야 한다(v1.5.8 요청)."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        window = app.App(_root=settings_dir.name)
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                nc_path = Path(directory) / 'sample.nc'
+                nc_path.write_text(REAL_NC_SAMPLE, encoding='utf-8')
+                window.load_file(str(nc_path))
+                qapp.processEvents()
+
+                window.jump_to_process_line(5)
+                qapp.processEvents()
+                self.assertEqual(window.src.textCursor().blockNumber(), 5)
+
+                # 필터 바 안에서 PG 매칭 체크박스보다 앞에 배치되어야 한다
+                # (Qt는 findChildren을 생성/추가 순서로 반환한다).
+                self.assertEqual(window.reset_program_button.text(), 'Reset')
+                labeled_children = [
+                    w for w in window.filter_panel.findChildren(app.QWidget)
+                    if isinstance(w, (app.QPushButton, app.QCheckBox)) and w.text() in ('Reset', 'PG 매칭')
+                ]
+                self.assertEqual([w.text() for w in labeled_children], ['Reset', 'PG 매칭'])
+
+                window.reset_program_button.click()
+                qapp.processEvents()
+                self.assertEqual(window.src.textCursor().blockNumber(), 0)
+        finally:
+            window.deleteLater()
+            settings_dir.cleanup()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
     def test_app_current_line_is_highlighted_as_full_width_block(self):
         from PyQt5.QtGui import QTextFormat
 
@@ -1181,6 +1305,69 @@ G02 X0 Y10 I-10 J0
                 app.Qt.LeftButton, app.Qt.LeftButton, app.Qt.NoModifier,
             )
             cube.mousePressEvent(click)
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_view_cube_ring_drag_orbits_without_snapping(self):
+        """큐브 바깥 고리를 드래그하면(v1.5.10) 면 클릭처럼 즉시 스냅되지
+        않고, 메인 뷰포트를 드래그할 때처럼 카메라가 부드럽게(라이브로)
+        회전해야 한다."""
+        from PyQt5.QtCore import QEvent, QPointF
+        from PyQt5.QtGui import QMouseEvent
+        from nc_viewer_widget import NCViewerWidget
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer = NCViewerWidget()
+        try:
+            cube = viewer.view_cube
+            # 생성 시 setFixedSize()가 이미 적용되어 있어 resize()는 무시된다
+            # (다른 view_cube 크기 테스트들처럼 setFixedSize로 실제로 바꿔야 한다).
+            cube.setFixedSize(80, 80)
+            from PyQt5.QtGui import QPixmap
+            # _paint()가 실제로 한 번 실행되어야 고리 반경(_ring_inner/outer_radius)이 채워진다.
+            cube.render(QPixmap(80, 80))
+            self.assertGreater(cube._ring_outer_radius, cube._ring_inner_radius)
+
+            # 위젯 중심(40,40)에서 반경 33만큼 떨어진 점 — half(26)~raw_half(40)
+            # 사이 고리 띠 안이라 어떤 큐브 면과도 겹치지 않는다.
+            ring_point = QPointF(40 + 33, 40)
+            self.assertTrue(cube._ring_hit(ring_point))
+
+            start_elevation = viewer.gl_view.opts['elevation']
+            start_azimuth = viewer.gl_view.opts['azimuth']
+            face_clicks = []
+            cube.face_clicked.connect(lambda *args: face_clicks.append(args))
+
+            press = QMouseEvent(
+                QEvent.MouseButtonPress, ring_point,
+                app.Qt.LeftButton, app.Qt.LeftButton, app.Qt.NoModifier,
+            )
+            cube.mousePressEvent(press)
+            self.assertTrue(cube._ring_dragging)
+            self.assertEqual(face_clicks, [])
+
+            # 기본 카메라 elevation이 90(수직 하향)이라 +방향 이동은 클리핑돼
+            # 변화가 없어 보일 수 있으므로, 값이 줄어드는 방향(y가 음수)으로 크게 움직인다.
+            move = QMouseEvent(
+                QEvent.MouseMove, ring_point + QPointF(25, -25),
+                app.Qt.LeftButton, app.Qt.LeftButton, app.Qt.NoModifier,
+            )
+            cube.mouseMoveEvent(move)
+            # 스냅이 아니라 실제 드래그량만큼만 회전해야 한다(임의의 정해진 각도로 튀지 않음).
+            self.assertNotEqual(viewer.gl_view.opts['azimuth'], start_azimuth)
+            self.assertNotEqual(viewer.gl_view.opts['elevation'], start_elevation)
+            self.assertLess(abs(viewer.gl_view.opts['azimuth'] - start_azimuth), 90)
+            self.assertLess(abs(viewer.gl_view.opts['elevation'] - start_elevation), 90)
+            self.assertEqual(face_clicks, [])
+
+            release = QMouseEvent(
+                QEvent.MouseButtonRelease, ring_point + QPointF(15, 4),
+                app.Qt.LeftButton, app.Qt.LeftButton, app.Qt.NoModifier,
+            )
+            cube.mouseReleaseEvent(release)
+            self.assertFalse(cube._ring_dragging)
         finally:
             viewer.deleteLater()
             qapp.processEvents()
@@ -1520,14 +1707,14 @@ G02 X0 Y10 I-10 J0
             qapp.processEvents()
 
     @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
-    def test_playback_speed_max_is_2000x(self):
+    def test_playback_speed_max_is_5000x(self):
         from nc_viewer_widget import NCViewerWidget
 
         qapp = app.QApplication.instance() or app.QApplication([])
         viewer = NCViewerWidget()
         try:
             self.assertEqual(viewer.playback_bar.speed_slider.minimum(), 1)
-            self.assertEqual(viewer.playback_bar.speed_slider.maximum(), 2000)
+            self.assertEqual(viewer.playback_bar.speed_slider.maximum(), 5000)
         finally:
             viewer.deleteLater()
             qapp.processEvents()
@@ -1535,8 +1722,8 @@ G02 X0 Y10 I-10 J0
         settings_dir = tempfile.TemporaryDirectory()
         window = app.App(_root=settings_dir.name)
         try:
-            window.set_playback_speed(5000)
-            self.assertEqual(window.play_speed, 2000)
+            window.set_playback_speed(6000)
+            self.assertEqual(window.play_speed, 5000)
             window.set_playback_speed(0)
             self.assertEqual(window.play_speed, 1)
         finally:
@@ -1905,6 +2092,159 @@ G02 X0 Y10 I-10 J0
             viewer._magnifier_shortcut.activated.emit()
             qapp.processEvents()
             self.assertFalse(viewer._magnifier_active)
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_magnifier_centers_on_right_click_position(self):
+        """돋보기는 우클릭한 지점을 중심으로 나타나야 한다(v1.5.7 요청) —
+        이전에는 마지막 마우스 이동 지점(초기값 (0,0))에 뜨는 문제가 있었다."""
+        from PyQt5.QtCore import QPoint
+        from PyQt5.QtTest import QTest
+        from nc_viewer_widget import NCViewerWidget
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer = NCViewerWidget()
+        try:
+            viewer.resize(800, 600)
+            viewer.show()
+            qapp.processEvents()
+
+            click_pos = QPoint(150, 110)
+            QTest.mouseClick(viewer.gl_view, app.Qt.RightButton, pos=click_pos)
+            qapp.processEvents()
+
+            self.assertTrue(viewer._magnifier_active)
+            self.assertAlmostEqual(viewer.magnifier._center.x(), click_pos.x(), delta=1)
+            self.assertAlmostEqual(viewer.magnifier._center.y(), click_pos.y(), delta=1)
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_left_click_only_activates_line_when_magnifier_active(self):
+        """포인트 클릭(라인 활성화)은 돋보기가 켜져 있을 때만 동작해야 한다
+        (v1.5.7 요청) — 이전에는 돋보기 없이 화면을 찍기만 해도 근처 라인으로
+        커서가 넘어갔다."""
+        from PyQt5.QtCore import QPoint
+        from PyQt5.QtGui import QVector3D
+        from PyQt5.QtTest import QTest
+        from nc_viewer_widget import NCViewerWidget
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer = NCViewerWidget()
+        try:
+            viewer.resize(800, 600)
+            self.assertTrue(viewer.set_source_text(self._minimal_motion_source(), {'T01': 'FACE MILL'}))
+            viewer.set_camera_projection('XY')
+            viewer.show()
+            qapp.processEvents()
+
+            activated = []
+            viewer.line_activated.connect(activated.append)
+
+            target_line, target_pt = None, None
+            for line_idx, pt in viewer.line_to_coord_map.items():
+                if abs(pt[0] - 100) < 1e-6 and abs(pt[1] - 0) < 1e-6:
+                    target_line, target_pt = line_idx, pt
+                    break
+            self.assertIsNotNone(target_line)
+            prev_pt = viewer.line_to_coord_map.get(target_line - 1)
+            self.assertIsNotNone(prev_pt)
+
+            # 목표 지점(100,0,0)은 다음 세그먼트(→ 100,100,0)와 정확히 맞닿는
+            # 꼭짓점이라, 정밀도가 좁아진(4px, v1.5.7) 픽 반경에서는 두 세그먼트가
+            # 동일 거리로 집혀 어느 쪽이 뽑힐지 불안정해진다 — 세그먼트 중간
+            # 지점(직교투영이라 월드 중점 = 화면 중점)을 클릭해 모호함을 없앤다.
+            midpoint = tuple((a + b) / 2.0 for a, b in zip(target_pt, prev_pt))
+
+            viewport = viewer.gl_view.getViewport()
+            mvp = viewer.gl_view.projectionMatrix(viewport, viewport) * viewer.gl_view.viewMatrix()
+            vec = mvp.map(QVector3D(*midpoint))
+            pos = QPoint(
+                int(round((vec.x() + 1.0) / 2.0 * viewport[2])),
+                int(round((1.0 - vec.y()) / 2.0 * viewport[3])),
+            )
+
+            # 돋보기가 꺼진 상태: 좌클릭해도 라인이 활성화되지 않는다.
+            QTest.mouseClick(viewer.gl_view, app.Qt.LeftButton, pos=pos)
+            qapp.processEvents()
+            self.assertEqual(activated, [])
+
+            # 우클릭으로 돋보기를 켠 뒤에는 같은 위치 좌클릭이 라인을 활성화한다.
+            QTest.mouseClick(viewer.gl_view, app.Qt.RightButton, pos=pos)
+            qapp.processEvents()
+            self.assertTrue(viewer._magnifier_active)
+
+            QTest.mouseClick(viewer.gl_view, app.Qt.LeftButton, pos=pos)
+            qapp.processEvents()
+            self.assertEqual(activated, [target_line])
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_pick_source_line_pg_match_mode_scoped_to_progressed_current_tool(self):
+        """PG 매칭 모드에서는 커서가 위치한 공정의 '진행된' 구간만 클릭으로
+        집혀야 한다 — 다른 공정(필터)의 경로나 아직 진행되지 않은 같은 공정의
+        뒷부분이 잘못 집히던 문제의 회귀 테스트(v1.5.7)."""
+        from PyQt5.QtGui import QVector3D
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer = self._pg_match_viewer()
+        try:
+            viewer.resize(800, 600)
+            viewer.set_camera_projection('XY')
+            viewer.set_pg_match_mode(True)
+
+            # 공정1(P001_T01)의 두 번째 이동(줄 4, X20 Y0)까지만 진행시킨다 —
+            # 아직 줄 6(X20 Y20)까지는 진행되지 않았다.
+            viewer.set_cursor_line(4)
+            self.assertEqual(viewer.line_to_tool_map[4], 'P001_T01')
+
+            def screen_pos(pt):
+                viewport = viewer.gl_view.getViewport()
+                mvp = viewer.gl_view.projectionMatrix(viewport, viewport) * viewer.gl_view.viewMatrix()
+                vec = mvp.map(QVector3D(*pt))
+                return (
+                    (vec.x() + 1.0) / 2.0 * viewport[2],
+                    (1.0 - vec.y()) / 2.0 * viewport[3],
+                )
+
+            # 진행된 구간의 도착점(줄 4)은 집힌다.
+            sx, sy = screen_pos(viewer.line_to_coord_map[4])
+            self.assertEqual(viewer.pick_source_line(sx, sy, radius_px=15), 4)
+
+            # 같은 공정이라도 아직 진행되지 않은 뒷부분(줄 6)은 집히지 않는다.
+            sx6, sy6 = screen_pos(viewer.line_to_coord_map[6])
+            self.assertIsNone(viewer.pick_source_line(sx6, sy6, radius_px=5))
+
+            # 다른 공정(P002_T02, 아직 커서가 도달하지 않음)의 경로도 집히지 않는다.
+            sx10, sy10 = screen_pos(viewer.line_to_coord_map[10])
+            self.assertIsNone(viewer.pick_source_line(sx10, sy10, radius_px=5))
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_viewer_background_stays_dark_regardless_of_theme(self):
+        """3D 캔버스(및 그걸 캡처하는 돋보기)는 라이트/다크 테마와 무관하게
+        항상 어두운 배경을 유지해야 한다(v1.5.7 요청) — 밝은 배경에서 경로
+        색이 잘 안 보이던 문제."""
+        from nc_viewer_widget import NCViewerWidget
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer = NCViewerWidget()
+        try:
+            dark_bg = tuple(viewer.gl_view.opts['bgcolor'])
+            self.assertLess(max(dark_bg[0], dark_bg[1], dark_bg[2]), 0.3)
+
+            viewer.set_dark_mode(False)
+            self.assertEqual(tuple(viewer.gl_view.opts['bgcolor']), dark_bg)
+
+            viewer.set_dark_mode(True)
+            self.assertEqual(tuple(viewer.gl_view.opts['bgcolor']), dark_bg)
         finally:
             viewer.deleteLater()
             qapp.processEvents()
