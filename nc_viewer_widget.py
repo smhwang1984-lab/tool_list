@@ -137,6 +137,10 @@ class NCViewerWidget(QWidget):
         self.modal_state_map = {}
         self.dynamic_trace_items = []
         self.current_cursor_line = 0
+        # "PG 매칭" 모드: 정적 경로를 모두 감추고, 커서가 위치한 공정의 실시간
+        # 트레이스만 남겨 프로그램 줄과 경로를 1:1로 대조할 수 있게 한다.
+        # 일시적인 확인용 모드라 QSettings에 저장하지 않는다.
+        self.pg_match_mode = False
 
         self._build_ui()
         self.set_machine_type(self.current_machine_type, init_camera=True)
@@ -915,11 +919,18 @@ class NCViewerWidget(QWidget):
     def _tool_selected(self, tool):
         return tool in self.selected_tools()
 
+    def set_pg_match_mode(self, enabled):
+        """정적 경로를 숨기고 커서 공정의 실시간 트레이스만 남기는 모드를 토글한다."""
+        self.pg_match_mode = bool(enabled)
+        # update_visible_paths()가 끝에서 set_cursor_line()을 부르므로 트레이스도 함께 갱신된다.
+        self.update_visible_paths()
+
     def update_visible_paths(self):
         selected_items = self.selected_tools()
         for tool, plot_item_list in self.plot_items.items():
+            visible = (not self.pg_match_mode) and (tool in selected_items)
             for item in plot_item_list:
-                item.setVisible(tool in selected_items)
+                item.setVisible(visible)
         self.set_cursor_line(self.current_cursor_line)
 
     def update_trace_item(self, index, pts_list, motion_type, base_color):

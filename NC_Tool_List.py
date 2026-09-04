@@ -26,7 +26,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
 
-APP_VERSION = '1.5.0'
+APP_VERSION = '1.5.1'
 APP_NAME = 'NC 공구 리스트 생성기'
 APP_BUILD_DATE = '2026-09-04'
 APP_CREATOR = 'Hwang.seonmun'
@@ -869,6 +869,10 @@ else:
         def set_cursor_line(self, _line):
             return None
 
+        def set_pg_match_mode(self, _enabled):
+            # 폴백에서는 그릴 경로 자체가 없으므로 아무 일도 하지 않는다.
+            return None
+
         def select_all_tools(self, selected):
             if self.tool_filter_list is None:
                 return
@@ -1071,6 +1075,14 @@ else:
             filter_label.setFont(QFont('맑은 고딕', 9, QFont.Bold))
             filter_bar.addWidget(filter_label)
             filter_bar.addStretch()
+            self.pg_match_check = QCheckBox('PG 매칭')
+            self.pg_match_check.setFont(kfont)
+            self.pg_match_check.setToolTip(
+                '체크하면 그려진 경로를 지우고, 커서가 있는 공정만\n'
+                '프로그램 방향키에 맞춰 실시간으로 그리고 지웁니다.'
+            )
+            self.pg_match_check.toggled.connect(self.toggle_pg_match_mode)
+            filter_bar.addWidget(self.pg_match_check)
             self._add_button(filter_bar, '전체', lambda: self.viewer.select_all_tools(True), kfont)
             self._add_button(filter_bar, '해제', lambda: self.viewer.select_all_tools(False), kfont)
             filter_layout.addLayout(filter_bar)
@@ -1483,6 +1495,33 @@ else:
         def source_cursor_changed(self):
             if self.current_mode == 'viewer':
                 self.viewer.set_cursor_line(self.src.textCursor().blockNumber())
+
+        def toggle_pg_match_mode(self, enabled):
+            """PG 매칭 모드를 켜고 끈다.
+
+            켤 때는 프로그램 입력창에 포커스를 줘서 방향키가 바로 먹게 하고, 커서가
+            필터에서 선택되지 않은 공정 위에 있으면(= 아무것도 그려지지 않아 고장으로
+            오인할 상황) 선택된 공정 중 첫 번째의 시작 줄로 커서를 옮겨준다.
+            """
+            self.viewer.set_pg_match_mode(enabled)
+            if not enabled:
+                return
+            self.src.setFocus()
+            selected = getattr(self.viewer, 'selected_tools', None)
+            first_line_map = getattr(self.viewer, 'process_first_line', None)
+            line_to_tool = getattr(self.viewer, 'line_to_tool_map', None)
+            if not callable(selected) or not first_line_map or line_to_tool is None:
+                return
+            selected_processes = selected()
+            if not selected_processes:
+                return
+            current_process = line_to_tool.get(self.src.textCursor().blockNumber())
+            if current_process in selected_processes:
+                return
+            for process_key in first_line_map:
+                if process_key in selected_processes:
+                    self.jump_to_process_line(first_line_map[process_key])
+                    return
 
         def jump_to_process_line(self, line_index):
             """공정별 필터 항목을 클릭하면 프로그램 입력창의 해당 위치로 이동/선택한다."""

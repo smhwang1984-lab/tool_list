@@ -350,7 +350,15 @@ X60 Y10 Z0
         self.assertIn('upx=False', spec)
     def test_installer_uses_c_drive_onedir_package_without_direct_taskkill(self):
         iss = Path('NC_Tool_List.iss').read_text(encoding='utf-8-sig')
-        self.assertIn('#define MyAppVersion "1.5.0"', iss)
+        # 설치 스크립트와 EXE 버전 리소스는 앱 버전과 항상 같아야 한다
+        # (버전을 올릴 때 한쪽만 고치는 동기화 누락을 막는다).
+        self.assertIn('#define MyAppVersion "%s"' % app.APP_VERSION, iss)
+        version_resource = Path('version_info.txt').read_text(encoding='utf-8-sig')
+        major, minor, patch = app.current_version_tuple()
+        self.assertIn('filevers=(%d, %d, %d, 0)' % (major, minor, patch), version_resource)
+        self.assertIn('prodvers=(%d, %d, %d, 0)' % (major, minor, patch), version_resource)
+        self.assertIn("u'FileVersion', u'%s.0'" % app.APP_VERSION, version_resource)
+        self.assertIn("u'ProductVersion', u'%s.0'" % app.APP_VERSION, version_resource)
         self.assertIn('DefaultDirName=C:\\NC_Tool_List', iss)
         self.assertIn('UsePreviousAppDir=no', iss)
         self.assertIn('PrivilegesRequired=admin', iss)
@@ -764,6 +772,151 @@ G02 X0 Y10 I-10 J0
                 qapp.processEvents()
 
                 self.assertEqual(window.src.textCursor().blockNumber(), 5)
+        finally:
+            window.deleteLater()
+            settings_dir.cleanup()
+            qapp.processEvents()
+
+    # ---- v1.5.1: PG 매칭 모드 (정적 경로를 지우고 커서 공정만 실시간 추적) ----
+    PG_MATCH_SOURCE = (
+        "G00 X0 Y0 Z0\n"
+        "M6T1\n"
+        "G43\n"
+        "G00 X10 Y0 Z0\n"
+        "G01 X20 Y0 Z0\n"
+        "G01 X20 Y10 Z0\n"
+        "G01 X20 Y20 Z0\n"
+        "M6T2\n"
+        "G43\n"
+        "G00 X30 Y0 Z0\n"
+        "G01 X40 Y0 Z0\n"
+    )
+
+    def _pg_match_viewer(self):
+        from PyQt5.QtWidgets import QListWidget
+        from nc_viewer_widget import NCViewerWidget
+
+        viewer = NCViewerWidget()
+        viewer.attach_tool_filter(QListWidget())
+        viewer.set_source_text(self.PG_MATCH_SOURCE, {'T01': 'FACE MILL', 'T02': 'DRILL'})
+        return viewer
+
+    def _visible_trace_point_count(self, viewer):
+        total = 0
+        for item in viewer.dynamic_trace_items:
+            if not item.visible():
+                continue
+            pos = getattr(item, 'pos', None)
+            if pos is not None:
+                total += len(pos)
+        return total
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_pg_match_mode_hides_static_paths(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer = self._pg_match_viewer()
+        try:
+            self.assertFalse(viewer.pg_match_mode)
+            self.assertTrue(
+                any(item.visible() for items in viewer.plot_items.values() for item in items)
+            )
+
+            viewer.set_pg_match_mode(True)
+            self.assertTrue(viewer.pg_match_mode)
+            for items in viewer.plot_items.values():
+                for item in items:
+                    self.assertFalse(item.visible())
+
+            viewer.set_pg_match_mode(False)
+            self.assertTrue(
+                any(item.visible() for items in viewer.plot_items.values() for item in items)
+            )
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_pg_match_mode_traces_only_cursor_process(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer = self._pg_match_viewer()
+        try:
+            viewer.set_pg_match_mode(True)
+
+            # 공정 2(P002_T02) 마지막 줄에 커서를 두면 그 공정만 추적된다.
+            viewer.set_cursor_line(10)
+            self.assertEqual(viewer.line_to_tool_map[10], 'P002_T02')
+            second_points = self._visible_trace_point_count(viewer)
+            self.assertGreater(second_points, 0)
+
+            # 공정 1(P001_T01)로 커서를 올리면 트레이스가 그 공정 기준으로 다시 구성된다.
+            viewer.set_cursor_line(6)
+            self.assertEqual(viewer.line_to_tool_map[6], 'P001_T01')
+            first_points = self._visible_trace_point_count(viewer)
+            self.assertGreater(first_points, 0)
+            self.assertNotEqual(first_points, second_points)
+
+            # 커서 공정을 필터에서 해제하면 아무것도 그려지지 않는다.
+            viewer.select_all_tools(False)
+            self.assertEqual(self._visible_trace_point_count(viewer), 0)
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_pg_match_mode_trace_grows_and_shrinks_with_cursor(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer = self._pg_match_viewer()
+        try:
+            viewer.set_pg_match_mode(True)
+
+            # 같은 공정 안에서 커서를 내리면 라인이 자라고, 올리면 지워진다.
+            viewer.set_cursor_line(4)
+            short_trace = self._visible_trace_point_count(viewer)
+            viewer.set_cursor_line(6)
+            long_trace = self._visible_trace_point_count(viewer)
+            viewer.set_cursor_line(4)
+            back_trace = self._visible_trace_point_count(viewer)
+
+            self.assertGreater(long_trace, short_trace)
+            self.assertEqual(back_trace, short_trace)
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_app_pg_match_checkbox_toggles_viewer_mode(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        window = app.App(_root=settings_dir.name)
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                nc_path = Path(directory) / 'sample.nc'
+                nc_path.write_text(self.PG_MATCH_SOURCE, encoding='utf-8')
+                window.load_file(str(nc_path))
+                window.set_mode('viewer')
+                qapp.processEvents()
+
+                # 앱을 새로 띄우면 항상 해제 상태로 시작한다.
+                self.assertFalse(window.pg_match_check.isChecked())
+                self.assertFalse(window.viewer.pg_match_mode)
+
+                window.pg_match_check.setChecked(True)
+                qapp.processEvents()
+                self.assertTrue(window.viewer.pg_match_mode)
+                for items in window.viewer.plot_items.values():
+                    for item in items:
+                        self.assertFalse(item.visible())
+
+                window.pg_match_check.setChecked(False)
+                qapp.processEvents()
+                self.assertFalse(window.viewer.pg_match_mode)
+                self.assertTrue(
+                    any(
+                        item.visible()
+                        for items in window.viewer.plot_items.values()
+                        for item in items
+                    )
+                )
         finally:
             window.deleteLater()
             settings_dir.cleanup()
