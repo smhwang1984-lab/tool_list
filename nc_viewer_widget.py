@@ -92,6 +92,12 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
         # orbit/pan/zoom handling. 1.0 = library default; lower = less sensitive.
         self.navigation_sensitivity = 1.0
         self.overlay_widget = None
+        self.bottom_bar_widget = None
+        # pyqtgraph's GLViewWidget defaults to ClickFocus and steals arrow keys for
+        # camera orbit (its own keyPressEvent) the moment this widget is clicked,
+        # which silently breaks program-cursor arrow-key stepping. Keyboard focus
+        # must always stay on the program editor.
+        self.setFocusPolicy(Qt.NoFocus)
 
     def mouseMoveEvent(self, ev):
         lpos = ev.position() if hasattr(ev, 'position') else ev.localPos()
@@ -124,6 +130,21 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._reposition_overlay()
+        self._reposition_bottom_bar()
+
+    def _reposition_bottom_bar(self):
+        """Keeps the playback bar centered near the bottom, 70% of the view's width."""
+        if self.bottom_bar_widget is None:
+            return
+        bar = self.bottom_bar_widget
+        width = max(200, round(self.width() * 0.7))
+        bar.setFixedWidth(width)
+        height = bar.sizeHint().height()
+        margin_bottom = 16
+        # Anchored between the view's vertical center and its bottom edge.
+        y = round(self.height() * 0.5 + (self.height() * 0.5 - height) / 2)
+        y = min(y, self.height() - height - margin_bottom)
+        bar.move((self.width() - width) // 2, max(0, y))
 
     def _reposition_overlay(self):
         if self.overlay_widget is None:
@@ -230,7 +251,11 @@ class ViewCubeWidget(QWidget):
         rotation.rotate(elevation - 90.0, 1, 0, 0)
         rotation.rotate(azimuth + 90.0, 0, 0, -1)
 
-        half = min(self.width(), self.height()) / 2.0 - 14.0
+        # Inset and label metrics are proportional to the widget's own half-extent
+        # (not fixed pixel counts) so the cube stays legible at any configured size
+        # — the 0.65/0.35 split reproduces the original 80px look (half=40-14=26).
+        raw_half = min(self.width(), self.height()) / 2.0
+        half = raw_half * 0.65
         if half <= 4:
             return
         cx, cy = self.width() / 2.0, self.height() / 2.0
@@ -256,15 +281,26 @@ class ViewCubeWidget(QWidget):
             for _depth, polygon, _cx, _cy, elevation_target, azimuth_target, _label in faces
         ]
 
+        # Same 80px-derived ratios as `half` above, so labels scale with the cube
+        # instead of shrinking (in proportion) as the widget grows.
+        label_half_w = half * (18.0 / 26.0)
+        label_half_h = half * (8.0 / 26.0)
+        pen_width = max(1, round(half / 26.0))
+        font = painter.font()
+        font.setPointSizeF(max(6.0, half * (9.0 / 26.0)))
+        painter.setFont(font)
+
         max_depth = max((depth for depth, *_ in faces), default=1.0) or 1.0
         for depth, polygon, cx_face, cy_face, _elev, _azim, label in faces:
             facing = depth > 0.05 * max_depth
-            painter.setPen(QPen(QColor(55, 65, 80), 1))
+            painter.setPen(QPen(QColor(55, 65, 80), pen_width))
             painter.setBrush(QBrush(QColor(120, 165, 210) if facing else QColor(72, 80, 94)))
             painter.drawPolygon(polygon)
             painter.setPen(QColor(255, 255, 255) if facing else QColor(150, 155, 165))
             painter.drawText(
-                QRectF(cx_face - 18, cy_face - 8, 36, 16), Qt.AlignCenter, label
+                QRectF(cx_face - label_half_w, cy_face - label_half_h,
+                       label_half_w * 2.0, label_half_h * 2.0),
+                Qt.AlignCenter, label,
             )
 
     def mousePressEvent(self, event):
@@ -279,6 +315,92 @@ class ViewCubeWidget(QWidget):
                 self.face_clicked.emit(elevation_target, azimuth_target)
                 return
         super().mousePressEvent(event)
+
+
+class PlaybackBarWidget(QWidget):
+    """PG 매칭 모드에서 프로그램을 자동으로 넘겨주는 재생 컨트롤 바.
+
+    뷰어 하단 중앙(폭 = 뷰어 폭의 70%)에 반투명하게 떠 있다. 실제 재생 로직(타이머,
+    커서 이동, M00/M01 정지)은 호스트 앱(NC_Tool_List.App)이 갖고 있고, 이 위젯은
+    버튼/슬라이더 UI와 시그널만 담당한다.
+    """
+
+    play_clicked = pyqtSignal()
+    pause_clicked = pyqtSignal()
+    rewind_clicked = pyqtSignal()
+    prev_tool_clicked = pyqtSignal()
+    next_tool_clicked = pyqtSignal()
+    speed_changed = pyqtSignal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setStyleSheet(
+            "PlaybackBarWidget { background-color: rgba(33, 37, 43, 190);"
+            " border-radius: 8px; }"
+            " QLabel { color: white; }"
+            " QPushButton { color: white; background-color: rgba(255, 255, 255, 30);"
+            " border: 1px solid rgba(255, 255, 255, 60); border-radius: 4px;"
+            " padding: 3px 10px; }"
+            " QPushButton:hover { background-color: rgba(255, 255, 255, 55); }"
+            " QPushButton:disabled { color: rgba(255, 255, 255, 90); }"
+        )
+        self.setEnabled(False)
+        self._playing = False
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(10, 6, 10, 8)
+        outer.setSpacing(4)
+
+        speed_row = QHBoxLayout()
+        speed_row.addWidget(QLabel("속도"))
+        self.speed_slider = QSlider(Qt.Horizontal)
+        self.speed_slider.setRange(1, 200)
+        self.speed_slider.setValue(1)
+        self.speed_slider.setFocusPolicy(Qt.NoFocus)
+        self.speed_slider.valueChanged.connect(self._on_speed_changed)
+        speed_row.addWidget(self.speed_slider, 1)
+        self.speed_value_label = QLabel("1x")
+        self.speed_value_label.setFixedWidth(42)
+        speed_row.addWidget(self.speed_value_label)
+        outer.addLayout(speed_row)
+
+        button_row = QHBoxLayout()
+        self.prev_tool_button = QPushButton("◀툴")
+        self.rewind_button = QPushButton("◀◀")
+        self.play_pause_button = QPushButton("▶")
+        self.next_tool_button = QPushButton("툴▶")
+        for button in (
+            self.prev_tool_button, self.rewind_button,
+            self.play_pause_button, self.next_tool_button,
+        ):
+            button.setFocusPolicy(Qt.NoFocus)
+            button_row.addWidget(button)
+        outer.addLayout(button_row)
+
+        self.prev_tool_button.clicked.connect(self.prev_tool_clicked)
+        self.next_tool_button.clicked.connect(self.next_tool_clicked)
+        self.rewind_button.clicked.connect(self.rewind_clicked)
+        self.play_pause_button.clicked.connect(self._on_play_pause_clicked)
+
+    def _on_speed_changed(self, value):
+        self.speed_value_label.setText("%dx" % value)
+        self.speed_changed.emit(value)
+
+    def _on_play_pause_clicked(self):
+        if self._playing:
+            self.pause_clicked.emit()
+        else:
+            self.play_clicked.emit()
+
+    def set_playing(self, playing):
+        self._playing = bool(playing)
+        self.play_pause_button.setText("❚❚" if self._playing else "▶")
+
+    def set_speed(self, value):
+        with QSignalBlocker(self.speed_slider):
+            self.speed_slider.setValue(value)
+        self.speed_value_label.setText("%dx" % self.speed_slider.value())
 
 
 class NCViewerWidget(QWidget):
@@ -318,6 +440,7 @@ class NCViewerWidget(QWidget):
         self.pg_match_mode = False
         # 마우스 감도는 PC/마우스마다 맞는 값이 달라 PG 매칭과 달리 저장한다.
         self._initial_sensitivity = self._load_navigation_sensitivity()
+        self._initial_cube_size = self._load_view_cube_size()
 
         self._build_ui()
         self.set_machine_type(self.current_machine_type, init_camera=True)
@@ -329,6 +452,14 @@ class NCViewerWidget(QWidget):
         except (TypeError, ValueError):
             value = 0.4
         return max(0.05, min(2.0, value))
+
+    def _load_view_cube_size(self):
+        raw = self.settings.value("view_cube_size", 160)
+        try:
+            value = int(float(raw))
+        except (TypeError, ValueError):
+            value = 160
+        return max(60, min(240, value))
 
     def _load_machine_specs(self):
         raw = self.settings.value("machine_specs", "")
@@ -365,6 +496,9 @@ class NCViewerWidget(QWidget):
             ("ISO", "ISO"), ("XY", "XY"), ("XZ", "XZ"), ("YZ", "YZ"),
         ):
             button = QPushButton(label)
+            # 방향키로 프로그램 커서를 옮기는 도중 이 버튼이 포커스를 가져가면
+            # 다음 방향키가 커서 대신 버튼 포커스 이동에 쓰이므로 항상 막아둔다.
+            button.setFocusPolicy(Qt.NoFocus)
             button.clicked.connect(lambda _checked=False, value=view_type: self.set_camera_projection(value))
             view_bar.addWidget(button)
         view_bar.addStretch()
@@ -374,11 +508,24 @@ class NCViewerWidget(QWidget):
         self.sensitivity_slider.setFixedWidth(110)
         self.sensitivity_slider.setValue(round(self._initial_sensitivity * 100))
         self.sensitivity_slider.setToolTip("마우스 드래그/휠 회전·확대 감도")
+        self.sensitivity_slider.setFocusPolicy(Qt.NoFocus)
         self.sensitivity_slider.valueChanged.connect(self._on_sensitivity_changed)
         view_bar.addWidget(self.sensitivity_slider)
         self.sensitivity_value_label = QLabel("%d%%" % self.sensitivity_slider.value())
         self.sensitivity_value_label.setFixedWidth(38)
         view_bar.addWidget(self.sensitivity_value_label)
+        view_bar.addWidget(QLabel("큐브"))
+        self.view_cube_size_slider = QSlider(Qt.Horizontal)
+        self.view_cube_size_slider.setRange(60, 240)
+        self.view_cube_size_slider.setFixedWidth(90)
+        self.view_cube_size_slider.setValue(self._initial_cube_size)
+        self.view_cube_size_slider.setToolTip("방향 큐브 크기")
+        self.view_cube_size_slider.setFocusPolicy(Qt.NoFocus)
+        self.view_cube_size_slider.valueChanged.connect(self._on_view_cube_size_changed)
+        view_bar.addWidget(self.view_cube_size_slider)
+        self.view_cube_size_label = QLabel("%dpx" % self.view_cube_size_slider.value())
+        self.view_cube_size_label.setFixedWidth(38)
+        view_bar.addWidget(self.view_cube_size_label)
         layout.addLayout(view_bar)
 
         coord_group = QGroupBox("좌표")
@@ -405,6 +552,7 @@ class NCViewerWidget(QWidget):
         self.gl_view.navigation_sensitivity = self._initial_sensitivity
         layout.addWidget(self.gl_view, 1)
         self._build_view_cube()
+        self._build_playback_bar()
 
         self.grid = gl.GLGridItem()
         self.grid.setSize(400, 400, 1)
@@ -427,7 +575,7 @@ class NCViewerWidget(QWidget):
         this doesn't work for some reason."""
         try:
             view_cube = ViewCubeWidget(self.gl_view, parent=self.gl_view)
-            view_cube.setFixedSize(80, 80)
+            view_cube.setFixedSize(self._initial_cube_size, self._initial_cube_size)
             self.gl_view.overlay_widget = view_cube
             self.gl_view._reposition_overlay()
             self.gl_view.camera_changed.connect(view_cube.update)
@@ -438,11 +586,31 @@ class NCViewerWidget(QWidget):
             view_cube = None
         self.view_cube = view_cube
 
+    def _build_playback_bar(self):
+        """PG 매칭 자동 재생 컨트롤 바를 만든다. 실패해도 뷰어 전체를 잃지 않는다."""
+        try:
+            bar = PlaybackBarWidget(self.gl_view)
+            self.gl_view.bottom_bar_widget = bar
+            self.gl_view._reposition_bottom_bar()
+            bar.raise_()
+        except Exception:
+            self.gl_view.bottom_bar_widget = None
+            bar = None
+        self.playback_bar = bar
+
     def _on_sensitivity_changed(self, percent):
         ratio = max(0.05, min(2.0, percent / 100.0))
         self.gl_view.navigation_sensitivity = ratio
         self.sensitivity_value_label.setText("%d%%" % percent)
         self.settings.setValue("navigation_sensitivity", ratio)
+
+    def _on_view_cube_size_changed(self, size):
+        self.view_cube_size_label.setText("%dpx" % size)
+        self.settings.setValue("view_cube_size", size)
+        if self.view_cube is not None:
+            self.view_cube.setFixedSize(size, size)
+            self.gl_view._reposition_overlay()
+            self.view_cube.update()
 
     def _add_axis_lines(self):
         infinite_val = 99999.0
@@ -1155,6 +1323,8 @@ class NCViewerWidget(QWidget):
     def set_pg_match_mode(self, enabled):
         """정적 경로를 숨기고 커서 공정의 실시간 트레이스만 남기는 모드를 토글한다."""
         self.pg_match_mode = bool(enabled)
+        if self.playback_bar is not None:
+            self.playback_bar.setEnabled(self.pg_match_mode)
         # update_visible_paths()가 끝에서 set_cursor_line()을 부르므로 트레이스도 함께 갱신된다.
         self.update_visible_paths()
 

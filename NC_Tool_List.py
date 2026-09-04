@@ -26,7 +26,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
 
-APP_VERSION = '1.5.3'
+APP_VERSION = '1.5.4'
 APP_NAME = 'NC 공구 리스트 생성기'
 APP_BUILD_DATE = '2026-09-04'
 APP_CREATOR = 'Hwang.seonmun'
@@ -56,6 +56,7 @@ TOOL_RE = re.compile(r'\(\s*T(\d+)\s*//\s*(.*?)\s*\[SO\s*([\d.]+)\]\s*//\s*T\d+\
 N_RE    = re.compile(r'^\s*N(\d+)\s*\(\s*#\d+\s*:\s*Tool\s*Change', re.I)
 M6_RE   = re.compile(r'^\s*M0?6\s*T0*(\d+)\b', re.I)
 M6_SEARCH_RE = re.compile(r'^\s*M0?6\s*T0*\d+\b', re.I | re.M)
+PROGRAM_STOP_RE = re.compile(r'M0?[01](?!\d)', re.I)
 # 키 뒤 숫자만 추출(값이 없으면 매칭 안 됨). 긴 키를 앞에 둬서 FL이 F로 잘못 잡히지 않게 함
 KV_RE   = re.compile(r'\b(LCF|SPINDL|FEED|FL|GL|DC|RE|SIG|PL|F)\s+(-?\d+(?:\.\d+)?)', re.I)
 COMMENT_RE = re.compile(r'\(([^()]*)\)', re.S)
@@ -297,6 +298,12 @@ def find_next_regex_span(text, pattern, start=0):
 
 def find_next_tool_change_span(text, start=0):
     return find_next_regex_span(text, M6_SEARCH_RE, start)
+
+
+def line_has_program_stop(line):
+    """M00/M0/M01/M1 (프로그램 정지·옵셔널 정지)가 있는 줄인지. 주석은 제외."""
+    code = re.sub(r'\([^)]*\)', ' ', str(line or '')).split(';')[0]
+    return PROGRAM_STOP_RE.search(code.replace(' ', '')) is not None
 
 
 def find_next_literal_span(text, needle, start=0):
@@ -932,6 +939,13 @@ else:
                 self.layout_settings = QSettings('NC Tool List', 'MainWindow')
             else:
                 self.layout_settings = QSettings(str(Path(_root) / 'ui_layout.ini'), QSettings.IniFormat)
+            # PG 매칭 자동 재생: 50ms(20Hz) 고정 틱으로 배속과 무관하게 화면 갱신
+            # 빈도를 일정하게 유지하고, 한 틱에 여러 줄을 건너뛰어 배속을 맞춘다.
+            self.play_timer = QTimer(self)
+            self.play_timer.setInterval(50)
+            self.play_timer.timeout.connect(self._playback_tick)
+            self.play_speed = self._load_playback_speed()
+            self._play_carry = 0.0
 
             self.setWindowTitle('%s v%s' % (APP_NAME, APP_VERSION))
             self.resize(sum(MAIN_SPLITTER_INITIAL_SIZES), 760)
@@ -1135,6 +1149,15 @@ else:
             self.viewer.attach_tool_filter(self.tool_filter)
             if hasattr(self.viewer, 'process_activated'):
                 self.viewer.process_activated.connect(self.jump_to_process_line)
+            playback_bar = getattr(self.viewer, 'playback_bar', None)
+            if playback_bar is not None:
+                playback_bar.play_clicked.connect(self.start_playback)
+                playback_bar.pause_clicked.connect(self.pause_playback)
+                playback_bar.rewind_clicked.connect(self.playback_rewind)
+                playback_bar.prev_tool_clicked.connect(self.playback_prev_tool)
+                playback_bar.next_tool_clicked.connect(self.playback_next_tool)
+                playback_bar.speed_changed.connect(self.set_playback_speed)
+                playback_bar.set_speed(self.play_speed)
             self.stack.addWidget(self.viewer)
             self.set_mode('tool')
 
@@ -1485,6 +1508,8 @@ else:
                 self.setWindowIcon(QIcon(icon_path))
 
         def set_mode(self, mode):
+            if mode != 'viewer':
+                self.pause_playback()
             self.current_mode = mode
             is_viewer = mode == 'viewer'
             self.stack.setCurrentIndex(1 if is_viewer else 0)
@@ -1523,6 +1548,7 @@ else:
             """
             self.viewer.set_pg_match_mode(enabled)
             if not enabled:
+                self.pause_playback()
                 return
             self.src.setFocus()
             selected = getattr(self.viewer, 'selected_tools', None)
@@ -1554,6 +1580,100 @@ else:
             self.src.setTextCursor(QTextCursor(block))
             self.src.ensureCursorVisible()
             self.src.setFocus()
+
+        def _load_playback_speed(self):
+            raw = self.layout_settings.value('playback_speed', 1)
+            try:
+                value = int(float(raw))
+            except (TypeError, ValueError):
+                value = 1
+            return max(1, min(200, value))
+
+        def set_playback_speed(self, value):
+            self.play_speed = max(1, min(200, int(value)))
+            self.layout_settings.setValue('playback_speed', self.play_speed)
+
+        def start_playback(self):
+            """PG 매칭 자동 재생을 시작한다. PG 매칭이 꺼져 있거나 뷰어 모드가 아니면 무시한다."""
+            if self.current_mode != 'viewer' or not getattr(self.viewer, 'pg_match_mode', False):
+                return
+            self._play_carry = 0.0
+            self.play_timer.start()
+            bar = getattr(self.viewer, 'playback_bar', None)
+            if bar is not None:
+                bar.set_playing(True)
+
+        def pause_playback(self):
+            self.play_timer.stop()
+            bar = getattr(self.viewer, 'playback_bar', None)
+            if bar is not None:
+                bar.set_playing(False)
+
+        def _playback_tick(self):
+            """50ms마다 호출된다. 배속에 맞는 줄 수만큼 커서를 전진시키고, 그 사이에
+            M00/M01이나 문서 끝을 만나면 그 줄에서 멈춘다."""
+            if self.current_mode != 'viewer' or not getattr(self.viewer, 'pg_match_mode', False):
+                self.pause_playback()
+                return
+            document = self.src.document()
+            total_lines = document.blockCount()
+            current_line = self.src.textCursor().blockNumber()
+            self._play_carry += self.play_speed * (self.play_timer.interval() / 1000.0)
+            steps = int(self._play_carry)
+            if steps <= 0:
+                return
+            self._play_carry -= steps
+            target_line = min(current_line + steps, total_lines - 1)
+            stop_line = None
+            for line_index in range(current_line + 1, target_line + 1):
+                block = document.findBlockByNumber(line_index)
+                if block.isValid() and line_has_program_stop(block.text()):
+                    stop_line = line_index
+                    break
+            destination = stop_line if stop_line is not None else target_line
+            if destination != current_line:
+                self.jump_to_process_line(destination)
+            if stop_line is not None or destination >= total_lines - 1:
+                self.pause_playback()
+
+        def playback_rewind(self):
+            """현재 커서가 속한 공정의 시작 줄로 되감고 정지한다."""
+            self.pause_playback()
+            first_line_map = getattr(self.viewer, 'process_first_line', None)
+            line_to_tool = getattr(self.viewer, 'line_to_tool_map', None)
+            start_line = 0
+            if first_line_map and line_to_tool is not None:
+                current_process = line_to_tool.get(self.src.textCursor().blockNumber())
+                start_line = first_line_map.get(current_process, 0)
+            self.jump_to_process_line(start_line)
+
+        def playback_prev_tool(self):
+            self._jump_relative_tool(-1)
+
+        def playback_next_tool(self):
+            self._jump_relative_tool(1)
+
+        def _jump_relative_tool(self, direction):
+            """필터에서 선택된 공정들의 시작 줄 중, 현재 커서 기준 앞/뒤로 가장 가까운
+            곳으로 점프한다. 재생 중이었으면 재생 상태를 유지한다."""
+            first_line_map = getattr(self.viewer, 'process_first_line', None)
+            selected = getattr(self.viewer, 'selected_tools', None)
+            if not first_line_map or not callable(selected):
+                return
+            selected_processes = selected()
+            ordered_lines = sorted(
+                line for key, line in first_line_map.items() if key in selected_processes
+            )
+            if not ordered_lines:
+                return
+            current_line = self.src.textCursor().blockNumber()
+            if direction > 0:
+                later = [line for line in ordered_lines if line > current_line]
+                target = later[0] if later else ordered_lines[-1]
+            else:
+                earlier = [line for line in ordered_lines if line < current_line]
+                target = earlier[-1] if earlier else ordered_lines[0]
+            self.jump_to_process_line(target)
 
         def _highlight_current_line(self):
             """읽기전용 프로그램 편집기에서 커서가 있는 행을 가로 전체 폭 블럭으로 칠한다."""
