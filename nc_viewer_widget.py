@@ -252,6 +252,9 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
         # Multiplies mouse-drag/wheel movement before it reaches pyqtgraph's own
         # orbit/pan/zoom handling. 1.0 = library default; lower = less sensitive.
         self.navigation_sensitivity = 1.0
+        # v1.6.0: Alt+휠로 감도 바를 조정할 수 있게 하는 콜백(호스트 위젯이
+        # 주입한다). Ctrl+휠(FOV 줌)은 기존 동작을 그대로 유지한다.
+        self.alt_wheel_callback = None
         self.overlay_widget = None
         self.bottom_bar_widget = None
         # 렌더된 경로 전체를 감싸는 구의 반지름(원점 기준) — projectionMatrix()가
@@ -304,6 +307,11 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
         delta = ev.angleDelta().x()
         if delta == 0:
             delta = ev.angleDelta().y()
+        # v1.6.0: Alt+휠은 카메라 줌 대신 감도 바를 조정한다. Ctrl+휠(FOV 줌)은
+        # 기존 동작 그대로 둔다(요청에 따라 겹치지 않게 다른 키를 사용).
+        if ev.modifiers() & Qt.AltModifier and self.alt_wheel_callback is not None:
+            self.alt_wheel_callback(delta)
+            return
         delta *= self.navigation_sensitivity
         if ev.modifiers() & Qt.ControlModifier:
             self.opts['fov'] *= 0.999 ** delta
@@ -492,15 +500,21 @@ class ViewCubeWidget(QWidget):
         label_half_w = half * (18.0 / 26.0)
         label_half_h = half * (8.0 / 26.0)
         pen_width = max(1, round(half / 26.0))
+        # 테두리(폴리곤 외곽선)는 그대로 두고 라벨 폰트만 0.8배로 낮춘다(v1.6.0).
         font = painter.font()
-        font.setPointSizeF(max(6.0, half * (9.0 / 26.0)))
+        font.setPointSizeF(max(6.0, half * (7.2 / 26.0)))
         painter.setFont(font)
 
+        # v1.6.0: 큐브는 기본 50% 반투명으로 그리고, 고리를 드래그해 회전하는
+        # 동안에는 불투명(alpha=255)으로 바뀌어 또렷하게 보이게 한다.
+        face_alpha = 255 if self._ring_dragging else 128
         max_depth = max((depth for depth, *_ in faces), default=1.0) or 1.0
         for depth, polygon, cx_face, cy_face, _elev, _azim, label in faces:
             facing = depth > 0.05 * max_depth
             painter.setPen(QPen(QColor(55, 65, 80), pen_width))
-            painter.setBrush(QBrush(QColor(120, 165, 210) if facing else QColor(72, 80, 94)))
+            painter.setBrush(QBrush(
+                QColor(120, 165, 210, face_alpha) if facing else QColor(72, 80, 94, face_alpha)
+            ))
             painter.drawPolygon(polygon)
             painter.setPen(QColor(255, 255, 255) if facing else QColor(150, 155, 165))
             painter.drawText(
@@ -522,14 +536,16 @@ class ViewCubeWidget(QWidget):
             return
         ring_color = QColor(150, 200, 255, 130) if self._ring_dragging else QColor(150, 165, 185, 90)
         pen = QPen(ring_color)
-        pen.setWidthF(max(1.5, (outer - inner) * 0.22))
+        # v1.6.0: 고리가 더 두껍고 잘 보이도록 폭 계수를 키운다(0.22 -> 0.36).
+        pen.setWidthF(max(1.5, (outer - inner) * 0.36))
         painter.setPen(pen)
         painter.setBrush(Qt.NoBrush)
         mid = (inner + outer) / 2.0
         painter.drawEllipse(QPointF(cx, cy), mid, mid)
         # "십자로" — 상/하/좌/우 4곳에 짧은 눈금을 그려 고리를 잡는 위치임을 암시한다.
         tick_pen = QPen(QColor(210, 225, 245, 200) if self._ring_dragging else QColor(170, 180, 195, 150))
-        tick_pen.setWidthF(max(1.2, (outer - inner) * 0.14))
+        # v1.6.0: 눈금 두께도 고리와 같은 비율로 키운다(0.14 -> 0.22).
+        tick_pen.setWidthF(max(1.2, (outer - inner) * 0.22))
         painter.setPen(tick_pen)
         for angle_deg in (0.0, 90.0, 180.0, 270.0):
             angle = radians(angle_deg)
@@ -713,12 +729,17 @@ class PlaybackBarWidget(QWidget):
         self.speed_slider = QSlider(Qt.Horizontal)
         self.speed_slider.setRange(1, MAX_PLAYBACK_SPEED)
         self.speed_slider.setValue(1)
-        self.speed_slider.setFixedHeight(34)
+        # v1.6.0: 속도바 두께를 기존의 2배로 키운다(34 -> 68).
+        self.speed_slider.setFixedHeight(68)
         self.speed_slider.setFocusPolicy(Qt.NoFocus)
         self.speed_slider.valueChanged.connect(self._on_speed_changed)
         speed_row.addWidget(self.speed_slider, 1)
         self.speed_value_label = QLabel("1x")
-        self.speed_value_label.setFixedWidth(72)
+        # v1.6.0: 속도 값 폰트를 기존의 1.7배(15px -> 26px)로 키운다. 이 바의
+        # 다른 QLabel(예: "속도")까지 함께 커지지 않도록 인스턴스 스타일시트로
+        # 개별 지정한다(인스턴스 지정값이 클래스 규칙보다 우선한다).
+        self.speed_value_label.setStyleSheet("color: white; font-size: 26px; font-weight: bold;")
+        self.speed_value_label.setFixedWidth(122)
         speed_row.addWidget(self.speed_value_label)
         outer.addLayout(speed_row)
 
@@ -886,8 +907,9 @@ class NCViewerWidget(QWidget):
         layout.setSpacing(0)
 
         # "투영" 라벨/버튼: v1.5.7에 2배(18pt/30px)로 키웠으나 너무 커 보인다는
-        # 피드백으로 v1.5.8에서 그 값의 0.7배로 다시 낮춘다(13pt/21px).
-        projection_font = QFont("맑은 고딕", 13)
+        # 피드백으로 v1.5.8에서 그 값의 0.7배로 다시 낮춘다(13pt/21px). 테두리는
+        # 그대로 두고 폰트 크기만 v1.6.0에서 다시 0.8배로 낮춘다(10pt).
+        projection_font = QFont("맑은 고딕", 10)
         view_bar = QHBoxLayout()
         view_bar.setContentsMargins(6, 5, 6, 5)
         projection_label = QLabel("투영")
@@ -969,8 +991,14 @@ class NCViewerWidget(QWidget):
         coord_font = QFont("맑은 고딕", 13)
         coord_group = QGroupBox("좌표")
         coord_group.setFont(QFont("맑은 고딕", 13, QFont.Bold))
-        coord_group.setFixedHeight(70)
-        coord_layout = QHBoxLayout(coord_group)
+        # v1.6.0: 좌표 폰트/위치는 그대로 두고 박스 아래쪽에만 여유 공간을
+        # 준다. 좌표 행(coord_layout)을 세로 레이아웃 맨 위에 넣고 그 아래에
+        # addStretch()를 둬서, 늘어난 높이만큼 빈 공간이 아래쪽에 생기게 한다.
+        coord_outer_layout = QVBoxLayout(coord_group)
+        coord_outer_layout.setContentsMargins(0, 0, 0, 0)
+        coord_outer_layout.setSpacing(0)
+        coord_group.setFixedHeight(92)
+        coord_layout = QHBoxLayout()
         coord_layout.setContentsMargins(12, 4, 12, 4)
         coord_layout.setSpacing(20)
         self.coord_labels = {}
@@ -988,11 +1016,15 @@ class NCViewerWidget(QWidget):
             self.coord_labels[axis] = value
             coord_layout.addWidget(value)
         coord_layout.addStretch()
+        coord_outer_layout.addLayout(coord_layout)
+        coord_outer_layout.addStretch()
         layout.addWidget(coord_group)
 
         self.gl_view = OrthographicGLViewWidget()
         self.gl_view.setBackgroundColor(*self._VIEWER_BG)
         self.gl_view.navigation_sensitivity = self._initial_sensitivity
+        # v1.6.0: Alt+휠로 감도 슬라이더를 조정할 수 있게 콜백을 연결한다.
+        self.gl_view.alt_wheel_callback = self._on_alt_wheel_sensitivity
         layout.addWidget(self.gl_view, 1)
         self._build_view_cube()
         self._build_playback_bar()
@@ -1263,6 +1295,15 @@ class NCViewerWidget(QWidget):
         self.sensitivity_value_label.setText("%d%%" % percent)
         self.settings.setValue("navigation_sensitivity", ratio)
 
+    def _on_alt_wheel_sensitivity(self, delta):
+        # v1.6.0: 화면에서 Alt+휠로 감도 바를 조정한다. 슬라이더 값을 바꾸면
+        # valueChanged가 _on_sensitivity_changed를 호출해 실제 감도 반영/저장까지
+        # 기존 로직을 그대로 재사용한다.
+        step = 5 if delta > 0 else -5
+        new_value = self.sensitivity_slider.value() + step
+        new_value = max(self.sensitivity_slider.minimum(), min(self.sensitivity_slider.maximum(), new_value))
+        self.sensitivity_slider.setValue(new_value)
+
     def _on_view_cube_size_changed(self, size):
         self.view_cube_size_label.setText("%dpx" % size)
         self.settings.setValue("view_cube_size", size)
@@ -1270,6 +1311,8 @@ class NCViewerWidget(QWidget):
             self.view_cube.setFixedSize(size, size)
             self.gl_view._reposition_overlay()
             self.view_cube.update()
+        # v1.6.0: 원점 화살표 길이를 큐브 크기에 맞춰 다시 계산한다.
+        self._add_axis_lines()
 
     def _refresh_dark_mode_button(self):
         icon_color = "#e4e8f0" if self._dark_mode else "#1f2937"
@@ -1289,19 +1332,54 @@ class NCViewerWidget(QWidget):
         self._dark_mode = bool(enabled)
         self._refresh_dark_mode_button()
 
+    # v1.6.0: 원점 표기를 원점을 관통하는 양방향 무한선 대신, +X/+Y/+Z
+    # 방향으로만 뻗는 화살표로 바꾼다. 길이는 큐브 크기 슬라이더 값에
+    # 비례해서, 큐브를 키우거나 줄이면 화살표도 함께 커지고 작아진다.
+    _AXIS_ARROW_BASE_LENGTH = 500.0
+    _AXIS_ARROW_HEAD_RATIO = 0.12
+    _AXIS_DIRECTIONS = (
+        ((1.0, 0.0, 0.0), (1.0, 0.2, 0.2, 0.9), ((0.0, 1.0, 0.0), (0.0, 0.0, 1.0))),
+        ((0.0, 1.0, 0.0), (0.2, 1.0, 0.2, 0.9), ((1.0, 0.0, 0.0), (0.0, 0.0, 1.0))),
+        ((0.0, 0.0, 1.0), (0.2, 0.2, 1.0, 0.9), ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0))),
+    )
+
+    def _axis_arrow_length(self):
+        slider = getattr(self, "view_cube_size_slider", None)
+        size_px = slider.value() if slider is not None else self._initial_cube_size
+        return self._AXIS_ARROW_BASE_LENGTH * (size_px / 160.0)
+
+    def _remove_axis_lines(self):
+        for item in getattr(self, "_axis_items", []):
+            self.gl_view.removeItem(item)
+        self._axis_items = []
+
     def _add_axis_lines(self):
-        infinite_val = 99999.0
-        axis_lines = (
-            ([[-infinite_val, 0, 0], [infinite_val, 0, 0]], (1.0, 0.2, 0.2, 0.8)),
-            ([[0, -infinite_val, 0], [0, infinite_val, 0]], (0.2, 1.0, 0.2, 0.8)),
-            ([[0, 0, -infinite_val], [0, 0, infinite_val]], (0.2, 0.2, 1.0, 0.8)),
-        )
-        for points, color in axis_lines:
-            self.gl_view.addItem(
-                gl.GLLinePlotItem(
-                    pos=np.array(points), color=color, width=1.5, antialias=True
-                )
+        self._remove_axis_lines()
+        length = self._axis_arrow_length()
+        head_len = length * self._AXIS_ARROW_HEAD_RATIO
+        for direction, color, wing_axes in self._AXIS_DIRECTIONS:
+            d = np.array(direction)
+            tip = d * length
+            shaft = gl.GLLinePlotItem(
+                pos=np.array([[0.0, 0.0, 0.0], tip]), color=color, width=2.0, antialias=True
             )
+            self.gl_view.addItem(shaft)
+            self._axis_items.append(shaft)
+            # 화살촉: 끝점에서 진행 방향의 반대 + 옆(대각선) 방향으로 짧은
+            # 선 4개를 그려 어느 각도에서 봐도 화살표처럼 보이게 한다.
+            for wing_axis in wing_axes:
+                w = np.array(wing_axis)
+                for sign in (1.0, -1.0):
+                    wing_dir = -d + sign * w
+                    norm = np.linalg.norm(wing_dir)
+                    if norm > 1e-9:
+                        wing_dir = wing_dir / norm
+                    head = gl.GLLinePlotItem(
+                        pos=np.array([tip, tip + wing_dir * head_len]),
+                        color=color, width=2.0, antialias=True,
+                    )
+                    self.gl_view.addItem(head)
+                    self._axis_items.append(head)
 
     def attach_tool_filter(self, list_widget):
         if self.tool_filter_list is not None:

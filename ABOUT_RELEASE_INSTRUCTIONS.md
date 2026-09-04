@@ -1,6 +1,6 @@
 # About / Release Instructions
 
-Last updated: 2026-09-05 (v1.5.10)
+Last updated: 2026-09-05 (v1.6.0)
 
 ## About button requirements
 
@@ -34,7 +34,47 @@ Last updated: 2026-09-05 (v1.5.10)
 
 ## Version history
 
-### 2026-09-05 (latest, v1.5.10)
+### 2026-09-05 (latest, v1.6.0)
+
+- Version: 1.6.0
+- Release/build date: 2026-09-05
+- Summary: 11 UI/UX refinements requested together, split across the tool-list panel and the 3D viewer:
+  1. In the copy-list row ("② 공구 리스트 (복사용)"), the buttons up through 표 복사 (삭제/수정/＋ 행 추가/이름 경우의 수/머리글 포함/PDF 출력/표 복사) got a 1.3x font and larger padding.
+  2. The 툴리스트 산출 모드/Viewer 모드 buttons in the top bar now sit ~5cm (96DPI-assumed) further from the About button, keeping visual distance from the machine-panel's ▶/▼ collapse toggle lower in the layout.
+  3. The copy-list table's cell width was widened by a half-character's worth of padding on each side (via a new `QTableWidget::item` padding rule) so text is no longer flush against the cell edge.
+  4. The "장비 타입 및 스펙 설정" panel and the "다음공구검색" row swapped vertical order (machine settings now above the search row).
+  5. Dark mode is now the default theme for a fresh install (previously light); existing users' saved choice is unaffected.
+  6. The About dialog's 용도/오픈소스 description box no longer shows a vertical scrollbar — its height is computed from actual content instead of a fixed 150px cap.
+  7. The viewer's ISO/XY/XZ/YZ projection buttons and the orientation cube's own XY/-XY/XZ/-XZ/YZ/-YZ face labels got their font shrunk 0.8x; borders/outlines are unchanged.
+  8. The "좌표" coordinate box keeps its existing font and text position but gained extra empty space below it (height 70 -> 92, via a `QVBoxLayout` + trailing stretch instead of vertical centering).
+  9. The orientation cube's drag ring got thicker (width ratio 0.22 -> 0.36, tick marks 0.14 -> 0.22) and the cube itself is now 50% translucent by default, becoming fully opaque while the ring is being dragged.
+  10. The playback speed bar doubled in thickness (34px -> 68px) and its speed value label's font grew 1.7x (15px -> 26px, isolated to that one label).
+  11. Alt+wheel over the 3D viewer now adjusts the 감도 (sensitivity) slider directly; Ctrl+wheel's existing FOV-zoom behavior is untouched.
+  - Also: the 3D scene's origin marker changed from two infinite bidirectional lines per axis to short +X/+Y/+Z arrows (with a simple 4-line chevron head), whose length now scales with the orientation cube's size slider instead of being a fixed huge constant.
+- Creator displayed: Hwang.seonmun
+- Open source used: Python, PyQt5, pyqtgraph, NumPy, PyOpenGL, ReportLab, PyInstaller, Inno Setup (unchanged — no dependency added or removed).
+- Details:
+  - **Copy-row buttons 1.3x (`NC_Tool_List.py`):** new `_style_accent_button_large`/`_style_success_button_large` wrap the existing `_style_accent_button`/`_style_success_button` (used elsewhere by `run_button`, left untouched) and append `padding: 7px 12px`; a local `row_button_font = QFont('맑은 고딕', 13)` and `row_button_style = 'padding: 5px 10px;'` are applied to the plain buttons/checkbox in the same row.
+  - **Mode-button gap (`NC_Tool_List.py`):** `MODE_BUTTON_GAP_PX = round(5 * 96.0 / 2.54)` inserted via `top_layout.addSpacing(...)` between `btn_about` and `btn_tool_mode`.
+  - **Table cell padding (`NC_Tool_List.py`):** new `TABLE_CELL_PADDING_PX = 8` constant; `COL_WIDTH` is now derived from a renamed `_COL_WIDTH_BASE` dict plus `TABLE_CELL_PADDING_PX * 2` per column (so the padding doesn't shrink the visible text area); `_build_global_stylesheet` adds `QTableWidget::item { padding: 0 8px; }`.
+  - **Search/machine-panel swap (`NC_Tool_List.py`):** the two `left_layout.addWidget/addLayout` calls for `machine_settings_panel` and `search_bar` were reordered (no other logic changed).
+  - **Dark mode default (`NC_Tool_List.py`):** `_load_dark_mode`'s `QSettings.value('dark_mode', False)` default changed to `True`.
+  - **About dialog auto-height (`NC_Tool_List.py`):** `viewer.setMaximumHeight(150)` removed; the box's scrollbars are explicitly turned off and its height is computed via `viewer.document().setTextWidth(480)` + `document().size().height()`. `dialog.resize(520, 600)` was replaced with `dialog.setFixedWidth(520)`, letting the dialog's height follow its layout's `sizeHint()`.
+  - **Projection/cube-label font 0.8x (`nc_viewer_widget.py`):** toolbar `projection_font` 13pt -> 10pt; `ViewCubeWidget`'s face-label point-size ratio `9.0/26.0` -> `7.2/26.0` (border/outline `pen_width` untouched).
+  - **Coordinate box bottom margin (`nc_viewer_widget.py`):** `coord_group`'s layout changed from a bare `QHBoxLayout` to an outer `QVBoxLayout` holding the original `coord_layout` row plus a trailing `addStretch()`; `setFixedHeight` 70 -> 92.
+  - **Cube ring/translucency (`nc_viewer_widget.py`, `ViewCubeWidget`):** ring pen-width ratio 0.22 -> 0.36, tick ratio 0.14 -> 0.22; face `QColor` brushes gained an alpha channel driven by a new `face_alpha = 255 if self._ring_dragging else 128` (the existing `_ring_dragging` flag, previously only used for ring/tick color, now also gates cube opacity).
+  - **Playback bar size (`nc_viewer_widget.py`, `PlaybackBarWidget`):** `speed_slider.setFixedHeight` 34 -> 68; `speed_value_label` now carries its own instance-level stylesheet (`font-size: 26px`) instead of inheriting the bar's shared `QLabel { font-size: 15px }` rule, so only that label grew; its fixed width grew 72 -> 122 to fit the larger "5000x" text.
+  - **Alt+wheel sensitivity (`nc_viewer_widget.py`):** `OrthographicGLViewWidget` gained `self.alt_wheel_callback` (set by `NCViewerWidget` to a new `_on_alt_wheel_sensitivity` method); `wheelEvent` checks `Qt.AltModifier` first and, if the callback is set, delegates to it and returns before touching `distance`/`fov` — Ctrl+wheel's branch is unmodified. The callback nudges `sensitivity_slider`'s value by ±5 per notch, clamped to its existing 5–200 range; the slider's own `valueChanged` -> `_on_sensitivity_changed` still does the actual `navigation_sensitivity`/`QSettings` update, so no logic was duplicated.
+  - **Origin arrows (`nc_viewer_widget.py`):** `_add_axis_lines` was rewritten to draw one `GLLinePlotItem` shaft per +X/+Y/+Z direction (length = `_AXIS_ARROW_BASE_LENGTH (500.0) * (cube_size_px / 160.0)`) plus 4 short chevron-wing segments per axis at the tip; all created items are tracked in `self._axis_items` and cleared by a new `_remove_axis_lines()` before each rebuild. `_on_view_cube_size_changed` now also calls `_add_axis_lines()` so dragging the 큐브 크기 slider live-resizes the arrows.
+- Verification: 90 unit tests passed (87 pre-existing + 3 updated for the new intended behavior: `test_tool_list_table_cells_and_font_scaled_1_6x` now expects `COL_WIDTH` values plus `TABLE_CELL_PADDING_PX * 2`; `test_dark_mode_toggle_switches_theme_and_persists` and `test_viewer_dark_mode_button_click_notifies_app` now start from the new `'dark'` default and toggle to `'light'` instead of the old light-default/toggle-to-dark direction — the toggle/persistence mechanism itself is unchanged and still covered). Ran `pytest tests/test_nc_tool_list.py` once green (90/90) after the fixes (pytest was not previously installed for this Python interpreter and was added via `pip install --user pytest` to run the suite; no project dependency was added). Also ran the app directly (`python NC_Tool_List.py`) and separately launched the freshly built frozen exe: both `startup.log` entries showed a clean `Starting Sum Path v1.6.0 frozen=False/True` line with no traceback, and both processes stayed running (not a crash-exit) until explicitly stopped. Visual/behavioral confirmation of each of the 11 items beyond the automated tests was not done in an interactive session (no display attached to this run) — the app was only confirmed to start and stay up without errors; the user should spot-check the visual sizing/spacing values (font points, pixel gaps, ring thickness) against their own screen/DPI and report any that need further adjustment.
+- Installer/package: Created `installer/NC_Tool_List_Setup_v1.6.0.exe` and `installer/NC_Tool_List_Portable_v1.6.0.zip` from a fresh PyInstaller onedir rebuild after deleting `build/` and `dist/` (`dist/NC_Tool_List/_internal/OpenGL` confirmed absent, no `freeglut`/`gle32`/`gle64` DLLs present, `upx=False` in the spec; `version_info.txt` and `NC_Tool_List.iss`'s `MyAppVersion` were also bumped to 1.6.0 so the built exe's version resource reads `1.6.0.0`/`S M.HWANG`). Portable ZIP matches the v1.5.0–v1.5.10 layout (`_internal` + `NC_Tool_List.exe` at the archive root, 311 entries).
+- Installer SHA-256: 897AB63DDCC283546FAB16FC572BEDB91EAB1E3901047DDA0755E3785712DA03
+- Portable ZIP SHA-256: 3D418F168365A1C3B5CCCD5926CDD60E002D8062526562268771C5CF583D91BE
+- App SHA-256: 0B3750620B31B2D44F496422948FBC82B2D69C8284F7EED861B5FC6E5946FE6A
+- Signature status: still unsigned.
+- Out of scope (left untouched): actual code-signing; git commit/push for this release (explicitly deferred by the user's request — changes exist only in this worktree pending review); the exe filename/install directory/Start-Menu display name/file-association ProgId (still "NC Tool List"/"NC_Tool_List"); lathe (2-axis) coordinate mapping; G90/G91 incremental-mode support; the `ViewerFallbackWidget` fallback screen (intentionally light-only); the magnifier lens (still fixed 220px/3x); an actual 3D cone/mesh arrowhead for the origin marker (used a simple 4-line chevron instead, drawn with the same `GLLinePlotItem` primitive already used elsewhere in this file); exact real-world scaling of the origin arrow's length (it's tied to the cube-size slider's pixel value via an arbitrary constant, not to the loaded program's actual physical dimensions). **v1.5.10's installer/ZIP should be treated as superseded and not distributed** — the 11 UI refinements and origin-arrow change described above are not in it.
+
+### 2026-09-05 (v1.5.10)
 
 - Version: 1.5.10
 - Release/build date: 2026-09-05

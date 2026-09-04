@@ -366,8 +366,11 @@ X60 Y10 Z0
             self.assertEqual(window.table.font().pointSize(), 14)
             for index, (key, _label) in enumerate(app.COLUMNS):
                 self.assertEqual(window.table.columnWidth(index), app.COL_WIDTH[key])
-            self.assertEqual(app.COL_WIDTH['NO'], 72)
-            self.assertEqual(app.COL_WIDTH['HOLDER'], 192)
+            # v1.6.0: 셀 좌우에 글자가 가려지지 않도록 폭을
+            # TABLE_CELL_PADDING_PX * 2만큼 추가로 넓혔다.
+            padding = app.TABLE_CELL_PADDING_PX * 2
+            self.assertEqual(app.COL_WIDTH['NO'], 72 + padding)
+            self.assertEqual(app.COL_WIDTH['HOLDER'], 192 + padding)
         finally:
             window.deleteLater()
             settings_dir.cleanup()
@@ -1883,18 +1886,19 @@ G02 X0 Y10 I-10 J0
         settings_dir = tempfile.TemporaryDirectory()
         try:
             first = app.App(_root=settings_dir.name)
-            self.assertEqual(first.theme_name, 'light')
-            first.apply_theme('dark')
+            # v1.6.0: 다크모드가 기본값이다.
             self.assertEqual(first.theme_name, 'dark')
-            self.assertIn(app.THEMES['dark']['accent'], first.run_button.styleSheet())
+            first.apply_theme('light')
+            self.assertEqual(first.theme_name, 'light')
+            self.assertIn(app.THEMES['light']['accent'], first.run_button.styleSheet())
             if hasattr(first.viewer, 'set_dark_mode'):
-                self.assertTrue(first.viewer._dark_mode)
+                self.assertFalse(first.viewer._dark_mode)
             first.deleteLater()
             qapp.processEvents()
 
             second = app.App(_root=settings_dir.name)
             try:
-                self.assertEqual(second.theme_name, 'dark')
+                self.assertEqual(second.theme_name, 'light')
             finally:
                 second.deleteLater()
                 qapp.processEvents()
@@ -1907,11 +1911,12 @@ G02 X0 Y10 I-10 J0
         settings_dir = tempfile.TemporaryDirectory()
         window = app.App(_root=settings_dir.name)
         try:
-            self.assertEqual(window.theme_name, 'light')
-            window.viewer.dark_mode_button.setChecked(True)
-            window.viewer.dark_mode_button.clicked.emit(True)
-            qapp.processEvents()
+            # v1.6.0: 다크모드가 기본값이다.
             self.assertEqual(window.theme_name, 'dark')
+            window.viewer.dark_mode_button.setChecked(False)
+            window.viewer.dark_mode_button.clicked.emit(False)
+            qapp.processEvents()
+            self.assertEqual(window.theme_name, 'light')
         finally:
             window.deleteLater()
             settings_dir.cleanup()
