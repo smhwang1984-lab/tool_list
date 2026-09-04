@@ -922,6 +922,250 @@ G02 X0 Y10 I-10 J0
             settings_dir.cleanup()
             qapp.processEvents()
 
+    # ---- v1.5.2: 읽기전용 편집기의 키보드 커서 + 행 강조 ----
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_readonly_program_editor_keeps_keyboard_cursor(self):
+        # Qt의 setReadOnly(True)는 상호작용 플래그를 TextSelectableByMouse 하나로
+        # 덮어써서 키보드 커서를 없애버린다. ProgramTextEdit는 이를 복원해야 한다.
+        qapp = app.QApplication.instance() or app.QApplication([])
+        editor = app.ProgramTextEdit()
+        editor.setReadOnly(True)
+        flags = editor.textInteractionFlags()
+        self.assertTrue(bool(flags & app.Qt.TextSelectableByKeyboard))
+        self.assertTrue(bool(flags & app.Qt.TextSelectableByMouse))
+        self.assertTrue(editor.isReadOnly())
+        editor.deleteLater()
+        qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_app_arrow_and_pagedown_keys_move_program_cursor(self):
+        from PyQt5.QtTest import QTest
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        window = app.App(_root=settings_dir.name)
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                nc_path = Path(directory) / 'sample.nc'
+                nc_path.write_text(REAL_NC_SAMPLE, encoding='utf-8')
+                window.load_file(str(nc_path))
+                window.set_mode('viewer')
+                qapp.processEvents()
+
+                window.src.setFocus()
+                before = window.src.textCursor().blockNumber()
+                QTest.keyClick(window.src, app.Qt.Key_Down)
+                QTest.keyClick(window.src, app.Qt.Key_Down)
+                qapp.processEvents()
+                after_down = window.src.textCursor().blockNumber()
+                self.assertGreater(after_down, before)
+
+                QTest.keyClick(window.src, app.Qt.Key_PageDown)
+                qapp.processEvents()
+                after_pagedown = window.src.textCursor().blockNumber()
+                self.assertGreater(after_pagedown, after_down)
+
+                QTest.keyClick(window.src, app.Qt.Key_Up)
+                qapp.processEvents()
+                after_up = window.src.textCursor().blockNumber()
+                self.assertLess(after_up, after_pagedown)
+
+                # 뷰어 모드에서 방향키 이동이 3D 커서 라인도 그대로 따라간다.
+                self.assertEqual(window.viewer.current_cursor_line, after_up)
+        finally:
+            window.deleteLater()
+            settings_dir.cleanup()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_app_current_line_is_highlighted_as_full_width_block(self):
+        from PyQt5.QtGui import QTextFormat
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        window = app.App(_root=settings_dir.name)
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                nc_path = Path(directory) / 'sample.nc'
+                nc_path.write_text(REAL_NC_SAMPLE, encoding='utf-8')
+                window.load_file(str(nc_path))
+                qapp.processEvents()
+
+                selections = window.src.extraSelections()
+                self.assertEqual(len(selections), 1)
+                self.assertTrue(
+                    selections[0].format.boolProperty(QTextFormat.FullWidthSelection)
+                )
+                self.assertEqual(selections[0].cursor.blockNumber(), 0)
+
+                window.jump_to_process_line(5)
+                qapp.processEvents()
+                moved = window.src.extraSelections()
+                self.assertEqual(len(moved), 1)
+                self.assertEqual(moved[0].cursor.blockNumber(), 5)
+                # jump_to_process_line은 앵커 선택을 만들지 않는다 — 강조가 그 역할을 한다.
+                self.assertFalse(window.src.textCursor().hasSelection())
+        finally:
+            window.deleteLater()
+            settings_dir.cleanup()
+            qapp.processEvents()
+
+    # ---- v1.5.2: 3D 뷰 마우스 감도 조정 ----
+    def _fresh_gl_view(self):
+        from nc_viewer_widget import OrthographicGLViewWidget
+        gl_view = OrthographicGLViewWidget()
+        gl_view.opts['azimuth'] = 45.0
+        gl_view.opts['elevation'] = 30.0
+        gl_view.opts['distance'] = 200.0
+        return gl_view
+
+    def _fire_mouse_move(self, gl_view, dx, dy=0.0):
+        from PyQt5.QtCore import QPointF
+        from PyQt5.QtCore import QEvent
+        from PyQt5.QtGui import QMouseEvent
+        gl_view.mousePos = QPointF(0.0, 0.0)
+        event = QMouseEvent(
+            QEvent.MouseMove, QPointF(dx, dy),
+            app.Qt.NoButton, app.Qt.LeftButton, app.Qt.NoModifier,
+        )
+        gl_view.mouseMoveEvent(event)
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_navigation_sensitivity_scales_mouse_drag_rotation(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        full = self._fresh_gl_view()
+        reduced = self._fresh_gl_view()
+        reduced.navigation_sensitivity = 0.4
+        try:
+            self._fire_mouse_move(full, 100.0)
+            self._fire_mouse_move(reduced, 100.0)
+            full_delta = full.opts['azimuth'] - 45.0
+            reduced_delta = reduced.opts['azimuth'] - 45.0
+            self.assertNotEqual(full_delta, 0.0)
+            self.assertAlmostEqual(reduced_delta, full_delta * 0.4, places=5)
+        finally:
+            full.deleteLater()
+            reduced.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_navigation_sensitivity_scales_wheel_zoom(self):
+        from PyQt5.QtCore import QPoint
+
+        class FakeWheelEvent:
+            def __init__(self, dy):
+                self._dy = dy
+
+            def angleDelta(self):
+                return QPoint(0, self._dy)
+
+            def modifiers(self):
+                return app.Qt.NoModifier
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        full = self._fresh_gl_view()
+        reduced = self._fresh_gl_view()
+        reduced.navigation_sensitivity = 0.4
+        try:
+            full.wheelEvent(FakeWheelEvent(240))
+            reduced.wheelEvent(FakeWheelEvent(240))
+            # 0.999**delta 형태라 배율이 아닌 지수이므로, log 비교로 감도가 실제로
+            # delta에 곱해졌는지 확인한다 (delta=0이면 배율은 항상 1이 되어 버림).
+            full_ratio = math.log(full.opts['distance'] / 200.0)
+            reduced_ratio = math.log(reduced.opts['distance'] / 200.0)
+            self.assertNotEqual(full_ratio, 0.0)
+            self.assertAlmostEqual(reduced_ratio, full_ratio * 0.4, places=5)
+        finally:
+            full.deleteLater()
+            reduced.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_navigation_sensitivity_persists_via_settings(self):
+        import nc_viewer_widget as viewer_module
+
+        class FakeSettings:
+            store = {}
+
+            def __init__(self, *_args):
+                pass
+
+            def value(self, key, default=None):
+                return self.store.get(key, default)
+
+            def setValue(self, key, value):
+                self.store[key] = value
+
+            def sync(self):
+                pass
+
+        FakeSettings.store = {}
+        original_qsettings = viewer_module.QSettings
+        viewer_module.QSettings = FakeSettings
+        qapp = app.QApplication.instance() or app.QApplication([])
+        try:
+            first = viewer_module.NCViewerWidget()
+            first.sensitivity_slider.setValue(70)
+            self.assertAlmostEqual(FakeSettings.store['navigation_sensitivity'], 0.70, places=5)
+
+            second = viewer_module.NCViewerWidget()
+            self.assertEqual(second.sensitivity_slider.value(), 70)
+            self.assertAlmostEqual(second.gl_view.navigation_sensitivity, 0.70, places=5)
+            first.deleteLater()
+            second.deleteLater()
+            qapp.processEvents()
+        finally:
+            viewer_module.QSettings = original_qsettings
+
+    # ---- v1.5.2: 3D 뷰 방향 큐브 ----
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_view_cube_face_click_sets_expected_camera_angles(self):
+        from nc_viewer_widget import NCViewerWidget
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer = NCViewerWidget()
+        try:
+            self.assertIsNotNone(viewer.view_cube)
+            viewer.view_cube.resize(80, 80)
+
+            viewer.view_cube.face_clicked.emit(90.0, -90.0)  # 윗면 -> XY
+            self.assertEqual(viewer.gl_view.opts['elevation'], 90.0)
+            self.assertEqual(viewer.gl_view.opts['azimuth'], -90.0)
+
+            viewer.view_cube.face_clicked.emit(0.0, -90.0)  # 앞면 -> XZ
+            self.assertEqual(viewer.gl_view.opts['elevation'], 0.0)
+            self.assertEqual(viewer.gl_view.opts['azimuth'], -90.0)
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_view_cube_paints_and_hit_tests_without_raising(self):
+        from PyQt5.QtGui import QPixmap
+        from nc_viewer_widget import NCViewerWidget
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer = NCViewerWidget()
+        try:
+            cube = viewer.view_cube
+            self.assertIsNotNone(cube)
+            cube.resize(80, 80)
+            pixmap = QPixmap(80, 80)
+            cube.render(pixmap)
+            self.assertGreater(len(cube._face_polygons), 0)
+            # 큐브 중앙을 클릭해도 예외 없이 처리된다(어떤 면이든 맞을 수도, 안 맞을 수도 있음).
+            from PyQt5.QtCore import QPoint
+            from PyQt5.QtGui import QMouseEvent
+            from PyQt5.QtCore import QEvent, QPointF
+            click = QMouseEvent(
+                QEvent.MouseButtonPress, QPointF(40, 40),
+                app.Qt.LeftButton, app.Qt.LeftButton, app.Qt.NoModifier,
+            )
+            cube.mousePressEvent(click)
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
 
 if __name__ == '__main__':
     unittest.main()

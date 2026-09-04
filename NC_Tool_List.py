@@ -26,7 +26,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
 
-APP_VERSION = '1.5.1'
+APP_VERSION = '1.5.2'
 APP_NAME = 'NC 공구 리스트 생성기'
 APP_BUILD_DATE = '2026-09-04'
 APP_CREATOR = 'Hwang.seonmun'
@@ -743,7 +743,7 @@ VIEWER_IMPORT_ERROR = None
 NCViewerWidget = None
 try:
     from PyQt5.QtCore import Qt, QSettings, QSize, QTimer, QSignalBlocker, pyqtSignal
-    from PyQt5.QtGui import QFont, QIcon, QTextCursor
+    from PyQt5.QtGui import QColor, QFont, QIcon, QTextCursor, QTextFormat
     from PyQt5.QtWidgets import (
         QApplication, QAbstractItemView, QCheckBox, QComboBox, QDialog,
         QDialogButtonBox, QFileDialog, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout,
@@ -778,6 +778,13 @@ else:
         def setReadOnly(self, read_only):
             super().setReadOnly(read_only)
             self.setAcceptDrops(True)
+            if read_only:
+                # Qt의 setReadOnly(True)는 상호작용 플래그를 TextSelectableByMouse
+                # 하나로 덮어써서 키보드 커서를 없애버린다. 방향키/PgUp/PgDn으로
+                # 커서를 옮기려면 TextSelectableByKeyboard를 다시 켜줘야 한다.
+                self.setTextInteractionFlags(
+                    Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard
+                )
 
         def _drop_paths(self, event):
             if not event.mimeData().hasUrls():
@@ -1064,6 +1071,8 @@ else:
             self.src.filesDropped.connect(self.drop_file)
             self.src.textChanged.connect(self.source_changed)
             self.src.cursorPositionChanged.connect(self.source_cursor_changed)
+            self.src.cursorPositionChanged.connect(self._highlight_current_line)
+            self._highlight_current_line()
             self.input_splitter.addWidget(self.src)
 
             self.filter_panel = QWidget()
@@ -1524,15 +1533,27 @@ else:
                     return
 
         def jump_to_process_line(self, line_index):
-            """공정별 필터 항목을 클릭하면 프로그램 입력창의 해당 위치로 이동/선택한다."""
+            """공정별 필터 항목을 클릭하면 프로그램 입력창의 해당 위치로 이동한다.
+
+            텍스트를 선택(KeepAnchor)하지 않고 커서만 놓는다 — 행 강조는
+            _highlight_current_line의 전체 폭 블럭이 담당하므로 파란 선택 영역과
+            겹치지 않고, 방향키 첫 입력이 선택 해제로 소비되는 것도 막는다.
+            """
             block = self.src.document().findBlockByNumber(max(0, int(line_index)))
             if not block.isValid():
                 return
-            cursor = QTextCursor(block)
-            cursor.movePosition(QTextCursor.EndOfBlock, QTextCursor.KeepAnchor)
-            self.src.setTextCursor(cursor)
+            self.src.setTextCursor(QTextCursor(block))
             self.src.ensureCursorVisible()
             self.src.setFocus()
+
+        def _highlight_current_line(self):
+            """읽기전용 프로그램 편집기에서 커서가 있는 행을 가로 전체 폭 블럭으로 칠한다."""
+            selection = QTextEdit.ExtraSelection()
+            selection.format.setBackground(QColor('#dbe7f5'))
+            selection.format.setProperty(QTextFormat.FullWidthSelection, True)
+            selection.cursor = self.src.textCursor()
+            selection.cursor.clearSelection()
+            self.src.setExtraSelections([selection])
 
         def parsed_program_data(self, source_text=None):
             source_text = self.src.toPlainText() if source_text is None else source_text
@@ -1786,6 +1807,7 @@ else:
             self.current_file_path = path
             with QSignalBlocker(self.src):
                 self.src.setPlainText(data)
+            self._highlight_current_line()
             self.invalidate_parse_cache()
             self.run()
 
@@ -1812,6 +1834,7 @@ else:
                     cursor = self.src.textCursor()
                     cursor.movePosition(QTextCursor.End)
                     cursor.insertText('\n\n' + append_text)
+            self._highlight_current_line()
             self.invalidate_parse_cache()
             self.run()
 
