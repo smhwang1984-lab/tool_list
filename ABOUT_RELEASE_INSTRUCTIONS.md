@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-09-05 (v1.6.7)
+Last updated: 2026-09-06 (v1.6.8)
 
 ## About button requirements
 
@@ -34,7 +34,70 @@ Last updated: 2026-09-05 (v1.6.7)
 
 ## Version history
 
-### 2026-09-05 (latest, v1.6.7)
+### 2026-09-06 (latest, v1.6.8)
+
+- Version: 1.6.8
+- Release/build date: 2026-09-06 (코드/테스트 완료 — 설치본·포터블 패키지는 사용자 승인 후 생성)
+- Summary: 사용자 요청 3건(2026-09-06). 고정 사이클 지원이 이번 버전의 핵심이고,
+  나머지는 툴리스트 산출 모드의 선반/MCT 선택, 좌표·투영 오버레이 공통 배치다.
+  1. **고정 사이클(G73/G74/G76/G81~G89, 취소 G80)** — MCT/선반 양쪽에서 인식한다.
+     코드별 세부 동작은 구분하지 않고 전부 동일한 4점(접근/R점/깊이/복귀) 전개다.
+     MCT는 R=절대 초기점 Z, Z=절대 가공깊이(기존 그대로). 선반은 R/깊이 모두
+     **사이클 진입 직전 위치에서의 증분**이다 — 평면(G17=Z축/G19=X축)이 명시됐으면
+     그걸 따르고, 없으면 사이클 블록의 깊이 워드로 자동 판정한다. 선반은 이송
+     단위(G98/G99)와 무관하게 항상 초기점으로 복귀한다(이전엔 G99에서 복귀 경로가
+     통째로 안 그려지던 문제).
+  2. **툴리스트 산출 모드 선반/MCT 콤보** — 산출 모드는 장비 설정 패널이 숨겨져
+     선반/MCT를 바꿀 방법이 없던 문제를 고쳤다. 새 축약 콤보가 기존 장비 콤보와
+     완전히 연동되며(진실 원천은 하나), 직전에 쓰던 MCT 장비를 기억해 돌아간다.
+  3. **좌표/투영 오버레이 하단 공통 배치** — 이전엔 선반일 때만 좌표 표시가
+     화면 하단(재생 속도바 위)으로 내려가고 밀링은 좌상단에 남았다. 이제
+     밀링·선반 공통으로 항상 하단이고, 투영 버튼이 그 좌표 표시 왼쪽에 나란히 붙는다.
+- Creator displayed: Hwang.seonmun
+- Open source used: Python, PyQt5, pyqtgraph, NumPy, PyOpenGL, ReportLab, PyInstaller,
+  Inno Setup (새 의존성 없음).
+- Details:
+  - **고정 사이클(`nc_viewer_widget.py`):** `cycle_pattern`을 `G81|G83|G85|G73|G84|G80`
+    5개에서 `G73|G74|G76|G81|G82|G83|G84|G85|G86|G87|G88|G89|G80` 12개+취소로 넓혔다
+    — 확장 전에는 이 코드들이 정규식에 안 걸려 조용히 직선으로 이어지던(오동작) 것을
+    바로잡았다. MCT 쪽 4점 전개 로직(`g43_active` 게이트 포함)은 손대지 않았다 —
+    인식 범위만 넓어지면 자동으로 적용된다. 선반은 `process_nc_lines()`의 사이클
+    블록을 전면 재작성했다: `lathe_cycle_axis`/`lathe_cycle_ref`/`lathe_cycle_r`/
+    `lathe_cycle_depth` 모달 상태를 새로 두고, 평면이 한 번이라도 명시됐는지
+    (`lathe_plane_explicit`)를 추적해 축 방향을 판정한다(G19=X축, 그 외=Z축;
+    평면이 전혀 없었으면 사이클 블록의 Z/X 워드 유무로 자동 판정). R과 깊이 워드는
+    둘 다 진입 시 기준점(Z는 mm, X는 반경 mm)에서 독립적으로 더하는 증분값이고,
+    X축 방향의 R·깊이는 반경 공간 값 그대로 쓴다(다시 나누지 않음 — 2026-09-06
+    사용자 정정). 사이클이 끝나면 항상 초기점으로 복귀하는 세그먼트를 추가하고
+    (기존 `g98_active` 게이트를 선반에서만 제거), 모달 절대 위치(`cz`/`cx`)도
+    그 초기점으로 되돌려 다음 일반 이동이 어긋나지 않게 한다. G80을 만나면
+    선반 사이클 모달 상태를 전부 비운다.
+  - **산출 모드 콤보(`NC_Tool_List.py`):** `_build_tool_panel()`의 공구 개수 라벨
+    뒤에 `tool_mode_combo`(`MCT (밀링)`/`선반`)를 추가했다. `_tool_mode_combo_changed()`가
+    기존 `machine_type_combo`의 선택을 바꿔 `_viewer_machine_type_changed()` 경로를
+    그대로 태우므로(뷰어/QSettings 반영까지 자동), `is_lathe_program()`은 여전히
+    유일한 진실 원천이다. `_last_mct_machine_type`(+ QSettings `last_mct_machine_type`
+    키)이 마지막으로 쓰던 MCT 장비를 기억해 "선반→MCT" 왕복 시 그 장비로 돌아간다.
+    첫 실행이라 저장된 값이 없으면 지금 선택돼 있는 장비가 MCT일 때 그것을 시드로
+    쓴다(목록 첫 항목으로 임의 폴백하지 않는다). `sync_visible_machine_settings()`도
+    이 콤보를 함께 동기화한다.
+  - **오버레이 배치(`nc_viewer_widget.py`):** `_place_coord_overlay()`가 이제
+    `lathe` 인자와 무관하게 좌표 오버레이와 투영 오버레이를 둘 다
+    `top_left_widgets`에서 빼 `bottom_coord_widget`/`bottom_projection_widget`로
+    옮긴다. `_reposition_bottom_coord()`를 확장해 두 위젯을 하나의 묶음으로 보고
+    가로 중앙에 맞추며(투영이 왼쪽, 좌표가 오른쪽), 각자 자기 높이만큼만 재생
+    속도바 위로 띄워 높이가 달라도 바닥선이 맞게 정렬한다. 카메라/투영 각도
+    로직(`set_camera_projection`)은 손대지 않은 순수 화면 배치 변경이다.
+- Tests: `tests/test_nc_tool_list.py` 160개 통과(기존 148 + 신규 12). 신규는
+  `CannedCycleTests`(MCT 새 코드 인식, G98 복귀, G80 취소), `LatheModeTests` 추가분
+  (Z축/X축 증분 계산, 평면 없을 때 자동 판정, 평면 명시 시 우선, 모달 반복,
+  G99에서도 복귀, 가공시간 반영), `ToolListModeComboTests`(4열↔16열 전환, 양방향
+  동기화, 직전 MCT 기억, no-op 무변경). 기존 2개(`test_coord_overlay_is_transparent_
+  with_white_axis_labels`, `test_lathe_mode_moves_coord_overlay_above_playback_bar`)는
+  바뀐 배치 규약(밀링도 항상 하단)에 맞춰 갱신했다.
+- Installer/package status: **미생성 — 사용자 승인 후 빌드 예정.**
+
+### 2026-09-05 (v1.6.7)
 
 - Version: 1.6.7
 - Release/build date: 2026-09-05 (코드/테스트 완료 — 설치본·포터블 패키지는 사용자 승인 후 생성)

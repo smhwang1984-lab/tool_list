@@ -26,9 +26,9 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
 
-APP_VERSION = '1.6.7'
+APP_VERSION = '1.6.8'
 APP_NAME = 'Sum Path'
-APP_BUILD_DATE = '2026-09-05'
+APP_BUILD_DATE = '2026-09-06'
 APP_CREATOR = 'Hwang.seonmun'
 APP_PURPOSE = 'NC 프로그램에서 공구 리스트를 산출하고 NC 경로를 Viewer로 확인하는 도구'
 OPEN_SOURCE_COMPONENTS = (
@@ -2261,8 +2261,66 @@ else:
             self._rebuild_machine_spec_form()
             self.viewer.set_machine_type(machine_type)
             self.machine_settings_status.setText('')
+            if not is_lathe_machine(machine_type):
+                # v1.6.8: 산출 모드 콤보가 "MCT (밀링)"로 되돌아갈 때 어느
+                # MCT였는지 기억해 둔다 — 사용자가 직접 장비 콤보를
+                # 바꿨을 때도(새 콤보를 거치지 않아도) 항상 최신으로 유지.
+                self._last_mct_machine_type = machine_type
+                self.viewer.settings.setValue('last_mct_machine_type', machine_type)
+            self._sync_tool_mode_combo()
             if self.current_mode == 'viewer':
                 self.sync_viewer_from_source()
+
+        def _default_mct_machine_type(self):
+            for name in self.viewer.machine_types():
+                if not is_lathe_machine(name):
+                    return name
+            return self.viewer.current_machine_type
+
+        def _load_last_mct_machine_type(self):
+            raw = self.viewer.settings.value('last_mct_machine_type', '')
+            if raw and raw in self.viewer.machine_types() and not is_lathe_machine(raw):
+                return raw
+            # 'last_mct_machine_type' 키가 아직 없는(v1.6.8 이전) 첫 실행이면,
+            # 무작정 목록 첫 장비로 가지 말고 지금 이미 선택돼 있는 장비가
+            # MCT라면 그것을 시드로 쓴다 — 그래야 처음 산출 모드 콤보를
+            # 선반->MCT로 되돌려도 사용자가 원래 쓰던 장비 그대로 남는다.
+            current = self.viewer.current_machine_type
+            if current in self.viewer.machine_types() and not is_lathe_machine(current):
+                return current
+            return self._default_mct_machine_type()
+
+        def _sync_tool_mode_combo(self):
+            """장비 콤보 -> 산출 모드 콤보 방향 동기화. QSignalBlocker로
+            _tool_mode_combo_changed()가 다시 불려 재귀하지 않게 막는다."""
+            combo = getattr(self, 'tool_mode_combo', None)
+            if combo is None:
+                return
+            with QSignalBlocker(combo):
+                combo.setCurrentText('선반' if self.is_lathe_program() else 'MCT (밀링)')
+
+        def _tool_mode_combo_changed(self):
+            """산출 모드 콤보 -> 장비 콤보 방향 동기화(v1.6.8). 장비 콤보가
+            여전히 유일한 진실 원천이다 — 여기서는 그 콤보의 선택을 바꿔
+            기존 _viewer_machine_type_changed() 경로(뷰어/QSettings 반영)를
+            그대로 태우기만 한다."""
+            target_lathe = self.tool_mode_combo.currentText() == '선반'
+            if target_lathe == self.is_lathe_program():
+                return
+            if target_lathe:
+                lathe_name = next(
+                    (name for name in self.viewer.machine_types() if is_lathe_machine(name)),
+                    None,
+                )
+                if lathe_name is None:
+                    return
+                target_machine = lathe_name
+            else:
+                target_machine = self._last_mct_machine_type or self._default_mct_machine_type()
+            self.machine_type_combo.setCurrentText(target_machine)
+            # 표 양식(4열<->16열)을 바로 반영한다 — run()이 스키마 불일치를
+            # 감지해 알아서 표를 다시 구성한다(NC_Tool_List.py:run()).
+            self.run()
 
         def save_visible_machine_settings(self):
             machine_type = self.machine_type_combo.currentText()
@@ -2282,6 +2340,7 @@ else:
                 self.machine_type_combo.addItems(self.viewer.machine_types())
                 self.machine_type_combo.setCurrentText(self.viewer.current_machine_type)
             self._rebuild_machine_spec_form()
+            self._sync_tool_mode_combo()
 
         @staticmethod
         def _normalized_splitter_sizes(value, fallback, count):
@@ -2371,6 +2430,19 @@ else:
             # '표 복사'까지 이 행의 버튼들은 폰트/크기를 1.3배로 키운다(v1.6.0).
             row_button_font = QFont('맑은 고딕', 13)
             row_button_style = 'padding: 5px 10px;'
+            # v1.6.8: 산출 모드에서는 장비 설정 패널이 숨겨져(set_mode) 선반
+            # <-> MCT를 바꿀 방법이 없었다 — 장비 콤보와 완전 연동되는 축약
+            # 콤보를 여기 둔다(is_lathe_program()이 유일한 진실 원천이므로
+            # 파서/표 스키마/PDF/다음공구검색이 전부 자동으로 따라온다).
+            self._last_mct_machine_type = self._load_last_mct_machine_type()
+            self.tool_mode_combo = QComboBox()
+            self.tool_mode_combo.setFont(row_button_font)
+            self.tool_mode_combo.addItems(['MCT (밀링)', '선반'])
+            self.tool_mode_combo.setCurrentText(
+                '선반' if self.is_lathe_program() else 'MCT (밀링)'
+            )
+            self.tool_mode_combo.currentIndexChanged.connect(self._tool_mode_combo_changed)
+            rbar.addWidget(self.tool_mode_combo)
             btn_delete = self._add_button(rbar, '삭제', self.delete_selected, row_button_font)
             btn_delete.setStyleSheet(row_button_style)
             btn_edit = self._add_button(rbar, '수정', self.edit_selected, row_button_font)

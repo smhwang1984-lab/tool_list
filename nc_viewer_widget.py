@@ -474,7 +474,11 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
         self.top_left_widgets = []
         # v1.6.5: 선반 뷰에서는 좌표 오버레이가 top_left_widgets 목록을
         # 떠나 이 위젯으로 옮겨온다(화면 하단, 재생 속도바 바로 위).
+        # v1.6.8: 이제 밀링/선반 공통으로 항상 하단이고, 투영 오버레이도
+        # 같은 줄의 왼쪽에 나란히 붙는다(top_left_widgets는 더 이상 쓰지
+        # 않는다 — 사용자 확정).
         self.bottom_coord_widget = None
+        self.bottom_projection_widget = None
         # 렌더된 경로 전체를 감싸는 구의 반지름(원점 기준) — projectionMatrix()가
         # 깊이 클리핑 범위를 카메라 거리 대신 이 값으로 산정해, 확대해도 긴
         # 경로가 far 평면에 잘리지 않게 한다. 경로가 없으면 0(거리 기반 fallback).
@@ -673,17 +677,35 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
         bar.move((self.width() - width) // 2, max(0, y))
 
     def _reposition_bottom_coord(self):
-        """v1.6.5: 선반 모드에서는 좌표 오버레이가 화면 하단, 재생 속도바
-        바로 위 중앙에 뜬다(밀링에서는 top_left_widgets 쪽에 남아 있으므로
-        bottom_coord_widget이 비어 있어 아무 일도 하지 않는다)."""
+        """v1.6.8: 좌표 오버레이는 이제 밀링/선반 공통으로 항상 화면 하단,
+        재생 속도바 바로 위에 뜬다(이전엔 선반일 때만). 투영 오버레이가
+        있으면 그 왼쪽에 나란히 붙는다(투영이 왼쪽, 좌표가 오른쪽 —
+        사용자 확정, 2026-09-06). 두 위젯을 하나의 묶음으로 보고 가로
+        중앙에 맞추며, 각자 자기 높이만큼만 속도바 위로 띄워 높이가
+        달라도 바닥선이 맞게 정렬한다."""
         widget = self.bottom_coord_widget
-        if widget is None:
+        projection = self.bottom_projection_widget
+        if widget is None and projection is None:
             return
         bar = self.bottom_bar_widget
         bar_top_y = bar.y() if bar is not None else self.height() - round(2 * PX_PER_CM)
-        y = bar_top_y - widget.height() - BOTTOM_COORD_OVERLAY_GAP_PX
-        x = (self.width() - widget.width()) // 2
-        widget.move(max(0, x), max(0, y))
+
+        total_width = 0
+        if projection is not None:
+            total_width += projection.width()
+        if widget is not None:
+            if projection is not None:
+                total_width += BOTTOM_COORD_OVERLAY_GAP_PX
+            total_width += widget.width()
+        cursor_x = max(0, (self.width() - total_width) // 2)
+
+        if projection is not None:
+            proj_y = bar_top_y - projection.height() - BOTTOM_COORD_OVERLAY_GAP_PX
+            projection.move(cursor_x, max(0, proj_y))
+            cursor_x += projection.width() + BOTTOM_COORD_OVERLAY_GAP_PX
+        if widget is not None:
+            coord_y = bar_top_y - widget.height() - BOTTOM_COORD_OVERLAY_GAP_PX
+            widget.move(cursor_x, max(0, coord_y))
 
     def _reposition_overlay(self):
         if self.overlay_widget is None:
@@ -2232,21 +2254,26 @@ class NCViewerWidget(QWidget):
             pass
 
     def _place_coord_overlay(self, lathe):
-        """v1.6.5: 선반 뷰에서는 좌표 오버레이를 화면 하단(재생 속도바
-        바로 위)으로 옮기고, 밀링에서는 원래 자리(좌상단, 투영 버튼 위)로
-        되돌린다."""
+        """v1.6.8: 좌표 오버레이와 투영 오버레이 모두 화면 하단(재생
+        속도바 바로 위)에 나란히 뜬다 — 밀링/선반 공통(사용자 확정,
+        2026-09-06). 이전에는 선반일 때만 좌표가 하단으로 내려가고
+        밀링은 좌상단에 남았지만, 이제 lathe 인자는 배치에 더 이상
+        쓰이지 않는다(호출부 호환을 위해 시그니처만 유지). 투영 버튼
+        세트(ISO/XY/XZ/YZ vs ISO/선반) 자체는 set_lathe_mode()가
+        그대로 갈아 끼운다 — 손대지 않는다."""
         gl_view = getattr(self, "gl_view", None)
-        coord_overlay = getattr(self, "coord_overlay", None)
-        if gl_view is None or coord_overlay is None:
+        if gl_view is None:
             return
-        if lathe:
+        coord_overlay = getattr(self, "coord_overlay", None)
+        if coord_overlay is not None:
             if coord_overlay in gl_view.top_left_widgets:
                 gl_view.top_left_widgets.remove(coord_overlay)
             gl_view.bottom_coord_widget = coord_overlay
-        else:
-            gl_view.bottom_coord_widget = None
-            if coord_overlay not in gl_view.top_left_widgets:
-                gl_view.top_left_widgets.insert(0, coord_overlay)
+        projection_overlay = getattr(self, "projection_overlay", None)
+        if projection_overlay is not None:
+            if projection_overlay in gl_view.top_left_widgets:
+                gl_view.top_left_widgets.remove(projection_overlay)
+            gl_view.bottom_projection_widget = projection_overlay
         gl_view._reposition_top_left()
         gl_view._reposition_bottom_coord()
 
@@ -2608,6 +2635,17 @@ class NCViewerWidget(QWidget):
         detected_t = ""
         process_no = 0
 
+        # v1.6.8: 선반 고정 사이클 전용 모달 상태. G81~G89/G73/G74/G76 중
+        # 어느 것이든 활성화된 동안(G80까지) 유지된다. 밀링은 이 변수들을
+        # 전혀 읽지 않는다(가이드라인 0항).
+        lathe_cycle_axis = None      # "Z"(주축 방향, G17) 또는 "X"(지름 방향, G19)
+        lathe_cycle_ref = None       # 사이클 진입 직전 위치 — Z축은 mm, X축은 반경(mm)
+        lathe_cycle_r = 0.0          # 마지막 R 워드(반경 공간 증분값, 모달)
+        lathe_cycle_depth = 0.0      # 마지막 깊이 워드(Z축=Z워드, X축=X워드=반경 증분, 모달)
+        # 이 프로그램에서 G17/G18/G19가 한 번이라도 명시됐는가 — 명시됐다면
+        # 사이클 방향 판정에서 평면이 워드 판정보다 우선한다(사용자 확정).
+        lathe_plane_explicit = False
+
         # v1.6.7 가공시간용 모달 상태. F는 한 번 나오면 계속 유지되고
         # (G00 구간만 F를 무시하고 급속으로 본다), 선반은 여기에 더해
         # 이송 단위(G98 mm/min vs G99 mm/rev)와 회전 모드(G96/G97)를 든다.
@@ -2659,7 +2697,15 @@ class NCViewerWidget(QWidget):
         g49_pattern = re.compile(r"G49")
         g98_pattern = re.compile(r"G98")
         g99_pattern = re.compile(r"G99")
-        cycle_pattern = re.compile(r"(G81|G83|G85|G73|G84|G80)")
+        # v1.6.8: 드릴링 계열 고정 사이클을 전부 인식한다. 밀링은 코드별
+        # 동작을 구분하지 않고 전부 동일한 4점(접근/R점/깊이/복귀) 전개다
+        # (Q 펙·P 드웰·G76/G87의 I/J 시프트는 이번 범위 밖, 사용자 확정).
+        # G76은 여기서 밀링 파인보링과 같은 단순 드릴 계열로만 다룬다 —
+        # 선반의 실제 다중 패스 나사가공 G76(G70~G76 복합 선삭)은 여전히
+        # LATHE_MODE_GUIDELINES.md §8의 별도 승인 대상으로 남는다.
+        cycle_pattern = re.compile(
+            r"(G73|G74|G76|G81|G82|G83|G84|G85|G86|G87|G88|G89|G80)"
+        )
         # v1.6.7 가공시간. G50S___(최대 회전수)는 먼저 떼어내고 나서 S를
         # 찾아야 "G50S2500G96S180" 같은 줄에서 상한을 절삭속도로 오인하지
         # 않는다.
@@ -2743,10 +2789,19 @@ class NCViewerWidget(QWidget):
 
             if g17_pattern.search(line_upper):
                 current_plane = "G17"
+                plane_seen_this_line = True
             elif g18_pattern.search(line_upper):
                 current_plane = "G18"
+                plane_seen_this_line = True
             elif g19_pattern.search(line_upper):
                 current_plane = "G19"
+                plane_seen_this_line = True
+            else:
+                plane_seen_this_line = False
+            if is_lathe and plane_seen_this_line:
+                # v1.6.8: 선반 고정 사이클의 방향(Z축/X축) 판정에만 쓰인다 —
+                # 평면 자체의 의미나 밀링 원호 처리는 손대지 않는다.
+                lathe_plane_explicit = True
 
             # v1.6.6: M35(구동공구 ON) ~ M34(선삭 복귀) — is_lathe 분기에서만.
             if is_lathe:
@@ -2785,6 +2840,14 @@ class NCViewerWidget(QWidget):
                 cycle_code = cycle_match.group(1)
                 cycle_active = cycle_code != "G80"
                 current_motion = cycle_code
+                if is_lathe and cycle_code == "G80":
+                    # v1.6.8: 취소 시 사이클 모달 상태를 전부 비운다 — 다음
+                    # 사이클이 R/깊이를 빠뜨린 기형 프로그램이어도 이전
+                    # 사이클의 값이 새지 않도록.
+                    lathe_cycle_axis = None
+                    lathe_cycle_ref = None
+                    lathe_cycle_r = 0.0
+                    lathe_cycle_depth = 0.0
 
             # 공구 교체 판정 — 밀링/MCT는 M6 Tnn, 선반은 Tnn00 (v1.6.4).
             # 두 갈래를 완전히 분리해 밀링 경로에는 선반 규칙이 끼어들지 않는다.
@@ -2967,21 +3030,64 @@ class NCViewerWidget(QWidget):
                     ).tolist() if (is_5axis_ac or is_5axis_bc or is_4axis) else list(local_target_pt)
 
                 if cycle_active and is_lathe:
-                    # v1.6.4: 선반 고정 사이클은 주축 방향(기계 Z)으로 뚫는다.
-                    # 밀링처럼 Z(수직)로 내려가는 게 아니라, X(지름)를 유지한 채
-                    # Z만 R점 -> 최종 깊이로 움직인다. 밀링 블록과 완전히 분리.
-                    start_z = start_pt[0]
-                    target_z = cz
-                    r_val = float(r_cycle_match.group(1)) if r_cycle_match else start_z
-                    approach_pt = lathe_world_point(start_z, cx, cc_deg)
-                    r_point_pt = lathe_world_point(r_val, cx, cc_deg)
-                    final_z_pt = lathe_world_point(target_z, cx, cc_deg)
+                    # v1.6.8 재작성: 선반 사이클의 R/깊이 워드는 밀링과 달리
+                    # 사이클 진입 직전 위치에서의 **증분**이다(사용자 확정,
+                    # 2026-09-06). 방향은 평면이 한 번이라도 명시됐으면
+                    # G19=X축(지름 방향)/그 외=Z축(주축 방향)을 그대로
+                    # 따르고, 평면이 전혀 없었으면 이 사이클 블록에 Z 워드가
+                    # 있는지로 자동 판정한다(Z 있으면 Z축, X만 있으면 X축).
+                    # start_local은 이 줄의 X/Z 갱신 **이전** 위치라 기준점으로
+                    # 그대로 쓸 수 있다.
+                    is_cycle_def_line = cycle_match is not None
+                    if lathe_plane_explicit:
+                        axis = "X" if current_plane == "G19" else "Z"
+                    elif is_cycle_def_line:
+                        axis = "Z" if z_match else "X"
+                    else:
+                        axis = lathe_cycle_axis or "Z"
+
+                    if is_cycle_def_line or lathe_cycle_axis != axis or lathe_cycle_ref is None:
+                        lathe_cycle_axis = axis
+                        lathe_cycle_ref = start_local[0] if axis == "Z" else start_local[2]
+
+                    if r_cycle_match:
+                        lathe_cycle_r = float(r_cycle_match.group(1))
+                    if axis == "Z" and z_match:
+                        lathe_cycle_depth = float(z_match.group(1))
+                    elif axis == "X" and x_match:
+                        lathe_cycle_depth = float(x_match.group(1))
+
+                    # R과 깊이 모두 반경 공간(X축) 또는 Z 길이(Z축) 증분값 —
+                    # 절반으로 나누지 않고 기준점에 그대로 더한다
+                    # (LATHE_MODE_GUIDELINES.md §2의 I/R 반경값 규약과 동일).
+                    r_target = lathe_cycle_ref + lathe_cycle_r
+                    depth_target = lathe_cycle_ref + lathe_cycle_depth
+
+                    if axis == "Z":
+                        # 반대축(X, 지름)은 보통의 절대 위치 — 이 줄에서 이미
+                        # 갱신된 cx를 그대로 쓴다.
+                        approach_pt = lathe_world_point(start_local[0], cx, cc_deg)
+                        r_point_pt = lathe_world_point(r_target, cx, cc_deg)
+                        final_pt = lathe_world_point(depth_target, cx, cc_deg)
+                        cz = start_local[0]  # 사이클은 항상 초기점으로 복귀(아래)
+                    else:
+                        # 반대축(Z)은 보통의 절대 위치 — 이 줄에서 이미 갱신된
+                        # cz를 그대로 쓴다. r_target/depth_target은 반경값이라
+                        # lathe_world_point(지름 인자)에 넘기려면 x2 한다.
+                        approach_pt = lathe_world_point(cz, start_local[2] * 2.0, cc_deg)
+                        r_point_pt = lathe_world_point(cz, r_target * 2.0, cc_deg)
+                        final_pt = lathe_world_point(cz, depth_target * 2.0, cc_deg)
+                        cx = start_local[2] * 2.0  # 사이클은 항상 초기점으로 복귀(아래)
+
                     self.tool_paths[current_tool].append({"pt": approach_pt, "type": "G00", "valid": True, "src_line": idx})
                     self.tool_paths[current_tool].append({"pt": r_point_pt, "type": "G00", "valid": True, "src_line": idx})
-                    self.tool_paths[current_tool].append({"pt": final_z_pt, "type": "G01", "valid": True, "src_line": idx})
-                    if g98_active:
-                        self.tool_paths[current_tool].append({"pt": approach_pt, "type": "G00", "valid": True, "src_line": idx})
-                    self.line_to_coord_map[idx] = final_z_pt
+                    self.tool_paths[current_tool].append({"pt": final_pt, "type": "G01", "valid": True, "src_line": idx})
+                    # v1.6.8: 선반은 g98_active(=이송 단위 G98/G99와 같은
+                    # 변수) 상태와 무관하게 항상 초기점으로 복귀한다 — 기존
+                    # 코드가 G99(선반 기본)에서 복귀 경로를 그리지 않던
+                    # 문제를 바로잡는다.
+                    self.tool_paths[current_tool].append({"pt": approach_pt, "type": "G00", "valid": True, "src_line": idx})
+                    self.line_to_coord_map[idx] = final_pt
                     continue
 
                 if cycle_active and g43_active:
