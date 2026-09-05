@@ -1,6 +1,6 @@
 # About / Release Instructions
 
-Last updated: 2026-09-05 (v1.6.2)
+Last updated: 2026-09-05 (v1.6.3)
 
 ## About button requirements
 
@@ -34,7 +34,38 @@ Last updated: 2026-09-05 (v1.6.2)
 
 ## Version history
 
-### 2026-09-05 (latest, v1.6.2)
+### 2026-09-05 (latest, v1.6.3)
+
+- Version: 1.6.3
+- Release/build date: 2026-09-05
+- Summary: v1.6.2 실사용 피드백 8건:
+  1. **Bug fix**: 다크모드 토글 버튼이 v1.6.2에서 앱 상단 바로 옮겨졌는데, 그 상단 바 배경은 테마와 무관하게 항상 어두운 남색이다. 그런데도 아이콘 색을 테마에 따라 밝음/어두움으로 바꾸고 있어서, 라이트 테마일 때 어두운 아이콘(#1f2937)이 똑같이 어두운 상단 바 위에서 거의 안 보였다(다크 테마일 때만 우연히 밝은 아이콘이라 보였음). 이제 아이콘 색을 테마와 무관하게 항상 밝게(#f2f5fa) 고정한다.
+  2. "큐브" 슬라이더/라벨이 v1.6.2에서 실수로 그대로 남아 있었다 — 감도와 같은 비율(40%)로 폰트·바 폭을 줄인다. 실제 3D 오리엔테이션 큐브 자체의 크기 범위/기본값은 이전과 같이 그대로 둔다(사용자가 명시적으로 손대지 말라고 요청한 부분).
+  3. "좌표"(X~C) 표시를 불투명 배경의 QGroupBox 행에서 3D 화면 왼쪽 위의 투명 오버레이(`CoordOverlayWidget`)로 바꿔, 그 자리의 공구 경로가 가려지지 않게 했다. 축 프리픽스 글자(X:, Y: 등)는 어두운 3D 캔버스 위에서도 보이도록 흰색으로 고정했다(값 자체의 축별 색상은 그대로 유지).
+  4. 투영(ISO/XY/XZ/YZ) 버튼 간격이 너무 붙어 있다는 피드백으로 4px -> 10px로 넓혔다.
+  5. 재생 시 쓰는 체크박스(텍스트 정지/정지/옵션정지/PG 매칭)가 체크되면 눈에 띄도록, 체크 시 인디케이터를 초록으로 채우고 글자도 굵은 초록으로 바꾸는 전용 스타일(`PLAYBACK_CHECKBOX_STYLE`)을 추가했다.
+  6. 공구 리스트 표가 패널 폭보다 넓어 가로 스크롤바가 생기던 문제 — 표 폰트/셀 폭이 현재 패널 폭에 맞춰 가변으로 줄어들거나(최대 v1.6.2의 15%-축소 기준 크기까지) 늘어나도록 `App._relayout_tool_table()`을 추가하고, 새 `ToolTableWidget`(자체 `resized` 시그널)으로 표 크기가 바뀔 때마다(스플리터 드래그 포함) 자동으로 다시 계산한다.
+  7. ISO 버튼을 누르면 좌표가 화면 중앙에 오도록(v1.6.2) 했던 동작에 더해, 로드된 경로 전체가 화면 안에 다 들어오도록 카메라 거리도 자동으로 맞춘다(줌 전체 보기, `_zoom_to_fit_distance()`).
+  8. 위 줌 전체 보기 + 좌표 중앙 정렬 동작을 ISO뿐 아니라 XY/XZ/YZ 4개 투영 버튼 모두에 동일하게 적용한다(요청: "투영 아이콘 4가지 전부 같은 기능으로").
+- Creator displayed: Hwang.seonmun
+- Open source used: Python, PyQt5, pyqtgraph, NumPy, PyOpenGL, ReportLab, PyInstaller, Inno Setup (unchanged — no dependency added or removed).
+- Details:
+  - **다크모드 아이콘 색 고정(`nc_viewer_widget.py`, `_refresh_dark_mode_button`):** `icon_color = "#e4e8f0" if self._dark_mode else "#1f2937"` -> 고정값 `"#f2f5fa"`.
+  - **큐브 UI 축소(`nc_viewer_widget.py`, `NCViewerWidget._build_ui`):** `cube_font`를 `QFont("맑은 고딕", 14)`에서 `setPointSizeF(14 * CONTROL_SHRINK)`로, `view_cube_size_slider`/`view_cube_size_label` 고정폭을 `shrink(135)`/`shrink(57)`로 변경. `view_cube_size_slider`의 `range(60, 240)`과 `self._initial_cube_size` 초기값은 그대로.
+  - **좌표 오버레이(`nc_viewer_widget.py`):** 새 `CoordOverlayWidget` 클래스(투명 배경, `QLabel { color: white }`, 값 라벨만 축별 인라인 색상). `OrthographicGLViewWidget.top_left_widget`(단일 위젯)을 `top_left_widgets`(목록)로 리팩터링해 좌표(위)·투영(아래) 오버레이를 위→아래로 쌓는다(`_reposition_top_left`, `TOP_LEFT_OVERLAY_STACK_GAP_PX=6`). `NCViewerWidget._build_coord_overlay()`가 실패해도 뷰어 전체를 잃지 않도록 try/except로 감쌌고, `self.coord_labels`가 비어 있어도 `_set_coordinate_labels()`가 안전하게 동작하도록 `.get(axis)` 가드를 추가했다.
+  - **투영 버튼 간격(`nc_viewer_widget.py`, `ProjectionOverlayWidget`):** `row.setSpacing(4)` -> `10`, "투영" 라벨과 첫 버튼 사이에 `addSpacing(4)` 추가.
+  - **재생 체크박스 스타일(`NC_Tool_List.py`):** 새 상수 `PLAYBACK_CHECKBOX_STYLE`(`QCheckBox::indicator:checked { background: #2ecc71; ... }`, `QCheckBox:checked { color: #1e9e5a; font-weight: 700; }`)을 `stop_text_check`/`stop_m00_check`/`stop_m01_check`/`pg_match_check`에 적용.
+  - **공구 리스트 표 반응형(`NC_Tool_List.py`):** 새 `ToolTableWidget(QTableWidget)` 서브클래스(`resized` 시그널을 `resizeEvent`에서 emit — `QSplitter.splitterMoved`는 `setSizes()` 같은 프로그램적 크기 변경에는 발생하지 않아 이 경로가 필요했다). 새 `App._relayout_tool_table()`이 `table.viewport().width()`와 `_COL_WIDTH_TOTAL`(모든 COL_WIDTH의 합, 새 모듈 상수)의 비율로 스케일(`TOOL_TABLE_MIN_SCALE=0.45` ~ `1.0`으로 클램프)을 구해 폰트(`TABLE_FONT_PT * scale`)와 각 열 폭(`int(COL_WIDTH[key] * scale)`, 반올림이 아니라 내림 — 합계가 available을 넘지 않도록)을 다시 설정하고 `resizeRowsToContents()`로 행 높이도 갱신한다. `self.table.resized`와 `App.resizeEvent`(신규 오버라이드) 양쪽에서 호출하고, `run()` 끝에서도 한 번 호출한다.
+  - **줌 전체 보기(`nc_viewer_widget.py`, `NCViewerWidget`):** 새 `_zoom_to_fit_distance()`가 `gl_view.scene_radius`(경로 전체를 감싸는 구 반지름)와 현재 뷰포트 종횡비·FOV로부터, 두 방향(가로/세로) 모두 경로가 잘리지 않는 최소 거리에 여유 배율(`_ZOOM_TO_FIT_MARGIN=1.25`)을 곱해 반환한다(경로가 없으면 `None` -> 기존 고정값 200 사용). `set_camera_projection()`이 이제 4개 뷰 타입 모두에서 이 거리와 `recenter=True`를 함께 쓴다(v1.6.2에서는 ISO만 recenter했다).
+- Verification: 98 unit tests passed (기존 91개 + v1.6.3 신규 7개: 다크모드 아이콘 색 고정, 큐브 UI 축소, 투영 버튼 간격, 좌표 오버레이 투명·흰색 축 글자, 4개 투영 버튼 리센터+줌 전체 보기, 재생 체크박스 스타일, 표 반응형 축소). `pytest tests/test_nc_tool_list.py` 98/98 통과. 1920x1080으로 실제 창을 띄워 라이트/다크 테마 모두에서 스크린샷으로 다크모드 아이콘·좌표 오버레이·체크박스 스타일을 육안 확인했고(라이트 테마에서 기존에는 아이콘이 상단 바와 거의 같은 색이라 사실상 안 보였던 것을 확인 후 수정), 카메라를 팬(pan)한 뒤 ISO/XY/XZ/YZ 각각을 눌러 `gl_view.opts['center']`가 매번 원점으로 돌아오고 `distance * tan(fov/2) >= scene_radius`(경로 전체가 화면 안에 들어옴)를 만족하는 것을 스크립트로 검증했다. 표 반응형도 뷰포트 폭을 좁혔다 넓혔다 하며 가로 스크롤바가 한 번도 나타나지 않는 것을 확인했다. 프리즈된 exe도 직접 실행해 `startup.log`에 트레이스백 없이 `Starting Sum Path v1.6.3 frozen=True`가 찍히는 것을 확인한 뒤 정상 종료시켰다.
+- Installer/package: Created `installer/NC_Tool_List_Setup_v1.6.3.exe` and `installer/NC_Tool_List_Portable_v1.6.3.zip` from a fresh PyInstaller onedir rebuild after deleting `build/` and `dist/` (`dist/NC_Tool_List/_internal/OpenGL` confirmed absent, no `freeglut`/`gle32`/`gle64` DLLs present, `upx=False` in the spec; `version_info.txt` and `NC_Tool_List.iss`'s `MyAppVersion` bumped to 1.6.3 so the built exe's version resource reads `1.6.3.0`/`S M.HWANG`). Portable ZIP matches the v1.5.0–v1.6.2 layout (`_internal` + `NC_Tool_List.exe` at the archive root, 311 entries).
+- Installer SHA-256: 87A03423C834B5CE84E0790176A7055951ED0AA44297445133CD73B0E759B58B
+- Portable ZIP SHA-256: 00D422E0F133E549FD8192414EB658531916585A565265042ADEEE654957ED89
+- App SHA-256: CAF739E94726BAEF491318C7BD63C0D07B151953306530CC6E0770A79CE5EC4F
+- Signature status: still unsigned.
+- Out of scope (left untouched): actual code-signing; merging into `agent/drag-drop-installer`; the exe filename/install directory/Start-Menu display name/file-association ProgId (still "NC Tool List"/"NC_Tool_List"); lathe (2-axis) coordinate mapping; G90/G91 incremental-mode support; the `ViewerFallbackWidget` fallback screen; the magnifier lens (still fixed 220px/3x); the "큐브" 슬라이더 범위(60~240)와 3D 큐브 위젯 자체의 기본 크기(사용자가 명시적으로 손대지 말라고 요청). **v1.6.2's installer/ZIP should be treated as superseded and not distributed** — the 8 fixes above are not in it.
+
+### 2026-09-05 (v1.6.2)
 
 - Version: 1.6.2
 - Release/build date: 2026-09-05

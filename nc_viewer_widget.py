@@ -38,8 +38,10 @@ MAX_PLAYBACK_SPEED = 5000
 # 모드 아이콘)이 지나치게 크다는 피드백으로 크기를 40% 줄인다(= 0.6배).
 CONTROL_SHRINK = 0.6
 
-# 투영 오버레이를 3D 화면 왼쪽 위 모서리에서 띄우는 여백.
+# 좌표/투영 오버레이를 3D 화면 왼쪽 위 모서리에서 띄우는 여백과, 그 둘
+# 사이의 세로 간격(v1.6.3).
 TOP_LEFT_OVERLAY_MARGIN_PX = 10
+TOP_LEFT_OVERLAY_STACK_GAP_PX = 6
 
 # 다크모드 토글 버튼/아이콘 크기(v1.6.1의 52px에서 40% 감축).
 DARK_MODE_BUTTON_PX = round(52 * CONTROL_SHRINK)
@@ -275,7 +277,10 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
         self.bottom_bar_widget = None
         # v1.6.2: 투영(ISO/XY/XZ/YZ) 표기부를 3D 화면 왼쪽 위에 반투명하게
         # 얹어, 별도 행이 차지하던 자리에도 공구 경로가 보이게 한다.
-        self.top_left_widget = None
+        # v1.6.3: "좌표" 표시도 같은 자리(왼쪽 위)로 옮겨 위→아래로 쌓으므로
+        # 단일 위젯이 아니라 순서 있는 목록으로 관리한다(위쪽부터 좌표,
+        # 투영 순).
+        self.top_left_widgets = []
         # 렌더된 경로 전체를 감싸는 구의 반지름(원점 기준) — projectionMatrix()가
         # 깊이 클리핑 범위를 카메라 거리 대신 이 값으로 산정해, 확대해도 긴
         # 경로가 far 평면에 잘리지 않게 한다. 경로가 없으면 0(거리 기반 fallback).
@@ -376,10 +381,14 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
         )
 
     def _reposition_top_left(self):
-        """투영 오버레이를 3D 화면 왼쪽 위 모서리에 붙인다."""
-        if self.top_left_widget is None:
-            return
-        self.top_left_widget.move(TOP_LEFT_OVERLAY_MARGIN_PX, TOP_LEFT_OVERLAY_MARGIN_PX)
+        """좌표/투영 오버레이를 3D 화면 왼쪽 위 모서리에 위→아래로 쌓아 붙인다
+        (v1.6.3: "좌표" 박스도 이 자리로 옮겨오면서 목록으로 관리)."""
+        y = TOP_LEFT_OVERLAY_MARGIN_PX
+        for widget in self.top_left_widgets:
+            if widget is None:
+                continue
+            widget.move(TOP_LEFT_OVERLAY_MARGIN_PX, y)
+            y += widget.height() + TOP_LEFT_OVERLAY_STACK_GAP_PX
 
     def projectionMatrix(self, region, viewport):
         if not self.use_orthographic_projection:
@@ -742,9 +751,12 @@ class ProjectionOverlayWidget(QWidget):
         )
         row = QHBoxLayout(self)
         row.setContentsMargins(6, 4, 6, 4)
-        row.setSpacing(4)
+        # v1.6.3: 버튼끼리 너무 붙어 있다는 피드백으로 간격을 4 -> 10px로
+        # 넓힌다. "투영" 라벨과 첫 버튼 사이에는 조금 더 띄운다.
+        row.setSpacing(10)
         label = QLabel("투영")
         row.addWidget(label)
+        row.addSpacing(4)
         for text, view_type in (
             ("ISO", "ISO"), ("XY", "XY"), ("XZ", "XZ"), ("YZ", "YZ"),
         ):
@@ -756,6 +768,45 @@ class ProjectionOverlayWidget(QWidget):
             button.setFocusPolicy(Qt.NoFocus)
             button.clicked.connect(lambda _checked=False, value=view_type: self.projection_clicked.emit(value))
             row.addWidget(button)
+        self.adjustSize()
+
+
+class CoordOverlayWidget(QWidget):
+    """현재 좌표(X~C)를 3D 화면 왼쪽 위에 얹는 오버레이(v1.6.3).
+
+    이전에는 QGroupBox("좌표")로 3D 화면 위 별도 행에 그려졌는데, 그 박스
+    배경이 3D 화면을 가려 공구 경로가 안 보인다는 피드백으로 이 오버레이로
+    바꾼다 — 박스 테두리/배경 없이 글자만 3D 화면 위에 떠 있다. 축 프리픽스
+    글자(X:, Y: 등)는 항상 어두운 3D 캔버스 위에 떠 있으므로 테마와 무관하게
+    흰색으로 고정한다 — 값 자체는 기존 축별 색상을 그대로 유지한다.
+    """
+
+    _AXIS_COLORS = {
+        "X": "#FF3333", "Y": "#33AA33", "Z": "#4D68FF",
+        "A": "#9A8500", "B": "#AA33AA", "C": "#229999",
+    }
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setStyleSheet(
+            "CoordOverlayWidget { background: transparent; }"
+            " QLabel { background: transparent; color: white; font-size: 14px; font-weight: bold; }"
+        )
+        row = QHBoxLayout(self)
+        row.setContentsMargins(6, 4, 6, 4)
+        row.setSpacing(14)
+        self.value_labels = {}
+        for axis in ("X", "Y", "Z", "A", "B", "C"):
+            axis_label = QLabel(axis + ":")
+            row.addWidget(axis_label)
+            value = QLabel("0.000")
+            value.setStyleSheet(
+                "background: transparent; font-weight: bold; font-size: 14px; color: %s;"
+                % self._AXIS_COLORS[axis]
+            )
+            self.value_labels[axis] = value
+            row.addWidget(value)
         self.adjustSize()
 
 
@@ -1019,11 +1070,16 @@ class NCViewerWidget(QWidget):
         # "감도"/"큐브" 라벨과 슬라이더(바)는 기존(설정 안 된 기본 폰트, 폭
         # 110/90px)의 1.5배로 키웠다(v1.5.8 요청).
         # v1.6.2: "감도" 쪽만 1920x1080에서 너무 크다는 피드백으로 폰트/폭을
-        # 40% 줄인다(14pt -> 8.4pt, 165px -> 99px) — "큐브"는 사용자가
-        # 명시적으로 손대지 말라고 요청해 그대로 둔다.
+        # 40% 줄였다 — 당시 "큐브"는 실제 3D 오리엔테이션 큐브 자체를 손대지
+        # 말라는 요청으로 그 슬라이더/라벨(UI 크롬)까지 그대로 뒀었다.
+        # v1.6.3: 큐브 UI(라벨/슬라이더 바) 크기가 줄지 않았다는 재요청으로,
+        # 감도와 같은 비율로 폰트·바 폭만 줄인다 — 큐브의 기본 픽셀 크기
+        # (_initial_cube_size)와 범위(60~240)는 실제 3D 큐브 그래픽 크기를
+        # 결정하는 값이라 여기서 손대지 않는다(요청 취지 유지).
         sensitivity_font = QFont("맑은 고딕")
         sensitivity_font.setPointSizeF(14 * CONTROL_SHRINK)
-        cube_font = QFont("맑은 고딕", 14)
+        cube_font = QFont("맑은 고딕")
+        cube_font.setPointSizeF(14 * CONTROL_SHRINK)
         sensitivity_label = QLabel("감도")
         sensitivity_label.setFont(sensitivity_font)
         view_bar.addWidget(sensitivity_label)
@@ -1046,8 +1102,11 @@ class NCViewerWidget(QWidget):
         cube_label.setFont(cube_font)
         view_bar.addWidget(cube_label)
         self.view_cube_size_slider = QSlider(Qt.Horizontal)
+        # 범위(60~240)와 초기값은 3D 큐브 자체의 실제 픽셀 크기를 그대로
+        # 결정하므로 손대지 않는다 — 여기서 줄이는 건 이 슬라이더 바/라벨의
+        # 화면 UI 크기뿐이다.
         self.view_cube_size_slider.setRange(60, 240)
-        self.view_cube_size_slider.setFixedWidth(135)
+        self.view_cube_size_slider.setFixedWidth(shrink(135))
         self.view_cube_size_slider.setValue(self._initial_cube_size)
         self.view_cube_size_slider.setToolTip("방향 큐브 크기")
         self.view_cube_size_slider.setFocusPolicy(Qt.NoFocus)
@@ -1055,7 +1114,7 @@ class NCViewerWidget(QWidget):
         view_bar.addWidget(self.view_cube_size_slider)
         self.view_cube_size_label = QLabel("%dpx" % self.view_cube_size_slider.value())
         self.view_cube_size_label.setFont(cube_font)
-        self.view_cube_size_label.setFixedWidth(57)
+        self.view_cube_size_label.setFixedWidth(shrink(57))
         view_bar.addWidget(self.view_cube_size_label)
         # v1.6.2: 다크모드 버튼은 이 행이 아니라 앱 상단 바(About/도움말/모드
         # 버튼 줄)로 옮겨 달라는 요청에 따라, 여기서는 만들어 두기만 하고
@@ -1081,39 +1140,11 @@ class NCViewerWidget(QWidget):
         view_bar.addSpacing(round(2 * PX_PER_CM))
         layout.addLayout(view_bar)
 
-        # "좌표" 라벨: v1.5.7에 2배(18pt)로 키웠으나 v1.5.8에서 그 값의
-        # 0.7배로 다시 낮춘다(13pt) — 박스 높이도 같은 비율로 줄인다.
-        coord_font = QFont("맑은 고딕", 13)
-        coord_group = QGroupBox("좌표")
-        coord_group.setFont(QFont("맑은 고딕", 13, QFont.Bold))
-        # v1.6.0: 좌표 폰트/위치는 그대로 두고 박스 아래쪽에만 여유 공간을
-        # 준다. 좌표 행(coord_layout)을 세로 레이아웃 맨 위에 넣고 그 아래에
-        # addStretch()를 둬서, 늘어난 높이만큼 빈 공간이 아래쪽에 생기게 한다.
-        coord_outer_layout = QVBoxLayout(coord_group)
-        coord_outer_layout.setContentsMargins(0, 0, 0, 0)
-        coord_outer_layout.setSpacing(0)
-        coord_group.setFixedHeight(92)
-        coord_layout = QHBoxLayout()
-        coord_layout.setContentsMargins(12, 4, 12, 4)
-        coord_layout.setSpacing(20)
-        self.coord_labels = {}
-        colors = {
-            "X": "#FF3333", "Y": "#33AA33", "Z": "#4D68FF",
-            "A": "#9A8500", "B": "#AA33AA", "C": "#229999",
-        }
-        for axis in ("X", "Y", "Z", "A", "B", "C"):
-            axis_label = QLabel(axis + ":")
-            axis_label.setFont(coord_font)
-            coord_layout.addWidget(axis_label)
-            value = QLabel("0.000")
-            value.setFont(coord_font)
-            value.setStyleSheet("font-weight: bold; color: %s;" % colors[axis])
-            self.coord_labels[axis] = value
-            coord_layout.addWidget(value)
-        coord_layout.addStretch()
-        coord_outer_layout.addLayout(coord_layout)
-        coord_outer_layout.addStretch()
-        layout.addWidget(coord_group)
+        # v1.6.3: "좌표"를 별도 행(QGroupBox, 불투명 배경)이 아니라 3D 화면
+        # 왼쪽 위의 반투명 오버레이로 옮긴다 — 그 박스 배경이 3D 화면을
+        # 가려 공구 경로가 안 보인다는 피드백 반영. 실제 위젯은 gl_view가
+        # 만들어진 뒤 _build_coord_overlay()에서 만든다(self.coord_labels는
+        # 거기서 채워진다).
 
         self.gl_view = OrthographicGLViewWidget()
         self.gl_view.setBackgroundColor(*self._VIEWER_BG)
@@ -1122,6 +1153,7 @@ class NCViewerWidget(QWidget):
         self.gl_view.alt_wheel_callback = self._on_alt_wheel_sensitivity
         layout.addWidget(self.gl_view, 1)
         self._build_view_cube()
+        self._build_coord_overlay()
         self._build_projection_overlay()
         self._build_playback_bar()
         self._build_magnifier()
@@ -1182,17 +1214,30 @@ class NCViewerWidget(QWidget):
             view_cube = None
         self.view_cube = view_cube
 
-    def _build_projection_overlay(self):
-        """3D 화면 왼쪽 위에 투영(ISO/XY/XZ/YZ) 오버레이를 만든다(v1.6.2).
+    def _build_coord_overlay(self):
+        """3D 화면 왼쪽 위에 "좌표"(X~C) 오버레이를 만든다(v1.6.3).
         실패해도 뷰어 전체를 잃지 않는다."""
         try:
+            coord_overlay = CoordOverlayWidget(self.gl_view)
+            self.gl_view.top_left_widgets.append(coord_overlay)
+            self.gl_view._reposition_top_left()
+            coord_overlay.raise_()
+            self.coord_labels = coord_overlay.value_labels
+        except Exception:
+            coord_overlay = None
+            self.coord_labels = {}
+        self.coord_overlay = coord_overlay
+
+    def _build_projection_overlay(self):
+        """3D 화면 왼쪽 위, 좌표 오버레이 아래에 투영(ISO/XY/XZ/YZ) 오버레이를
+        만든다(v1.6.2). 실패해도 뷰어 전체를 잃지 않는다."""
+        try:
             overlay = ProjectionOverlayWidget(self.gl_view)
-            self.gl_view.top_left_widget = overlay
+            self.gl_view.top_left_widgets.append(overlay)
             self.gl_view._reposition_top_left()
             overlay.projection_clicked.connect(self.set_camera_projection)
             overlay.raise_()
         except Exception:
-            self.gl_view.top_left_widget = None
             overlay = None
         self.projection_overlay = overlay
 
@@ -1428,7 +1473,15 @@ class NCViewerWidget(QWidget):
         self._add_axis_lines()
 
     def _refresh_dark_mode_button(self):
-        icon_color = "#e4e8f0" if self._dark_mode else "#1f2937"
+        # v1.6.3 버그 수정: 이 버튼은 v1.6.2부터 항상 앱 상단 바(top_bar) 위에
+        # 있고, 그 상단 바 배경은 테마와 무관하게 항상 어두운 남색이다
+        # (App._style_header_bar, header_bg는 light/dark 테마 모두 어두운
+        # 값). 그런데도 아이콘 색을 테마(_dark_mode)에 따라 밝음/어두움으로
+        # 바꾸고 있어서, 라이트 테마일 때 어두운 아이콘(#1f2937)이 똑같이
+        # 어두운 상단 바 위에서 사실상 안 보였다(다크 테마일 때만 우연히
+        # 밝은 아이콘이라 보였음). 이제 배경이 항상 어두우므로 아이콘 색도
+        # 테마와 무관하게 항상 밝게 고정한다 — 모양(해/달)만 상태를 나타낸다.
+        icon_color = "#f2f5fa"
         # v1.5.9: 아이콘이 잘 안 보인다는 요청으로 26px로 확대.
         # v1.6.1: 다시 정확히 2배인 52px로 확대(소스 픽스맵도 같이 키워야
         # 확대해도 흐려지지 않는다).
@@ -1695,13 +1748,41 @@ class NCViewerWidget(QWidget):
             kwargs["pos"] = Vector(0, 0, 0)
         self.gl_view.setCameraPosition(**kwargs)
 
+    # v1.6.3: 투영 버튼을 누르면 경로 전체가 화면 안에 들어오도록 거리도
+    # 함께 맞춘다(줌 전체 보기). 여유 배율(경로가 화면 가장자리에 딱 붙지
+    # 않게) — 값이 클수록 더 축소되어 보인다.
+    _ZOOM_TO_FIT_MARGIN = 1.25
+    _ZOOM_TO_FIT_FALLBACK_DISTANCE = 200
+
+    def _zoom_to_fit_distance(self):
+        """현재 로드된 경로 전체(gl_view.scene_radius)가 화면 안에 다 들어오는
+        카메라 거리를 계산한다. 경로가 없으면(반지름 0) None을 반환해
+        호출자가 고정 기본값(200)을 쓰게 한다."""
+        view = self.gl_view
+        radius = getattr(view, "scene_radius", 0.0) or 0.0
+        if radius <= 0.0:
+            return None
+        width = max(float(view.width()), 1.0)
+        height = max(float(view.height()), 1.0)
+        aspect = width / height
+        fov = max(float(view.opts.get("fov", 60.0)), 1.0)
+        half_tan = tan(radians(fov) / 2.0)
+        # 세로/가로 중 더 좁은 쪽(aspect와 1 중 작은 값)에 맞춰 거리를 정해야
+        # 두 방향 모두 경로가 화면 밖으로 벗어나지 않는다.
+        limiting_ratio = min(1.0, aspect)
+        distance = radius / (half_tan * limiting_ratio) * self._ZOOM_TO_FIT_MARGIN
+        return max(distance, 10.0)
+
     def set_camera_projection(self, view_type):
         preset = self._VIEW_PROJECTIONS.get(view_type)
-        if preset is not None:
-            elevation, azimuth = preset
-            # v1.6.2: ISO 버튼을 누르면 원점(좌표)이 화면 중심에 오도록 카메라
-            # 중심도 함께 원점으로 되돌린다.
-            self.set_camera_angles(elevation, azimuth, distance=200, recenter=(view_type == "ISO"))
+        if preset is None:
+            return
+        elevation, azimuth = preset
+        # v1.6.3: ISO뿐 아니라 4개 투영 버튼 전부 같은 동작 — 좌표를 화면
+        # 중앙으로 되돌리고(recenter), 로드된 경로 전체가 한눈에 들어오도록
+        # 자동으로 줌 아웃/인 한다(경로가 없으면 기존 고정값 200을 쓴다).
+        distance = self._zoom_to_fit_distance() or self._ZOOM_TO_FIT_FALLBACK_DISTANCE
+        self.set_camera_angles(elevation, azimuth, distance=distance, recenter=True)
 
     def _clear_path_items(self):
         for item_list in self.plot_items.values():
@@ -2374,4 +2455,6 @@ class NCViewerWidget(QWidget):
 
     def _set_coordinate_labels(self, values):
         for axis, value in zip(("X", "Y", "Z", "A", "B", "C"), values):
-            self.coord_labels[axis].setText(str(value))
+            label = self.coord_labels.get(axis)
+            if label is not None:
+                label.setText(str(value))

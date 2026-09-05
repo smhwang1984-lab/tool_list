@@ -26,7 +26,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
 
-APP_VERSION = '1.6.2'
+APP_VERSION = '1.6.3'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-09-05'
 APP_CREATOR = 'Hwang.seonmun'
@@ -66,6 +66,18 @@ FILTER_SECTION_SCALE = 1.15
 def scaled(value):
     """FILTER_SECTION_SCALE(1.15배)을 적용한 정수 픽셀/포인트 값."""
     return round(value * FILTER_SECTION_SCALE)
+
+
+# v1.6.3: 재생 시 사용하는 체크박스(텍스트 정지/정지/옵션정지/PG 매칭)가
+# 체크되면 한눈에 띄도록 인디케이터를 초록으로 채우고 글자도 굵은 초록으로
+# 바꾼다 — 테마와 무관하게 항상 같은 색을 써서 라이트/다크 어느 쪽에서도
+# 잘 보이게 한다.
+PLAYBACK_CHECKBOX_STYLE = (
+    'QCheckBox::indicator { width: 16px; height: 16px; border-radius: 3px;'
+    ' border: 1.5px solid #8a94a3; background: transparent; }'
+    'QCheckBox::indicator:checked { background: #2ecc71; border: 1.5px solid #1e9e5a; }'
+    'QCheckBox:checked { color: #1e9e5a; font-weight: 700; }'
+)
 
 # 라이트/다크 테마 색상 토큰. 의미 기반 키로 두어 위젯 각각이 하드코딩된
 # 색 대신 이 값을 참조하고, 다크모드 토글 시 App.apply_theme()이 전체를
@@ -152,6 +164,13 @@ COL_WIDTH = {
     key: round(width * COPY_TABLE_SCALE) + TABLE_CELL_PADDING_PX * 2
     for key, width in _COL_WIDTH_BASE.items()
 }
+_COL_WIDTH_TOTAL = sum(COL_WIDTH.values())
+
+# v1.6.3: 공구 리스트 표가 패널 폭보다 넓어져 가로 스크롤바가 생기지 않도록,
+# 위 COL_WIDTH/TABLE_FONT_PT를 "기준값"으로 두고 실제 표시 폭에 맞춰 폰트와
+# 셀 폭을 함께 가변으로 줄인다(App._relayout_tool_table). 너무 작아져
+# 읽기 힘들어지는 것만 막는 하한.
+TOOL_TABLE_MIN_SCALE = 0.45
 
 # TOOL_LIST_PG.xlsx의 A:P 열 폭 비율
 PDF_COLUMN_WEIGHTS = [48, 100, 150, 40, 40, 40, 40, 40, 40, 40, 40, 60, 140, 70, 70, 88]
@@ -868,6 +887,18 @@ if QT_IMPORT_ERROR is not None:
         def __init__(self, *args, **kwargs):
             raise RuntimeError('GUI 실행에 필요한 패키지가 없습니다: %s' % QT_IMPORT_ERROR)
 else:
+    class ToolTableWidget(QTableWidget):
+        """v1.6.3: 표 위젯 폭이 바뀔 때마다(스플리터 드래그, 창 크기 조절,
+        프로그램적 setSizes() 호출 등 원인과 무관하게) resized 시그널을 내보내
+        호스트가 폰트/셀 폭을 다시 맞추게 한다. QSplitter.splitterMoved는
+        setSizes()처럼 프로그램적으로 크기를 바꿀 때는 발생하지 않아 이
+        위젯 자체의 resizeEvent가 필요하다."""
+        resized = pyqtSignal()
+
+        def resizeEvent(self, event):
+            super().resizeEvent(event)
+            self.resized.emit()
+
     class ProgramTextEdit(QPlainTextEdit):
         # QTextEdit(리치 텍스트)이 아닌 QPlainTextEdit을 쓴다 — 3만 줄대의 NoWrap
         # 문서를 실제 레이아웃(스플리터)에 얹은 채 setExtraSelections()를 호출하면
@@ -1386,6 +1417,7 @@ else:
             stop_bar.setSpacing(scaled(6))
             self.stop_text_check = QCheckBox('텍스트 정지')
             self.stop_text_check.setFont(filter_kfont)
+            self.stop_text_check.setStyleSheet(PLAYBACK_CHECKBOX_STYLE)
             self.stop_text_check.setToolTip(
                 '오른쪽 입력창의 문자열이 포함된 줄에서 자동 재생을 멈춥니다.\n'
                 '위쪽 "문자 검색"과는 별개의 값입니다.'
@@ -1397,9 +1429,11 @@ else:
             self.stop_text_input.setToolTip(self.stop_text_check.toolTip())
             self.stop_m00_check = QCheckBox('정지')
             self.stop_m00_check.setFont(filter_kfont)
+            self.stop_m00_check.setStyleSheet(PLAYBACK_CHECKBOX_STYLE)
             self.stop_m00_check.setToolTip('M0 또는 M00에서 자동 재생을 멈춥니다.')
             self.stop_m01_check = QCheckBox('옵션정지')
             self.stop_m01_check.setFont(filter_kfont)
+            self.stop_m01_check.setStyleSheet(PLAYBACK_CHECKBOX_STYLE)
             self.stop_m01_check.setToolTip('M1 또는 M01에서 자동 재생을 멈춥니다.')
             self._load_playback_stop_options()
             self.stop_text_check.toggled.connect(self._on_stop_text_check_toggled)
@@ -1431,6 +1465,7 @@ else:
             )
             self.pg_match_check = QCheckBox('PG 매칭')
             self.pg_match_check.setFont(filter_kfont)
+            self.pg_match_check.setStyleSheet(PLAYBACK_CHECKBOX_STYLE)
             self.pg_match_check.setToolTip(
                 '체크하면 그려진 경로를 지우고, 커서가 있는 공정만\n'
                 '프로그램 방향키에 맞춰 실시간으로 그리고 지웁니다.'
@@ -1951,7 +1986,10 @@ else:
             self._style_info_panel(self.metadata_summary)
             layout.addWidget(self.metadata_summary)
 
-            self.table = QTableWidget(0, len(COLUMNS))
+            self.table = ToolTableWidget(0, len(COLUMNS))
+            # v1.6.3: 표 폭이 바뀔 때마다(스플리터 드래그 포함) 폰트/셀 폭을
+            # 다시 맞춰 가로 스크롤바가 생기지 않게 한다.
+            self.table.resized.connect(self._relayout_tool_table)
             self.table.setHorizontalHeaderLabels([label for _key, label in COLUMNS])
             # v1.5.9: 표기 폰트를 기존(미지정 기본 폰트, ~9pt)의 1.6배로 키운다
             # — 행 높이는 Qt가 이 폰트 크기에 맞춰 함께 자동으로 커진다.
@@ -2394,8 +2432,44 @@ else:
                 self.table.setUpdatesEnabled(True)
             self.update_count()
             self.update_metadata_summary()
+            self._relayout_tool_table()
             if self.current_mode == 'viewer':
                 self.sync_viewer_from_source()
+
+        def _relayout_tool_table(self):
+            """공구 리스트 표의 폰트/셀 폭을 현재 패널 폭에 맞춰 가변으로
+            조정한다(v1.6.3 요청) — 내용이 넓어 가로 스크롤바가 생기는 대신,
+            패널에 맞게 전체적으로 줄어들어(또는 기준 크기까지 커져) 한
+            화면에 들어오게 한다. COL_WIDTH/TABLE_FONT_PT가 그 "기준(1배)"
+            크기이고, 실제 배율은 [TOOL_TABLE_MIN_SCALE, 1.0] 범위로 자른다
+            (기준보다 커지지는 않지만, 너무 작아져 읽기 힘들어지지도 않게)."""
+            table = getattr(self, 'table', None)
+            if table is None or _COL_WIDTH_TOTAL <= 0:
+                return
+            available = table.viewport().width()
+            if available <= 0:
+                return
+            scale = min(1.0, max(TOOL_TABLE_MIN_SCALE, available / _COL_WIDTH_TOTAL))
+
+            table_font = QFont('맑은 고딕')
+            table_font.setPointSizeF(TABLE_FONT_PT * scale)
+            header_font = QFont('맑은 고딕', weight=QFont.Bold)
+            header_font.setPointSizeF(TABLE_FONT_PT * scale)
+            table.setFont(table_font)
+            table.horizontalHeader().setFont(header_font)
+            # round()가 아니라 int()(내림)로 자른다 — 열마다 반올림해 올린 몇
+            # px가 누적되면 합계가 available을 살짝 넘어 가로 스크롤바가
+            # 다시 생기는 경우가 있었다(내림이면 합계가 항상 available 이하).
+            for index, (key, _label) in enumerate(COLUMNS):
+                table.setColumnWidth(index, max(1, int(COL_WIDTH.get(key, 60) * scale)))
+            # 폰트가 바뀐 뒤 기존 행들의 높이도 새 폰트 크기에 맞게 다시
+            # 계산해야 한다 — setFont()만으로는 이미 만들어진 행 높이가
+            # 자동으로 갱신되지 않는다.
+            table.resizeRowsToContents()
+
+        def resizeEvent(self, event):
+            super().resizeEvent(event)
+            self._relayout_tool_table()
 
         def open_file(self):
             path, _filter = QFileDialog.getOpenFileName(
