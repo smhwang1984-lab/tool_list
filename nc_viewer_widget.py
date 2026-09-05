@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Embedded PyQt 3D NC path viewer widget."""
+import bisect
 import json
 from math import cos, radians, sin, tan
 import re
@@ -96,8 +97,29 @@ ARC_MIN_SEGMENTS = 6
 ARC_MAX_SEGMENTS = 720
 
 
+# v1.6.7: 장비 명칭 변경 — "5축 밀링" -> "5축 MCT", "2축 선반 ..." ->
+# "CNC 선반 (턴밀 포함)". A to C / B to C 구분은 설정이 서로 달라 유지한다.
+MACHINE_5AXIS_AC = "5축 MCT (A to C)"
+MACHINE_5AXIS_BC = "5축 MCT (B to C)"
+MACHINE_LATHE = "CNC 선반 (턴밀 포함)"
+
+# 이전 버전 이름으로 저장된 QSettings를 새 이름으로 읽어 들이기 위한 표.
+# 이게 없으면 업데이트 직후 사용자가 고른 장비와 입력해 둔 행정값이
+# 통째로 초기화된다.
+RENAMED_MACHINE_TYPES = {
+    "5축 밀링 (A to C)": MACHINE_5AXIS_AC,
+    "5축 밀링 (B to C)": MACHINE_5AXIS_BC,
+    "2축 선반 (X Z 평면, X 2배)": MACHINE_LATHE,
+}
+
+
+def migrate_machine_type_name(machine_type):
+    """이전 버전의 장비 이름을 v1.6.7 이름으로 바꿔 준다(모르는 이름은 그대로)."""
+    return RENAMED_MACHINE_TYPES.get(str(machine_type or ""), machine_type)
+
+
 DEFAULT_MACHINE_SPECS = {
-    "5축 밀링 (A to C)": {
+    MACHINE_5AXIS_AC: {
         "X 행정": "800", "Y 행정": "800", "Z 행정": "600",
         "A축 범위": "-120~+30", "C축 범위": "360",
     },
@@ -105,8 +127,8 @@ DEFAULT_MACHINE_SPECS = {
     "4축 MCT (B-Type)": {
         "X 행정": "1200", "Y 행정": "800", "Z 행정": "800", "B축 범위": "-120~+120",
     },
-    "2축 선반 (X Z 평면, X 2배)": {"X 행정": "300", "Z 행정": "500", "최대 RPM": "4000"},
-    "5축 밀링 (B to C)": {
+    MACHINE_LATHE: {"X 행정": "300", "Z 행정": "500", "최대 RPM": "4000"},
+    MACHINE_5AXIS_BC: {
         "X 행정": "600", "Y 행정": "600", "Z 행정": "500",
         "B축 범위": "-110~+110", "C축 범위": "360",
     },
@@ -160,6 +182,101 @@ def lathe_world_point(z_value, x_diameter, c_deg=0.0, y_value=0.0):
     C가 0이면 선반 평면(월드 XZ) 위에 그대로 놓인다.
     """
     return lathe_rotate_c(lathe_local_point(z_value, x_diameter, y_value), c_deg)
+
+
+# --------------------------------------------------------------------------
+# 가공시간 계산 (v1.6.7) — v1.6.7.md 2항의 규칙을 그대로 옮긴 것.
+#
+# MCT(밀링)와 선반이 F를 다르게 읽는다는 점만 빼면 계산은 같다:
+#   세그먼트 시간 = 이동거리(mm) / 유효 이송속도(mm/min).
+# 유효 이송속도만 아래 두 함수가 정하고, 거리는 이미 계산된 툴패스에서
+# 그대로 잰다(경로 계산 로직에는 손대지 않는다).
+# --------------------------------------------------------------------------
+
+# G00은 프로그램의 F와 무관하게 항상 이 속도로 움직이는 것으로 본다.
+RAPID_FEED_MM_PER_MIN = 7000.0
+# 이 이하 간격의 미세 이동은 가감속 때문에 지령 속도가 다 안 나온다.
+SHORT_SEGMENT_MM = 0.5
+# 원호(G02/G03)와 위 미세 이동에 적용하는 실효 비율.
+SLOW_FEED_RATIO = 0.7
+
+
+def effective_feed_mm_per_min(motion, feed_mm_per_min, distance_mm):
+    """세그먼트 하나에 실제로 적용할 이송속도(mm/min)를 돌려준다.
+
+    - G00: F를 무시하고 항상 RAPID_FEED_MM_PER_MIN.
+    - G02/G03: F의 70% (원호는 지령 속도가 다 나오지 않는다).
+    - G01: 이동량이 SHORT_SEGMENT_MM 이하면 70%, 그보다 크면 100%.
+    F가 아직 한 번도 안 나온 절삭 이동은 0을 돌려준다 — 호출부가
+    시간 0으로 넘긴다(추정으로 시간을 부풀리지 않는다).
+    """
+    if motion == "G00":
+        return RAPID_FEED_MM_PER_MIN
+    try:
+        feed = float(feed_mm_per_min or 0.0)
+    except (TypeError, ValueError):
+        feed = 0.0
+    if feed <= 0.0:
+        return 0.0
+    if motion in ("G02", "G03") or float(distance_mm) <= SHORT_SEGMENT_MM:
+        return feed * SLOW_FEED_RATIO
+    return feed
+
+
+def lathe_spindle_rpm(spindle_mode, spindle_value, diameter_mm, max_rpm):
+    """선반 주축 회전수(rev/min)를 돌려준다(v1.6.7).
+
+    - G97(정회전): S가 곧 회전수다.
+    - G96(정속절삭): S는 절삭속도 V(m/min)이고 V = D x 3.14 x N / 1000
+      이므로 N = V x 1000 / (pi x D). 지름 D가 0에 가까우면(센터 근처)
+      회전수가 발산하므로 G50 상한으로 잘린다.
+    어느 모드든 G50에 걸린 최대 회전수를 넘지 못한다.
+    """
+    try:
+        spindle_value = float(spindle_value or 0.0)
+    except (TypeError, ValueError):
+        spindle_value = 0.0
+    try:
+        max_rpm = float(max_rpm or 0.0)
+    except (TypeError, ValueError):
+        max_rpm = 0.0
+    if spindle_value <= 0.0:
+        return 0.0
+    if str(spindle_mode).upper() == "G96":
+        diameter_mm = abs(float(diameter_mm or 0.0))
+        if diameter_mm <= 1e-6:
+            rpm = max_rpm
+        else:
+            rpm = spindle_value * 1000.0 / (np.pi * diameter_mm)
+    else:
+        rpm = spindle_value
+    if max_rpm > 0.0:
+        rpm = min(rpm, max_rpm)
+    return rpm
+
+
+# 좌표 오버레이의 "진행중 / 전체" 시간이 아직 없을 때 보여줄 값.
+TIME_OVERLAY_PLACEHOLDER = "00:00 / 00:00"
+
+
+def format_elapsed_over_total(elapsed_sec, total_sec):
+    """좌표 오버레이 끝에 붙는 "진행중인 시간 / 전체 시간" 문자열(v1.6.7)."""
+    return "%s / %s" % (format_duration(elapsed_sec), format_duration(total_sec))
+
+
+def format_duration(seconds):
+    """초를 화면 표기용 문자열로 바꾼다 — 1시간 미만은 MM:SS,
+    1시간 이상은 H:MM:SS (v1.6.7)."""
+    try:
+        total = int(round(float(seconds or 0.0)))
+    except (TypeError, ValueError):
+        total = 0
+    total = max(0, total)
+    hours, remainder = divmod(total, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return "%d:%02d:%02d" % (hours, minutes, secs)
+    return "%02d:%02d" % (minutes, secs)
 
 
 def tool_color_for_index(index):
@@ -494,9 +611,37 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
         if ev.modifiers() & Qt.ControlModifier:
             self.opts['fov'] *= 0.999 ** delta
         else:
-            self.opts['distance'] *= 0.999 ** delta
+            # v1.6.7: 화면 중앙이 아니라 **마우스 커서 위치**를 기준으로
+            # 확대/축소한다. 픽셀당 월드 거리가 distance에 정비례하므로
+            # (projectionMatrix의 view_height = 2*distance*tan(fov/2)),
+            # 커서가 중앙에서 px 픽셀 떨어져 있으면 거리가 f배로 바뀔 때
+            # 그 지점은 px/f로 밀린다. 되돌리려면 화면 내용을 px*(1 - 1/f)
+            # 만큼 옮기면 된다 — pan(dx, dy, 0, 'view')가 드래그 팬과 같은
+            # "내용이 따라온다" 규약이라 그 값을 그대로 넘긴다.
+            # distance를 바꾼 **뒤에** 불러야 픽셀 규약이 1:1로 맞는다.
+            factor = 0.999 ** delta
+            old_distance = max(float(self.opts.get('distance', 200.0)), 1e-9)
+            self.opts['distance'] = old_distance * factor
+            applied = max(float(self.opts['distance']), 1e-9) / old_distance
+            self._zoom_toward_cursor(ev, applied)
         self.update()
         self.camera_changed.emit()
+
+    def _zoom_toward_cursor(self, ev, factor):
+        """휠 줌 뒤 커서 아래 지점이 같은 화면 위치에 남도록 팬 보정한다
+        (v1.6.7). 보정에 실패해도 줌 자체는 살아 있어야 하므로 조용히
+        넘어간다 — 최악이라도 기존(화면 중앙 기준) 줌으로 되돌아간다."""
+        if not factor or factor <= 0.0:
+            return
+        try:
+            pos = ev.position() if hasattr(ev, 'position') else ev.posF()
+            offset_x = float(pos.x()) - self.width() / 2.0
+            offset_y = float(pos.y()) - self.height() / 2.0
+            shift = 1.0 - 1.0 / factor
+            if offset_x or offset_y:
+                self.pan(offset_x * shift, offset_y * shift, 0, relative='view')
+        except Exception:
+            pass
 
     def setCameraPosition(self, *args, **kwargs):
         super().setCameraPosition(*args, **kwargs)
@@ -1067,6 +1212,18 @@ class CoordOverlayWidget(QWidget):
             )
             self.value_labels[axis] = value
             row.addWidget(value)
+        # v1.6.7: 좌표 끝에 "진행중인 시간 / 전체 시간"을 붙인다. 축 값들과
+        # 구분되게 옅은 회색으로 두고, 계산된 시간이 없으면 0으로 보인다.
+        row.addSpacing(6)
+        self.time_label = QLabel(TIME_OVERLAY_PLACEHOLDER)
+        self.time_label.setStyleSheet(
+            "background: transparent; font-weight: bold; font-size: 14px; color: #DDDDDD;"
+        )
+        row.addWidget(self.time_label)
+        self.adjustSize()
+
+    def set_time_text(self, text):
+        self.time_label.setText(text)
         self.adjustSize()
 
 
@@ -1245,8 +1402,8 @@ class NCViewerWidget(QWidget):
         self._pick_src_lines = np.zeros((0,), dtype=np.int64)
         self._magnifier_active = False
         self.machine_specs = self._load_machine_specs()
-        self.current_machine_type = self.settings.value(
-            "machine_type", next(iter(self.machine_specs))
+        self.current_machine_type = migrate_machine_type_name(
+            self.settings.value("machine_type", next(iter(self.machine_specs)))
         )
         if self.current_machine_type not in self.machine_specs:
             self.current_machine_type = next(iter(self.machine_specs))
@@ -1268,6 +1425,14 @@ class NCViewerWidget(QWidget):
         # 아니면 항상 채워지지 않고(get() 기본값 0), 밀링 재생에는 쓰이지
         # 않는다.
         self.line_to_c_rot = {}
+        # v1.6.7 가공시간. line_feed_state는 줄마다 "그 줄에서 유효한 이송
+        # 상태"(F, 선반 G99 여부, G96/G97 모드, S, G50 상한)를 들고 있고,
+        # 나머지 셋은 파싱이 끝난 뒤 _compute_machining_times()가 채운다.
+        self.line_feed_state = {}
+        self.line_to_elapsed_sec = {}
+        self._elapsed_line_keys = []
+        self.process_time_sec = {}
+        self.total_time_sec = 0.0
         self.dynamic_trace_items = []
         self.current_cursor_line = 0
         # "PG 매칭" 모드: 정적 경로를 모두 감추고, 커서가 위치한 공정의 실시간
@@ -1306,7 +1471,9 @@ class NCViewerWidget(QWidget):
                     specs = json.loads(json.dumps(DEFAULT_MACHINE_SPECS, ensure_ascii=False))
                     for machine_type, values in saved.items():
                         if isinstance(values, dict):
-                            specs[machine_type] = {
+                            # v1.6.7: 예전 이름으로 저장된 항목은 새 이름으로
+                            # 옮겨 받는다(사용자가 고쳐 둔 행정값 보존).
+                            specs[migrate_machine_type_name(machine_type)] = {
                                 str(key): str(value) for key, value in values.items()
                             }
                     return specs
@@ -2297,13 +2464,26 @@ class NCViewerWidget(QWidget):
 
         return list(expand(range(0, main_end), 0))
 
+    def _process_time_suffix(self, process_key):
+        """v1.6.7: 공정별 경로 필터 항목 끝에 붙일 " | MM:SS" 조각.
+
+        시간이 0초인 공정도 "00:00"으로 함께 적는다 — 공정마다 시간이
+        붙었다 말았다 하면 목록을 훑을 때 오히려 헷갈린다. 아직 시간을
+        계산하지 않았을 때(경로 파싱 전)만 빈 문자열이다."""
+        if not self.process_time_sec:
+            return ""
+        seconds = self.process_time_sec.get(process_key)
+        if seconds is None:
+            return ""
+        return " | %s" % format_duration(seconds)
+
     def _tool_display_text(self, process_key):
         tool_no = self.process_tool_map.get(process_key)
         if not tool_no:
             return "초기 구간"
         match = re.search(r"T(\d+)", tool_no, re.I)
         if not match:
-            return "공정 | %s | 이름 없음" % tool_no
+            return "공정 | %s | 이름 없음%s" % (tool_no, self._process_time_suffix(process_key))
         number = int(match.group(1))
         normalized_tool_no = "T%02d" % number
         name = (
@@ -2314,7 +2494,9 @@ class NCViewerWidget(QWidget):
         )
         process_match = re.match(r"P(\d+)_", process_key)
         process_label = "공정 %02d" % int(process_match.group(1)) if process_match else "공정"
-        return "%s | %s | %s" % (process_label, normalized_tool_no, name)
+        return "%s | %s | %s%s" % (
+            process_label, normalized_tool_no, name, self._process_time_suffix(process_key)
+        )
 
     def _refresh_tool_filter(self, keep_selection=False):
         if self.tool_filter_list is None:
@@ -2351,7 +2533,7 @@ class NCViewerWidget(QWidget):
         return r_k @ r_j @ r_i
 
     def get_5axis_rotation_matrix(self, machine_type, i_deg, j_deg, k_deg):
-        if "5축 밀링 (A to C)" in machine_type:
+        if MACHINE_5AXIS_AC in machine_type:
             rad_a = np.radians(j_deg)
             rad_c = np.radians(i_deg)
             rad_k = np.radians(k_deg)
@@ -2371,12 +2553,17 @@ class NCViewerWidget(QWidget):
         self.process_first_line.clear()
         self.modal_state_map.clear()
         self.line_to_c_rot.clear()
+        self.line_feed_state.clear()
+        self.line_to_elapsed_sec.clear()
+        self._elapsed_line_keys = []
+        self.process_time_sec.clear()
+        self.total_time_sec = 0.0
 
         machine_type = self.current_machine_type
         is_lathe = is_lathe_machine(machine_type)
         is_4axis = "4축" in machine_type
-        is_5axis_ac = "5축 밀링 (A to C)" in machine_type
-        is_5axis_bc = "5축 밀링 (B to C)" in machine_type
+        is_5axis_ac = MACHINE_5AXIS_AC in machine_type
+        is_5axis_bc = MACHINE_5AXIS_BC in machine_type
 
         try:
             m_x = float(self.machine_specs[machine_type].get("X 행정", "500")) / 2.0
@@ -2384,6 +2571,13 @@ class NCViewerWidget(QWidget):
             m_z = float(self.machine_specs[machine_type].get("Z 행정", "500"))
         except (TypeError, ValueError):
             m_x, m_y, m_z = 250.0, 250.0, 300.0
+
+        # v1.6.7 가공시간: 선반 G96/G97 회전수는 장비의 "최대 RPM"을 넘지
+        # 못한다. 프로그램에 G50 S___가 나오면 그 값으로 다시 좁혀진다.
+        try:
+            spec_max_rpm = float(self.machine_specs[machine_type].get("최대 RPM", "0") or 0.0)
+        except (TypeError, ValueError, KeyError):
+            spec_max_rpm = 0.0
 
         current_tool = "Initial"
         self.tool_paths[current_tool] = []
@@ -2414,6 +2608,18 @@ class NCViewerWidget(QWidget):
         detected_t = ""
         process_no = 0
 
+        # v1.6.7 가공시간용 모달 상태. F는 한 번 나오면 계속 유지되고
+        # (G00 구간만 F를 무시하고 급속으로 본다), 선반은 여기에 더해
+        # 이송 단위(G98 mm/min vs G99 mm/rev)와 회전 모드(G96/G97)를 든다.
+        current_feed = 0.0
+        lathe_feed_per_rev = True   # 선반 기본은 G99(mm/rev).
+        # v1.6.7: 지금 진행 중인 선반 공정의 공구 번호(옵셋 취소용 Tnn00을
+        # 새 공정으로 오인하지 않기 위한 기억). 밀링에서는 쓰이지 않는다.
+        active_lathe_tool = None
+        spindle_mode = "G97"
+        spindle_value = 0.0
+        max_rpm = spec_max_rpm
+
         t_pattern = re.compile(r"T0*(\d+)")
         m6_pattern = re.compile(r"M0?6(?!\d)")
         # 선반 툴체인지 기준은 Tnn00 (앞 두 자리 = 공구 번호, 뒤 두 자리 =
@@ -2424,6 +2630,10 @@ class NCViewerWidget(QWidget):
         # is_lathe 분기에서만 읽는다 — 밀링에는 애초에 이 코드가 없다.
         m35_pattern = re.compile(r"M35(?!\d)")
         m34_pattern = re.compile(r"M34(?!\d)")
+        # v1.6.7: 선반 공정의 끝을 알리는 코드(M00/M01 옵셔널 스톱, M30 종료).
+        # 여기서 "지금 물고 있는 공구" 기억을 지워, 같은 공구를 연속된 두
+        # 공정에 다시 써도 각각 따로 잡히게 한다.
+        lathe_process_end_pattern = re.compile(r"M(?:0?[01]|30)(?!\d)")
         x_pattern = re.compile(r"X\s*([+-]?\d*\.?\d+)")
         y_pattern = re.compile(r"Y\s*([+-]?\d*\.?\d+)")
         z_pattern = re.compile(r"Z\s*([+-]?\d*\.?\d+)")
@@ -2450,6 +2660,14 @@ class NCViewerWidget(QWidget):
         g98_pattern = re.compile(r"G98")
         g99_pattern = re.compile(r"G99")
         cycle_pattern = re.compile(r"(G81|G83|G85|G73|G84|G80)")
+        # v1.6.7 가공시간. G50S___(최대 회전수)는 먼저 떼어내고 나서 S를
+        # 찾아야 "G50S2500G96S180" 같은 줄에서 상한을 절삭속도로 오인하지
+        # 않는다.
+        f_pattern = re.compile(r"F\s*([+-]?\d*\.?\d+)")
+        s_pattern = re.compile(r"S\s*(\d*\.?\d+)")
+        g50_s_pattern = re.compile(r"G50\s*S\s*(\d*\.?\d+)")
+        g96_pattern = re.compile(r"G96(?!\d)")
+        g97_pattern = re.compile(r"G97(?!\d)")
 
         # v1.6.6: 선반만 M98 서브프로그램 호출을 그 자리에 펼친 시퀀스를
         # 돈다 — 밀링은 항상 원래 enumerate(lines) 그대로라 동작이
@@ -2478,6 +2696,50 @@ class NCViewerWidget(QWidget):
                 continue
 
             self.line_to_tool_map[idx] = current_tool
+
+            # v1.6.7 가공시간: 이 줄에서 유효한 이송/회전 상태를 갱신해
+            # 둔다. 경로 계산에는 전혀 관여하지 않고, 파싱이 끝난 뒤
+            # _compute_machining_times()가 src_line으로 되읽는다.
+            f_match = f_pattern.search(line_upper)
+            if f_match:
+                try:
+                    feed_value = float(f_match.group(1))
+                except ValueError:
+                    feed_value = 0.0
+                if feed_value > 0.0:
+                    current_feed = feed_value
+            if is_lathe:
+                # 선반만 이송 단위와 회전 모드를 읽는다 — 밀링의 G98/G99는
+                # 고정 사이클 복귀 레벨이라 뜻이 다르다(가이드라인 0항).
+                if g99_pattern.search(line_upper):
+                    lathe_feed_per_rev = True
+                elif g98_pattern.search(line_upper):
+                    lathe_feed_per_rev = False
+                spindle_scan = line_upper
+                g50_s_match = g50_s_pattern.search(spindle_scan)
+                if g50_s_match:
+                    try:
+                        max_rpm = float(g50_s_match.group(1))
+                    except ValueError:
+                        pass
+                    spindle_scan = (
+                        spindle_scan[:g50_s_match.start()] + spindle_scan[g50_s_match.end():]
+                    )
+                if g96_pattern.search(spindle_scan):
+                    spindle_mode = "G96"
+                elif g97_pattern.search(spindle_scan):
+                    spindle_mode = "G97"
+                s_match = s_pattern.search(spindle_scan)
+                if s_match:
+                    try:
+                        spindle_value = float(s_match.group(1))
+                    except ValueError:
+                        pass
+                self.line_feed_state[idx] = (
+                    current_feed, lathe_feed_per_rev, spindle_mode, spindle_value, max_rpm
+                )
+            else:
+                self.line_feed_state[idx] = (current_feed, False, "", 0.0, 0.0)
 
             if g17_pattern.search(line_upper):
                 current_plane = "G17"
@@ -2531,6 +2793,17 @@ class NCViewerWidget(QWidget):
                 tool_changed = lathe_tool_change is not None
                 if tool_changed:
                     detected_t = self._normalize_tool_no(lathe_tool_change.group(1))
+                    # v1.6.7: 선반 공정은 T0100으로 시작해 옵셋 취소용
+                    # T0100으로 끝난다 — 같은 공구 번호의 Tnn00이 다시
+                    # 나온 것은 공정의 끝이지 새 공정이 아니므로 필터에
+                    # 두 번 올리지 않는다. M00/M01/M30을 지난 뒤라면
+                    # 기억이 지워져 있어 같은 공구라도 새 공정이 된다.
+                    if detected_t == active_lathe_tool:
+                        tool_changed = False
+                    else:
+                        active_lathe_tool = detected_t
+                if lathe_process_end_pattern.search(line_upper):
+                    active_lathe_tool = None
             else:
                 t_match = t_pattern.search(line_upper)
                 if t_match:
@@ -2805,9 +3078,67 @@ class NCViewerWidget(QWidget):
             key: value for key, value in self.process_tool_map.items()
             if key in self.tool_paths
         }
+        self._compute_machining_times(is_lathe)
         self._build_path_items()
         self._refresh_tool_filter()
         self.set_cursor_line(self.current_cursor_line)
+
+    def _compute_machining_times(self, is_lathe):
+        """v1.6.7: 다 만들어진 tool_paths를 훑어 공정별/줄별 가공시간을 낸다.
+
+        경로 계산에는 일절 손대지 않고 결과 좌표만 읽는다 — 세그먼트
+        거리는 이미 그려진 점 사이 거리이고, 이송 상태는 점에 붙어 있는
+        src_line으로 line_feed_state에서 되읽는다. 선반은 여기에 더해
+        G99(mm/rev)를 그 순간의 회전수로 mm/min으로 환산한다.
+        """
+        self.line_to_elapsed_sec.clear()
+        self.process_time_sec.clear()
+        self.total_time_sec = 0.0
+
+        elapsed = 0.0
+        for process_key, points in self.tool_paths.items():
+            process_start = elapsed
+            prev_pt = None
+            for point in points:
+                pt = point.get("pt")
+                if pt is None or len(pt) < 3:
+                    continue
+                src_line = point.get("src_line")
+                if prev_pt is not None:
+                    distance = float(np.linalg.norm(np.array(pt, dtype=float) - prev_pt))
+                    if distance > 0.0:
+                        feed_state = self.line_feed_state.get(src_line)
+                        if feed_state is None:
+                            feed = 0.0
+                        elif is_lathe:
+                            feed, per_rev, mode, spindle_value, max_rpm = feed_state
+                            if per_rev:
+                                # G99: F는 1회전당 이송량이라 회전수를 곱해야
+                                # mm/min이 된다. G96 정속절삭이면 회전수가
+                                # 지름에 따라 달라지므로 세그먼트 양 끝
+                                # 지름의 평균으로 잡는다(선반 월드 좌표에서
+                                # 반경 = hypot(Y, Z), 지름은 그 2배).
+                                mean_diameter = (
+                                    float(np.hypot(prev_pt[1], prev_pt[2]))
+                                    + float(np.hypot(pt[1], pt[2]))
+                                )
+                                rpm = lathe_spindle_rpm(
+                                    mode, spindle_value, mean_diameter, max_rpm
+                                )
+                                feed = feed * rpm
+                        else:
+                            feed = feed_state[0]
+                        speed = effective_feed_mm_per_min(
+                            point.get("type"), feed, distance
+                        )
+                        if speed > 0.0:
+                            elapsed += distance / speed * 60.0
+                if src_line is not None:
+                    self.line_to_elapsed_sec[src_line] = elapsed
+                prev_pt = np.array(pt, dtype=float)
+            self.process_time_sec[process_key] = elapsed - process_start
+        self.total_time_sec = elapsed
+        self._elapsed_line_keys = sorted(self.line_to_elapsed_sec)
 
     def _arc_points(self, line_upper, start_pt, target_pt, current_motion, plane,
                      i_pattern, j_pattern, k_pattern, r_pattern):
@@ -3041,6 +3372,7 @@ class NCViewerWidget(QWidget):
         modal_values = self.modal_state_map.get(line_index)
         if modal_values:
             self._set_coordinate_labels(modal_values)
+        self._update_time_overlay(line_index)
 
         # v1.6.6: 선반 C축 회전 시뮬레이션. 밀링에서는 항상 0(변화 없음) —
         # is_lathe_mode()가 아니면 line_to_c_rot 자체가 채워지지 않는다.
@@ -3079,6 +3411,35 @@ class NCViewerWidget(QWidget):
         # 시뮬레이션 진행 중에만 보이는 트레이스라 정적 경로(plot_items)와
         # 달리 항목4의 "공구 고정" 요구가 그대로 적용된다.
         self._rotate_gl_items(self.dynamic_trace_items, c_rot)
+
+    def elapsed_seconds_at_line(self, line_index):
+        """v1.6.7: 그 줄까지의 누적 가공시간(초). 경로 점이 없는 줄(주석,
+        공구 교체 블록 등)은 그보다 앞선 줄 중 가장 가까운 값을 쓴다 —
+        커서를 그런 줄에 올려도 시간이 0으로 튀지 않게 한다."""
+        if not self.line_to_elapsed_sec:
+            return 0.0
+        value = self.line_to_elapsed_sec.get(line_index)
+        if value is not None:
+            return value
+        # 재생 중 매 틱마다 불리므로 미리 정렬해 둔 키에 이분 탐색을 건다.
+        position = bisect.bisect_right(self._elapsed_line_keys, line_index)
+        if position == 0:
+            return 0.0
+        return self.line_to_elapsed_sec[self._elapsed_line_keys[position - 1]]
+
+    def _update_time_overlay(self, line_index):
+        """좌표 오버레이 끝의 "진행중인 시간 / 전체 시간"을 갱신한다(v1.6.7)."""
+        overlay = getattr(self, "coord_overlay", None)
+        if overlay is None:
+            return
+        try:
+            overlay.set_time_text(
+                format_elapsed_over_total(
+                    self.elapsed_seconds_at_line(line_index), self.total_time_sec
+                )
+            )
+        except Exception:
+            pass
 
     def _set_coordinate_labels(self, values):
         for axis, value in zip(("X", "Y", "Z", "A", "B", "C"), values):

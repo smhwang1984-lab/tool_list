@@ -1,6 +1,6 @@
-# About / Release Instructions
+﻿# About / Release Instructions
 
-Last updated: 2026-09-05 (v1.6.6)
+Last updated: 2026-09-05 (v1.6.7)
 
 ## About button requirements
 
@@ -34,7 +34,79 @@ Last updated: 2026-09-05 (v1.6.6)
 
 ## Version history
 
-### 2026-09-05 (latest, v1.6.6)
+### 2026-09-05 (latest, v1.6.7)
+
+- Version: 1.6.7
+- Release/build date: 2026-09-05 (코드/테스트 완료 — 설치본·포터블 패키지는 사용자 승인 후 생성)
+- Summary: 사용자 요청 4건(`v1.6.7.md`). 가공시간 산출이 이번 버전의 핵심이며, 나머지는 단일 실행,
+  선반 공정 필터 중복 제거, 커서 기준 휠 줌이다.
+  1. **프로그램 단일 실행** — `.nc`를 여러 번 열어도 창이 하나만 뜨고, 뒤에 실행된 프로세스는
+     열려는 파일 경로만 기존 창에 넘기고 즉시 종료한다.
+  2. **가공시간 적용** — MCT/선반 각각의 F 해석 규칙으로 공정별·전체 시간을 계산해, 공정별 경로
+     필터 항목 끝과 3D 화면 좌표 오버레이 끝("진행중 / 전체")에 표기한다.
+     장비 명칭도 함께 변경: `5축 밀링` -> `5축 MCT`, `2축 선반 (X Z 평면, X 2배)` -> `CNC 선반 (턴밀 포함)`.
+  3. **선반 공정 필터 중복 제거** — `T0100`으로 시작해 옵셋 취소용 `T0100`으로 끝나는 한 공정이
+     필터에 두 번 뜨던 문제를 고쳤다.
+  4. **커서 기준 휠 줌** — 휠 확대/축소가 화면 중앙이 아니라 마우스 커서 위치를 기준으로 동작한다.
+- Creator displayed: Hwang.seonmun
+- Open source used: Python, PyQt5(QtNetwork 추가 사용), pyqtgraph, NumPy, PyOpenGL, ReportLab,
+  PyInstaller, Inno Setup (새 의존성 없음 — QtNetwork는 이미 설치된 PyQt5의 일부이며
+  `NC_Tool_List.spec`의 `hiddenimports`에만 추가했다).
+- Details:
+  - **단일 실행(`NC_Tool_List.py`):** `single_instance_server_name()`이 사용자명 기반(원격
+    데스크톱 등 다중 계정 대비) 소켓 이름을 만들고, `send_to_running_instance(path)`가
+    `QLocalSocket`으로 기존 창에 경로를 넘긴다(성공하면 `main()`이 `App()`을 만들기 전에
+    빠져나가 빈 창이 깜빡이지 않는다). `start_single_instance_server(window)`는 `QLocalServer`를
+    열어 경로를 받으면 창을 `showNormal`/`raise_`/`activateWindow`로 앞에 세우고 `load_file()`을
+    부른다. QtNetwork import나 listen이 실패하면 **단일화만 포기하고** 예전처럼 그냥 실행한다.
+  - **가공시간(`nc_viewer_widget.py`):** 규칙은 모듈 상수/함수로 분리했다 —
+    `RAPID_FEED_MM_PER_MIN=7000`, `SHORT_SEGMENT_MM=0.5`, `SLOW_FEED_RATIO=0.7`,
+    `effective_feed_mm_per_min(motion, feed, distance)`(G00은 F 무시 7000, G02/G03과 0.5mm 이하
+    G01은 70%, 그 외 G01은 100%, F가 없으면 0), `lathe_spindle_rpm(mode, S, 지름, 최대)`
+    (G97은 S가 회전수, G96은 `N = V x 1000 / (pi x D)`, 둘 다 G50 상한 클램프),
+    `format_duration()`(1시간 미만 MM:SS, 이상 H:MM:SS). F는 **모달**이라 한 번 나오면 이후
+    절삭 이동에 계속 적용되고 G00 구간만 급속으로 본다(사용자 확정).
+    파싱 루프는 줄마다 `line_feed_state[idx] = (F, G99여부, G96/G97, S, G50상한)`만 기록하고
+    (선반 분기에서만 이송 단위/회전 모드를 읽는다 — 밀링의 G98/G99는 고정 사이클 복귀 레벨이라
+    뜻이 다르다), 경로 계산에는 손대지 않는다. 파싱이 끝난 뒤 `_compute_machining_times()`가
+    이미 만들어진 `tool_paths`의 점 사이 거리를 재고 `src_line`으로 상태를 되읽어
+    `process_time_sec`/`line_to_elapsed_sec`/`total_time_sec`를 채운다. 선반 G99는 그 순간의
+    회전수를 곱해 mm/min으로 바꾸며, G96 회전수에 쓰는 지름은 선반 월드 좌표에서
+    `2 x hypot(Y, Z)`(세그먼트 양 끝 평균)로 역산한다.
+  - **시간 표기(`nc_viewer_widget.py`):** `_tool_display_text()` 끝에 `_process_time_suffix()`가
+    붙어 `공정 01 | T01 | FACE MILL | 00:20` 형태가 된다(0초 공정도 `00:00`으로 적어 목록 표기를
+    일관되게 유지). `CoordOverlayWidget`에 `time_label`을 추가하고 `set_cursor_line()`이
+    `_update_time_overlay()`로 `진행중 / 전체`를 갱신한다 — 선반 모드에서 좌표 오버레이가 화면
+    하단으로 옮겨가도 같은 위젯이라 시간도 따라간다. 커서가 경로 없는 줄(주석 등)에 있으면
+    `elapsed_seconds_at_line()`이 이분 탐색으로 직전 값을 쓴다(재생 중 매 틱 호출).
+  - **장비 명칭(`nc_viewer_widget.py`, `NC_Tool_List.py`):** `MACHINE_5AXIS_AC`/`MACHINE_5AXIS_BC`/
+    `MACHINE_LATHE` 상수로 이름을 모으고 하드코딩 비교를 상수로 바꿨다. A to C / B to C는 설정이
+    서로 달라 구분을 유지한다. `RENAMED_MACHINE_TYPES` + `migrate_machine_type_name()`이 옛
+    이름으로 저장된 QSettings(선택 장비 + 사용자가 고쳐 둔 행정값)를 새 이름으로 옮겨 받는다 —
+    이게 없으면 업데이트 직후 장비 설정이 초기화된다. `is_lathe_machine()`은 "선반" 키워드
+    판정이라 새 이름에도 그대로 걸린다(로직 변경 없음).
+  - **선반 공정 중복(`nc_viewer_widget.py`):** 선반 분기에서만 `active_lathe_tool`로 지금 물고
+    있는 공구 번호를 기억해, 같은 번호의 `Tnn00`이 다시 나오면 공정의 끝(옵셋 취소)으로 보고 새
+    공정을 만들지 않는다. `M00`/`M01`/`M30`(`lathe_process_end_pattern`)을 지나면 기억을 지워,
+    같은 공구를 연속된 두 공정에 다시 써도 각각 잡힌다. 밀링의 `M6 Tnn` 판정은 손대지 않았다
+    (LATHE_MODE_GUIDELINES.md 0항).
+  - **커서 기준 휠 줌(`nc_viewer_widget.py`):** 픽셀당 월드 거리가 `distance`에 정비례하므로
+    (`projectionMatrix()`의 `view_height = 2*distance*tan(fov/2)`), 커서가 화면 중앙에서 `px`
+    떨어져 있으면 거리가 `f`배로 바뀔 때 그 지점은 `px/f`로 밀린다. `_zoom_toward_cursor()`가
+    `distance`를 바꾼 **뒤** `pan(px*(1 - 1/f), py*(1 - 1/f), 0, relative='view')`로 되돌린다
+    (드래그줌 `_apply_drag_zoom()`이 쓰는 것과 같은 픽셀 규약). 보정이 실패해도 줌 자체는
+    살아 있다. `Ctrl+휠`(FOV)과 `Alt+휠`(감도)은 기존 동작 그대로다.
+- Tests: `tests/test_nc_tool_list.py` 148개 통과(기존 128 + v1.6.7 신규 20). 신규는
+  `MachiningTimeTests`(G00 7000 고정, 100%/70% 규칙, G96/G97/G50 회전수, 시간 포맷, 모달 F 통합,
+  오버레이 진행/전체), `MachineNameRenameTests`(새 이름 + QSettings 마이그레이션 + 앱 폴백 일치),
+  `SingleInstanceTests`(서버 이름, 미실행 시 False, 창 생성 전 handoff), `CursorAnchoredZoomTests`
+  (보정량/부호, 중앙에서는 무보정), `LatheModeTests` 추가분(옵셋 취소 중복 제거, M01 뒤 재분리,
+  G99/G98/G96+G50 시간). 기존 테스트가 옛 장비 이름으로 `set_machine_type()`을 부르던 3곳은 새
+  이름으로 갱신했다(QSettings에 장비 선택이 저장되어 다른 테스트로 모드가 새는 것을 막기 위함).
+- Installer/package status: **미생성** — 사용자 승인 후 기존 절차(PyInstaller onedir, UPX 비활성,
+  `dist/NC_Tool_List` 전체 설치, Inno Setup)대로 만든다.
+
+### 2026-09-05 (v1.6.6)
 
 - Version: 1.6.6
 - Release/build date: 2026-09-05 (사용자 승인 후 설치본·포터블 패키지 생성 완료)
@@ -115,7 +187,7 @@ Last updated: 2026-09-05 (v1.6.6)
     설치 프로그램 자체의 VersionInfo도 1.6.6 / NC Tool List / S M.HWANG으로 확인했다.
   - 산출물은 저장소의 `installer\` 폴더(gitignore 대상이라 커밋되지 않음)에 둔다.
 
-### 2026-09-05 (latest, v1.6.5)
+### 2026-09-05 (v1.6.5)
 
 - Version: 1.6.5
 - Release/build date: 2026-09-05 (사용자 승인 후 설치본·포터블 패키지 생성 완료)
