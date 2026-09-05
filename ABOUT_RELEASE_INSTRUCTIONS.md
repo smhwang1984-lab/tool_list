@@ -1,6 +1,6 @@
 # About / Release Instructions
 
-Last updated: 2026-09-05 (v1.6.5)
+Last updated: 2026-09-05 (v1.6.6)
 
 ## About button requirements
 
@@ -33,6 +33,87 @@ Last updated: 2026-09-05 (v1.6.5)
   - Installer/package creation status
 
 ## Version history
+
+### 2026-09-05 (latest, v1.6.6)
+
+- Version: 1.6.6
+- Release/build date: 2026-09-05 (사용자 승인 후 설치본·포터블 패키지 생성 완료)
+- Summary: 사용자 요청 6건, 선반 모드의 "밀링 툴(구동공구) 혼합 가공" 단계(LATHE_MODE_GUIDELINES.md §8
+  승인 후 별도 단계)로 진입.
+  1. **선반 툴리스트** — 공정 순서 정렬을 MCT처럼 공구번호 순 + 빈 행 유지로 바꾸고, INSERT/홀더
+     셀 폭을 내용에 맞춰 넓혀 폰트 축소·말줄임을 없앴다(화면 표 + PDF).
+  2. **M35 턴밀 Y축** — `M35`(구동공구 ON)~`M34`(선삭 복귀) 상태를 추적해 실제 기계 Y워드를
+     반영하고, `G12.1`/`G112` 극좌표 보간 중에는 C 워드를 각도가 아니라 Y(mm)로 해석한다.
+  3. **평면별 원호** — M35 중 `G17`(기계 X-Y)/`G19`(기계 Y-Z) 평면 원호를 로컬 좌표로 계산한 뒤
+     C만큼 배치 회전(밀링 4/5축 원호와 같은 방식).
+  4. **M98 서브프로그램** — `M30` 뒤 `O<번호>` 헤더 ~ 다음 헤더(또는 파일 끝)를 본문으로 보고
+     `M98 P<번호> [L<반복>]` 호출 지점에 펼친다.
+  5. **C축 회전 시뮬레이션** — 재생 커서가 있을 때(동적 트레이스 + 커서 구)만 공구가 +X 센터에
+     고정된 것처럼 회전을 상쇄한다. 정적 전체 경로는 기존(v1.6.4~5) 표현 그대로 유지.
+  6. **뷰 제한** — 선반 ISO 투영에서도 뷰 큐브를 숨겨 ISO/선반 두 각도로만 보게 제한.
+- Creator displayed: Hwang.seonmun
+- Open source used: Python, PyQt5, pyqtgraph, NumPy, PyOpenGL, ReportLab, PyInstaller, Inno Setup
+  (변경 없음 — 의존성 추가/제거 없음).
+- Details:
+  - **선반 툴리스트 정렬/셀 폭(`NC_Tool_List.py`):** `parse_lathe_program()`이 이제 TOOL NO의
+    앞 두 자리(공구번호)/뒤 두 자리(옵셋)로 정렬하고, 빠진 공구번호는 밀링(`parse_program`의
+    `range(1, max+1)` 빈 행 로직)과 같은 모양으로 빈 행을 채운다. T워드를 못 찾은 항목은 정렬된
+    본문 뒤에 원래 순서로 붙인다. `App._update_lathe_dynamic_col_width()`가 `QFontMetrics`로
+    헤더/셀 실제 내용 폭을 재서 `LATHE_COL_WIDTH`보다 넓으면 그 값을 쓰고, `_relayout_tool_table()`은
+    선반일 때 `scale`을 1.0으로 고정(밀링은 패널 폭에 맞춰 줄어드는 기존 동작 그대로). PDF도
+    `LATHE_PDF_COLUMN_WEIGHTS`를 INSERT/홀더 쪽으로 재배분.
+  - **M35 구동공구 Y축(`nc_viewer_widget.py`):** `lathe_local_point(z, x_diameter, y_value)`(C
+    회전 전 로컬 좌표) + `lathe_rotate_c(point, c_deg)`(주축 둘레 회전)로 `lathe_world_point()`를
+    분해 — `y_value=0`이면 v1.6.4 결과와 완전히 동일(회귀 없음). `M35`/`M34` 모달 플래그
+    (`lathe_milling_active`)를 `is_lathe` 분기에서만 추적. `G12.1`/`G13.1`은 이제 `is_lathe and
+    lathe_milling_active`일 때 `continue`를 건너뛰어 같은 블록의 모션 워드도 처리하고, 극좌표 중
+    C 워드는 각도가 아니라 Y(mm)로 해석(`O4006.nc:107` "X-.076Z-11.C-.067R.077"이 근거).
+  - **평면별 원호(`nc_viewer_widget.py`):** `ARC_PLANE_AXES`에 `LATHE_G17`(반경-Y, I/J)/
+    `LATHE_G19`(Y-기계Z, J/K) 키를 추가(기존 G17/G18/G19/LATHE 키는 그대로). M35 중 G17/G19
+    원호는 로컬(`start_local`/`target_local`) 평면에서 `_arc_points()`로 보간한 뒤 결과 점마다
+    `lathe_rotate_c(pt, cc_deg)`를 적용 — 밀링 4/5축 원호가 로컬로 그리고 배치 회전하는 것과
+    같은 방식(v1.4.5).
+  - **M98 서브프로그램(`nc_viewer_widget.py`):** `NCViewerWidget._expand_lathe_subprograms()`
+    신설 — `M30` 뒤 `O<번호>` 헤더들을 스캔해 본문 범위를 잡고, 메인 프로그램을 순회하며
+    `M98 P<번호> [L<반복>]`을 만나면 그 자리에 본문을 펼친다(재귀 10단계 상한, 미정의 P번호는
+    무시). 반환값은 `(원본 줄번호, 텍스트)` 쌍이라 `process_nc_lines()`의 `idx` 기반
+    `line_to_tool_map`/`line_to_coord_map`/`src_line`이 그대로 맞는다 — 커서 동기화가 깨지지
+    않는다. 선반이 아니면 기존 `enumerate(lines)` 그대로. **G90/G91 증분 모드는 이번 단계에
+    넣지 않았다** — 이 선반 방언에서 G90은 고정 사이클(G70~G76 계열) 표기와 겹쳐, 밀링처럼
+    단순 절대/증분 스위치로 해석하면 오히려 잘못될 위험이 있다(LATHE_MODE_GUIDELINES.md §8
+    "선반 고정 사이클"과 같은 사유로 별도 승인 단계로 미룸).
+  - **C축 회전 시뮬레이션(`nc_viewer_widget.py`):** `line_to_c_rot[idx]`에 줄마다 유효 C
+    회전각을 기록(`modal_state_map`과 같은 자리에서 우선 채우고, C가 실제로 갱신되는 곳에서
+    덮어씀). `set_cursor_line()`이 `is_lathe_mode()`일 때 그 값을 `_rotate_gl_items()`로
+    동적 트레이스(`dynamic_trace_items`)에 걸고, 커서 구는 `lathe_rotate_c(pt, -c_rot)`로 회전
+    성분을 뺀 위치(+X 센터)에 둔다. 정적 전체 경로(`plot_items`)는 손대지 않아 "툴패스를 볼
+    때는 지금과 같이" 요구를 지킨다.
+  - **뷰 제한(`nc_viewer_widget.py`):** `set_camera_projection()`의 뷰 큐브 가시성을
+    `not (lathe or orbit_locked)`로 바꿔 — 기존엔 `orbit_locked`(= "선반" 뷰에서만 True)만
+    봐서 선반 ISO에서 뷰 큐브가 그대로 보이고 클릭돼 임의 각도로 샐 수 있었다. 밀링은 `lathe`가
+    항상 False라 기존 동작(뷰 큐브 항상 보임) 그대로.
+- Verification: `pytest tests/test_nc_tool_list.py` **128/128 통과**(기존 120개 + v1.6.6 신규 8개:
+  선반 툴리스트 정렬+빈행, `lathe_world_point(y_value=...)`가 로컬+회전 합성과 일치 및 `y=0`일 때
+  회귀 없음, M35+G17/G19 원호가 기계 XY/YZ 평면과 C 회전을 반영하는지, G12.1 중 C가 Y(mm)로
+  처리되는지, M98 반복 호출 확장 + 호출 안 된 서브프로그램 미포함 + 원본 줄번호 보존, C축 회전
+  시 커서 구가 +X 센터에 고정되고 동적 트레이스만 회전(정적 경로는 항등)하는지, 선반 ISO에서도
+  뷰 큐브가 숨겨지는지). 실제 `O4006.nc`(M35+G12.1)/`O1699.nc`(M35+G17+Y축 헬리컬)를 뷰어에
+  직접 로드해 크래시 없이 처리되고 G12.1 구간의 Y값이 실제 파일 수치(mm)와 일치하는지 육안
+  확인했다. 개발 중 전체 pytest 실행에서 10개가 실패한 적이 있었는데, v1.6.5와 같은 원인
+  (`QSettings("NC Tool List", "EmbeddedViewer")`가 이 PC의 다른 세션/스크립트와 공유되어 생기는
+  외부 간섭 — 이번엔 릴리스 전 O4006.nc/O1699.nc 육안 확인 스크립트가 남긴 값)이었고, 그 값을
+  정리한 뒤 재실행해 128/128이 안정적으로 재현됨을 두 번 확인했다. 코드 회귀가 아니다.
+- Installer/package: **생성 완료** (사용자 승인 후 빌드).
+  - `python -m PyInstaller --noconfirm --clean NC_Tool_List.spec` — onedir, UPX 비활성,
+    `dist\NC_Tool_List` 146 MB, `_internal` 포함. `OpenGL\DLLS` 제외 확인(freeglut/gle32/gle64 DLL 없음).
+  - `ISCC.exe NC_Tool_List.iss` (Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.6.6.exe` 47.4 MB,
+    설치 경로 `C:\NC_Tool_List`, `.nc`/`.mpf`/`.tap` 파일 연결 등록 포함.
+  - 포터블: `installer\NC_Tool_List_Portable_v1.6.6.zip` 62.4 MB (dist 내용물을 zip 루트에 담는 기존
+    구조, 311개 항목으로 v1.6.3~v1.6.5와 동일).
+  - 빌드 검증: 프리즈된 `NC_Tool_List.exe`의 파일/제품 버전이 `1.6.6.0`으로 찍히고, 실제로 실행해
+    `startup.log`에 트레이스백 없이 `Starting Sum Path v1.6.6 frozen=True`가 남는 것을 확인한 뒤 종료했다.
+    설치 프로그램 자체의 VersionInfo도 1.6.6 / NC Tool List / S M.HWANG으로 확인했다.
+  - 산출물은 저장소의 `installer\` 폴더(gitignore 대상이라 커밋되지 않음)에 둔다.
 
 ### 2026-09-05 (latest, v1.6.5)
 
