@@ -325,10 +325,14 @@ X60 Y10 Z0
             top_layout = window.top_bar.layout()
             widgets = [top_layout.itemAt(i).widget() for i in range(top_layout.count())]
             widgets = [w for w in widgets if w is not None]
-            # title 다음 곧바로 About/툴리스트/뷰어 버튼이 와야 하고(stretch는
-            # addStretch()라 itemAt().widget()이 None이라 widgets 리스트에는
-            # 나타나지 않는다), 안내 문구 QLabel은 더 이상 없다.
-            self.assertEqual(widgets[1:4], [window.btn_about, window.btn_tool_mode, window.btn_viewer_mode])
+            # title 다음 곧바로 About/도움말/툴리스트/뷰어 버튼이 와야 하고
+            # (stretch는 addStretch()라 itemAt().widget()이 None이라 widgets
+            # 리스트에는 나타나지 않는다), 안내 문구 QLabel은 더 이상 없다.
+            # v1.6.1: About 다음에 도움말 버튼이 추가되었다.
+            self.assertEqual(
+                widgets[1:5],
+                [window.btn_about, window.btn_help, window.btn_tool_mode, window.btn_viewer_mode],
+            )
         finally:
             window.deleteLater()
             settings_dir.cleanup()
@@ -378,15 +382,16 @@ X60 Y10 Z0
 
     @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
     def test_dark_mode_button_and_icon_enlarged(self):
-        """다크/라이트 모드 토글 버튼과 아이콘 크기가 더 커져야 한다(v1.5.9 요청)."""
+        """다크/라이트 모드 토글 버튼과 아이콘 크기가 더 커져야 한다
+        (v1.5.9 요청, v1.6.1에서 아이콘 2배(52px)로 재확대)."""
         from nc_viewer_widget import NCViewerWidget
 
         qapp = app.QApplication.instance() or app.QApplication([])
         viewer = NCViewerWidget()
         try:
-            self.assertEqual(viewer.dark_mode_button.size().width(), 36)
-            self.assertEqual(viewer.dark_mode_button.size().height(), 36)
-            self.assertEqual(viewer.dark_mode_button.iconSize().width(), 26)
+            self.assertEqual(viewer.dark_mode_button.size().width(), 52)
+            self.assertEqual(viewer.dark_mode_button.size().height(), 52)
+            self.assertEqual(viewer.dark_mode_button.iconSize().width(), 52)
         finally:
             viewer.deleteLater()
             qapp.processEvents()
