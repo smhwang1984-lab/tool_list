@@ -131,6 +131,125 @@ LATHE_T_RE = re.compile(r'T(?!0000)(\d{2})00(?!\d)', re.I)
 LATHE_T_SEARCH_RE = re.compile(r'T(?!0000)\d{2}00(?!\d)', re.I | re.M)
 NC_COMMENT_RE = re.compile(r'\([^)]*\)')
 
+# ---------- 선반 전용 툴리스트(v1.6.5) ----------
+# 선반 툴리스트는 밀링 양식(TOOL_RE/N_RE/KV_RE 기반 COLUMNS)을 그대로 쓰지
+# 않는다 — 실제 선반 프로그램(O1699.nc)은 N번호가 "N1" 단독으로만 오고,
+# 그 바로 아래 통짜 괄호 주석 두 줄이 각각 홀더/인서트다. 밀링 파서가
+# 기대하는 "[SO ..]" 표기나 "N#(#: Tool Change" 형식이 아예 없다.
+LATHE_N_RE = re.compile(r'^\s*N(\d+)\s*$')
+# 한 줄 전체가 괄호로만 된 주석("( T06 - SLEEVE )") — 홀더/인서트 두 줄을
+# 여기서 읽는다. 코드와 주석이 섞인 줄(예: G코드 뒤 괄호 주석)은 대상이
+# 아니다(그 시점에서 홀더/인서트 수집을 멈춘다).
+LATHE_FULL_COMMENT_LINE_RE = re.compile(r'^\s*\((.*)\)\s*$')
+# 주석 안의 "T01 - " 같은 공구번호 접두어는 TOOL NO 열과 중복이므로 걷어낸다.
+LATHE_DESC_PREFIX_RE = re.compile(r'^\s*T\d+\s*-\s*(.*?)\s*$', re.I)
+# 블록 안에서 옵셋이 살아있는 Tnnnn(T0000 제외)을 찾는다 — v1.6.4 규약과
+# 같은 자리("옵셋 00만 있으면 그 값을 그대로 TOOL NO로 쓴다")를 여기서도 쓴다.
+LATHE_ANY_T_RE = re.compile(r'T(\d{4})(?!\d)', re.I)
+
+LATHE_COLUMNS = [
+    ('NO', 'TOOL NO'), ('INSERT', 'INSERT'), ('HOLDER', '홀더'), ('REMARK', 'REMARK'),
+]
+
+
+def _strip_lathe_tool_prefix(text):
+    """주석 텍스트에서 "T01 - " 식 공구번호 접두어를 걷어낸다."""
+    text = (text or '').strip()
+    match = LATHE_DESC_PREFIX_RE.match(text)
+    return match.group(1) if match else text
+
+
+def parse_lathe_program(text):
+    """선반 전용 툴리스트 파서(v1.6.5). 밀링 parse_program()의
+    N#(#: Tool Change)/[SO ..]/M6 규약과는 완전히 다른, 선반 실제 프로그램
+    양식(O1699.nc)에 맞춘 별도 파서다 — 서로 재사용하지 않는다.
+
+    N<번호> 라인 바로 다음에 오는(빈 줄은 건너뛴) 통짜 괄호 주석 최대 두
+    줄을 각각 홀더(1번째)/인서트(2번째)로 읽는다. 그 블록(다음 N 라인
+    전까지) 안에서 옵셋이 살아있는 Tnnnn(뒤 두 자리 != '00', T0000 제외)을
+    TOOL NO로 삼고, 그런 T워드가 없으면 옵셋 00짜리 T워드를 그대로 쓴다
+    (v1.6.4 Tnn00 규약과 같은 우선순위). 같은 TOOL NO가 여러 N 블록에서
+    쓰이면 한 행으로 합치고 REMARK에 N번호를 누적한다 — 옵셋이 다르면
+    (T0101 vs T0111) 별도 행으로 남는다(승인된 규약)."""
+    lines = text.splitlines()
+    n_indices = [i for i, line in enumerate(lines) if LATHE_N_RE.match(line)]
+    tools = {}
+    order = []
+    for pos, start in enumerate(n_indices):
+        n_label = 'N' + LATHE_N_RE.match(lines[start]).group(1)
+        end = n_indices[pos + 1] if pos + 1 < len(n_indices) else len(lines)
+        block = lines[start + 1:end]
+
+        comments = []
+        for line in block:
+            if not line.strip():
+                continue
+            comment_match = LATHE_FULL_COMMENT_LINE_RE.match(line)
+            if comment_match is None:
+                break
+            comments.append(_strip_lathe_tool_prefix(comment_match.group(1)))
+            if len(comments) >= 2:
+                break
+        holder = comments[0] if len(comments) >= 1 else ''
+        insert = comments[1] if len(comments) >= 2 else ''
+
+        tool_no = ''
+        fallback_tool_no = ''
+        for line in block:
+            code = code_without_comments(line)
+            found = False
+            for match in LATHE_ANY_T_RE.finditer(code):
+                digits = match.group(1)
+                if digits == '0000':
+                    continue
+                if digits[2:] != '00':
+                    tool_no = 'T' + digits
+                    found = True
+                    break
+                if not fallback_tool_no:
+                    fallback_tool_no = 'T' + digits
+            if found:
+                break
+        if not tool_no:
+            tool_no = fallback_tool_no
+
+        key = tool_no or ('__N%d__' % start)
+        entry = tools.setdefault(key, {'tool_no': tool_no, 'holder': '', 'insert': '', 'remarks': []})
+        if not entry['holder']:
+            entry['holder'] = holder
+        if not entry['insert']:
+            entry['insert'] = insert
+        if n_label not in entry['remarks']:
+            entry['remarks'].append(n_label)
+        if key not in order:
+            order.append(key)
+
+    rows = []
+    for key in order:
+        entry = tools[key]
+        rows.append({
+            'NO': entry['tool_no'],
+            'INSERT': entry['insert'],
+            'HOLDER': entry['holder'],
+            'REMARK': ', '.join(entry['remarks']),
+        })
+    return rows
+
+
+def lathe_tool_name_map_from_rows(rows):
+    """3D 뷰어 공정 필터 라벨용 — 밀링은 NAME을, 선반은 INSERT를 공구
+    이름으로 쓴다(요청: "필터 선에도 공구 이름 인서트로 넣을 것"). 뷰어가
+    쓰는 키(T01처럼 옵셋 없는 2자리 공구번호, v1.6.4)에 맞춰 TOOL NO의
+    앞 두 자리만 취한다."""
+    mapping = {}
+    for row in rows or []:
+        no = str(row.get('NO', '')).strip().upper()
+        insert = str(row.get('INSERT', '')).strip()
+        match = re.fullmatch(r'T(\d{2})\d{2}', no)
+        if match and insert:
+            mapping.setdefault('T' + match.group(1), insert)
+    return mapping
+
 
 def is_lathe_machine(machine_type):
     """장비 이름으로 선반 여부를 판정한다.
@@ -189,6 +308,17 @@ COL_WIDTH = {
     for key, width in _COL_WIDTH_BASE.items()
 }
 _COL_WIDTH_TOTAL = sum(COL_WIDTH.values())
+
+# v1.6.5: 선반 전용 4열(TOOL NO/INSERT/홀더/REMARK) 표 칸 폭 — TOOL NO는
+# 좁고, INSERT/홀더/REMARK는 실제 문구가 길어(예: "CNMG 120408 | R-0.8")
+# 여유를 넉넉히 둔다. 같은 스케일/패딩 규칙을 적용해 밀링 표와 크기 감이
+# 어긋나지 않게 한다.
+_LATHE_COL_WIDTH_BASE = {'NO': 88, 'INSERT': 220, 'HOLDER': 220, 'REMARK': 140}
+LATHE_COL_WIDTH = {
+    key: round(width * COPY_TABLE_SCALE) + TABLE_CELL_PADDING_PX * 2
+    for key, width in _LATHE_COL_WIDTH_BASE.items()
+}
+_LATHE_COL_WIDTH_TOTAL = sum(LATHE_COL_WIDTH.values())
 
 # v1.6.3: 공구 리스트 표가 패널 폭보다 넓어져 가로 스크롤바가 생기지 않도록,
 # 위 COL_WIDTH/TABLE_FONT_PT를 "기준값"으로 두고 실제 표시 폭에 맞춰 폰트와
@@ -379,6 +509,80 @@ def make_pdf_story(rows, metadata, available_width, fonts):
         if index < len(chunks) - 1:
             story.append(PageBreak())
     return story
+
+
+# ---------- 선반 전용 PDF(v1.6.5) ----------
+# 밀링 PDF(16열, [SO]/[HOLDER] 등 고정 병합 칸)와 선반(4열: TOOL NO/INSERT/
+# 홀더/REMARK)은 열 구성 자체가 다르므로 표/스타일을 따로 만든다. 문서
+# 골격(register_pdf_fonts/make_pdf_document/PDF_ROWS_PER_PAGE 등)은 그대로
+# 재사용한다.
+LATHE_PDF_COLUMN_WEIGHTS = [70, 260, 260, 160]
+
+
+def lathe_pdf_column_widths(available_width):
+    total = float(sum(LATHE_PDF_COLUMN_WEIGHTS))
+    return [available_width * weight / total for weight in LATHE_PDF_COLUMN_WEIGHTS]
+
+
+def make_lathe_pdf_info_row(metadata, font_name):
+    style = ParagraphStyle(
+        'LathePdfInfo', fontName=font_name, fontSize=7.5, leading=9,
+        textColor=colors.black, leftIndent=0, rightIndent=0,
+    )
+    parts = []
+    for _column, label, key in PDF_METADATA_FIELDS:
+        value = str(metadata.get(key, '')).strip()
+        if value:
+            parts.append('%s : %s' % (label, escape(value)))
+    return [Paragraph('   |   '.join(parts), style), '', '', '']
+
+
+def make_lathe_pdf_table(rows, metadata, available_width, fonts):
+    regular_font, bold_font = fonts
+    page_rows = list(rows)
+    blank_row = {key: None for key, _label in LATHE_COLUMNS}
+    while len(page_rows) < PDF_ROWS_PER_PAGE:
+        page_rows.append(blank_row)
+    data = [make_lathe_pdf_info_row(metadata, regular_font)]
+    data.append([label for _key, label in LATHE_COLUMNS])
+    data.extend([[row.get(key) for key, _label in LATHE_COLUMNS] for row in page_rows])
+    return style_lathe_pdf_table(data, available_width, regular_font, bold_font)
+
+
+def style_lathe_pdf_table(data, available_width, regular_font, bold_font):
+    heights = [16, 20] + [15.5] * PDF_ROWS_PER_PAGE
+    table = Table(data, colWidths=lathe_pdf_column_widths(available_width), rowHeights=heights)
+    commands = base_pdf_table_style(regular_font, bold_font)
+    commands.append(('SPAN', (0, 0), (-1, 0)))
+    commands.extend(pdf_table_row_backgrounds())
+    # INSERT/홀더/REMARK는 문구가 길어 왼쪽 정렬한다(TOOL NO만 가운데 유지).
+    commands.append(('ALIGN', (1, 2), (-1, -1), 'LEFT'))
+    table.setStyle(TableStyle(commands))
+    return table
+
+
+def make_lathe_pdf_story(rows, metadata, available_width, fonts):
+    source_rows = list(rows)
+    chunks = [source_rows[index:index + PDF_ROWS_PER_PAGE]
+              for index in range(0, len(source_rows), PDF_ROWS_PER_PAGE)]
+    if not chunks:
+        chunks = [[]]
+    story = []
+    for index, chunk in enumerate(chunks):
+        story.append(make_lathe_pdf_table(chunk, metadata, available_width, fonts))
+        if index < len(chunks) - 1:
+            story.append(PageBreak())
+    return story
+
+
+def export_lathe_tool_list_pdf(path, rows, metadata):
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fonts = register_pdf_fonts()
+    document = make_pdf_document(output_path)
+    metadata = normalized_pdf_metadata(metadata)
+    document.build(make_lathe_pdf_story(rows, metadata, document.width, fonts))
+    return output_path
 
 
 def default_pdf_filename(metadata):
@@ -2057,11 +2261,13 @@ else:
             self._style_info_panel(self.metadata_summary)
             layout.addWidget(self.metadata_summary)
 
-            self.table = ToolTableWidget(0, len(COLUMNS))
+            # v1.6.5: 열 구성은 밀링/선반에 따라 다르므로(_configure_table_
+            # columns) 여기서는 빈 표만 만들고, 실제 열 개수/헤더/폭은
+            # 아래에서 한 번에 잡는다.
+            self.table = ToolTableWidget(0, 0)
             # v1.6.3: 표 폭이 바뀔 때마다(스플리터 드래그 포함) 폰트/셀 폭을
             # 다시 맞춰 가로 스크롤바가 생기지 않게 한다.
             self.table.resized.connect(self._relayout_tool_table)
-            self.table.setHorizontalHeaderLabels([label for _key, label in COLUMNS])
             # v1.5.9: 표기 폰트를 기존(미지정 기본 폰트, ~9pt)의 1.6배로 키운다
             # — 행 높이는 Qt가 이 폰트 크기에 맞춰 함께 자동으로 커진다.
             # v1.6.2: 요청대로 그 폰트/셀 폭을 다시 15% 줄인다(COPY_TABLE_SCALE).
@@ -2078,8 +2284,8 @@ else:
             self.table.verticalHeader().setVisible(False)
             header = self.table.horizontalHeader()
             header.setSectionResizeMode(QHeaderView.Interactive)
-            for index, (key, _label) in enumerate(COLUMNS):
-                self.table.setColumnWidth(index, COL_WIDTH.get(key, 60))
+            self._table_columns_is_lathe = None
+            self._configure_table_columns()
             self.table.doubleClicked.connect(lambda _index: self.edit_selected())
             layout.addWidget(self.table, 1)
 
@@ -2335,16 +2541,53 @@ else:
                 return is_lathe_machine(combo.currentText())
             return is_lathe_machine(getattr(self, 'current_machine_type', ''))
 
+        def active_columns(self):
+            """현재 장비가 선반이면 선반 전용 4열(TOOL NO/INSERT/홀더/
+            REMARK), 아니면 기존 밀링 16열(v1.6.5). 표 생성/편집/복사가
+            전부 이 메서드를 거치므로 두 양식이 서로 섞이지 않는다."""
+            return LATHE_COLUMNS if self.is_lathe_program() else COLUMNS
+
+        def active_col_width(self, key):
+            widths = LATHE_COL_WIDTH if self.is_lathe_program() else COL_WIDTH
+            return widths.get(key, 60)
+
+        def _active_col_width_total(self):
+            return _LATHE_COL_WIDTH_TOTAL if self.is_lathe_program() else _COL_WIDTH_TOTAL
+
+        def _configure_table_columns(self):
+            """선반/밀링 전환에 맞춰 표 열 구성(개수/헤더/폭)을 다시 잡는다
+            (v1.6.5). 열 스키마 자체가 바뀌므로 기존 행은 비운다.
+
+            여기서는 "기준(1배)" 폭만 잡고 _relayout_tool_table()은 부르지
+            않는다 — __init__ 시점(패널이 아직 실제 폭으로 배치되기 전)에도
+            불리므로, 지금 리레이아웃을 하면 뷰포트 폭이 임시로 작아 보여
+            표 폰트가 영구히 축소된 채로 굳어버린다(초기 폰트는 기존처럼
+            resized 시그널/run()이 나중에 알아서 맞춘다)."""
+            lathe = self.is_lathe_program()
+            columns = LATHE_COLUMNS if lathe else COLUMNS
+            self.table.setRowCount(0)
+            self.table.setColumnCount(len(columns))
+            self.table.setHorizontalHeaderLabels([label for _key, label in columns])
+            for index, (key, _label) in enumerate(columns):
+                self.table.setColumnWidth(index, self.active_col_width(key))
+            self._table_columns_is_lathe = lathe
+            self.update_count()
+
         def parsed_program_data(self, source_text=None):
             source_text = self.src.toPlainText() if source_text is None else source_text
             lathe = self.is_lathe_program()
-            # 장비를 바꾸면 같은 원문이라도 공구 교체 기준이 달라지므로
+            # 장비를 바꾸면 같은 원문이라도 공구 교체 기준/열 양식이 달라지므로
             # 캐시 키에 선반 여부도 함께 넣는다.
             if source_text != self._last_parsed_source or lathe != self._last_parsed_lathe:
                 self._last_parsed_source = source_text
                 self._last_parsed_lathe = lathe
                 self._last_parsed_metadata = parse_program_metadata(source_text)
-                self._last_parsed_rows = parse_program(source_text, self.name_types, lathe=lathe)
+                if lathe:
+                    # v1.6.5: 선반은 밀링 parse_program()과 다른 전용 파서를
+                    # 쓴다 — N번호/괄호 주석 2줄/Tnnnn 규약이 서로 다르다.
+                    self._last_parsed_rows = parse_lathe_program(source_text)
+                else:
+                    self._last_parsed_rows = parse_program(source_text, self.name_types, lathe=False)
             return self._last_parsed_metadata, list(self._last_parsed_rows)
 
         def invalidate_parse_cache(self):
@@ -2416,6 +2659,10 @@ else:
             self.set_search_status('처음부터 검색' if wrapped else '검색 위치 선택')
 
         def next_tool_no(self):
+            if self.is_lathe_program():
+                # 선반은 TOOL NO가 Tnnnn(공구+옵셋)이라 밀링식 T%02d 자동
+                # 채번이 맞지 않는다 — 빈칸으로 두고 직접 입력하게 한다.
+                return ''
             numbers = []
             for row in range(self.table.rowCount()):
                 value = self.table_text(row, 'NO').upper()
@@ -2425,7 +2672,7 @@ else:
             return 'T%02d' % (max(numbers, default=0) + 1)
 
         def add_row(self):
-            values = {key: '' for key, _ in COLUMNS}
+            values = {key: '' for key, _ in self.active_columns()}
             values['NO'] = self.next_tool_no()
             self.show_row_editor(values)
 
@@ -2435,7 +2682,7 @@ else:
                 QMessageBox.information(self, '알림', '수정할 행을 먼저 선택하세요.')
                 return
             row_index = selected_rows[0]
-            row = {key: self.table_text(row_index, key) for key, _label in COLUMNS}
+            row = {key: self.table_text(row_index, key) for key, _label in self.active_columns()}
             self.show_row_editor(row, row_index)
 
         def delete_selected(self):
@@ -2459,16 +2706,21 @@ else:
             return sorted({index.row() for index in self.table.selectionModel().selectedRows()})
 
         def table_text(self, row, key):
-            column = [item_key for item_key, _label in COLUMNS].index(key)
+            column = [item_key for item_key, _label in self.active_columns()].index(key)
             item = self.table.item(row, column)
             return item.text() if item else ''
+
+        # v1.6.5: 왼쪽 정렬할 열(문구가 긴 열) — 밀링/선반 공통으로 이 키에
+        # 해당하면 왼쪽 정렬, 그 외(짧은 코드/숫자 열)는 가운데 정렬한다.
+        _LEFT_ALIGN_COLUMN_KEYS = ('NAME', 'HOLDER', 'REMARK', 'INSERT')
 
         def show_row_editor(self, values, row_index=None):
             dialog = QDialog(self)
             dialog.setWindowTitle('공구 행 수정' if row_index is not None else '공구 행 추가')
             grid = QGridLayout(dialog)
+            columns = self.active_columns()
             editors = {}
-            for index, (key, label) in enumerate(COLUMNS):
+            for index, (key, label) in enumerate(columns):
                 column = (index // 8) * 2
                 row = index % 8
                 grid.addWidget(QLabel(label), row, column)
@@ -2479,10 +2731,10 @@ else:
             grid.addWidget(buttons, 8, 0, 1, 4)
 
             def save():
-                row = {key: editors[key].text().strip() for key, _label in COLUMNS}
-                if not row['TYPE'] and row['NAME']:
+                row = {key: editors[key].text().strip() for key, _label in columns}
+                if 'TYPE' in row and not row['TYPE'] and row.get('NAME'):
                     row['TYPE'] = derive_type(row['NAME'], self.name_types)
-                if not row['D'] and row['NAME']:
+                if 'D' in row and not row['D'] and row.get('NAME'):
                     row['D'] = derive_d(row['NAME'])
                 target = row_index
                 if target is None:
@@ -2500,15 +2752,19 @@ else:
             dialog.exec_()
 
         def set_table_row(self, row_index, row):
-            for column, (key, _label) in enumerate(COLUMNS):
+            for column, (key, _label) in enumerate(self.active_columns()):
                 item = QTableWidgetItem(str(row.get(key, '')))
-                if key not in ('NAME', 'HOLDER', 'REMARK'):
+                if key not in self._LEFT_ALIGN_COLUMN_KEYS:
                     item.setTextAlignment(Qt.AlignCenter)
                 self.table.setItem(row_index, column, item)
 
         def run(self):
             source_text = self.src.toPlainText()
             self.metadata, rows = self.parsed_program_data(source_text)
+            # v1.6.5: 밀링<->선반 전환으로 표 열 스키마 자체가 바뀌었으면
+            # 다시 만든다(열 개수/헤더/폭이 다르므로 재사용할 수 없다).
+            if getattr(self, '_table_columns_is_lathe', None) != self.is_lathe_program():
+                self._configure_table_columns()
             self.table.setUpdatesEnabled(False)
             try:
                 self.table.setRowCount(len(rows))
@@ -2530,12 +2786,14 @@ else:
             크기이고, 실제 배율은 [TOOL_TABLE_MIN_SCALE, 1.0] 범위로 자른다
             (기준보다 커지지는 않지만, 너무 작아져 읽기 힘들어지지도 않게)."""
             table = getattr(self, 'table', None)
-            if table is None or _COL_WIDTH_TOTAL <= 0:
+            columns = self.active_columns()
+            width_total = self._active_col_width_total()
+            if table is None or width_total <= 0:
                 return
             available = table.viewport().width()
             if available <= 0:
                 return
-            scale = min(1.0, max(TOOL_TABLE_MIN_SCALE, available / _COL_WIDTH_TOTAL))
+            scale = min(1.0, max(TOOL_TABLE_MIN_SCALE, available / width_total))
 
             table_font = QFont('맑은 고딕')
             table_font.setPointSizeF(TABLE_FONT_PT * scale)
@@ -2546,8 +2804,8 @@ else:
             # round()가 아니라 int()(내림)로 자른다 — 열마다 반올림해 올린 몇
             # px가 누적되면 합계가 available을 살짝 넘어 가로 스크롤바가
             # 다시 생기는 경우가 있었다(내림이면 합계가 항상 available 이하).
-            for index, (key, _label) in enumerate(COLUMNS):
-                table.setColumnWidth(index, max(1, int(COL_WIDTH.get(key, 60) * scale)))
+            for index, (key, _label) in enumerate(columns):
+                table.setColumnWidth(index, max(1, int(self.active_col_width(key) * scale)))
             # 폰트가 바뀐 뒤 기존 행들의 높이도 새 폰트 크기에 맞게 다시
             # 계산해야 한다 — setFont()만으로는 이미 만들어진 행 높이가
             # 자동으로 갱신되지 않는다.
@@ -2768,7 +3026,10 @@ else:
 
         def save_pdf(self, path, rows):
             try:
-                export_tool_list_pdf(path, rows, self.metadata)
+                if self.is_lathe_program():
+                    export_lathe_tool_list_pdf(path, rows, self.metadata)
+                else:
+                    export_tool_list_pdf(path, rows, self.metadata)
             except Exception as error:
                 QMessageBox.critical(self, 'PDF 출력 실패', str(error))
                 return
@@ -2781,23 +3042,28 @@ else:
                 )
 
         def current_rows(self):
+            columns = self.active_columns()
             rows = []
             for row_index in range(self.table.rowCount()):
-                rows.append({key: self.table_text(row_index, key) for key, _label in COLUMNS})
+                rows.append({key: self.table_text(row_index, key) for key, _label in columns})
             return rows
 
         def tool_name_map(self, rows):
+            # v1.6.5: 선반은 필터 라벨에 NAME 대신 INSERT를 쓴다(요청).
+            if self.is_lathe_program():
+                return lathe_tool_name_map_from_rows(rows)
             return tool_name_map_from_rows(rows)
 
         def copy_table(self):
             if self.table.rowCount() == 0:
                 QMessageBox.information(self, '알림', '먼저 공구 리스트를 생성하세요.')
                 return
+            columns = self.active_columns()
             lines = []
             if self.with_header.isChecked():
-                lines.append('\t'.join(label for _key, label in COLUMNS))
+                lines.append('\t'.join(label for _key, label in columns))
             for row in self.current_rows():
-                lines.append('\t'.join(str(row.get(key, '')) for key, _label in COLUMNS))
+                lines.append('\t'.join(str(row.get(key, '')) for key, _label in columns))
             QApplication.clipboard().setText('\n'.join(lines))
             self.count.setText('복사됨! 엑셀에서 Ctrl+V')
             QTimer.singleShot(1800, self.update_count)

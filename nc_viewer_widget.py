@@ -8,7 +8,7 @@ import numpy as np
 import pyqtgraph.opengl as gl
 from pyqtgraph import Vector
 from PyQt5.QtCore import (
-    Qt, QEvent, QPointF, QRectF, QSettings, QSignalBlocker, QSize, QTimer, pyqtSignal,
+    Qt, QEvent, QPointF, QRect, QRectF, QSettings, QSignalBlocker, QSize, QTimer, pyqtSignal,
 )
 from PyQt5.QtGui import (
     QBrush, QColor, QFont, QIcon, QKeySequence, QMatrix4x4, QPainter, QPainterPath, QPen, QPixmap,
@@ -22,6 +22,7 @@ from PyQt5.QtWidgets import (
     QLabel,
     QListWidgetItem,
     QPushButton,
+    QRubberBand,
     QShortcut,
     QSlider,
     QVBoxLayout,
@@ -45,6 +46,10 @@ CONTROL_SHRINK = 0.6
 # 사이의 세로 간격(v1.6.3).
 TOP_LEFT_OVERLAY_MARGIN_PX = 10
 TOP_LEFT_OVERLAY_STACK_GAP_PX = 6
+
+# v1.6.5: 선반 뷰에서는 좌표 오버레이를 화면 하단(재생 속도바 바로 위)으로
+# 옮긴다 — 그 사이 세로 간격.
+BOTTOM_COORD_OVERLAY_GAP_PX = 8
 
 # 다크모드 토글 버튼/아이콘 크기(v1.6.1의 52px에서 40% 감축).
 DARK_MODE_BUTTON_PX = round(52 * CONTROL_SHRINK)
@@ -302,6 +307,9 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
     # Fired on every mouse move over the widget (any button state), so the
     # magnifier lens can track the cursor while open.
     mouse_moved = pyqtSignal(float, float)
+    # v1.6.5: 드래그줌 토글이 내부적으로(사각형 확정 후 자동 해제 포함)
+    # 바뀔 때마다 쏜다 — 오버레이의 체크 버튼을 실제 상태와 맞추는 데 쓴다.
+    drag_zoom_state_changed = pyqtSignal(bool)
 
     _CLICK_DRAG_PX = 4.0
 
@@ -322,21 +330,80 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
         # 단일 위젯이 아니라 순서 있는 목록으로 관리한다(위쪽부터 좌표,
         # 투영 순).
         self.top_left_widgets = []
+        # v1.6.5: 선반 뷰에서는 좌표 오버레이가 top_left_widgets 목록을
+        # 떠나 이 위젯으로 옮겨온다(화면 하단, 재생 속도바 바로 위).
+        self.bottom_coord_widget = None
         # 렌더된 경로 전체를 감싸는 구의 반지름(원점 기준) — projectionMatrix()가
         # 깊이 클리핑 범위를 카메라 거리 대신 이 값으로 산정해, 확대해도 긴
         # 경로가 far 평면에 잘리지 않게 한다. 경로가 없으면 0(거리 기반 fallback).
         self.scene_radius = 0.0
         self._left_press_pos = None
         self._left_press_was_drag = False
+        # v1.6.5: 선반 평면 뷰("선반" 투영)에서는 좌드래그가 화면을 돌리지
+        # 않고 상하좌우로만 움직이게 잠근다(지침 3항 — 회전하면 Z-수평/
+        # X-수직 평면이 깨진다). ISO나 밀링에서는 항상 False(자유 회전).
+        self.orbit_locked = False
+        # v1.6.5: 선반 전용 "드래그줌" 버튼이 켜져 있는 동안 좌드래그는
+        # 화면에 사각형을 그리는 데만 쓰이고, 손을 떼면 그 영역이 화면에
+        # 꽉 차도록 한 번 확대한 뒤 자동으로 꺼진다.
+        self.drag_zoom_active = False
+        self._drag_zoom_rubber_band = None
+        self._drag_zoom_origin = None
         # pyqtgraph's GLViewWidget defaults to ClickFocus and steals arrow keys for
         # camera orbit (its own keyPressEvent) the moment this widget is clicked,
         # which silently breaks program-cursor arrow-key stepping. Keyboard focus
         # must always stay on the program editor.
         self.setFocusPolicy(Qt.NoFocus)
 
+    def set_drag_zoom_active(self, active):
+        """드래그줌 모드를 켜고 끈다. 진행 중인 드래그가 있으면 취소한다."""
+        active = bool(active)
+        if active == self.drag_zoom_active:
+            return
+        self.drag_zoom_active = active
+        if not active:
+            self._drag_zoom_origin = None
+            if self._drag_zoom_rubber_band is not None:
+                self._drag_zoom_rubber_band.hide()
+        self.drag_zoom_state_changed.emit(active)
+
+    def _ensure_drag_zoom_band(self):
+        if self._drag_zoom_rubber_band is None:
+            self._drag_zoom_rubber_band = QRubberBand(QRubberBand.Rectangle, self)
+        return self._drag_zoom_rubber_band
+
+    def _apply_drag_zoom(self, rect):
+        """드래그한 사각형이 화면에 꽉 차도록 카메라를 이동·확대한다(v1.6.5).
+        직교 투영이라 화면 픽셀과 카메라 거리가 선형 관계라 정확히 맞출 수
+        있다 — 원근 투영이었다면 사각형 중심의 실제 3D 위치가 거리마다
+        달라져 이렇게 간단히 계산할 수 없다."""
+        width = max(float(self.width()), 1.0)
+        height = max(float(self.height()), 1.0)
+        rect_w = max(float(rect.width()), 4.0)
+        rect_h = max(float(rect.height()), 4.0)
+        center = rect.center()
+        # 사각형 중심을 화면 정중앙으로 가져온다. pan(dx, dy, 0, 'view')는
+        # "내용이 드래그를 따라간다"는 규약이므로(Ctrl+드래그 팬과 동일),
+        # 중심을 화면 가운데로 되돌리려면 그 반대 방향(-오프셋)만큼 이동한다.
+        offset_x = center.x() - width / 2.0
+        offset_y = center.y() - height / 2.0
+        if offset_x or offset_y:
+            self.pan(-offset_x, -offset_y, 0, relative='view')
+        scale = max(rect_w / width, rect_h / height)
+        scale = min(max(scale, 0.02), 1.0)
+        self.opts['distance'] = max(float(self.opts.get('distance', 200.0)) * scale, 1.0)
+        self.update()
+        self.camera_changed.emit()
+        self.set_drag_zoom_active(False)
+
     def mousePressEvent(self, ev):
         lpos = ev.position() if hasattr(ev, 'position') else ev.localPos()
         if ev.button() == Qt.LeftButton:
+            if self.drag_zoom_active:
+                self._drag_zoom_origin = lpos
+                self._ensure_drag_zoom_band().setGeometry(QRect(lpos.toPoint(), QSize()))
+                self._drag_zoom_rubber_band.show()
+                return
             self._left_press_pos = lpos
             self._left_press_was_drag = False
         elif ev.button() == Qt.RightButton:
@@ -344,6 +411,14 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
         super().mousePressEvent(ev)
 
     def mouseReleaseEvent(self, ev):
+        if ev.button() == Qt.LeftButton and self.drag_zoom_active and self._drag_zoom_origin is not None:
+            lpos = ev.position() if hasattr(ev, 'position') else ev.localPos()
+            rect = QRect(self._drag_zoom_origin.toPoint(), lpos.toPoint()).normalized()
+            self._drag_zoom_origin = None
+            if self._drag_zoom_rubber_band is not None:
+                self._drag_zoom_rubber_band.hide()
+            self._apply_drag_zoom(rect)
+            return
         if ev.button() == Qt.LeftButton and self._left_press_pos is not None:
             lpos = ev.position() if hasattr(ev, 'position') else ev.localPos()
             if not self._left_press_was_drag:
@@ -353,17 +428,30 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
 
     def mouseMoveEvent(self, ev):
         lpos = ev.position() if hasattr(ev, 'position') else ev.localPos()
+        if self.drag_zoom_active and (ev.buttons() & Qt.LeftButton) and self._drag_zoom_origin is not None:
+            rect = QRect(self._drag_zoom_origin.toPoint(), lpos.toPoint()).normalized()
+            self._ensure_drag_zoom_band().setGeometry(rect)
+            return
         if (ev.buttons() & Qt.LeftButton) and self._left_press_pos is not None:
             moved = lpos - self._left_press_pos
             if (moved.x() ** 2 + moved.y() ** 2) ** 0.5 > self._CLICK_DRAG_PX:
                 self._left_press_was_drag = True
         if not hasattr(self, 'mousePos'):
             self.mousePos = lpos
+        prev_pos = self.mousePos
         # pyqtgraph's own handler computes diff = lpos - self.mousePos and then
         # overwrites self.mousePos with the true lpos. Pulling the stored point
         # toward lpos by (1 - sensitivity) shrinks that diff without touching
         # pyqtgraph's orbit()/pan() math, so it keeps working across library versions.
         self.mousePos = lpos - (lpos - self.mousePos) * self.navigation_sensitivity
+        if self.orbit_locked and ev.buttons() == Qt.LeftButton and not (ev.modifiers() & Qt.ControlModifier):
+            # v1.6.5: 선반 평면 뷰는 좌드래그를 orbit 대신 pan으로 바꿔치기
+            # 한다 — 기존 Ctrl+좌드래그 팬(pyqtgraph 기본 동작)과 같은 호출.
+            diff = lpos - prev_pos
+            self.pan(diff.x() * self.navigation_sensitivity, diff.y() * self.navigation_sensitivity, 0, relative='view')
+            self.camera_changed.emit()
+            self.mouse_moved.emit(lpos.x(), lpos.y())
+            return
         super().mouseMoveEvent(ev)
         self.camera_changed.emit()
         self.mouse_moved.emit(lpos.x(), lpos.y())
@@ -394,6 +482,7 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
         self._reposition_overlay()
         self._reposition_bottom_bar()
         self._reposition_top_left()
+        self._reposition_bottom_coord()
 
     # v1.6.2: 재생바 폭도 버튼 크기와 같은 비율(40% 감축)로 줄인다 — 버튼은
     # 가로로 늘어나는 위젯이라 바 폭을 그대로 두면 패딩만 줄어들고 실제
@@ -412,6 +501,19 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
         margin_bottom = round(2 * PX_PER_CM)
         y = self.height() - height - margin_bottom
         bar.move((self.width() - width) // 2, max(0, y))
+
+    def _reposition_bottom_coord(self):
+        """v1.6.5: 선반 모드에서는 좌표 오버레이가 화면 하단, 재생 속도바
+        바로 위 중앙에 뜬다(밀링에서는 top_left_widgets 쪽에 남아 있으므로
+        bottom_coord_widget이 비어 있어 아무 일도 하지 않는다)."""
+        widget = self.bottom_coord_widget
+        if widget is None:
+            return
+        bar = self.bottom_bar_widget
+        bar_top_y = bar.y() if bar is not None else self.height() - round(2 * PX_PER_CM)
+        y = bar_top_y - widget.height() - BOTTOM_COORD_OVERLAY_GAP_PX
+        x = (self.width() - widget.width()) // 2
+        widget.move(max(0, x), max(0, y))
 
     def _reposition_overlay(self):
         if self.overlay_widget is None:
@@ -776,6 +878,9 @@ class ProjectionOverlayWidget(QWidget):
     """
 
     projection_clicked = pyqtSignal(str)
+    # v1.6.5: 선반 전용 "드래그줌" 토글 버튼의 체크 상태가 바뀔 때(사용자
+    # 클릭이든, 드래그 확정 후 자동 해제든) 쏜다.
+    drag_zoom_toggled = pyqtSignal(bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -802,6 +907,7 @@ class ProjectionOverlayWidget(QWidget):
         # 라벨 + 여백 2칸은 고정이고, 그 뒤 버튼만 모드에 따라 갈아 끼운다.
         self._fixed_item_count = row.count()
         self._lathe_mode = False
+        self.drag_zoom_button = None
         self._rebuild_buttons(self.MILL_BUTTONS)
 
     # 밀링과 선반은 축 개념 자체가 달라 투영 버튼 구성을 다르게 쓴다(v1.6.4).
@@ -840,6 +946,19 @@ class ProjectionOverlayWidget(QWidget):
             # (그래서 선반 전환 시 오버레이가 라벨 폭까지만 줄어들었다).
             if self.isVisible():
                 button.show()
+        self.drag_zoom_button = None
+        if buttons is self.LATHE_BUTTONS:
+            # v1.6.5: 선반 뷰 전용 — 드래그로 그린 사각형만큼 한 번에
+            # 확대하는 토글 버튼(밀링에는 없음, 기존 오빗/휠줌 그대로).
+            drag_zoom_button = QPushButton("드래그줌")
+            drag_zoom_button.setCheckable(True)
+            drag_zoom_button.setFocusPolicy(Qt.NoFocus)
+            drag_zoom_button.toggled.connect(self.drag_zoom_toggled.emit)
+            drag_zoom_button.ensurePolished()
+            row.addWidget(drag_zoom_button)
+            if self.isVisible():
+                drag_zoom_button.show()
+            self.drag_zoom_button = drag_zoom_button
         self._fit_to_contents()
 
     def _fit_to_contents(self):
@@ -870,12 +989,21 @@ class ProjectionOverlayWidget(QWidget):
         self._rebuild_buttons(self.LATHE_BUTTONS if enabled else self.MILL_BUTTONS)
 
     def button_labels(self):
-        """현재 노출 중인 투영 버튼 텍스트(테스트/디버그용)."""
+        """현재 노출 중인 투영 버튼 텍스트(테스트/디버그용). 드래그줌
+        토글은 투영 버튼이 아니므로 제외한다."""
         return [
             self._row.itemAt(index).widget().text()
             for index in range(self._fixed_item_count, self._row.count())
             if self._row.itemAt(index).widget() is not None
+            and self._row.itemAt(index).widget() is not self.drag_zoom_button
         ]
+
+    def set_drag_zoom_checked(self, checked):
+        """gl_view의 실제 drag_zoom_active 상태에 버튼 체크를 맞춘다(v1.6.5).
+        버튼이 없는(밀링) 상태에서 호출돼도 안전하다."""
+        if self.drag_zoom_button is not None:
+            with QSignalBlocker(self.drag_zoom_button):
+                self.drag_zoom_button.setChecked(bool(checked))
 
 
 class CoordOverlayWidget(QWidget):
@@ -1343,6 +1471,11 @@ class NCViewerWidget(QWidget):
             self.gl_view.top_left_widgets.append(overlay)
             self.gl_view._reposition_top_left()
             overlay.projection_clicked.connect(self.set_camera_projection)
+            # v1.6.5: 선반 전용 "드래그줌" 버튼 <-> gl_view의 실제 상태를
+            # 양방향으로 맞춘다(버튼 클릭 -> gl_view 활성화, 드래그 확정 후
+            # 자동 해제 -> 버튼 체크 해제).
+            overlay.drag_zoom_toggled.connect(self.gl_view.set_drag_zoom_active)
+            self.gl_view.drag_zoom_state_changed.connect(overlay.set_drag_zoom_checked)
             overlay.raise_()
         except Exception:
             overlay = None
@@ -1873,11 +2006,51 @@ class NCViewerWidget(QWidget):
                 self.gl_view._reposition_top_left()
             except Exception:
                 pass
+        if not lathe:
+            # v1.6.5: 밀링으로 돌아오면 선반 뷰에서 걸어 둔 회전 잠금/
+            # 드래그줌이 남아있지 않게 확실히 되돌린다(콤보에서 장비만
+            # 바꾸고 투영 버튼은 안 눌렀을 수도 있으므로 여기서도 정리).
+            gl_view = getattr(self, "gl_view", None)
+            if gl_view is not None:
+                gl_view.orbit_locked = False
+                try:
+                    gl_view.set_drag_zoom_active(False)
+                except Exception:
+                    pass
+            view_cube = getattr(self, "view_cube", None)
+            if view_cube is not None:
+                try:
+                    view_cube.setVisible(True)
+                except Exception:
+                    pass
+        try:
+            self._place_coord_overlay(lathe)
+        except Exception:
+            pass
         try:
             if getattr(self, "_axis_items", None):
                 self._add_axis_lines()
         except Exception:
             pass
+
+    def _place_coord_overlay(self, lathe):
+        """v1.6.5: 선반 뷰에서는 좌표 오버레이를 화면 하단(재생 속도바
+        바로 위)으로 옮기고, 밀링에서는 원래 자리(좌상단, 투영 버튼 위)로
+        되돌린다."""
+        gl_view = getattr(self, "gl_view", None)
+        coord_overlay = getattr(self, "coord_overlay", None)
+        if gl_view is None or coord_overlay is None:
+            return
+        if lathe:
+            if coord_overlay in gl_view.top_left_widgets:
+                gl_view.top_left_widgets.remove(coord_overlay)
+            gl_view.bottom_coord_widget = coord_overlay
+        else:
+            gl_view.bottom_coord_widget = None
+            if coord_overlay not in gl_view.top_left_widgets:
+                gl_view.top_left_widgets.insert(0, coord_overlay)
+        gl_view._reposition_top_left()
+        gl_view._reposition_bottom_coord()
 
     def update_machine_spec(self, machine_type, specs):
         if machine_type not in self.machine_specs:
@@ -1917,14 +2090,12 @@ class NCViewerWidget(QWidget):
     _ZOOM_TO_FIT_MARGIN = 1.25
     _ZOOM_TO_FIT_FALLBACK_DISTANCE = 200
 
-    def _zoom_to_fit_distance(self):
-        """현재 로드된 경로 전체(gl_view.scene_radius)가 화면 안에 다 들어오는
-        카메라 거리를 계산한다. 경로가 없으면(반지름 0) None을 반환해
-        호출자가 고정 기본값(200)을 쓰게 한다."""
-        view = self.gl_view
-        radius = getattr(view, "scene_radius", 0.0) or 0.0
-        if radius <= 0.0:
+    def _distance_for_radius(self, radius):
+        """반지름 radius인 구가 화면 안에 다 들어오는 카메라 거리. radius가
+        없거나 0 이하면 None(호출자가 고정 기본값을 쓰게 한다)."""
+        if not radius or radius <= 0.0:
             return None
+        view = self.gl_view
         width = max(float(view.width()), 1.0)
         height = max(float(view.height()), 1.0)
         aspect = width / height
@@ -1936,16 +2107,73 @@ class NCViewerWidget(QWidget):
         distance = radius / (half_tan * limiting_ratio) * self._ZOOM_TO_FIT_MARGIN
         return max(distance, 10.0)
 
+    def _zoom_to_fit_distance(self):
+        """현재 로드된 경로 전체(gl_view.scene_radius, 원점 기준)가 화면
+        안에 다 들어오는 카메라 거리. 경로가 없으면(반지름 0) None."""
+        radius = getattr(self.gl_view, "scene_radius", 0.0) or 0.0
+        return self._distance_for_radius(radius)
+
+    def _lathe_path_center_and_radius(self):
+        """선반 경로 전체를 감싸는 바운딩박스의 중심과, 그 중심에서 화면에
+        다 들어오는 데 필요한 반지름(대각선의 절반)을 반환한다(v1.6.5).
+
+        선반은 X(지름)가 반경으로 변환되어 항상 화면 절반(월드 Z>=0)에만
+        그려지므로, 원점 기준 scene_radius/recenter(0,0,0)를 그대로 쓰면
+        경로가 화면 위쪽에 쏠려 보인다(v1.6.4에서 보고된 문제). 밀링 경로는
+        건드리지 않도록 이 메서드는 선반 투영에서만 호출한다."""
+        min_pt = None
+        max_pt = None
+        for path_data in self.tool_paths.values():
+            for node in path_data:
+                if not node.get("valid"):
+                    continue
+                pt = node.get("pt")
+                if pt is None:
+                    continue
+                if min_pt is None:
+                    min_pt = [float(v) for v in pt]
+                    max_pt = [float(v) for v in pt]
+                else:
+                    for axis in range(3):
+                        value = float(pt[axis])
+                        if value < min_pt[axis]:
+                            min_pt[axis] = value
+                        if value > max_pt[axis]:
+                            max_pt[axis] = value
+        if min_pt is None:
+            return None, None
+        center = [(min_pt[axis] + max_pt[axis]) / 2.0 for axis in range(3)]
+        half_diagonal = sum(((max_pt[axis] - min_pt[axis]) / 2.0) ** 2 for axis in range(3)) ** 0.5
+        return center, max(half_diagonal, 1.0)
+
     def set_camera_projection(self, view_type):
         preset = self._VIEW_PROJECTIONS.get(view_type)
         if preset is None:
             return
         elevation, azimuth = preset
-        # v1.6.3: ISO뿐 아니라 4개 투영 버튼 전부 같은 동작 — 좌표를 화면
-        # 중앙으로 되돌리고(recenter), 로드된 경로 전체가 한눈에 들어오도록
-        # 자동으로 줌 아웃/인 한다(경로가 없으면 기존 고정값 200을 쓴다).
-        distance = self._zoom_to_fit_distance() or self._ZOOM_TO_FIT_FALLBACK_DISTANCE
-        self.set_camera_angles(elevation, azimuth, distance=distance, recenter=True)
+        lathe = self.is_lathe_mode()
+        # v1.6.5: 다른 투영으로 바꾸면 드래그줌 사각형 진행 상태가 애매해
+        # 지므로 취소한다. 선반 평면 뷰("선반" 버튼)에서만 좌드래그를 회전
+        # 대신 팬으로 잠근다(지침 3항 — 회전하면 Z-수평/X-수직 평면이 깨짐).
+        self.gl_view.set_drag_zoom_active(False)
+        self.gl_view.orbit_locked = lathe and view_type == "LATHE"
+        view_cube = getattr(self, "view_cube", None)
+        if view_cube is not None:
+            view_cube.setVisible(not self.gl_view.orbit_locked)
+        if lathe:
+            # v1.6.5: 원점이 아니라 경로 바운딩박스 중심으로 맞춰야 지름이
+            # 반경으로 변환된 경로가 화면 정중앙에 온다(밀링은 원래대로
+            # 원점 recenter를 그대로 쓴다 — 아래 else 분기, 동작 불변).
+            center, radius = self._lathe_path_center_and_radius()
+            distance = self._distance_for_radius(radius) or self._ZOOM_TO_FIT_FALLBACK_DISTANCE
+            self.set_camera_angles(elevation, azimuth, distance=distance, recenter=False)
+            self.gl_view.setCameraPosition(pos=Vector(*center) if center is not None else Vector(0, 0, 0))
+        else:
+            # v1.6.3: ISO뿐 아니라 4개 투영 버튼 전부 같은 동작 — 좌표를 화면
+            # 중앙으로 되돌리고(recenter), 로드된 경로 전체가 한눈에 들어오도록
+            # 자동으로 줌 아웃/인 한다(경로가 없으면 기존 고정값 200을 쓴다).
+            distance = self._zoom_to_fit_distance() or self._ZOOM_TO_FIT_FALLBACK_DISTANCE
+            self.set_camera_angles(elevation, azimuth, distance=distance, recenter=True)
 
     def _clear_path_items(self):
         for item_list in self.plot_items.values():
