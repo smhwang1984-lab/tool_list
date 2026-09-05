@@ -2786,6 +2786,200 @@ G02 X20. Y10. R10.
         finally:
             self._restore(viewer, original, qapp)
 
+    # ---- v1.6.5: 선반 뷰 카메라(회전 잠금/드래그줌/바운딩박스 리센터),
+    # 좌표 오버레이 하단 배치, 선반 전용 툴리스트 파서 ----
+
+    def _fresh_gl_view(self):
+        from nc_viewer_widget import OrthographicGLViewWidget
+        gl_view = OrthographicGLViewWidget()
+        gl_view.opts['azimuth'] = -90.0
+        gl_view.opts['elevation'] = 0.0
+        gl_view.opts['distance'] = 200.0
+        gl_view.resize(400, 300)
+        return gl_view
+
+    def _fire_mouse_move(self, gl_view, dx, dy=0.0):
+        from PyQt5.QtCore import QPointF, QEvent
+        from PyQt5.QtGui import QMouseEvent
+        gl_view.mousePos = QPointF(0.0, 0.0)
+        event = QMouseEvent(
+            QEvent.MouseMove, QPointF(dx, dy),
+            app.Qt.NoButton, app.Qt.LeftButton, app.Qt.NoModifier,
+        )
+        gl_view.mouseMoveEvent(event)
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_orbit_locked_pans_instead_of_rotating(self):
+        """지침 v1.6.5 1/2항: 선반 평면 뷰는 좌드래그가 회전 대신 상하좌우
+        이동(팬)이어야 한다 — 각도는 그대로, 중심만 움직인다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        gl_view = self._fresh_gl_view()
+        gl_view.orbit_locked = True
+        try:
+            # QVector3D는 pyqtgraph의 pan()이 += 로 제자리 수정하므로, 값을
+            # (튜플로) 먼저 떠 둬야 한다 — 객체 참조만 두면 이동 후에도
+            # "이전 값"이 같은 객체라 항상 같아 보인다.
+            before_center = gl_view.opts['center']
+            before = (before_center.x(), before_center.y(), before_center.z())
+            self._fire_mouse_move(gl_view, 50.0, 20.0)
+            self.assertEqual(gl_view.opts['azimuth'], -90.0)
+            self.assertEqual(gl_view.opts['elevation'], 0.0)
+            after_center = gl_view.opts['center']
+            after = (after_center.x(), after_center.y(), after_center.z())
+            self.assertNotEqual(after, before)
+        finally:
+            gl_view.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_drag_zoom_draws_rect_and_zooms_in_on_release(self):
+        """드래그로 그린 사각형만큼 확대하고, 확정 후 자동으로 꺼진다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        from PyQt5.QtCore import QPointF, QEvent
+        from PyQt5.QtGui import QMouseEvent
+
+        gl_view = self._fresh_gl_view()
+        gl_view.set_drag_zoom_active(True)
+        try:
+            before_distance = gl_view.opts['distance']
+            press = QMouseEvent(
+                QEvent.MouseButtonPress, QPointF(100, 100),
+                app.Qt.LeftButton, app.Qt.LeftButton, app.Qt.NoModifier,
+            )
+            gl_view.mousePressEvent(press)
+            move = QMouseEvent(
+                QEvent.MouseMove, QPointF(300, 250),
+                app.Qt.LeftButton, app.Qt.LeftButton, app.Qt.NoModifier,
+            )
+            gl_view.mouseMoveEvent(move)
+            release = QMouseEvent(
+                QEvent.MouseButtonRelease, QPointF(300, 250),
+                app.Qt.LeftButton, app.Qt.NoButton, app.Qt.NoModifier,
+            )
+            gl_view.mouseReleaseEvent(release)
+            self.assertLess(gl_view.opts['distance'], before_distance)
+            self.assertFalse(gl_view.drag_zoom_active, '드래그 확정 후 자동으로 꺼져야 한다')
+        finally:
+            gl_view.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_view_locks_orbit_iso_frees_it_and_recenters_on_bbox(self):
+        """v1.6.5 1항: 선반 뷰 버튼은 회전을 잠그고, 원점이 아니라 경로
+        바운딩박스 중심으로 카메라를 되돌려야 위쪽으로 쏠리지 않는다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        try:
+            viewer.resize(800, 600)
+            viewer.set_source_text(self.LATHE_SOURCE, {'T01': 'OD TURN'})
+            viewer.set_camera_projection('LATHE')
+            self.assertTrue(viewer.gl_view.orbit_locked)
+            center, radius = viewer._lathe_path_center_and_radius()
+            self.assertIsNotNone(center)
+            self.assertGreater(radius, 0)
+            cam_center = viewer.gl_view.opts['center']
+            self.assertAlmostEqual(cam_center.x(), center[0], places=3)
+            self.assertAlmostEqual(cam_center.y(), center[1], places=3)
+            self.assertAlmostEqual(cam_center.z(), center[2], places=3)
+            # 경로가 원점에서 벗어나 있으므로(X가 반경으로 변환돼 화면 절반
+            # 에만 그려짐) 밀링과 달리 (0,0,0)이 아니어야 한다.
+            self.assertNotEqual((cam_center.x(), cam_center.y(), cam_center.z()), (0.0, 0.0, 0.0))
+
+            viewer.set_camera_projection('ISO')
+            self.assertFalse(viewer.gl_view.orbit_locked, 'ISO에서는 자유 회전이어야 한다')
+        finally:
+            self._restore(viewer, original, qapp)
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_mode_moves_coord_overlay_above_playback_bar(self):
+        """요청: 선반 뷰일 때 좌표 표시를 하단(재생 속도바 바로 위)으로."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        try:
+            self.assertIs(viewer.gl_view.bottom_coord_widget, viewer.coord_overlay)
+            self.assertNotIn(viewer.coord_overlay, viewer.gl_view.top_left_widgets)
+            bar = viewer.gl_view.bottom_bar_widget
+            if bar is not None and viewer.coord_overlay is not None:
+                self.assertLessEqual(
+                    viewer.coord_overlay.y() + viewer.coord_overlay.height(), bar.y(),
+                    '좌표 오버레이가 재생 속도바보다 위에 있어야 한다',
+                )
+            # 밀링으로 되돌리면 다시 좌상단 목록으로 돌아온다.
+            viewer.set_machine_type(original)
+            self.assertIsNone(viewer.gl_view.bottom_coord_widget)
+            if viewer.coord_overlay is not None:
+                self.assertIn(viewer.coord_overlay, viewer.gl_view.top_left_widgets)
+        finally:
+            self._restore(viewer, original, qapp)
+
+    LATHE_TOOLLIST_SOURCE = """N1
+( T06 - SLEEVE )
+( T06 - D50.0 X H103 T-DRILL )
+G0X400.Z200.
+T0600
+G97S800M3P11
+T0606
+G99G18X0.Z10.
+G0X400.Z200.T0600
+M1
+
+N2
+( T01 - PCLNR 2525M 12 )
+( T01 - CNMG 120408 | R-0.8 )
+G0X400.Z200.
+T0100
+G50S1500
+G96S225M3P11
+T0101
+G99G18X200.Z30.
+G0X400.Z200.T0100
+M1
+
+N3
+( T01 - PCLNR 2525M 12 )
+( T01 - CNMG 120408 | R-0.8 )
+G0X400.Z200.
+T0100
+T0101
+G0X400.Z200.T0100
+M1
+
+N4
+( T01 - PCLNR 2525M 12 (FINISH) )
+( T01 - CNMG 120404 | R-0.4 )
+G0X400.Z200.
+T0100
+T0111
+G0X400.Z200.T0100
+M1
+"""
+
+    def test_lathe_parse_program_reads_holder_and_insert_from_n_blocks(self):
+        """실제 선반 프로그램(O1699.nc) 양식 — N<번호> 바로 아래 통짜 괄호
+        주석 두 줄이 각각 홀더(1번째)/인서트(2번째)다."""
+        rows = app.parse_lathe_program(self.LATHE_TOOLLIST_SOURCE)
+        by_no = {row['NO']: row for row in rows}
+        self.assertEqual(by_no['T0606']['HOLDER'], 'SLEEVE')
+        self.assertEqual(by_no['T0606']['INSERT'], 'D50.0 X H103 T-DRILL')
+        self.assertEqual(by_no['T0606']['REMARK'], 'N1')
+
+    def test_lathe_parse_program_merges_same_tool_no_and_keeps_offsets_separate(self):
+        """승인된 규약: 같은 TOOL NO(옵셋 포함)를 쓰는 N 블록은 한 행 +
+        REMARK 누적, 옵셋이 다르면(T0101 vs T0111) 별도 행."""
+        rows = app.parse_lathe_program(self.LATHE_TOOLLIST_SOURCE)
+        by_no = {row['NO']: row for row in rows}
+        self.assertEqual(by_no['T0101']['REMARK'], 'N2, N3')
+        self.assertIn('T0111', by_no, 'T0101과 T0111은 별도 행으로 남아야 한다')
+        self.assertNotEqual(by_no['T0101']['INSERT'], by_no['T0111']['INSERT'])
+        self.assertEqual([row['NO'] for row in rows], ['T0606', 'T0101', 'T0111'])
+
+    def test_lathe_tool_name_map_uses_insert_keyed_by_tool_number(self):
+        """요청: 3D 뷰어 필터 라벨에도 공구 이름 대신 인서트를 넣는다."""
+        rows = app.parse_lathe_program(self.LATHE_TOOLLIST_SOURCE)
+        mapping = app.lathe_tool_name_map_from_rows(rows)
+        self.assertEqual(mapping['T06'], 'D50.0 X H103 T-DRILL')
+        self.assertEqual(mapping['T01'], 'CNMG 120408 | R-0.8')
+
 
 class PdfDirectOpenTests(unittest.TestCase):
     """v1.6.4: PDF 출력은 저장 위치를 묻지 않고 임시 파일로 만들어 기본
