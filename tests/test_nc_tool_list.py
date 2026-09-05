@@ -360,40 +360,62 @@ X60 Y10 Z0
             qapp.processEvents()
 
     @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
-    def test_tool_list_table_cells_and_font_scaled_1_6x(self):
-        """툴 리스트 표기 칸(열 폭)과 폰트가 기존 값의 1.6배로 커져야 한다
-        (v1.5.9 요청)."""
+    def test_tool_list_table_cells_and_font_scaled_1_6x_then_shrunk_15pct(self):
+        """툴 리스트 표기 칸(열 폭)과 폰트는 기존 값의 1.6배로 커졌다가
+        (v1.5.9), v1.6.2에서 요청대로 다시 15% 줄어야 한다(COPY_TABLE_SCALE)."""
         qapp = app.QApplication.instance() or app.QApplication([])
         settings_dir = tempfile.TemporaryDirectory()
         window = app.App(_root=settings_dir.name)
         try:
-            self.assertEqual(window.table.font().pointSize(), 14)
+            self.assertAlmostEqual(app.TABLE_FONT_PT, 14 * app.COPY_TABLE_SCALE)
+            self.assertAlmostEqual(window.table.font().pointSizeF(), app.TABLE_FONT_PT, places=3)
             for index, (key, _label) in enumerate(app.COLUMNS):
                 self.assertEqual(window.table.columnWidth(index), app.COL_WIDTH[key])
             # v1.6.0: 셀 좌우에 글자가 가려지지 않도록 폭을
-            # TABLE_CELL_PADDING_PX * 2만큼 추가로 넓혔다.
+            # TABLE_CELL_PADDING_PX * 2만큼 추가로 넓혔다(그 패딩 자체도
+            # v1.6.2에서 같은 비율로 줄었다).
             padding = app.TABLE_CELL_PADDING_PX * 2
-            self.assertEqual(app.COL_WIDTH['NO'], 72 + padding)
-            self.assertEqual(app.COL_WIDTH['HOLDER'], 192 + padding)
+            self.assertEqual(app.COL_WIDTH['NO'], round(72 * app.COPY_TABLE_SCALE) + padding)
+            self.assertEqual(app.COL_WIDTH['HOLDER'], round(192 * app.COPY_TABLE_SCALE) + padding)
         finally:
             window.deleteLater()
             settings_dir.cleanup()
             qapp.processEvents()
 
     @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
-    def test_dark_mode_button_and_icon_enlarged(self):
-        """다크/라이트 모드 토글 버튼과 아이콘 크기가 더 커져야 한다
-        (v1.5.9 요청, v1.6.1에서 아이콘 2배(52px)로 재확대)."""
-        from nc_viewer_widget import NCViewerWidget
+    def test_dark_mode_button_size_matches_v162_shrink(self):
+        """v1.6.1에서 52px로 키웠던 다크/라이트 토글 버튼·아이콘을, 1920x1080
+        실사용 피드백으로 v1.6.2에서 40% 줄인다(52 -> 31px)."""
+        from nc_viewer_widget import DARK_MODE_BUTTON_PX, NCViewerWidget
 
         qapp = app.QApplication.instance() or app.QApplication([])
         viewer = NCViewerWidget()
         try:
-            self.assertEqual(viewer.dark_mode_button.size().width(), 52)
-            self.assertEqual(viewer.dark_mode_button.size().height(), 52)
-            self.assertEqual(viewer.dark_mode_button.iconSize().width(), 52)
+            self.assertEqual(DARK_MODE_BUTTON_PX, 31)
+            self.assertEqual(viewer.dark_mode_button.size().width(), DARK_MODE_BUTTON_PX)
+            self.assertEqual(viewer.dark_mode_button.size().height(), DARK_MODE_BUTTON_PX)
+            self.assertEqual(viewer.dark_mode_button.iconSize().width(), DARK_MODE_BUTTON_PX)
         finally:
             viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_dark_mode_button_moves_to_app_top_bar(self):
+        """v1.6.2: 다크모드 버튼은 뷰어의 감도/큐브 바가 아니라 App 상단 바
+        (모드 전환 버튼들 뒤, 오른쪽 끝)에 있어야 한다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        window = app.App(_root=settings_dir.name)
+        try:
+            self.assertIs(window.btn_dark_mode, window.viewer.dark_mode_button)
+            self.assertIs(window.btn_dark_mode.parentWidget(), window.top_bar)
+            top_layout = window.top_bar.layout()
+            widgets = [top_layout.itemAt(i).widget() for i in range(top_layout.count())]
+            widgets = [w for w in widgets if w is not None]
+            self.assertIs(widgets[-1], window.btn_dark_mode)
+        finally:
+            window.deleteLater()
+            settings_dir.cleanup()
             qapp.processEvents()
 
     @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')

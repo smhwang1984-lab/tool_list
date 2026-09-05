@@ -6,6 +6,7 @@ import re
 
 import numpy as np
 import pyqtgraph.opengl as gl
+from pyqtgraph import Vector
 from PyQt5.QtCore import Qt, QPointF, QRectF, QSettings, QSignalBlocker, QSize, QTimer, pyqtSignal
 from PyQt5.QtGui import (
     QBrush, QColor, QFont, QIcon, QKeySequence, QMatrix4x4, QPainter, QPainterPath, QPen, QPixmap,
@@ -32,6 +33,21 @@ PX_PER_CM = 96.0 / 2.54
 
 # PG 매칭 자동 재생 최대 배속. NC_Tool_List.py의 동일 상수와 값을 맞춰서 유지한다.
 MAX_PLAYBACK_SPEED = 5000
+
+# v1.6.2: 1920x1080 실사용에서 뷰어 컨트롤(감도/큐브 바, 재생바 버튼, 다크
+# 모드 아이콘)이 지나치게 크다는 피드백으로 크기를 40% 줄인다(= 0.6배).
+CONTROL_SHRINK = 0.6
+
+# 투영 오버레이를 3D 화면 왼쪽 위 모서리에서 띄우는 여백.
+TOP_LEFT_OVERLAY_MARGIN_PX = 10
+
+# 다크모드 토글 버튼/아이콘 크기(v1.6.1의 52px에서 40% 감축).
+DARK_MODE_BUTTON_PX = round(52 * CONTROL_SHRINK)
+
+
+def shrink(value):
+    """v1.6.2 크기 감축 비율(0.6배)을 적용한 정수 픽셀 값."""
+    return max(1, round(value * CONTROL_SHRINK))
 
 TOOL_COLOR_MAPS = [
     [1.0, 0.45, 0.10], [0.0, 0.70, 1.0], [0.20, 0.90, 0.25],
@@ -257,6 +273,9 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
         self.alt_wheel_callback = None
         self.overlay_widget = None
         self.bottom_bar_widget = None
+        # v1.6.2: 투영(ISO/XY/XZ/YZ) 표기부를 3D 화면 왼쪽 위에 반투명하게
+        # 얹어, 별도 행이 차지하던 자리에도 공구 경로가 보이게 한다.
+        self.top_left_widget = None
         # 렌더된 경로 전체를 감싸는 구의 반지름(원점 기준) — projectionMatrix()가
         # 깊이 클리핑 범위를 카메라 거리 대신 이 값으로 산정해, 확대해도 긴
         # 경로가 far 평면에 잘리지 않게 한다. 경로가 없으면 0(거리 기반 fallback).
@@ -328,14 +347,20 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
         super().resizeEvent(event)
         self._reposition_overlay()
         self._reposition_bottom_bar()
+        self._reposition_top_left()
+
+    # v1.6.2: 재생바 폭도 버튼 크기와 같은 비율(40% 감축)로 줄인다 — 버튼은
+    # 가로로 늘어나는 위젯이라 바 폭을 그대로 두면 패딩만 줄어들고 실제
+    # 버튼 크기는 그대로이기 때문이다(0.7 -> 0.42).
+    _BOTTOM_BAR_WIDTH_RATIO = 0.42
 
     def _reposition_bottom_bar(self):
-        """Keeps the playback bar centered near the bottom, 70% of the view's width,
+        """Keeps the playback bar centered near the bottom, 42% of the view's width,
         floating about 2cm above the very bottom edge."""
         if self.bottom_bar_widget is None:
             return
         bar = self.bottom_bar_widget
-        width = max(200, round(self.width() * 0.7))
+        width = max(200, round(self.width() * self._BOTTOM_BAR_WIDTH_RATIO))
         bar.setFixedWidth(width)
         height = bar.sizeHint().height()
         margin_bottom = round(2 * PX_PER_CM)
@@ -349,6 +374,12 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
         self.overlay_widget.move(
             max(0, self.width() - self.overlay_widget.width() - margin), margin
         )
+
+    def _reposition_top_left(self):
+        """투영 오버레이를 3D 화면 왼쪽 위 모서리에 붙인다."""
+        if self.top_left_widget is None:
+            return
+        self.top_left_widget.move(TOP_LEFT_OVERLAY_MARGIN_PX, TOP_LEFT_OVERLAY_MARGIN_PX)
 
     def projectionMatrix(self, region, viewport):
         if not self.use_orthographic_projection:
@@ -686,6 +717,48 @@ class MagnifierLensWidget(QWidget):
         painter.drawLine(QPointF(cx, cy - cross), QPointF(cx, cy + cross))
 
 
+class ProjectionOverlayWidget(QWidget):
+    """ISO/XY/XZ/YZ 투영 전환 버튼을 3D 화면 왼쪽 위에 얹는 오버레이.
+
+    v1.6.2 요청: 기존에 뷰어 상단에 별도 행(view_bar)을 차지하던 "투영"
+    라벨/버튼들을 3D 화면 안쪽으로 옮기고, 배경을 투명하게 해서 뒤에 그려진
+    공구 경로가 버튼 사이로 그대로 비치게 한다.
+    """
+
+    projection_clicked = pyqtSignal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        # 버튼 자체만 옅게 보이는 배경을 주고, 위젯 전체(라벨 주변 여백)는
+        # 완전히 투명하게 둬 공구 경로를 가리지 않는다.
+        self.setStyleSheet(
+            "ProjectionOverlayWidget { background: transparent; }"
+            " QLabel { background: transparent; color: white; font-size: 12px; }"
+            " QPushButton { color: white; background-color: rgba(40, 44, 52, 90);"
+            " border: 1px solid rgba(255, 255, 255, 70); border-radius: 5px;"
+            " padding: 3px 7px; font-size: 12px; }"
+            " QPushButton:hover { background-color: rgba(255, 255, 255, 65); }"
+        )
+        row = QHBoxLayout(self)
+        row.setContentsMargins(6, 4, 6, 4)
+        row.setSpacing(4)
+        label = QLabel("투영")
+        row.addWidget(label)
+        for text, view_type in (
+            ("ISO", "ISO"), ("XY", "XY"), ("XZ", "XZ"), ("YZ", "YZ"),
+        ):
+            button = QPushButton(text)
+            button.setIcon(iso_icon("#e4e8f0") if view_type == "ISO" else plane_icon(view_type))
+            button.setIconSize(QSize(14, 14))
+            # 방향키로 프로그램 커서를 옮기는 도중 이 버튼이 포커스를 가져가면
+            # 다음 방향키가 커서 대신 버튼 포커스 이동에 쓰이므로 항상 막아둔다.
+            button.setFocusPolicy(Qt.NoFocus)
+            button.clicked.connect(lambda _checked=False, value=view_type: self.projection_clicked.emit(value))
+            row.addWidget(button)
+        self.adjustSize()
+
+
 class PlaybackBarWidget(QWidget):
     """PG 매칭 모드에서 프로그램을 자동으로 넘겨주는 재생 컨트롤 바.
 
@@ -710,23 +783,35 @@ class PlaybackBarWidget(QWidget):
         # 반투명 어두운 패널 위를 불투명하게 덮어 흰 글자가 안 보이는
         # 문제가 있었다. 이 바는 항상 어두운 3D 캔버스 위에 뜨므로
         # 테마와 무관하게 항상 다크 디자인으로 고정한다.
+        # v1.6.2: 1920x1080 실사용에서 너무 크다는 피드백으로 바 전체(패딩·
+        # 폰트·슬라이더 두께)를 40% 줄인다 — 아래 수치는 모두 v1.6.1 값에
+        # shrink()(0.6배)를 적용한 것이다.
         self.setStyleSheet(
             "PlaybackBarWidget { background-color: rgba(33, 37, 43, 190);"
-            " border-radius: 14px; }"
-            " QLabel { background: transparent; color: white; font-size: 15px; }"
+            " border-radius: %(radius)dpx; }"
+            " QLabel { background: transparent; color: white; font-size: %(label)dpx; }"
             " QSlider { background: transparent; }"
             " QSlider::groove:horizontal { background: rgba(255, 255, 255, 40);"
-            " border-radius: 6px; height: 12px; }"
+            " border-radius: %(groove_radius)dpx; height: %(groove)dpx; }"
             " QSlider::sub-page:horizontal { background: rgba(120, 170, 255, 200);"
-            " border-radius: 6px; height: 12px; }"
+            " border-radius: %(groove_radius)dpx; height: %(groove)dpx; }"
             " QSlider::handle:horizontal { background: #e4e8f0;"
-            " border: 1px solid rgba(0, 0, 0, 80); width: 22px; height: 22px;"
-            " margin: -6px 0; border-radius: 11px; }"
+            " border: 1px solid rgba(0, 0, 0, 80); width: %(handle)dpx; height: %(handle)dpx;"
+            " margin: -%(handle_margin)dpx 0; border-radius: %(handle_radius)dpx; }"
             " QPushButton { color: white; background-color: rgba(255, 255, 255, 30);"
-            " border: 1px solid rgba(255, 255, 255, 60); border-radius: 8px;"
-            " padding: 18px 27px; font-size: 17px; font-weight: bold; }"
+            " border: 1px solid rgba(255, 255, 255, 60); border-radius: %(btn_radius)dpx;"
+            " padding: %(btn_pad_v)dpx %(btn_pad_h)dpx; font-size: %(btn_font)dpx;"
+            " font-weight: bold; }"
             " QPushButton:hover { background-color: rgba(255, 255, 255, 55); }"
             " QPushButton:disabled { color: rgba(255, 255, 255, 90); }"
+            % {
+                "radius": shrink(14), "label": shrink(15),
+                "groove": shrink(12), "groove_radius": shrink(6),
+                "handle": shrink(22), "handle_margin": shrink(6),
+                "handle_radius": shrink(11),
+                "btn_radius": shrink(8), "btn_pad_v": shrink(18),
+                "btn_pad_h": shrink(27), "btn_font": shrink(17),
+            }
         )
         self.setEnabled(False)
         self._playing = False
@@ -735,8 +820,8 @@ class PlaybackBarWidget(QWidget):
         # 만든 60px 높이 바) 대비로 키워 달라는 사용자 요청 반영. 슬라이더도
         # 자간을 맞춰 함께 키운다.
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(26, 24, 26, 26)
-        outer.setSpacing(26)
+        outer.setContentsMargins(shrink(26), shrink(24), shrink(26), shrink(26))
+        outer.setSpacing(shrink(26))
 
         speed_row = QHBoxLayout()
         speed_row.addWidget(QLabel("속도"))
@@ -744,7 +829,8 @@ class PlaybackBarWidget(QWidget):
         self.speed_slider.setRange(1, MAX_PLAYBACK_SPEED)
         self.speed_slider.setValue(1)
         # v1.6.0: 속도바 두께를 기존의 2배로 키운다(34 -> 68).
-        self.speed_slider.setFixedHeight(68)
+        # v1.6.2: 다른 컨트롤과 같은 비율로 40% 줄인다(68 -> 41).
+        self.speed_slider.setFixedHeight(shrink(68))
         self.speed_slider.setFocusPolicy(Qt.NoFocus)
         self.speed_slider.valueChanged.connect(self._on_speed_changed)
         speed_row.addWidget(self.speed_slider, 1)
@@ -753,9 +839,10 @@ class PlaybackBarWidget(QWidget):
         # 다른 QLabel(예: "속도")까지 함께 커지지 않도록 인스턴스 스타일시트로
         # 개별 지정한다(인스턴스 지정값이 클래스 규칙보다 우선한다).
         self.speed_value_label.setStyleSheet(
-            "background: transparent; color: white; font-size: 26px; font-weight: bold;"
+            "background: transparent; color: white; font-size: %dpx; font-weight: bold;"
+            % shrink(26)
         )
-        self.speed_value_label.setFixedWidth(122)
+        self.speed_value_label.setFixedWidth(shrink(122))
         speed_row.addWidget(self.speed_value_label)
         outer.addLayout(speed_row)
 
@@ -763,7 +850,7 @@ class PlaybackBarWidget(QWidget):
         # 떨어져, QPainter로 직접 그린 아이콘으로 바꾼다(_make_icon 계열).
         # 이 바는 항상 어두운 반투명 패널 위라 아이콘 색은 테마와 무관하게
         # 흰색으로 고정한다.
-        icon_size = QSize(26, 26)
+        icon_size = QSize(shrink(26), shrink(26))
         button_row = QHBoxLayout()
         self.prev_tool_button = QPushButton()
         self.prev_tool_button.setIcon(skip_icon("white", forward=False))
@@ -922,55 +1009,41 @@ class NCViewerWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # "투영" 라벨/버튼: v1.5.7에 2배(18pt/30px)로 키웠으나 너무 커 보인다는
-        # 피드백으로 v1.5.8에서 그 값의 0.7배로 다시 낮춘다(13pt/21px). 테두리는
-        # 그대로 두고 폰트 크기만 v1.6.0에서 다시 0.8배로 낮춘다(10pt).
-        projection_font = QFont("맑은 고딕", 10)
         view_bar = QHBoxLayout()
         # v1.6.1: 다크모드 아이콘을 2배로 키우며 행 높이 증가를 최소화하기
-        # 위해 상하 여백을 5px -> 0px로 줄인다(행 증가폭 +6px로 제한).
+        # 위해 상하 여백을 5px -> 0px로 줄였다.
+        # v1.6.2: 투영 버튼(3D 화면 오버레이로 이동)과 다크모드 버튼(앱 상단
+        # 바로 이동)이 이 행에서 빠져, 남은 감도/큐브 바만 오른쪽에 둔다.
         view_bar.setContentsMargins(6, 0, 6, 0)
-        projection_label = QLabel("투영")
-        projection_label.setFont(projection_font)
-        view_bar.addWidget(projection_label)
-        for label, view_type in (
-            ("ISO", "ISO"), ("XY", "XY"), ("XZ", "XZ"), ("YZ", "YZ"),
-        ):
-            button = QPushButton(label)
-            # 텍스트는 남기고 앞에 축/평면 글리프를 붙여 의미를 강화한다.
-            button.setIcon(iso_icon("#555555") if view_type == "ISO" else plane_icon(view_type))
-            button.setIconSize(QSize(21, 21))
-            button.setFont(projection_font)
-            # 방향키로 프로그램 커서를 옮기는 도중 이 버튼이 포커스를 가져가면
-            # 다음 방향키가 커서 대신 버튼 포커스 이동에 쓰이므로 항상 막아둔다.
-            button.setFocusPolicy(Qt.NoFocus)
-            button.clicked.connect(lambda _checked=False, value=view_type: self.set_camera_projection(value))
-            view_bar.addWidget(button)
         view_bar.addStretch()
         # "감도"/"큐브" 라벨과 슬라이더(바)는 기존(설정 안 된 기본 폰트, 폭
-        # 110/90px)의 1.5배로 키운다(v1.5.8 요청) — 폰트는 앱 기본 라벨 크기인
-        # 9pt를 기준으로 1.5배(≈14pt)를 명시로 준다.
-        sensitivity_cube_font = QFont("맑은 고딕", 14)
+        # 110/90px)의 1.5배로 키웠다(v1.5.8 요청).
+        # v1.6.2: "감도" 쪽만 1920x1080에서 너무 크다는 피드백으로 폰트/폭을
+        # 40% 줄인다(14pt -> 8.4pt, 165px -> 99px) — "큐브"는 사용자가
+        # 명시적으로 손대지 말라고 요청해 그대로 둔다.
+        sensitivity_font = QFont("맑은 고딕")
+        sensitivity_font.setPointSizeF(14 * CONTROL_SHRINK)
+        cube_font = QFont("맑은 고딕", 14)
         sensitivity_label = QLabel("감도")
-        sensitivity_label.setFont(sensitivity_cube_font)
+        sensitivity_label.setFont(sensitivity_font)
         view_bar.addWidget(sensitivity_label)
         self.sensitivity_slider = QSlider(Qt.Horizontal)
         self.sensitivity_slider.setRange(5, 200)
-        self.sensitivity_slider.setFixedWidth(165)
+        self.sensitivity_slider.setFixedWidth(shrink(165))
         self.sensitivity_slider.setValue(round(self._initial_sensitivity * 100))
         self.sensitivity_slider.setToolTip("마우스 드래그/휠 회전·확대 감도")
         self.sensitivity_slider.setFocusPolicy(Qt.NoFocus)
         self.sensitivity_slider.valueChanged.connect(self._on_sensitivity_changed)
         view_bar.addWidget(self.sensitivity_slider)
         self.sensitivity_value_label = QLabel("%d%%" % self.sensitivity_slider.value())
-        self.sensitivity_value_label.setFont(sensitivity_cube_font)
-        self.sensitivity_value_label.setFixedWidth(57)
+        self.sensitivity_value_label.setFont(sensitivity_font)
+        self.sensitivity_value_label.setFixedWidth(shrink(57))
         view_bar.addWidget(self.sensitivity_value_label)
         # 감도 값 라벨과 "큐브" 라벨이 커진 폰트/바 폭 탓에 붙어 보이는(겹침)
         # 문제가 있어 그 사이에 여유 간격을 더 준다(v1.5.9 요청).
         view_bar.addSpacing(18)
         cube_label = QLabel("큐브")
-        cube_label.setFont(sensitivity_cube_font)
+        cube_label.setFont(cube_font)
         view_bar.addWidget(cube_label)
         self.view_cube_size_slider = QSlider(Qt.Horizontal)
         self.view_cube_size_slider.setRange(60, 240)
@@ -981,30 +1054,30 @@ class NCViewerWidget(QWidget):
         self.view_cube_size_slider.valueChanged.connect(self._on_view_cube_size_changed)
         view_bar.addWidget(self.view_cube_size_slider)
         self.view_cube_size_label = QLabel("%dpx" % self.view_cube_size_slider.value())
-        self.view_cube_size_label.setFont(sensitivity_cube_font)
+        self.view_cube_size_label.setFont(cube_font)
         self.view_cube_size_label.setFixedWidth(57)
         view_bar.addWidget(self.view_cube_size_label)
-        view_bar.addSpacing(18)
-        self.dark_mode_button = QPushButton()
+        # v1.6.2: 다크모드 버튼은 이 행이 아니라 앱 상단 바(About/도움말/모드
+        # 버튼 줄)로 옮겨 달라는 요청에 따라, 여기서는 만들어 두기만 하고
+        # 레이아웃에는 넣지 않는다. 호스트(App)가 take_dark_mode_button()으로
+        # 가져가 자기 상단 바에 배치한다. 가져가지 않으면 숨은 채로 남는다.
+        self.dark_mode_button = QPushButton(self)
         self.dark_mode_button.setCheckable(True)
         # 다크/라이트 아이콘이 잘 안 보인다는 요청으로 버튼·아이콘 크기를
-        # 키운다(v1.5.9): 26px -> 36px 버튼, 18px -> 26px 아이콘.
-        # v1.6.1: 아이콘을 다시 정확히 2배(52px)로 키운다. 이 버튼이 툴바
-        # 행에서 가장 큰 위젯이라 행 높이도 36 -> 52px로 함께 늘어난다
-        # (사용자 확인 후 감수하기로 한 부분 — view_bar의 상하 여백을
-        # 5px -> 0px로 줄여 행 전체 증가폭은 +6px로 최소화한다).
-        self.dark_mode_button.setFixedSize(52, 52)
+        # 키웠다(v1.5.9: 26 -> 36px, v1.6.1: 52px). v1.6.2에서 다른 컨트롤과
+        # 같은 비율로 40% 줄인다(52 -> 31px) — 상단 바 버튼 줄에 맞는 높이다.
+        self.dark_mode_button.setFixedSize(DARK_MODE_BUTTON_PX, DARK_MODE_BUTTON_PX)
         self.dark_mode_button.setToolTip("다크모드 전환")
         self.dark_mode_button.setFocusPolicy(Qt.NoFocus)
         self.dark_mode_button.setFlat(True)
+        self.dark_mode_button.hide()
         self.dark_mode_button.clicked.connect(
             lambda: self.dark_mode_toggled.emit(self.dark_mode_button.isChecked())
         )
-        view_bar.addWidget(self.dark_mode_button)
         self._refresh_dark_mode_button()
-        # "감도 바~큐브 바~다크모드 버튼" 그룹 전체를 오른쪽 끝에서 2cm 정도
-        # 안쪽(왼쪽)으로 옮겨 배치한다(v1.5.9 요청) — 그룹 뒤에 고정폭 여백을
-        # 둬서 패널 오른쪽 가장자리에서 살짝 띄운다.
+        # "감도 바~큐브 바" 그룹 전체를 오른쪽 끝에서 2cm 정도 안쪽(왼쪽)으로
+        # 옮겨 배치한다(v1.5.9 요청) — 그룹 뒤에 고정폭 여백을 둬서 패널
+        # 오른쪽 가장자리에서 살짝 띄운다.
         view_bar.addSpacing(round(2 * PX_PER_CM))
         layout.addLayout(view_bar)
 
@@ -1049,6 +1122,7 @@ class NCViewerWidget(QWidget):
         self.gl_view.alt_wheel_callback = self._on_alt_wheel_sensitivity
         layout.addWidget(self.gl_view, 1)
         self._build_view_cube()
+        self._build_projection_overlay()
         self._build_playback_bar()
         self._build_magnifier()
         self.gl_view.left_clicked.connect(self._on_gl_left_clicked)
@@ -1107,6 +1181,20 @@ class NCViewerWidget(QWidget):
             self.gl_view.overlay_widget = None
             view_cube = None
         self.view_cube = view_cube
+
+    def _build_projection_overlay(self):
+        """3D 화면 왼쪽 위에 투영(ISO/XY/XZ/YZ) 오버레이를 만든다(v1.6.2).
+        실패해도 뷰어 전체를 잃지 않는다."""
+        try:
+            overlay = ProjectionOverlayWidget(self.gl_view)
+            self.gl_view.top_left_widget = overlay
+            self.gl_view._reposition_top_left()
+            overlay.projection_clicked.connect(self.set_camera_projection)
+            overlay.raise_()
+        except Exception:
+            self.gl_view.top_left_widget = None
+            overlay = None
+        self.projection_overlay = overlay
 
     def _build_playback_bar(self):
         """PG 매칭 자동 재생 컨트롤 바를 만든다. 실패해도 뷰어 전체를 잃지 않는다."""
@@ -1344,11 +1432,22 @@ class NCViewerWidget(QWidget):
         # v1.5.9: 아이콘이 잘 안 보인다는 요청으로 26px로 확대.
         # v1.6.1: 다시 정확히 2배인 52px로 확대(소스 픽스맵도 같이 키워야
         # 확대해도 흐려지지 않는다).
-        icon = sun_icon(icon_color, size=52) if self._dark_mode else moon_icon(icon_color, size=52)
+        # v1.6.2: 상단 바로 옮기며 다른 컨트롤과 같은 비율로 40% 줄인다.
+        size = DARK_MODE_BUTTON_PX
+        icon = sun_icon(icon_color, size=size) if self._dark_mode else moon_icon(icon_color, size=size)
         self.dark_mode_button.setIcon(icon)
-        self.dark_mode_button.setIconSize(QSize(52, 52))
+        self.dark_mode_button.setIconSize(QSize(size, size))
         with QSignalBlocker(self.dark_mode_button):
             self.dark_mode_button.setChecked(self._dark_mode)
+
+    def take_dark_mode_button(self, new_parent):
+        """다크모드 버튼을 앱 상단 바(new_parent)로 옮긴다(v1.6.2 요청).
+
+        호스트 App이 자기 top_bar 레이아웃에 이 버튼을 addWidget()하기 직전에
+        호출한다 — setParent() 후에도 시그널 연결과 상태는 그대로 유지된다."""
+        self.dark_mode_button.setParent(new_parent)
+        self.dark_mode_button.show()
+        return self.dark_mode_button
 
     def set_dark_mode(self, enabled):
         """App(NC_Tool_List.py)이 다크모드 토글 시(또는 시작 시 저장된 값으로)
@@ -1584,18 +1683,25 @@ class NCViewerWidget(QWidget):
         "YZ": (0, 0),
     }
 
-    def set_camera_angles(self, elevation, azimuth, distance=None):
-        """카메라 방향만 바꾼다. distance를 안 주면 현재 줌 배율을 유지한다."""
+    def set_camera_angles(self, elevation, azimuth, distance=None, recenter=False):
+        """카메라 방향만 바꾼다. distance를 안 주면 현재 줌 배율을 유지한다.
+
+        recenter=True면 카메라 중심(pos)을 원점으로 되돌려, 그동안 드래그로
+        치우쳐 있던 좌표가 화면 정중앙으로 다시 온다(v1.6.2, ISO 버튼 요청)."""
         kwargs = {"elevation": elevation, "azimuth": azimuth}
         if distance is not None:
             kwargs["distance"] = distance
+        if recenter:
+            kwargs["pos"] = Vector(0, 0, 0)
         self.gl_view.setCameraPosition(**kwargs)
 
     def set_camera_projection(self, view_type):
         preset = self._VIEW_PROJECTIONS.get(view_type)
         if preset is not None:
             elevation, azimuth = preset
-            self.set_camera_angles(elevation, azimuth, distance=200)
+            # v1.6.2: ISO 버튼을 누르면 원점(좌표)이 화면 중심에 오도록 카메라
+            # 중심도 함께 원점으로 되돌린다.
+            self.set_camera_angles(elevation, azimuth, distance=200, recenter=(view_type == "ISO"))
 
     def _clear_path_items(self):
         for item_list in self.plot_items.values():

@@ -46,10 +46,26 @@ UPDATE_INSTALLER_RE = re.compile(r'^NC_Tool_List_Setup_v(\d+)\.(\d+)\.(\d+)\.exe
 FILE_ASSOCIATION_EXTENSIONS = ('.nc', '.mpf', '.tap')
 FILE_ASSOCIATION_PROG_ID = 'NCToolList.NCProgram'
 
-PROGRAM_PANE_MIN_WIDTH = 430
+# v1.6.2: 프로그램 입력 패널을 최소 폭까지 좁히면 '지우기'~'Tool List' 버튼
+# 줄(가로 합 468px + 간격 24px + 좌우 여백 14px = 506px)이 다 들어가지 못해
+# 'Tool List' 버튼이 가려지던 문제를 고쳤다 — 최소 폭을 그 필요폭보다 넉넉히
+# 크게 잡는다.
+PROGRAM_PANE_MIN_WIDTH = 520
 VIEWER_PANE_INITIAL_WIDTH = 1125
 INPUT_SPLITTER_INITIAL_SIZES = [480, 208]
 MAIN_SPLITTER_INITIAL_SIZES = [PROGRAM_PANE_MIN_WIDTH, VIEWER_PANE_INITIAL_WIDTH]
+
+# v1.6.2: 상단 바 맨 끝(다크모드 버튼)과 창 오른쪽 가장자리 사이의 여백.
+TOP_BAR_EDGE_GAP_PX = 8
+
+# v1.6.2: 1920x1080에서 필터 영역(텍스트 정지~PG 매칭 전체/해제) 레이아웃과
+# 폰트를 15% 키운다.
+FILTER_SECTION_SCALE = 1.15
+
+
+def scaled(value):
+    """FILTER_SECTION_SCALE(1.15배)을 적용한 정수 픽셀/포인트 값."""
+    return round(value * FILTER_SECTION_SCALE)
 
 # 라이트/다크 테마 색상 토큰. 의미 기반 키로 두어 위젯 각각이 하드코딩된
 # 색 대신 이 값을 참조하고, 다크모드 토글 시 App.apply_theme()이 전체를
@@ -127,8 +143,15 @@ _COL_WIDTH_BASE = {
 # 절반(표 폰트 14pt 기준 근사치) 만큼 양쪽 여백을 추가한다. 여백은
 # QTableWidget::item의 padding으로 그리므로, 실제 글자가 그려지는 폭이
 # 줄어들지 않도록 칸 너비 자체도 그만큼 넓힌다.
-TABLE_CELL_PADDING_PX = 8
-COL_WIDTH = {key: width + TABLE_CELL_PADDING_PX * 2 for key, width in _COL_WIDTH_BASE.items()}
+# v1.6.2: 공구 리스트(복사용 표기) 폰트 크기와 셀 폭을 요청대로 15% 줄인다
+# — 패딩도 같은 비율로 줄여 전체 칸 폭이 정확히 15% 작아지게 한다.
+COPY_TABLE_SCALE = 0.85
+TABLE_FONT_PT = 14 * COPY_TABLE_SCALE
+TABLE_CELL_PADDING_PX = round(8 * COPY_TABLE_SCALE)
+COL_WIDTH = {
+    key: round(width * COPY_TABLE_SCALE) + TABLE_CELL_PADDING_PX * 2
+    for key, width in _COL_WIDTH_BASE.items()
+}
 
 # TOOL_LIST_PG.xlsx의 A:P 열 폭 비율
 PDF_COLUMN_WEIGHTS = [48, 100, 150, 40, 40, 40, 40, 40, 40, 40, 40, 60, 140, 70, 70, 88]
@@ -1238,9 +1261,9 @@ else:
             top_layout.addWidget(title)
 
             # About/모드 전환 버튼은 창 오른쪽 끝(addStretch 뒤)이 아니라 제목
-            # 바로 옆(왼쪽)에 붙도록 배치하고, 폰트·패딩을 기존의 1.3배로
-            # 키운다(v1.5.9 요청) — 9pt → 12pt, padding 5px 9px → 7px 12px
-            # (패딩은 _style_mode_buttons에서 함께 적용).
+            # 바로 옆(왼쪽)에 붙도록 배치하고, 폰트를 기존의 1.3배로 키운다
+            # (v1.5.9 요청) — 9pt → 12pt. 패딩은 _style_mode_buttons에서
+            # 함께 적용하며, v1.6.2부터 도움말/About과 같은 4px 8px이다.
             top_bar_button_font = QFont('맑은 고딕', 12, QFont.Bold)
             self.btn_about = QPushButton('About')
             self.btn_about.clicked.connect(self.show_about)
@@ -1268,13 +1291,24 @@ else:
             for button in (self.btn_tool_mode, self.btn_viewer_mode):
                 button.setFont(top_bar_button_font)
                 top_layout.addWidget(button)
-            top_layout.addStretch()
+            # v1.6.2: 다크모드 버튼(원래 뷰어 안 감도/큐브 바 옆)을 이 상단
+            # 바의 맨 끝(오른쪽)으로 옮긴다 — self.viewer가 만들어진 뒤에야
+            # 그 버튼을 가져올 수 있으므로, 이 자리를 표시만 해 두고 실제
+            # addStretch()/버튼 배치는 아래에서 self.viewer 생성 직후에 한다.
             root_layout.addWidget(self.top_bar)
 
             self.main_splitter = QSplitter(Qt.Horizontal)
             self.main_splitter.setChildrenCollapsible(False)
             root_layout.addWidget(self.main_splitter, 1)
             self.viewer = self._create_viewer()
+
+            top_layout.addStretch()
+            if hasattr(self.viewer, 'take_dark_mode_button'):
+                self.btn_dark_mode = self.viewer.take_dark_mode_button(self.top_bar)
+                top_layout.addWidget(self.btn_dark_mode)
+                # 창 가장 오른쪽 가장자리에 버튼이 바로 붙지 않도록 한 칸
+                # 띄운다(v1.6.2 요청).
+                top_layout.addSpacing(TOP_BAR_EDGE_GAP_PX)
 
             self.program_panel = QWidget()
             self.program_panel.setMinimumWidth(PROGRAM_PANE_MIN_WIDTH)
@@ -1339,26 +1373,33 @@ else:
 
             self.filter_panel = QWidget()
             filter_layout = QVBoxLayout(self.filter_panel)
-            filter_layout.setContentsMargins(0, 5, 0, 0)
-            filter_layout.setSpacing(4)
+            # v1.6.2: "텍스트 정지"~"PG 매칭/전체/해제" 구간의 레이아웃·폰트를
+            # 15% 키운다(FILTER_SECTION_SCALE) — 요청받은 구간이라 이 아래
+            # 위젯들만 scaled()/filter_kfont를 쓰고, 다른 패널은 그대로 둔다.
+            filter_layout.setContentsMargins(0, scaled(5), 0, 0)
+            filter_layout.setSpacing(scaled(4))
+
+            filter_kfont = QFont('맑은 고딕')
+            filter_kfont.setPointSizeF(kfont.pointSize() * FILTER_SECTION_SCALE)
 
             stop_bar = QHBoxLayout()
+            stop_bar.setSpacing(scaled(6))
             self.stop_text_check = QCheckBox('텍스트 정지')
-            self.stop_text_check.setFont(kfont)
+            self.stop_text_check.setFont(filter_kfont)
             self.stop_text_check.setToolTip(
                 '오른쪽 입력창의 문자열이 포함된 줄에서 자동 재생을 멈춥니다.\n'
                 '위쪽 "문자 검색"과는 별개의 값입니다.'
             )
             self.stop_text_input = QLineEdit()
-            self.stop_text_input.setFont(kfont)
+            self.stop_text_input.setFont(filter_kfont)
             self.stop_text_input.setPlaceholderText('정지 문자')
-            self.stop_text_input.setFixedWidth(120)
+            self.stop_text_input.setFixedWidth(scaled(120))
             self.stop_text_input.setToolTip(self.stop_text_check.toolTip())
             self.stop_m00_check = QCheckBox('정지')
-            self.stop_m00_check.setFont(kfont)
+            self.stop_m00_check.setFont(filter_kfont)
             self.stop_m00_check.setToolTip('M0 또는 M00에서 자동 재생을 멈춥니다.')
             self.stop_m01_check = QCheckBox('옵션정지')
-            self.stop_m01_check.setFont(kfont)
+            self.stop_m01_check.setFont(filter_kfont)
             self.stop_m01_check.setToolTip('M1 또는 M01에서 자동 재생을 멈춥니다.')
             self._load_playback_stop_options()
             self.stop_text_check.toggled.connect(self._on_stop_text_check_toggled)
@@ -1375,26 +1416,29 @@ else:
             filter_layout.addLayout(stop_bar)
 
             filter_bar = QHBoxLayout()
+            filter_bar.setSpacing(scaled(6))
             filter_label = QLabel('공정별 경로 필터 선택')
-            filter_label.setFont(QFont('맑은 고딕', 9, QFont.Bold))
+            filter_label_font = QFont('맑은 고딕', weight=QFont.Bold)
+            filter_label_font.setPointSizeF(9 * FILTER_SECTION_SCALE)
+            filter_label.setFont(filter_label_font)
             filter_bar.addWidget(filter_label)
             filter_bar.addStretch()
             self.reset_program_button = self._add_button(
-                filter_bar, 'Reset', lambda: self.jump_to_process_line(0), kfont
+                filter_bar, 'Reset', lambda: self.jump_to_process_line(0), filter_kfont
             )
             self.reset_program_button.setToolTip(
                 '프로그램 커서를 맨 상단(첫 줄)으로 이동합니다. (F5)'
             )
             self.pg_match_check = QCheckBox('PG 매칭')
-            self.pg_match_check.setFont(kfont)
+            self.pg_match_check.setFont(filter_kfont)
             self.pg_match_check.setToolTip(
                 '체크하면 그려진 경로를 지우고, 커서가 있는 공정만\n'
                 '프로그램 방향키에 맞춰 실시간으로 그리고 지웁니다.'
             )
             self.pg_match_check.toggled.connect(self.toggle_pg_match_mode)
             filter_bar.addWidget(self.pg_match_check)
-            self._add_button(filter_bar, '전체', lambda: self.viewer.select_all_tools(True), kfont)
-            self._add_button(filter_bar, '해제', lambda: self.viewer.select_all_tools(False), kfont)
+            self._add_button(filter_bar, '전체', lambda: self.viewer.select_all_tools(True), filter_kfont)
+            self._add_button(filter_bar, '해제', lambda: self.viewer.select_all_tools(False), filter_kfont)
             filter_layout.addLayout(filter_bar)
             self.tool_filter = QListWidget()
             self.tool_filter.setSelectionMode(QAbstractItemView.MultiSelection)
@@ -1911,8 +1955,13 @@ else:
             self.table.setHorizontalHeaderLabels([label for _key, label in COLUMNS])
             # v1.5.9: 표기 폰트를 기존(미지정 기본 폰트, ~9pt)의 1.6배로 키운다
             # — 행 높이는 Qt가 이 폰트 크기에 맞춰 함께 자동으로 커진다.
-            self.table.setFont(QFont('맑은 고딕', 14))
-            self.table.horizontalHeader().setFont(QFont('맑은 고딕', 14, QFont.Bold))
+            # v1.6.2: 요청대로 그 폰트/셀 폭을 다시 15% 줄인다(COPY_TABLE_SCALE).
+            table_font = QFont('맑은 고딕')
+            table_font.setPointSizeF(TABLE_FONT_PT)
+            table_header_font = QFont('맑은 고딕', weight=QFont.Bold)
+            table_header_font.setPointSizeF(TABLE_FONT_PT)
+            self.table.setFont(table_font)
+            self.table.horizontalHeader().setFont(table_header_font)
             self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
             self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
             self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -1954,11 +2003,13 @@ else:
 
         def _style_mode_buttons(self):
             t = self.theme
-            # 패딩도 상단 바 버튼 폰트와 같은 비율(1.3배: 5px 9px -> 7px 12px)로 키운다.
-            active = 'background: %s; color: %s; padding: 7px 12px;' % (
+            # v1.6.2: "툴리스트 산출 모드"/"Viewer 모드" 버튼을 "도움말" 버튼과
+            # 같은 크기로 맞춘다 — 패딩을 도움말/About이 쓰는 전역 기본값
+            # (4px 8px)과 같게 둔다(이전엔 7px 12px로 더 컸다).
+            active = 'background: %s; color: %s; padding: 4px 8px;' % (
                 t['mode_active_bg'], t['mode_active_text']
             )
-            inactive = 'background: %s; color: %s; padding: 7px 12px;' % (
+            inactive = 'background: %s; color: %s; padding: 4px 8px;' % (
                 t['mode_inactive_bg'], t['mode_inactive_text']
             )
             self.btn_tool_mode.setStyleSheet(active if self.current_mode == 'tool' else inactive)
