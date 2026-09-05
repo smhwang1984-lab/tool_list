@@ -7,13 +7,16 @@ import re
 import numpy as np
 import pyqtgraph.opengl as gl
 from pyqtgraph import Vector
-from PyQt5.QtCore import Qt, QPointF, QRectF, QSettings, QSignalBlocker, QSize, QTimer, pyqtSignal
+from PyQt5.QtCore import (
+    Qt, QEvent, QPointF, QRectF, QSettings, QSignalBlocker, QSize, QTimer, pyqtSignal,
+)
 from PyQt5.QtGui import (
     QBrush, QColor, QFont, QIcon, QKeySequence, QMatrix4x4, QPainter, QPainterPath, QPen, QPixmap,
     QPolygonF, QVector3D,
 )
 from PyQt5.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -827,8 +830,36 @@ class ProjectionOverlayWidget(QWidget):
             # 다음 방향키가 커서 대신 버튼 포커스 이동에 쓰이므로 항상 막아둔다.
             button.setFocusPolicy(Qt.NoFocus)
             button.clicked.connect(lambda _checked=False, value=view_type: self.projection_clicked.emit(value))
+            # 스타일시트(폰트/패딩)가 적용되기 전에는 버튼의 sizeHint가 거의
+            # 0이라, 지금 바로 크기를 재면 오버레이가 찌그러진다. 새 버튼을
+            # 즉시 polish 해서 제대로 된 hint를 갖게 한다.
+            button.ensurePolished()
             row.addWidget(button)
+            # 이미 화면에 떠 있는 오버레이에 나중에 끼워 넣는 위젯은 숨김
+            # 상태로 들어와, 그대로 두면 레이아웃 크기 계산에서 아예 빠진다
+            # (그래서 선반 전환 시 오버레이가 라벨 폭까지만 줄어들었다).
+            if self.isVisible():
+                button.show()
+        self._fit_to_contents()
+
+    def _fit_to_contents(self):
+        """버튼 구성이 바뀐 뒤 오버레이 크기를 다시 잡는다.
+
+        버튼을 갈아 끼운 직후에는 레이아웃이 들고 있는 sizeHint 캐시가 아직
+        옛 구성 기준이라, 그대로 adjustSize()를 부르면 오버레이가 40x20으로
+        찌그러져 버튼이 2px 폭으로 잘려 보인다(선반 전환 시 실제 앱에서 재현).
+        캐시는 LayoutRequest 이벤트가 배달돼야 갱신되므로, 이벤트 루프를
+        기다리지 않고 그 이벤트를 동기로 흘려보낸 뒤 크기를 잡는다."""
+        self._row.invalidate()
+        self.updateGeometry()
+        QApplication.sendPostedEvents(self, QEvent.LayoutRequest)
+        self._row.activate()
         self.adjustSize()
+        # 크기가 바뀌었으니 부모(3D 화면) 안에서의 위치도 다시 잡아준다.
+        parent = self.parent()
+        reposition = getattr(parent, "_reposition_top_left", None)
+        if callable(reposition):
+            reposition()
 
     def set_lathe_mode(self, enabled):
         """선반 모드에서는 투영 버튼을 ISO/선반 2개로 바꾼다(v1.6.4)."""

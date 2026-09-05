@@ -2613,6 +2613,42 @@ G01 X20. Z-40.
             self._restore(viewer, original, qapp)
 
     @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_projection_overlay_is_not_squashed_when_buttons_are_swapped(self):
+        """v1.6.4 버그: 이미 화면에 떠 있는 오버레이의 버튼을 갈아 끼우면
+        새 버튼이 숨김 상태로 들어와 레이아웃 크기 계산에서 빠지는 바람에,
+        오버레이가 라벨 폭(40x20)까지 줄고 버튼이 2px 폭으로 잘려 보였다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        from nc_viewer_widget import ProjectionOverlayWidget
+
+        overlay = ProjectionOverlayWidget()
+        try:
+            overlay.show()
+            qapp.processEvents()
+            mill_height = overlay.height()
+            self.assertEqual(overlay.button_labels(), ['ISO', 'XY', 'XZ', 'YZ'])
+
+            overlay.set_lathe_mode(True)
+            # 이벤트 루프를 한 번도 돌리지 않은 시점에서 이미 올바른 크기여야 한다.
+            self.assertEqual(overlay.button_labels(), ['ISO', '선반'])
+            self.assertEqual(overlay.size(), overlay.sizeHint())
+            self.assertEqual(overlay.height(), mill_height)
+            for index in range(overlay._fixed_item_count, overlay._row.count()):
+                button = overlay._row.itemAt(index).widget()
+                self.assertGreater(
+                    button.width(), 20,
+                    '버튼 "%s"이 잘려 보인다(폭 %d)' % (button.text(), button.width()),
+                )
+
+            # 밀링으로 되돌려도 마찬가지다.
+            overlay.set_lathe_mode(False)
+            self.assertEqual(overlay.size(), overlay.sizeHint())
+            self.assertEqual(overlay.height(), mill_height)
+        finally:
+            overlay.close()
+            overlay.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
     def test_lathe_mode_does_not_change_milling_paths(self):
         """지침 0항: 선반 변경이 기존 밀링 툴패스를 건드리면 안 된다."""
         qapp = app.QApplication.instance() or app.QApplication([])

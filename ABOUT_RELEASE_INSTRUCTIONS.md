@@ -74,14 +74,24 @@ Last updated: 2026-09-05 (v1.6.3)
     평면 정면 뷰라 화면에서 기계 Z가 수평, 기계 X(지름)가 수직으로 보인다. `ProjectionOverlayWidget`을
     버튼 목록 교체형으로 리팩터링(`MILL_BUTTONS` / `LATHE_BUTTONS`, `_rebuild_buttons()`, `set_lathe_mode()`,
     `button_labels()`). 선반 모드에서는 XY/XZ/YZ 대신 **ISO(축이 바뀐 상태) + 선반** 2개만 노출한다.
+  - **투영 오버레이 찌그러짐 버그 수정(`nc_viewer_widget.py`):** 실제 앱을 띄워 장비를 선반으로 바꿨더니
+    오버레이가 라벨 폭(40x20)까지 줄어들고 버튼이 2px 폭으로 잘려 보였다. 원인은 **이미 화면에 떠 있는
+    오버레이의 레이아웃에 나중에 끼워 넣은 위젯이 숨김 상태로 들어와, 레이아웃 크기 계산에서 아예
+    빠지는 것**이었다(단위 테스트에서는 위젯을 띄우지 않아 드러나지 않았다). `_rebuild_buttons()`가
+    새 버튼을 `ensurePolished()` 후 `show()` 하고, 새 `_fit_to_contents()`가 레이아웃 캐시를 무효화한 뒤
+    `QApplication.sendPostedEvents(self, QEvent.LayoutRequest)`로 보류 중인 레이아웃 갱신을 동기로
+    흘려보내고 크기를 다시 잡은 다음 부모의 `_reposition_top_left()`로 위치까지 맞춘다.
   - **선반 축 화살표 라벨(`nc_viewer_widget.py`):** 새 `_LATHE_AXIS_LABELS = ("Z", "C", "X")`와
     `is_lathe_mode()` / `current_axis_labels()`. `set_machine_type()`이 새 `_apply_lathe_mode_ui()`를 불러
     장비를 바꿀 때마다 투영 버튼과 축 문자를 갱신하고, 선반 최초 진입 시 카메라를 `"XZ"`가 아니라
     `"LATHE"` 프리셋으로 맞춘다. 밀링으로 되돌리면 전부 원상복구된다.
-- Verification: `pytest tests/test_nc_tool_list.py` **107/107 통과** (기존 98개 전부 유지 + v1.6.4 신규 9개:
+- Verification: `pytest tests/test_nc_tool_list.py` **108/108 통과** (기존 98개 전부 유지 + v1.6.4 신규 10개:
   `lathe_world_point` 지름/축스왑/C축, 선반 경로 반경 환산, 선반 원호 R 정확도 + G02 시계방향,
   선반 투영버튼·축라벨 전환/복구, **선반을 거쳤다 돌아와도 밀링 툴패스가 완전히 동일한지**,
-  PDF 임시 경로 이름/재사용/잠김 시 폴백, `export_pdf`에 저장 다이얼로그가 없는지).
+  투영 오버레이가 버튼 교체 후에도 찌그러지지 않는지(위 버그 회귀 고정 — 수정을 되돌리면 20 != 30으로
+  실패하는 것을 확인했다), PDF 임시 경로 이름/재사용/잠김 시 폴백, `export_pdf`에 저장 다이얼로그가 없는지).
+  또한 **실제 앱 창(1600x950)을 띄워** 선반 프로그램을 넣고 Viewer 모드 -> 장비 콤보에서 "2축 선반" 선택 ->
+  투영 "선반"/"ISO" 버튼을 실제로 클릭하는 사용자 경로 그대로 구동해 스크린샷으로 확인했다.
   선반 샘플(`G00 X100. Z5.` / `G01 X100. Z-20.` / `G02 X60. Z-40. R20.` / `G01 X20. Z-40.`)을 오프스크린으로
   돌려 X100 -> 월드 (5, 0, 50), 원호 12점이 중심 (-40, 50)에서 반지름 20.000000을 유지하고 각도가
   단조 감소(선반 뷰 기준 시계 방향)하는 것을 확인했다.
