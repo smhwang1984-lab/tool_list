@@ -26,7 +26,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
 
-APP_VERSION = '1.6.5'
+APP_VERSION = '1.6.6'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-09-05'
 APP_CREATOR = 'Hwang.seonmun'
@@ -146,6 +146,10 @@ LATHE_DESC_PREFIX_RE = re.compile(r'^\s*T\d+\s*-\s*(.*?)\s*$', re.I)
 # 블록 안에서 옵셋이 살아있는 Tnnnn(T0000 제외)을 찾는다 — v1.6.4 규약과
 # 같은 자리("옵셋 00만 있으면 그 값을 그대로 TOOL NO로 쓴다")를 여기서도 쓴다.
 LATHE_ANY_T_RE = re.compile(r'T(\d{4})(?!\d)', re.I)
+# TOOL NO(예: "T0101")를 공구번호(앞 두 자리)/옵셋(뒤 두 자리)로 쪼갠다 —
+# 툴리스트 정렬(v1.6.6)과 3D 뷰어 필터 매핑(lathe_tool_name_map_from_rows)이
+# 같은 규약을 쓴다.
+LATHE_TOOL_NO_SPLIT_RE = re.compile(r'^T(\d{2})(\d{2})$', re.I)
 
 LATHE_COLUMNS = [
     ('NO', 'TOOL NO'), ('INSERT', 'INSERT'), ('HOLDER', '홀더'), ('REMARK', 'REMARK'),
@@ -224,15 +228,43 @@ def parse_lathe_program(text):
         if key not in order:
             order.append(key)
 
-    rows = []
-    for key in order:
+    def _row_for(key):
         entry = tools[key]
-        rows.append({
+        return {
             'NO': entry['tool_no'],
             'INSERT': entry['insert'],
             'HOLDER': entry['holder'],
             'REMARK': ', '.join(entry['remarks']),
-        })
+        }
+
+    # v1.6.6: MCT 툴리스트(공구번호 순 + 빠진 번호는 빈 행)와 같은 모양으로
+    # 정렬한다 — 지금까지는 N블록(공정) 등장 순서 그대로였다. TOOL NO의 앞
+    # 두 자리가 공구번호, 뒤 두 자리가 옵셋(같은 공구번호 안에서는 옵셋
+    # 오름차순, T0101/T0111처럼 옵셋이 다르면 여전히 별도 행 — 승인된 규약).
+    # T워드를 못 찾은 항목(키가 '__N<줄번호>__')은 번호를 매길 수 없으므로
+    # 정렬된 본문 뒤에 원래 순서 그대로 붙여 데이터가 사라지지 않게 한다.
+    numbered = []
+    unnumbered_keys = []
+    for key in order:
+        split = LATHE_TOOL_NO_SPLIT_RE.match(str(tools[key]['tool_no'] or '').strip().upper())
+        if split:
+            numbered.append((int(split.group(1)), int(split.group(2)), key))
+        else:
+            unnumbered_keys.append(key)
+
+    rows = []
+    if numbered:
+        numbered.sort(key=lambda item: (item[0], item[1]))
+        keys_by_tool_num = {}
+        for tool_num, _offset, key in numbered:
+            keys_by_tool_num.setdefault(tool_num, []).append(key)
+        for tool_num in range(1, max(keys_by_tool_num) + 1):
+            keys_for_num = keys_by_tool_num.get(tool_num)
+            if not keys_for_num:
+                rows.append({column_key: '' for column_key, _label in LATHE_COLUMNS})
+                continue
+            rows.extend(_row_for(key) for key in keys_for_num)
+    rows.extend(_row_for(key) for key in unnumbered_keys)
     return rows
 
 
@@ -516,7 +548,10 @@ def make_pdf_story(rows, metadata, available_width, fonts):
 # 홀더/REMARK)은 열 구성 자체가 다르므로 표/스타일을 따로 만든다. 문서
 # 골격(register_pdf_fonts/make_pdf_document/PDF_ROWS_PER_PAGE 등)은 그대로
 # 재사용한다.
-LATHE_PDF_COLUMN_WEIGHTS = [70, 260, 260, 160]
+# v1.6.6: NO는 "T0101"처럼 항상 짧고 REMARK도 "N1, N5"처럼 짧은 편인 반면
+# INSERT/홀더 문구는 길어(예: "T10-D4 X R0.3 FILLET EN MILL, ANGLE / D-4.")
+# 화면 표와 마찬가지로 말줄임이 나던 문제 — 두 열의 비중을 넓힌다.
+LATHE_PDF_COLUMN_WEIGHTS = [55, 300, 300, 100]
 
 
 def lathe_pdf_column_widths(available_width):
@@ -1136,7 +1171,7 @@ VIEWER_IMPORT_ERROR = None
 NCViewerWidget = None
 try:
     from PyQt5.QtCore import Qt, QSettings, QSize, QTimer, QSignalBlocker, pyqtSignal
-    from PyQt5.QtGui import QColor, QFont, QIcon, QKeySequence, QTextCursor, QTextFormat
+    from PyQt5.QtGui import QColor, QFont, QFontMetrics, QIcon, QKeySequence, QTextCursor, QTextFormat
     from PyQt5.QtWidgets import (
         QApplication, QAbstractItemView, QCheckBox, QComboBox, QDialog,
         QDialogButtonBox, QFileDialog, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout,
@@ -1339,6 +1374,10 @@ else:
             self._last_parsed_lathe = False
             self._last_parsed_rows = []
             self._last_parsed_metadata = {key: '' for key in METADATA_ALIASES}
+            # v1.6.6: 선반 툴리스트는 INSERT/홀더 문구가 고정폭(LATHE_COL_WIDTH)
+            # 보다 길어 말줄임이 나던 문제 — 실제 표시 중인 행 내용 폭을 재서
+            # 그때그때 넓힌다(run()에서 갱신). 비어 있으면 고정폭으로 되돌아감.
+            self._lathe_dynamic_col_width = {}
             self.viewer_update_timer = QTimer(self)
             self.viewer_update_timer.setSingleShot(True)
             self.viewer_update_timer.timeout.connect(self.sync_viewer_from_source)
@@ -2548,11 +2587,37 @@ else:
             return LATHE_COLUMNS if self.is_lathe_program() else COLUMNS
 
         def active_col_width(self, key):
-            widths = LATHE_COL_WIDTH if self.is_lathe_program() else COL_WIDTH
-            return widths.get(key, 60)
+            if self.is_lathe_program():
+                widths = self._lathe_dynamic_col_width or LATHE_COL_WIDTH
+                return widths.get(key, 60)
+            return COL_WIDTH.get(key, 60)
 
         def _active_col_width_total(self):
-            return _LATHE_COL_WIDTH_TOTAL if self.is_lathe_program() else _COL_WIDTH_TOTAL
+            if self.is_lathe_program():
+                widths = self._lathe_dynamic_col_width or LATHE_COL_WIDTH
+                return sum(widths.values())
+            return _COL_WIDTH_TOTAL
+
+        def _update_lathe_dynamic_col_width(self, rows):
+            """v1.6.6: 선반 표는 폰트를 줄이지 않고(요청) 셀이 잘리지 않게
+            해야 하므로, 실제 헤더/행 내용의 표시 폭을 재서 고정폭
+            (LATHE_COL_WIDTH)보다 넓은 경우에만 그 값을 쓴다."""
+            if not self.is_lathe_program():
+                self._lathe_dynamic_col_width = {}
+                return
+            font = QFont('맑은 고딕')
+            font.setPointSizeF(TABLE_FONT_PT)
+            metrics = QFontMetrics(font)
+            widths = {}
+            for key, label in LATHE_COLUMNS:
+                content_width = metrics.horizontalAdvance(str(label))
+                for row in rows:
+                    text = str(row.get(key, ''))
+                    if text:
+                        content_width = max(content_width, metrics.horizontalAdvance(text))
+                measured = content_width + TABLE_CELL_PADDING_PX * 2 + 12
+                widths[key] = max(measured, LATHE_COL_WIDTH.get(key, 60))
+            self._lathe_dynamic_col_width = widths
 
         def _configure_table_columns(self):
             """선반/밀링 전환에 맞춰 표 열 구성(개수/헤더/폭)을 다시 잡는다
@@ -2765,6 +2830,7 @@ else:
             # 다시 만든다(열 개수/헤더/폭이 다르므로 재사용할 수 없다).
             if getattr(self, '_table_columns_is_lathe', None) != self.is_lathe_program():
                 self._configure_table_columns()
+            self._update_lathe_dynamic_col_width(rows)
             self.table.setUpdatesEnabled(False)
             try:
                 self.table.setRowCount(len(rows))
@@ -2793,7 +2859,13 @@ else:
             available = table.viewport().width()
             if available <= 0:
                 return
-            scale = min(1.0, max(TOOL_TABLE_MIN_SCALE, available / width_total))
+            # v1.6.6: 선반 표는 폰트 축소/말줄임을 금지(요청) — 항상 기준
+            # 크기(1.0)로 그리고, 내용이 패널보다 넓으면 가로 스크롤을 허용한다.
+            # 밀링은 기존 그대로 패널 폭에 맞춰 줄어든다(변경 없음).
+            if self.is_lathe_program():
+                scale = 1.0
+            else:
+                scale = min(1.0, max(TOOL_TABLE_MIN_SCALE, available / width_total))
 
             table_font = QFont('맑은 고딕')
             table_font.setPointSizeF(TABLE_FONT_PT * scale)
