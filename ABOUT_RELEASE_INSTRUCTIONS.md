@@ -1,6 +1,6 @@
 # About / Release Instructions
 
-Last updated: 2026-09-05 (v1.6.3)
+Last updated: 2026-09-05 (v1.6.5)
 
 ## About button requirements
 
@@ -34,7 +34,88 @@ Last updated: 2026-09-05 (v1.6.3)
 
 ## Version history
 
-### 2026-09-05 (latest, v1.6.4)
+### 2026-09-05 (latest, v1.6.5)
+
+- Version: 1.6.5
+- Release/build date: 2026-09-05 (사용자 승인 후 설치본·포터블 패키지 생성 완료)
+- Summary: 사용자 요청 3건, 플랜 구성 후 승인받아 진행.
+  1. **선반 뷰 카메라** — "선반" 투영에서는 툴패스가 화면 상단에 고정돼 보이던 문제를 고치고,
+     좌드래그로 상하좌우 이동(팬)만 되게 하며(회전은 잠금), 사각형을 그려 한 번에 확대하는
+     "드래그줌" 버튼을 추가했다.
+  2. **좌표 오버레이 위치** — 선반 뷰일 때 좌표 표시를 좌상단에서 화면 하단(재생 속도바 바로
+     위)으로 옮긴다.
+  3. **선반 전용 툴리스트** — 밀링 양식과 완전히 별개인 4열(TOOL NO/INSERT/홀더/REMARK) 표를
+     신설. TOOL NO는 옵셋까지 포함하고, 1번째 주석 줄이 홀더, 2번째가 인서트다. 3D 뷰어 공정
+     필터 라벨도 선반에서는 인서트 이름을 쓴다.
+- Creator displayed: Hwang.seonmun
+- Open source used: Python, PyQt5, pyqtgraph, NumPy, PyOpenGL, ReportLab, PyInstaller, Inno Setup
+  (변경 없음 — 의존성 추가/제거 없음).
+- Details:
+  - **선반 뷰 카메라(`nc_viewer_widget.py`):** `OrthographicGLViewWidget`에 `orbit_locked`(선반
+    "선반" 투영에서만 True) — 켜져 있으면 좌드래그가 pyqtgraph 기본 orbit 대신 `pan(dx, dy, 0,
+    'view')`을 직접 호출한다(기존 Ctrl+좌드래그 팬과 같은 호출 규약). "ISO" 버튼은 항상
+    `orbit_locked=False`로 자유 회전. 잠금 중에는 뷰 큐브(모서리 오리엔테이션 큐브)도 숨겨
+    드래그/면 클릭으로 우회 회전하지 못하게 한다. `NCViewerWidget._lathe_path_center_and_radius()`
+    로 로드된 경로의 바운딩박스 중심/반지름을 구해, 선반 투영에서는 원점이 아니라 그 중심으로
+    카메라를 리센터한다 — 선반은 X(지름)가 반경으로 바뀌어 항상 월드 Z≥0(화면 절반)에만 그려져
+    원점 리센터로는 위로 쏠려 보였다. 밀링 리센터(`_zoom_to_fit_distance`, 원점 recenter)는
+    `is_lathe_mode()` 분기 밖에 그대로 둬 전혀 손대지 않았다. 선반 전용 "드래그줌" 토글 버튼
+    (`ProjectionOverlayWidget`, 밀링에는 없음) — 켜진 동안 좌드래그가 `QRubberBand` 사각형을
+    그리고, 손을 떼면 `_apply_drag_zoom()`이 그 사각형 중심을 화면 중앙으로 `pan()`한 뒤 사각형이
+    차지하던 비율만큼 `distance`를 줄이고 자동으로 꺼진다(직교 투영이라 화면 픽셀 비율 = 확대
+    비율이 정확히 성립).
+  - **좌표 오버레이 하단 배치(`nc_viewer_widget.py`):** `top_left_widgets` 목록(좌표+투영 오버레이가
+    좌상단에 쌓이던 곳)과 별개로 `bottom_coord_widget` 슬롯을 추가. `NCViewerWidget._place_coord_overlay()`
+    가 선반 모드면 좌표 오버레이를 그 목록에서 빼서 `bottom_coord_widget`으로 옮기고, 밀링으로
+    돌아오면 원래 자리(좌상단 첫 번째)로 되돌린다. `_reposition_bottom_coord()`가 재생 속도바
+    바로 위 중앙에 배치한다.
+  - **선반 전용 툴리스트 파서(`NC_Tool_List.py`):** `parse_lathe_program()` 신설 — 실제 선반
+    프로그램(`O1699.nc`, 사용자 제공 샘플) 양식 기준. 밀링의 `N#(#: Tool Change)`/`[SO ..]` 표기와
+    달리, 선반은 `N<번호>` 단독 라인 바로 아래 통짜 괄호 주석 두 줄이 각각 **1번째 = 홀더,
+    2번째 = 인서트**다(`LATHE_N_RE`, `LATHE_FULL_COMMENT_LINE_RE`). 그 블록(다음 N 라인 전까지)
+    안에서 옵셋이 살아있는 `Tnnnn`(뒤 두 자리 ≠ `00`, `T0000` 제외, `LATHE_ANY_T_RE`)을 TOOL NO로
+    삼고, 없으면 옵셋 00짜리 T워드를 그대로 쓴다 — v1.6.4의 `Tnn00` 우선순위와 같은 규약. 같은
+    TOOL NO(옵셋까지 동일)를 쓰는 N 블록은 한 행으로 합치고 REMARK에 N번호를 누적하며, 옵셋이
+    다르면(`T0101` vs `T0111`) 별도 행으로 남는다(사용자 승인 규약). O1699.nc(공구 9개, N1~N9)로
+    실측 검증.
+  - **표 스키마 분리(`NC_Tool_List.py`):** `LATHE_COLUMNS`(TOOL NO/INSERT/홀더/REMARK) 4열과
+    전용 폭(`LATHE_COL_WIDTH`)을 추가. `App.active_columns()`/`active_col_width()`/
+    `_active_col_width_total()`이 `is_lathe_program()`을 보고 밀링 16열/선반 4열을 갈아 끼우며,
+    표 생성(`_configure_table_columns()`)·행 편집(`show_row_editor`/`set_table_row`/`table_text`)·
+    복사(`copy_table`)·리사이즈(`_relayout_tool_table`)가 전부 이 메서드를 거친다. 밀링 열 상수
+    (`COLUMNS`/`COL_WIDTH`)와 그 로직은 그대로 둬 기존 동작에 영향이 없다.
+  - **선반 전용 PDF(`NC_Tool_List.py`):** 기존 16열 고정 레이아웃(`export_tool_list_pdf` 등)과 별도로
+    `export_lathe_tool_list_pdf`/`make_lathe_pdf_table`/`LATHE_PDF_COLUMN_WEIGHTS`(4열)를 신설.
+    `App.save_pdf()`가 `is_lathe_program()`에 따라 둘 중 하나를 부른다.
+  - **3D 뷰어 필터 라벨(`NC_Tool_List.py`):** `lathe_tool_name_map_from_rows()` — 선반은 필터
+    라벨의 이름 자리에 NAME 대신 INSERT를 쓴다(뷰어의 2자리 공구번호 키 `T01`~에 매핑).
+    `App.tool_name_map()`이 `is_lathe_program()`으로 밀링용 `tool_name_map_from_rows()`와 갈라 쓴다.
+- Verification: `pytest tests/test_nc_tool_list.py` **120/120 통과**(기존 113개 유지 + v1.6.5 신규 18개:
+  선반 뷰 좌드래그가 각도는 그대로 두고 중심만 옮기는지(팬), 드래그줌이 사각형만큼 확대 후
+  자동으로 꺼지는지, "선반" 투영이 회전을 잠그고 바운딩박스 중심으로 리센터하는지(밀링과 달리
+  원점이 아님을 명시적으로 확인) + "ISO"가 잠금을 푸는지, 좌표 오버레이가 선반에서 재생바
+  위로 옮겨졌다가 밀링 복귀 시 좌상단으로 되돌아오는지, `parse_lathe_program`이 O1699.nc 양식의
+  홀더/인서트/TOOL NO/REMARK를 정확히 읽는지 + 같은 TOOL NO 병합/다른 옵셋 별도 행 규약,
+  `lathe_tool_name_map_from_rows`가 INSERT를 2자리 공구번호로 매핑하는지). 실제 `O1699.nc`
+  샘플로 표/PDF/필터맵까지 엔드투엔드 스모크 테스트를 돌려 확인했다. 개발 중 pytest 전량 실행에서
+  간헐적 실패가 몇 차례 나왔는데, 원인을 추적한 결과 이 PC에서 동시에 도는 다른 세션/워크트리와
+  `QSettings("NC Tool List", "EmbeddedViewer")`(실제 Windows 레지스트리 키, 테스트별로 격리되지
+  않음)를 공유해서 생기는 외부 간섭이었다(격리된 반복 실행에서는 항상 120/120 통과). 코드
+  회귀가 아니라는 것을 확인했다 — 이 QSettings 공유 문제 자체는 이번 작업 범위 밖의 기존 구조라
+  손대지 않았다.
+- Installer/package: **생성 완료** (사용자 승인 후 빌드).
+  - `python -m PyInstaller --noconfirm --clean NC_Tool_List.spec` — onedir, UPX 비활성,
+    `dist\NC_Tool_List` 146 MB, `_internal` 포함. `OpenGL\DLLS` 제외 확인(freeglut/gle32/gle64 DLL 없음).
+  - `ISCC.exe NC_Tool_List.iss` (Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.6.5.exe` 46 MB,
+    설치 경로 `C:\NC_Tool_List`, `.nc`/`.mpf`/`.tap` 파일 연결 등록 포함.
+  - 포터블: `installer\NC_Tool_List_Portable_v1.6.5.zip` 62.4 MB (dist 내용물을 zip 루트에 담는 기존
+    구조, 311개 항목으로 v1.6.3~v1.6.4와 동일).
+  - 빌드 검증: 프리즈된 `NC_Tool_List.exe`의 파일/제품 버전이 `1.6.5.0`으로 찍히고, 실제로 실행해
+    `startup.log`에 트레이스백 없이 `Starting Sum Path v1.6.5 frozen=True`가 남는 것을 확인한 뒤 종료했다.
+    설치 프로그램 자체의 VersionInfo도 1.6.5 / NC Tool List / S M.HWANG으로 확인했다.
+  - 산출물은 저장소의 `installer\` 폴더(gitignore 대상이라 커밋되지 않음)에 둔다.
+
+### 2026-09-05 (v1.6.4)
 
 - Version: 1.6.4
 - Release/build date: 2026-09-05 (사용자 승인 후 설치본·포터블 패키지 생성 완료)
