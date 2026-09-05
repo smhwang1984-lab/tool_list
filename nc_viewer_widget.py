@@ -704,10 +704,24 @@ class PlaybackBarWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WA_TranslucentBackground)
+        # v1.6.1: 앱 전역 테마 스타일시트의 'QWidget { background: ... }'
+        # 규칙이 (Qt는 타입 선택자를 서브클래스까지 매칭하므로) 이 바의
+        # 자식 QLabel/QSlider에도 적용되어, 라이트 모드에서 밝은 배경이
+        # 반투명 어두운 패널 위를 불투명하게 덮어 흰 글자가 안 보이는
+        # 문제가 있었다. 이 바는 항상 어두운 3D 캔버스 위에 뜨므로
+        # 테마와 무관하게 항상 다크 디자인으로 고정한다.
         self.setStyleSheet(
             "PlaybackBarWidget { background-color: rgba(33, 37, 43, 190);"
             " border-radius: 14px; }"
-            " QLabel { color: white; font-size: 15px; }"
+            " QLabel { background: transparent; color: white; font-size: 15px; }"
+            " QSlider { background: transparent; }"
+            " QSlider::groove:horizontal { background: rgba(255, 255, 255, 40);"
+            " border-radius: 6px; height: 12px; }"
+            " QSlider::sub-page:horizontal { background: rgba(120, 170, 255, 200);"
+            " border-radius: 6px; height: 12px; }"
+            " QSlider::handle:horizontal { background: #e4e8f0;"
+            " border: 1px solid rgba(0, 0, 0, 80); width: 22px; height: 22px;"
+            " margin: -6px 0; border-radius: 11px; }"
             " QPushButton { color: white; background-color: rgba(255, 255, 255, 30);"
             " border: 1px solid rgba(255, 255, 255, 60); border-radius: 8px;"
             " padding: 18px 27px; font-size: 17px; font-weight: bold; }"
@@ -738,7 +752,9 @@ class PlaybackBarWidget(QWidget):
         # v1.6.0: 속도 값 폰트를 기존의 1.7배(15px -> 26px)로 키운다. 이 바의
         # 다른 QLabel(예: "속도")까지 함께 커지지 않도록 인스턴스 스타일시트로
         # 개별 지정한다(인스턴스 지정값이 클래스 규칙보다 우선한다).
-        self.speed_value_label.setStyleSheet("color: white; font-size: 26px; font-weight: bold;")
+        self.speed_value_label.setStyleSheet(
+            "background: transparent; color: white; font-size: 26px; font-weight: bold;"
+        )
         self.speed_value_label.setFixedWidth(122)
         speed_row.addWidget(self.speed_value_label)
         outer.addLayout(speed_row)
@@ -751,16 +767,16 @@ class PlaybackBarWidget(QWidget):
         button_row = QHBoxLayout()
         self.prev_tool_button = QPushButton()
         self.prev_tool_button.setIcon(skip_icon("white", forward=False))
-        self.prev_tool_button.setToolTip("이전 툴")
+        self.prev_tool_button.setToolTip("이전 툴 (F6)")
         self.rewind_button = QPushButton()
         self.rewind_button.setIcon(rewind_icon("white"))
         self.rewind_button.setToolTip("되감기")
         self.play_pause_button = QPushButton()
         self.play_pause_button.setIcon(play_icon("white"))
-        self.play_pause_button.setToolTip("재생")
+        self.play_pause_button.setToolTip("재생 (F7)")
         self.next_tool_button = QPushButton()
         self.next_tool_button.setIcon(skip_icon("white", forward=True))
-        self.next_tool_button.setToolTip("다음 툴")
+        self.next_tool_button.setToolTip("다음 툴 (F8)")
         for button in (
             self.prev_tool_button, self.rewind_button,
             self.play_pause_button, self.next_tool_button,
@@ -911,7 +927,9 @@ class NCViewerWidget(QWidget):
         # 그대로 두고 폰트 크기만 v1.6.0에서 다시 0.8배로 낮춘다(10pt).
         projection_font = QFont("맑은 고딕", 10)
         view_bar = QHBoxLayout()
-        view_bar.setContentsMargins(6, 5, 6, 5)
+        # v1.6.1: 다크모드 아이콘을 2배로 키우며 행 높이 증가를 최소화하기
+        # 위해 상하 여백을 5px -> 0px로 줄인다(행 증가폭 +6px로 제한).
+        view_bar.setContentsMargins(6, 0, 6, 0)
         projection_label = QLabel("투영")
         projection_label.setFont(projection_font)
         view_bar.addWidget(projection_label)
@@ -971,7 +989,11 @@ class NCViewerWidget(QWidget):
         self.dark_mode_button.setCheckable(True)
         # 다크/라이트 아이콘이 잘 안 보인다는 요청으로 버튼·아이콘 크기를
         # 키운다(v1.5.9): 26px -> 36px 버튼, 18px -> 26px 아이콘.
-        self.dark_mode_button.setFixedSize(36, 36)
+        # v1.6.1: 아이콘을 다시 정확히 2배(52px)로 키운다. 이 버튼이 툴바
+        # 행에서 가장 큰 위젯이라 행 높이도 36 -> 52px로 함께 늘어난다
+        # (사용자 확인 후 감수하기로 한 부분 — view_bar의 상하 여백을
+        # 5px -> 0px로 줄여 행 전체 증가폭은 +6px로 최소화한다).
+        self.dark_mode_button.setFixedSize(52, 52)
         self.dark_mode_button.setToolTip("다크모드 전환")
         self.dark_mode_button.setFocusPolicy(Qt.NoFocus)
         self.dark_mode_button.setFlat(True)
@@ -1040,6 +1062,9 @@ class NCViewerWidget(QWidget):
         # 격자판은 넓은 프로그램에서 시야를 가려 제거했다(v1.5.6) — 방향
         # 기준은 축선(_add_axis_lines)만으로 충분하다.
         self._add_axis_lines()
+        # v1.6.1: 화살표를 화면 고정 크기로 유지하려면 카메라가 움직일
+        # 때마다(줌 포함) 좌표를 다시 계산해야 한다.
+        self.gl_view.camera_changed.connect(self._update_axis_lines_live)
 
         self.cursor_sphere = gl.GLMeshItem(
             meshdata=gl.MeshData.sphere(rows=10, cols=20, radius=2.0),
@@ -1316,11 +1341,12 @@ class NCViewerWidget(QWidget):
 
     def _refresh_dark_mode_button(self):
         icon_color = "#e4e8f0" if self._dark_mode else "#1f2937"
-        # v1.5.9: 아이콘이 잘 안 보인다는 요청으로 26px로 확대(소스 픽스맵도
-        # 같이 키워야 확대해도 흐려지지 않는다).
-        icon = sun_icon(icon_color, size=26) if self._dark_mode else moon_icon(icon_color, size=26)
+        # v1.5.9: 아이콘이 잘 안 보인다는 요청으로 26px로 확대.
+        # v1.6.1: 다시 정확히 2배인 52px로 확대(소스 픽스맵도 같이 키워야
+        # 확대해도 흐려지지 않는다).
+        icon = sun_icon(icon_color, size=52) if self._dark_mode else moon_icon(icon_color, size=52)
         self.dark_mode_button.setIcon(icon)
-        self.dark_mode_button.setIconSize(QSize(26, 26))
+        self.dark_mode_button.setIconSize(QSize(52, 52))
         with QSignalBlocker(self.dark_mode_button):
             self.dark_mode_button.setChecked(self._dark_mode)
 
@@ -1333,35 +1359,66 @@ class NCViewerWidget(QWidget):
         self._refresh_dark_mode_button()
 
     # v1.6.0: 원점 표기를 원점을 관통하는 양방향 무한선 대신, +X/+Y/+Z
-    # 방향으로만 뻗는 화살표로 바꾼다. 길이는 큐브 크기 슬라이더 값에
-    # 비례해서, 큐브를 키우거나 줄이면 화살표도 함께 커지고 작아진다.
-    _AXIS_ARROW_BASE_LENGTH = 500.0
+    # 방향으로만 뻗는 화살표로 바꾼다.
+    # v1.6.1: 길이를 큐브 크기(px) 자체와 "화면상 같은 크기"로 보이도록
+    # 바꾼다 — 직교 투영에서는 화면 픽셀당 월드 단위가 화면 전체에서
+    # 균일하므로, 큐브 크기(px)에 그 값을 곱하면 줌 정도와 무관하게
+    # 화살표가 항상 큐브와 같은 픽셀 크기로 보인다.
     _AXIS_ARROW_HEAD_RATIO = 0.12
+    _AXIS_LABELS = ("X", "Y", "Z")
     _AXIS_DIRECTIONS = (
         ((1.0, 0.0, 0.0), (1.0, 0.2, 0.2, 0.9), ((0.0, 1.0, 0.0), (0.0, 0.0, 1.0))),
         ((0.0, 1.0, 0.0), (0.2, 1.0, 0.2, 0.9), ((1.0, 0.0, 0.0), (0.0, 0.0, 1.0))),
         ((0.0, 0.0, 1.0), (0.2, 0.2, 1.0, 0.9), ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0))),
     )
 
-    def _axis_arrow_length(self):
+    def _screen_units_per_pixel(self):
+        opts = getattr(self.gl_view, "opts", None)
+        if not opts:
+            return 1.0
+        try:
+            distance = max(float(opts.get("distance", 200.0)), 1.0)
+            fov = max(float(opts.get("fov", 60.0)), 1.0)
+        except (TypeError, ValueError):
+            return 1.0
+        height_px = max(self.gl_view.height(), 1)
+        return 2.0 * distance * tan(radians(fov) / 2.0) / height_px
+
+    def _axis_cube_size_px(self):
         slider = getattr(self, "view_cube_size_slider", None)
-        size_px = slider.value() if slider is not None else self._initial_cube_size
-        return self._AXIS_ARROW_BASE_LENGTH * (size_px / 160.0)
+        return slider.value() if slider is not None else self._initial_cube_size
+
+    def _axis_arrow_length(self):
+        return self._axis_cube_size_px() * self._screen_units_per_pixel()
+
+    def _axis_label_font(self):
+        # ViewCubeWidget._paint()의 면 라벨 폰트 크기와 같은 비율(큐브
+        # half-extent의 7.2/26.0배)을 써서, 원점 화살표의 축 문자가 큐브
+        # 라벨과 같은 크기로 보이고 큐브 크기 조정에 함께 반응하게 한다.
+        cube_px = self._axis_cube_size_px()
+        half = (cube_px / 2.0) * 0.65
+        point_size = max(6.0, half * (7.2 / 26.0))
+        font = QFont("맑은 고딕")
+        font.setPointSizeF(point_size)
+        return font
 
     def _remove_axis_lines(self):
         for item in getattr(self, "_axis_items", []):
             self.gl_view.removeItem(item)
         self._axis_items = []
+        self._axis_label_items = []
 
     def _add_axis_lines(self):
         self._remove_axis_lines()
         length = self._axis_arrow_length()
         head_len = length * self._AXIS_ARROW_HEAD_RATIO
-        for direction, color, wing_axes in self._AXIS_DIRECTIONS:
+        font = self._axis_label_font()
+        for (direction, color, wing_axes), label in zip(self._AXIS_DIRECTIONS, self._AXIS_LABELS):
             d = np.array(direction)
             tip = d * length
+            # v1.6.1: 선 굵기를 기존의 2배로 키운다(2.0 -> 4.0).
             shaft = gl.GLLinePlotItem(
-                pos=np.array([[0.0, 0.0, 0.0], tip]), color=color, width=2.0, antialias=True
+                pos=np.array([[0.0, 0.0, 0.0], tip]), color=color, width=4.0, antialias=True
             )
             self.gl_view.addItem(shaft)
             self._axis_items.append(shaft)
@@ -1376,10 +1433,50 @@ class NCViewerWidget(QWidget):
                         wing_dir = wing_dir / norm
                     head = gl.GLLinePlotItem(
                         pos=np.array([tip, tip + wing_dir * head_len]),
-                        color=color, width=2.0, antialias=True,
+                        color=color, width=4.0, antialias=True,
                     )
                     self.gl_view.addItem(head)
                     self._axis_items.append(head)
+            # v1.6.1: 화살표 끝에 X/Y/Z 축 문자를 표기한다.
+            text_color = tuple(int(max(0.0, min(1.0, c)) * 255) for c in color[:3])
+            label_pos = tip + d * (length * 0.06)
+            text_item = gl.GLTextItem(pos=label_pos, text=label, color=text_color, font=font)
+            self.gl_view.addItem(text_item)
+            self._axis_items.append(text_item)
+            self._axis_label_items.append(text_item)
+
+    def _update_axis_lines_live(self):
+        """카메라가 움직일 때(줌 포함) 호출된다. 화살표를 화면 고정
+        크기로 유지하려면 매 프레임 좌표를 다시 계산해야 하므로, 아이템을
+        지웠다 새로 만들지 않고 기존 아이템의 좌표만 갱신해 드래그 중
+        끊김 없이 갱신한다."""
+        axis_items = getattr(self, "_axis_items", None)
+        label_items = getattr(self, "_axis_label_items", None)
+        if not axis_items or not label_items:
+            return
+        length = self._axis_arrow_length()
+        head_len = length * self._AXIS_ARROW_HEAD_RATIO
+        font = self._axis_label_font()
+        index = 0
+        for (direction, _color, wing_axes), label_item in zip(self._AXIS_DIRECTIONS, label_items):
+            d = np.array(direction)
+            tip = d * length
+            axis_items[index].setData(pos=np.array([[0.0, 0.0, 0.0], tip]))
+            index += 1
+            for wing_axis in wing_axes:
+                w = np.array(wing_axis)
+                for sign in (1.0, -1.0):
+                    wing_dir = -d + sign * w
+                    norm = np.linalg.norm(wing_dir)
+                    if norm > 1e-9:
+                        wing_dir = wing_dir / norm
+                    axis_items[index].setData(pos=np.array([tip, tip + wing_dir * head_len]))
+                    index += 1
+            label_item.setData(pos=tip + d * (length * 0.06), font=font)
+            # 문자 아이템도 axis_items 안의 한 칸을 차지하므로(shaft + 4개
+            # 화살촉 + 문자 = 축 하나당 6개), 다음 축으로 넘어가기 전에
+            # 인덱스를 그만큼 건너뛰어야 한다.
+            index += 1
 
     def attach_tool_filter(self, list_widget):
         if self.tool_filter_list is not None:

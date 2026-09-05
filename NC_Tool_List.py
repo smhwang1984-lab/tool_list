@@ -26,9 +26,9 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
 
-APP_VERSION = '1.6.0'
+APP_VERSION = '1.6.1'
 APP_NAME = 'Sum Path'
-APP_BUILD_DATE = '2026-09-04'
+APP_BUILD_DATE = '2026-09-05'
 APP_CREATOR = 'Hwang.seonmun'
 APP_PURPOSE = 'NC 프로그램에서 공구 리스트를 산출하고 NC 경로를 Viewer로 확인하는 도구'
 OPEN_SOURCE_COMPONENTS = (
@@ -820,13 +820,13 @@ VIEWER_IMPORT_ERROR = None
 NCViewerWidget = None
 try:
     from PyQt5.QtCore import Qt, QSettings, QSize, QTimer, QSignalBlocker, pyqtSignal
-    from PyQt5.QtGui import QColor, QFont, QIcon, QTextCursor, QTextFormat
+    from PyQt5.QtGui import QColor, QFont, QIcon, QKeySequence, QTextCursor, QTextFormat
     from PyQt5.QtWidgets import (
         QApplication, QAbstractItemView, QCheckBox, QComboBox, QDialog,
         QDialogButtonBox, QFileDialog, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout,
         QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
-        QPlainTextEdit, QPushButton, QSplitter, QStackedWidget, QTableWidget, QTableWidgetItem,
-        QTextEdit, QVBoxLayout, QWidget,
+        QPlainTextEdit, QPushButton, QShortcut, QSplitter, QStackedWidget, QTableWidget,
+        QTableWidgetItem, QTextEdit, QVBoxLayout, QWidget,
     )
 except ImportError as error:
     QT_IMPORT_ERROR = error
@@ -1037,6 +1037,7 @@ else:
             self.resize(sum(MAIN_SPLITTER_INITIAL_SIZES), 760)
             self.set_window_icon()
             self._build_ui()
+            self._install_shortcuts()
             self.apply_theme(self.theme_name)
             if not self.restore_layout_settings():
                 QTimer.singleShot(0, self.showMaximized)
@@ -1246,6 +1247,12 @@ else:
             self.btn_about.setFont(top_bar_button_font)
             top_layout.addWidget(self.btn_about)
 
+            # v1.6.1: 단축키 및 유용한 기능을 설명하는 도움말 팝업.
+            self.btn_help = QPushButton('도움말')
+            self.btn_help.clicked.connect(self.show_help)
+            self.btn_help.setFont(top_bar_button_font)
+            top_layout.addWidget(self.btn_help)
+
             # 장비 패널의 ▶/▼ 접기 버튼과 시각적으로 구분되도록, 모드 전환
             # 버튼 2개를 About 버튼 끝에서 약 5cm 정도 띄워서 배치한다
             # (96DPI 가정, v1.6.0 요청).
@@ -1375,7 +1382,9 @@ else:
             self.reset_program_button = self._add_button(
                 filter_bar, 'Reset', lambda: self.jump_to_process_line(0), kfont
             )
-            self.reset_program_button.setToolTip('프로그램 커서를 맨 상단(첫 줄)으로 이동합니다.')
+            self.reset_program_button.setToolTip(
+                '프로그램 커서를 맨 상단(첫 줄)으로 이동합니다. (F5)'
+            )
             self.pg_match_check = QCheckBox('PG 매칭')
             self.pg_match_check.setFont(kfont)
             self.pg_match_check.setToolTip(
@@ -1436,6 +1445,92 @@ else:
             button.clicked.connect(slot)
             layout.addWidget(button)
             return button
+
+        def _install_shortcuts(self):
+            """v1.6.1: F5 리셋 / F6 이전 공구 / F7 재생·정지 / F8 다음 공구.
+            기본 컨텍스트(Qt.WindowShortcut)를 그대로 쓴다 — 뷰어의 돋보기
+            Escape처럼 ApplicationShortcut을 쓰면 모달(About/도움말) 창이
+            떠 있어도 발동해, 창 뒤에서 프로그램 커서가 움직이는 부작용이
+            생기기 때문이다. 어떤 위젯이 포커스를 갖고 있어도 발동한다."""
+            shortcut_reset = QShortcut(QKeySequence('F5'), self)
+            shortcut_reset.activated.connect(lambda: self.jump_to_process_line(0))
+            shortcut_prev_tool = QShortcut(QKeySequence('F6'), self)
+            shortcut_prev_tool.activated.connect(self.playback_prev_tool)
+            shortcut_toggle_play = QShortcut(QKeySequence('F7'), self)
+            shortcut_toggle_play.activated.connect(self.toggle_playback)
+            shortcut_next_tool = QShortcut(QKeySequence('F8'), self)
+            shortcut_next_tool.activated.connect(self.playback_next_tool)
+            self._shortcuts = (
+                shortcut_reset, shortcut_prev_tool, shortcut_toggle_play, shortcut_next_tool,
+            )
+
+        HELP_TEXT = (
+            '■ 단축키\n'
+            '  F5   프로그램 커서를 맨 위(첫 줄)로 이동 (Reset)\n'
+            '  F6   이전 공구(선택된 공정 중 앞쪽)로 이동\n'
+            '  F7   PG 매칭 자동 재생 시작/정지 토글\n'
+            '  F8   다음 공구(선택된 공정 중 뒤쪽)로 이동\n'
+            '  Esc  뷰어의 돋보기(우클릭으로 열림) 닫기\n'
+            '\n'
+            '■ 화면 모드\n'
+            '  상단의 "툴리스트 산출 모드" / "Viewer 모드" 버튼으로 전환합니다.\n'
+            '\n'
+            '■ 프로그램 입력\n'
+            '  파일 열기 / PG ADD(여러 파일을 이어붙여 추가) / 예제 / 지우기.\n'
+            '  프로그램 입력창에 NC 파일을 드래그&드롭해도 열리거나 추가됩니다.\n'
+            '  탐색기에서 연결된 확장자(.nc/.mpf/.tap) 파일을 더블클릭해도 바로 열립니다.\n'
+            '\n'
+            '■ 검색\n'
+            '  다음공구검색: M6T 공구 교체 지점을 순서대로 찾습니다.\n'
+            '  문자 검색: 입력한 문자열이 있는 다음 줄을 찾습니다(끝까지 가면 처음부터 재검색).\n'
+            '\n'
+            '■ 장비 타입 및 스펙 설정\n'
+            '  ▶/▼를 눌러 펼치거나 접을 수 있고, 프로그램 입력창을 클릭하면 자동으로 접힙니다.\n'
+            '\n'
+            '■ 공구 리스트\n'
+            '  행을 더블클릭하면 바로 수정할 수 있습니다.\n'
+            '  삭제 / 수정 / ＋ 행 추가 / 이름 경우의 수(이름→TYPE 변환표 편집) / 머리글 포함 /\n'
+            '  PDF 출력 / 표 복사(엑셀에 Ctrl+V로 붙여넣기).\n'
+            '\n'
+            '■ 3D 뷰어 조작\n'
+            '  좌클릭 드래그: 카메라 회전 / 휠: 확대·축소\n'
+            '  Ctrl+휠: 원근감(FOV) 조절 / Alt+휠: 감도 슬라이더 조절\n'
+            '  우클릭: 돋보기(3배 확대) 열기·닫기 — 돋보기가 열려 있을 때만 좌클릭으로\n'
+            '  가장 가까운 경로 라인의 프로그램 줄로 커서가 이동합니다.\n'
+            '  방향 큐브: 면을 클릭하면 해당 뷰(ISO/XY/XZ/YZ)로 즉시 전환되고,\n'
+            '  큐브를 감싼 고리를 드래그하면 스냅 없이 부드럽게 회전합니다.\n'
+            '  큐브 크기 슬라이더를 조절하면 원점 화살표 크기도 함께 바뀝니다.\n'
+            '\n'
+            '■ PG 매칭 자동 재생 (Viewer 모드에서 "PG 매칭" 체크 시)\n'
+            '  속도 슬라이더(1x~5000x)로 재생 속도를 조절합니다.\n'
+            '  텍스트 정지 / 정지(M00) / 옵션정지(M01) 체크박스로 자동 정지 조건을 고릅니다.\n'
+            '  재생바의 이전 툴 / 되감기 / 재생·정지 / 다음 툴 버튼으로도 조작할 수 있습니다.\n'
+            '\n'
+            '■ 공정별 경로 필터\n'
+            '  목록에서 여러 공정을 선택해 3D 화면에 표시할 경로를 고를 수 있습니다.\n'
+            '  항목을 클릭하면 해당 공정의 첫 줄로 프로그램 커서가 이동합니다.\n'
+            '  전체 / 해제 버튼으로 한 번에 모두 선택하거나 해제할 수 있습니다.\n'
+            '\n'
+            '■ About\n'
+            '  업데이트 경로 확인·설치, .nc/.mpf/.tap 기본 프로그램 등록/해제.\n'
+        )
+
+        def show_help(self):
+            dialog = QDialog(self)
+            dialog.setWindowTitle('도움말')
+            dialog.resize(560, 640)
+            layout = QVBoxLayout(dialog)
+            title = QLabel('단축키 및 사용법')
+            title.setFont(QFont('맑은 고딕', 12, QFont.Bold))
+            layout.addWidget(title)
+            viewer = QTextEdit()
+            viewer.setReadOnly(True)
+            viewer.setPlainText(self.HELP_TEXT)
+            layout.addWidget(viewer, 1)
+            buttons = QDialogButtonBox(QDialogButtonBox.Close)
+            buttons.rejected.connect(dialog.reject)
+            layout.addWidget(buttons)
+            dialog.exec_()
 
         def show_about(self):
             dialog = QDialog(self)
@@ -1978,6 +2073,14 @@ else:
             if bar is not None:
                 bar.set_playing(False)
 
+        def toggle_playback(self):
+            """F7 단축키 등에서 쓰는 재생/정지 토글. play_timer의 동작 여부가
+            재생 상태의 단일 진실 소스이므로 이를 그대로 확인한다."""
+            if self.play_timer.isActive():
+                self.pause_playback()
+            else:
+                self.start_playback()
+
         def _playback_tick(self):
             """50ms마다 호출된다. 배속에 맞는 줄 수만큼 커서를 전진시키고, 그 사이에
             체크된 정지 옵션(텍스트 정지/정지/옵션정지)이나 문서 끝을 만나면 그
@@ -2032,6 +2135,10 @@ else:
         def _jump_relative_tool(self, direction):
             """필터에서 선택된 공정들의 시작 줄 중, 현재 커서 기준 앞/뒤로 가장 가까운
             곳으로 점프한다. 재생 중이었으면 재생 상태를 유지한다."""
+            # v1.6.1: F6/F8 단축키가 뷰어/PG 매칭 모드 밖에서도 커서를
+            # 움직이지 않도록, start_playback()과 같은 조건으로 막는다.
+            if self.current_mode != 'viewer' or not getattr(self.viewer, 'pg_match_mode', False):
+                return
             first_line_map = getattr(self.viewer, 'process_first_line', None)
             selected = getattr(self.viewer, 'selected_tools', None)
             if not first_line_map or not callable(selected):
