@@ -34,16 +34,18 @@ Last updated: 2026-09-05 (v1.6.3)
 
 ## Version history
 
-### 2026-09-05 (latest, v1.6.4) — 사용자 승인 대기 중(설치본 미빌드)
+### 2026-09-05 (latest, v1.6.4)
 
 - Version: 1.6.4
-- Release/build date: 2026-09-05 (코드/버전만 반영, 설치본·포터블 패키지는 **승인 후** 생성)
-- Summary: 사용자 요청 2건.
+- Release/build date: 2026-09-05 (사용자 승인 후 설치본·포터블 패키지 생성 완료)
+- Summary: 사용자 요청 3건.
   1. **PDF 출력 방식 변경**: 툴 리스트 PDF를 낼 때 저장 위치를 묻지 않는다. 임시 폴더에 만들어
      곧바로 기본 PDF 프로그램으로 띄우고, 저장은 사용자가 그 뷰어에서 필요할 때만 하게 한다.
   2. **CNC 선반(Lathe) 모드 개념 도입 — 기본 모드까지**. 새 문서 `LATHE_MODE_GUIDELINES.md`에
      설계 지침을 먼저 못박았다. **최우선 규칙: 선반은 기존 밀링/MCT 장비 툴패스에 절대 영향을
      주지 않는다.**
+  3. **선반 공구 교체 기준 `Tnn00`** (사용자가 별도로 지시·승인). 선반은 M6가 없고 옵셋 00인
+     T 워드가 공구 교체 지점이다.
 - Creator displayed: Hwang.seonmun
 - Open source used: Python, PyQt5, pyqtgraph, NumPy, PyOpenGL, ReportLab, PyInstaller, Inno Setup
   (변경 없음 — 의존성 추가/제거 없음).
@@ -109,7 +111,17 @@ Last updated: 2026-09-05 (v1.6.3)
   선반 샘플(`G00 X100. Z5.` / `G01 X100. Z-20.` / `G02 X60. Z-40. R20.` / `G01 X20. Z-40.`)을 오프스크린으로
   돌려 X100 -> 월드 (5, 0, 50), 원호 12점이 중심 (-40, 50)에서 반지름 20.000000을 유지하고 각도가
   단조 감소(선반 뷰 기준 시계 방향)하는 것을 확인했다.
-- Installer/package: **미생성 — 사용자 승인 대기.** 승인 후 PyInstaller onedir + Inno Setup으로 빌드한다.
+- Installer/package: **생성 완료** (사용자 승인 후 빌드).
+  - `python -m PyInstaller --noconfirm --clean NC_Tool_List.spec` — onedir, UPX 비활성(보안 프로그램 오탐 회피),
+    `dist\NC_Tool_List` 145.0 MB, `_internal` 포함.
+  - `ISCC.exe NC_Tool_List.iss` (Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.6.4.exe` 45.2 MB,
+    설치 경로 `C:\NC_Tool_List`, `.nc`/`.mpf`/`.tap` 파일 연결 등록 포함.
+  - 포터블: `installer\NC_Tool_List_Portable_v1.6.4.zip` 62.4 MB (dist 내용물을 zip 루트에 담는 기존 구조,
+    311개 항목으로 v1.6.3과 동일).
+  - 빌드 검증: 프리즈된 `NC_Tool_List.exe`의 파일/제품 버전이 `1.6.4.0`으로 찍히고, 실제로 실행해
+    `startup.log`에 트레이스백 없이 `Starting Sum Path v1.6.4 frozen=True`가 남는 것을 확인한 뒤 종료했다.
+    설치 프로그램 자체의 VersionInfo도 1.6.4 / NC Tool List / S M.HWANG으로 확인했다.
+  - 산출물은 저장소의 `installer\` 폴더(gitignore 대상이라 커밋되지 않음)에 둔다.
 
 ### 2026-09-05 (v1.6.3)
 
