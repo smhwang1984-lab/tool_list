@@ -95,7 +95,19 @@ Last updated: 2026-09-06 (v1.6.8)
   동기화, 직전 MCT 기억, no-op 무변경). 기존 2개(`test_coord_overlay_is_transparent_
   with_white_axis_labels`, `test_lathe_mode_moves_coord_overlay_above_playback_bar`)는
   바뀐 배치 규약(밀링도 항상 하단)에 맞춰 갱신했다.
-- Installer/package status: **미생성 — 사용자 승인 후 빌드 예정.**
+- Installer/package status: **생성 완료** (사용자 승인 후 빌드).
+  - `python -m PyInstaller --noconfirm --clean NC_Tool_List.spec` — onedir, UPX 비활성,
+    `dist\NC_Tool_List` 151 MB, `_internal` 포함. `_internal\OpenGL` 폴더 부재로
+    freeglut/gle32/gle64 DLL 배제 확인(MSVCR90.dll 경고는 v1.6.3부터 동일하게 무해).
+  - `ISCC.exe NC_Tool_List.iss` (Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.6.8.exe`
+    46.4 MB, 설치 경로 `C:\NC_Tool_List`, `.nc`/`.mpf`/`.tap` 파일 연결 등록 포함.
+  - 포터블: `installer\NC_Tool_List_Portable_v1.6.8.zip` 64.0 MB, 315개 항목(v1.6.7과 동일 —
+    새 의존성이 없어 구성이 그대로다), `_internal` + `NC_Tool_List.exe`가 zip 루트.
+  - 빌드 검증: 프리즈된 `NC_Tool_List.exe`의 파일/제품 버전이 `1.6.8.0`으로 찍히고,
+    실행하면 `startup.log`에 트레이스백 없이 `Starting Sum Path v1.6.8 frozen=True`가
+    남는 것을 확인한 뒤 종료했다. 설치 프로그램 자체의 VersionInfo도
+    1.6.8 / NC Tool List / S M.HWANG으로 확인했다.
+  - 산출물은 저장소의 `installer\` 폴더(gitignore 대상이라 커밋되지 않음)에 둔다.
 
 ### 2026-09-05 (v1.6.7)
 
