@@ -1,6 +1,6 @@
 # About / Release Instructions
 
-Last updated: 2026-09-05 (v1.6.1)
+Last updated: 2026-09-05 (v1.6.2)
 
 ## About button requirements
 
@@ -34,7 +34,39 @@ Last updated: 2026-09-05 (v1.6.1)
 
 ## Version history
 
-### 2026-09-05 (latest, v1.6.1)
+### 2026-09-05 (latest, v1.6.2)
+
+- Version: 1.6.2
+- Release/build date: 2026-09-05
+- Summary: 1920x1080 실사용 피드백 8건:
+  1. **Bug fix**: 프로그램 입력 패널을 최소 폭까지 좁히면 '지우기'~'Tool List' 버튼 줄(합계 필요폭 506px)이 다 들어가지 못해 'Tool List' 버튼이 가려지던 문제 — `PROGRAM_PANE_MIN_WIDTH`를 430 -> 520px로 늘려 고쳤다.
+  2. 다크/라이트 모드 토글 버튼을 뷰어의 감도/큐브 바에서 앱 상단 바(모드 전환 버튼들 뒤, 창 오른쪽 끝에서 한 칸 띄운 위치)로 옮겼다. `NCViewerWidget.take_dark_mode_button()`으로 버튼을 재부모화하되 시그널 연결과 다크모드 상태는 그대로 유지한다.
+  3. 재생바(속도바/재생·되감기·이전툴·다음툴 버튼)와 감도 슬라이더/라벨, 다크모드 아이콘을 기존 대비 40% 축소(`CONTROL_SHRINK=0.6`) — 1920x1080 모니터에서 컨트롤이 지나치게 크다는 피드백 반영. **큐브 슬라이더/라벨과 3D 오리엔테이션 큐브 자체는 사용자가 명시적으로 손대지 말라고 요청해 그대로 두었다.**
+  4. 투영(ISO/XY/XZ/YZ) 표기부를 뷰어 상단의 별도 행에서 3D 화면 왼쪽 위의 반투명 오버레이(`ProjectionOverlayWidget`)로 옮겨, 그 자리에 있던 공구 경로가 버튼 사이로 비쳐 보이게 했다.
+  5. ISO 버튼을 클릭하면 카메라 방향뿐 아니라 카메라 중심(pos)도 원점으로 되돌려, 드래그로 치우쳐 있던 좌표가 화면 정중앙으로 다시 오게 했다(`set_camera_angles(recenter=True)`, ISO 클릭에만 적용).
+  6. "툴리스트 산출 모드"/"Viewer 모드" 버튼의 패딩을 "도움말"/"About" 버튼과 같은 4px 8px로 맞췄다(기존 7px 12px로 더 컸다).
+  7. "텍스트 정지"~"공정별 경로 필터 선택"~"PG 매칭/전체/해제" 구간의 레이아웃과 폰트를 15% 키웠다(`FILTER_SECTION_SCALE=1.15`).
+  8. 공구 리스트(복사용 표기) 표의 폰트 크기와 셀 폭을 15% 줄였다(`COPY_TABLE_SCALE=0.85`) — v1.5.9에서 1.6배로 키운 값 기준.
+- Creator displayed: Hwang.seonmun
+- Open source used: Python, PyQt5, pyqtgraph, NumPy, PyOpenGL, ReportLab, PyInstaller, Inno Setup (unchanged — no dependency added or removed).
+- Details:
+  - **최소 폭(`NC_Tool_List.py`):** `PROGRAM_PANE_MIN_WIDTH = 520`(계산 근거: 버튼 합 468px + 간격 24px + 좌우 여백 14px = 506px, 여기에 여유를 둠). `MAIN_SPLITTER_INITIAL_SIZES`가 이 상수를 그대로 참조하므로 초기 창 폭도 함께 90px 늘었다.
+  - **다크모드 버튼 이동(`nc_viewer_widget.py`, `NCViewerWidget`):** 새 `take_dark_mode_button(new_parent)`가 버튼을 `setParent()`로 옮기고 `show()`한다 — 뷰어 쪽 `view_bar` 레이아웃에는 더 이상 추가하지 않고 `hide()` 상태로만 만들어 둔다. (`NC_Tool_List.py`, `App._build_ui`): `self.viewer = self._create_viewer()` 직후 `hasattr(self.viewer, 'take_dark_mode_button')`를 확인해 상단 바 `top_layout`에 `addStretch()` 다음으로 추가하고, 새 상수 `TOP_BAR_EDGE_GAP_PX=8`만큼 오른쪽 가장자리에서 띄운다.
+  - **컨트롤 40% 축소(`nc_viewer_widget.py`):** 새 `CONTROL_SHRINK=0.6`과 헬퍼 `shrink(value)`. `PlaybackBarWidget`의 스타일시트(패딩/폰트/슬라이더 두께/버튼 아이콘)와 바 폭 비율(`_BOTTOM_BAR_WIDTH_RATIO`: 0.7 -> 0.42, 버튼이 가로로 늘어나는 위젯이라 폭도 같은 비율로 줄여야 실제 버튼 크기가 줄어든다), 감도 슬라이더/라벨 폭·폰트, `DARK_MODE_BUTTON_PX = round(52 * 0.6) = 31`에 모두 적용. "큐브" 라벨/슬라이더는 별도 `cube_font`/고정폭(135/57px, 14pt)으로 분리해 손대지 않았다.
+  - **투영 오버레이(`nc_viewer_widget.py`):** 새 `ProjectionOverlayWidget`(반투명 배경, 버튼만 옅은 배경) — `gl_view.top_left_widget`으로 등록하고 `_reposition_top_left()`가 화면 왼쪽 위 모서리(10px 여백)에 고정한다. `NCViewerWidget._build_projection_overlay()`가 실패해도 뷰어 전체를 잃지 않도록 try/except로 감쌌다(다른 오버레이들과 같은 패턴).
+  - **ISO 리센터(`nc_viewer_widget.py`):** `set_camera_angles(elevation, azimuth, distance=None, recenter=False)`에 `recenter=True`면 `pos=Vector(0,0,0)`을 `setCameraPosition()`에 함께 넘기는 분기 추가. `set_camera_projection()`이 `view_type == "ISO"`일 때만 `recenter=True`로 호출한다.
+  - **모드 버튼 패딩(`NC_Tool_List.py`, `App._style_mode_buttons`):** `padding: 7px 12px` -> `4px 8px`(전역 QPushButton 기본값과 동일, `_build_global_stylesheet` 참고).
+  - **필터 섹션 15% 확대(`NC_Tool_List.py`):** 새 상수 `FILTER_SECTION_SCALE=1.15`와 헬퍼 `scaled(value)`. `filter_layout`의 margin/spacing, `stop_bar`/`filter_bar`의 spacing, 새 `filter_kfont`(kfont 10pt * 1.15)를 텍스트 정지/정지/옵션정지/Reset/PG 매칭/전체/해제 체크박스·버튼에, `filter_label_font`(9pt * 1.15, Bold)를 "공정별 경로 필터 선택" 라벨에, `stop_text_input`의 고정폭(120 -> 138)에 적용했다. `tool_filter` 리스트 자체 폰트(10pt Bold)는 대상 범위 밖이라 그대로 뒀다.
+  - **공구 리스트 표 15% 축소(`NC_Tool_List.py`):** 새 상수 `COPY_TABLE_SCALE=0.85`, `TABLE_FONT_PT = 14 * 0.85`, `TABLE_CELL_PADDING_PX = round(8 * 0.85) = 7`(패딩도 같은 비율로 줄여 칸 폭이 정확히 15% 작아지게 함). `COL_WIDTH = {key: round(width * 0.85) + TABLE_CELL_PADDING_PX * 2 ...}`. `self.table`/헤더 폰트를 `setPointSizeF(TABLE_FONT_PT)`로 설정.
+- Verification: 91 unit tests passed (기존 90개 중 1개를 새 동작에 맞게 갱신 — `test_dark_mode_button_and_icon_enlarged`를 `test_dark_mode_button_size_matches_v162_shrink`/`test_dark_mode_button_moves_to_app_top_bar`로 분리, `test_tool_list_table_cells_and_font_scaled_1_6x`를 `..._then_shrunk_15pct`로 갱신; 신규 1개 순증). `pytest tests/test_nc_tool_list.py` 91/91 통과. 실제 창을 1920x1080으로 띄워 툴리스트 모드/뷰어 모드를 스크린샷으로 육안 확인했고, 카메라를 팬(pan)으로 원점에서 치우친 뒤 ISO 버튼을 눌러 `gl_view.opts['center']`가 `(400, 250, 0)` -> `(0, 0, 0)`으로 정확히 복귀하는 것을 스크립트로 검증했다. 프리즈된 exe(`dist/NC_Tool_List/NC_Tool_List.exe`)도 직접 실행해 `startup.log`에 트레이스백 없이 `Starting Sum Path v1.6.2 frozen=True`가 찍히는 것을 확인한 뒤 정상 종료(`taskkill`)시켰다.
+- Installer/package: Created `installer/NC_Tool_List_Setup_v1.6.2.exe` and `installer/NC_Tool_List_Portable_v1.6.2.zip` from a fresh PyInstaller onedir rebuild after deleting `build/` and `dist/` (`dist/NC_Tool_List/_internal/OpenGL` confirmed absent, no `freeglut`/`gle32`/`gle64` DLLs present, `upx=False` in the spec; `version_info.txt` and `NC_Tool_List.iss`'s `MyAppVersion` bumped to 1.6.2 so the built exe's version resource reads `1.6.2.0`/`S M.HWANG`). Portable ZIP matches the v1.5.0–v1.6.1 layout (`_internal` + `NC_Tool_List.exe` at the archive root, 311 entries).
+- Installer SHA-256: 2D26B37CF8C986AF1F70C63608E9983AA6C6BEE75BF7352BCFBACF7E12FDF601
+- Portable ZIP SHA-256: BF313368605B588E27560A08E38C3F268FB28FC1D3C5CE933C2454A71FB049E2
+- App SHA-256: 0BB515843414835272A901C0C0B31BF3308449C29FB865DEEA94773B6435BBFF
+- Signature status: still unsigned.
+- Out of scope (left untouched): actual code-signing; git commit/push for this release step itself (the UI-change commit from the prior turn was already pushed to `feat/pg-match-mode` at the user's request; this version-bump + installer commit follows the same branch); merging into `agent/drag-drop-installer`; the exe filename/install directory/Start-Menu display name/file-association ProgId (still "NC Tool List"/"NC_Tool_List"); lathe (2-axis) coordinate mapping; G90/G91 incremental-mode support; the `ViewerFallbackWidget` fallback screen; the magnifier lens (still fixed 220px/3x); the "큐브" orientation-cube slider/label and the 3D cube widget itself (explicitly excluded from the 40% shrink per user request). **v1.6.1's installer/ZIP should be treated as superseded and not distributed** — the 8 fixes above are not in it.
+
+### 2026-09-05 (v1.6.1)
 
 - Version: 1.6.1
 - Release/build date: 2026-09-05
