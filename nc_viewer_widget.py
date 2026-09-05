@@ -68,6 +68,13 @@ ARC_PLANE_AXES = {
     "G17": (0, 1, 2, "i", "j"),
     "G18": (2, 0, 1, "k", "i"),
     "G19": (1, 2, 0, "j", "k"),
+    # 선반 전용 평면(v1.6.4). 밀링의 G17/G18/G19 항목은 손대지 않고 새 키만
+    # 추가한다 — 선반 좌표는 월드 X = 기계 Z(수평), 월드 Z = 기계 X 반경(수직)로
+    # 스왑해서 올리므로, 원호 평면의 u축은 월드 X(중심 오프셋 K), v축은
+    # 월드 Z(중심 오프셋 I)가 되고 남는 월드 Y가 선형 보간 축이 된다.
+    # 이 (u=오른쪽, v=위) 배치에서 각도가 줄어드는 방향이 화면상 시계 방향이라
+    # 기존 보간 루틴의 G02 규약이 선반 뷰에서도 그대로 시계 방향이 된다.
+    "LATHE": (0, 2, 1, "k", "i"),
 }
 ARC_CHORD_TOLERANCE_MM = 0.05
 ARC_MIN_SEGMENTS = 6
@@ -89,6 +96,37 @@ DEFAULT_MACHINE_SPECS = {
         "B축 범위": "-110~+110", "C축 범위": "360",
     },
 }
+
+
+# --------------------------------------------------------------------------
+# 선반(Lathe) 전용 헬퍼 (v1.6.4) — LATHE_MODE_GUIDELINES.md 참고.
+# 선반은 밀링과 완전히 별개로 취급한다. 여기 있는 함수는 선반 분기에서만
+# 호출되며, 밀링 경로 계산에는 절대 끼어들지 않는다.
+# --------------------------------------------------------------------------
+
+LATHE_MACHINE_KEYWORD = "선반"
+
+
+def is_lathe_machine(machine_type):
+    """장비 이름으로 선반 여부를 판정한다(밀링 판정에는 쓰지 않는다)."""
+    return LATHE_MACHINE_KEYWORD in str(machine_type or "")
+
+
+def lathe_world_point(z_value, x_diameter, c_deg=0.0):
+    """선반 기계 좌표를 3D 월드 좌표로 바꾼다.
+
+    - 기계 Z(주축 방향)  -> 월드 X (화면 수평)
+    - 기계 X(지름 지령)  -> 월드 Z (화면 수직). **X는 지름이므로 반경 = X / 2.**
+    - 기계 C(주축 회전)  -> 반경을 주축(월드 X) 둘레로 돌린 성분.
+
+    C가 0이면 선반 평면(월드 XZ) 위에 그대로 놓인다.
+    """
+    radius = float(x_diameter) / 2.0
+    c_deg = float(c_deg or 0.0)
+    if c_deg:
+        rad = np.radians(c_deg)
+        return [float(z_value), radius * np.sin(rad), radius * np.cos(rad)]
+    return [float(z_value), 0.0, radius]
 
 
 def tool_color_for_index(index):
@@ -757,11 +795,33 @@ class ProjectionOverlayWidget(QWidget):
         label = QLabel("투영")
         row.addWidget(label)
         row.addSpacing(4)
-        for text, view_type in (
-            ("ISO", "ISO"), ("XY", "XY"), ("XZ", "XZ"), ("YZ", "YZ"),
-        ):
+        self._row = row
+        # 라벨 + 여백 2칸은 고정이고, 그 뒤 버튼만 모드에 따라 갈아 끼운다.
+        self._fixed_item_count = row.count()
+        self._lathe_mode = False
+        self._rebuild_buttons(self.MILL_BUTTONS)
+
+    # 밀링과 선반은 축 개념 자체가 달라 투영 버튼 구성을 다르게 쓴다(v1.6.4).
+    # 선반은 XY/XZ/YZ가 의미가 없으므로 ISO(축이 바뀐 상태)와 선반 평면 뷰만 둔다.
+    MILL_BUTTONS = (("ISO", "ISO"), ("XY", "XY"), ("XZ", "XZ"), ("YZ", "YZ"))
+    LATHE_BUTTONS = (("ISO", "ISO"), ("선반", "LATHE"))
+
+    def _rebuild_buttons(self, buttons):
+        row = self._row
+        while row.count() > self._fixed_item_count:
+            item = row.takeAt(self._fixed_item_count)
+            widget = item.widget() if item is not None else None
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+        for text, view_type in buttons:
             button = QPushButton(text)
-            button.setIcon(iso_icon("#e4e8f0") if view_type == "ISO" else plane_icon(view_type))
+            if view_type == "ISO":
+                button.setIcon(iso_icon("#e4e8f0"))
+            elif view_type == "LATHE":
+                button.setIcon(plane_icon("ZX"))
+            else:
+                button.setIcon(plane_icon(view_type))
             button.setIconSize(QSize(14, 14))
             # 방향키로 프로그램 커서를 옮기는 도중 이 버튼이 포커스를 가져가면
             # 다음 방향키가 커서 대신 버튼 포커스 이동에 쓰이므로 항상 막아둔다.
@@ -769,6 +829,22 @@ class ProjectionOverlayWidget(QWidget):
             button.clicked.connect(lambda _checked=False, value=view_type: self.projection_clicked.emit(value))
             row.addWidget(button)
         self.adjustSize()
+
+    def set_lathe_mode(self, enabled):
+        """선반 모드에서는 투영 버튼을 ISO/선반 2개로 바꾼다(v1.6.4)."""
+        enabled = bool(enabled)
+        if enabled == self._lathe_mode:
+            return
+        self._lathe_mode = enabled
+        self._rebuild_buttons(self.LATHE_BUTTONS if enabled else self.MILL_BUTTONS)
+
+    def button_labels(self):
+        """현재 노출 중인 투영 버튼 텍스트(테스트/디버그용)."""
+        return [
+            self._row.itemAt(index).widget().text()
+            for index in range(self._fixed_item_count, self._row.count())
+            if self._row.itemAt(index).widget() is not None
+        ]
 
 
 class CoordOverlayWidget(QWidget):
@@ -1240,6 +1316,12 @@ class NCViewerWidget(QWidget):
         except Exception:
             overlay = None
         self.projection_overlay = overlay
+        # 저장된 장비가 이미 선반이면 처음부터 선반용 버튼으로 띄운다(v1.6.4).
+        if overlay is not None:
+            try:
+                overlay.set_lathe_mode(self.is_lathe_mode())
+            except Exception:
+                pass
 
     def _build_playback_bar(self):
         """PG 매칭 자동 재생 컨트롤 바를 만든다. 실패해도 뷰어 전체를 잃지 않는다."""
@@ -1518,6 +1600,17 @@ class NCViewerWidget(QWidget):
     # 화살표가 항상 큐브와 같은 픽셀 크기로 보인다.
     _AXIS_ARROW_HEAD_RATIO = 0.12
     _AXIS_LABELS = ("X", "Y", "Z")
+    # 선반은 축을 스왑해서 그리므로(월드 X = 기계 Z, 월드 Z = 기계 X) 화살표
+    # 문자도 그에 맞춰 바꾼다. 남는 월드 Y는 주축 회전 C축이다(v1.6.4).
+    _LATHE_AXIS_LABELS = ("Z", "C", "X")
+    # 문자를 바꾸면 색도 같이 따라가야 한다 — 좌표 오버레이가 X를 빨강, Z를
+    # 파랑, C를 청록으로 쓰므로 화살표도 "글자에 맞는 색"이 되도록 맞춘다.
+    # (그러지 않으면 수평 화살표가 "Z"인데 빨강이라 밀링과 헷갈린다.)
+    _LATHE_AXIS_COLORS = (
+        (0.2, 0.2, 1.0, 0.9),    # 월드 X = 기계 Z -> 파랑
+        (0.13, 0.6, 0.6, 0.9),   # 월드 Y = 주축 회전 C -> 청록
+        (1.0, 0.2, 0.2, 0.9),    # 월드 Z = 기계 X(지름) -> 빨강
+    )
     _AXIS_DIRECTIONS = (
         ((1.0, 0.0, 0.0), (1.0, 0.2, 0.2, 0.9), ((0.0, 1.0, 0.0), (0.0, 0.0, 1.0))),
         ((0.0, 1.0, 0.0), (0.2, 1.0, 0.2, 0.9), ((1.0, 0.0, 0.0), (0.0, 0.0, 1.0))),
@@ -1560,12 +1653,26 @@ class NCViewerWidget(QWidget):
         self._axis_items = []
         self._axis_label_items = []
 
+    def is_lathe_mode(self):
+        """현재 선택된 장비가 선반인가(v1.6.4)."""
+        return is_lathe_machine(getattr(self, "current_machine_type", ""))
+
+    def current_axis_labels(self):
+        return self._LATHE_AXIS_LABELS if self.is_lathe_mode() else self._AXIS_LABELS
+
+    def current_axis_colors(self):
+        if self.is_lathe_mode():
+            return self._LATHE_AXIS_COLORS
+        return tuple(color for _direction, color, _wings in self._AXIS_DIRECTIONS)
+
     def _add_axis_lines(self):
         self._remove_axis_lines()
         length = self._axis_arrow_length()
         head_len = length * self._AXIS_ARROW_HEAD_RATIO
         font = self._axis_label_font()
-        for (direction, color, wing_axes), label in zip(self._AXIS_DIRECTIONS, self._AXIS_LABELS):
+        for (direction, _default_color, wing_axes), color, label in zip(
+            self._AXIS_DIRECTIONS, self.current_axis_colors(), self.current_axis_labels()
+        ):
             d = np.array(direction)
             tip = d * length
             # v1.6.1: 선 굵기를 기존의 2배로 키운다(2.0 -> 4.0).
@@ -1708,9 +1815,12 @@ class NCViewerWidget(QWidget):
         if machine_type not in self.machine_specs:
             return
         self.current_machine_type = machine_type
-        if "선반" in machine_type:
+        # v1.6.4: 선반은 축 배치가 달라 투영 버튼 구성과 축 화살표 문자를
+        # 함께 갈아 끼운다. 밀링으로 되돌아오면 원래대로 복구된다.
+        self._apply_lathe_mode_ui()
+        if is_lathe_machine(machine_type):
             if init_camera:
-                self.set_camera_projection("XZ")
+                self.set_camera_projection("LATHE")
                 init_camera = False
         if init_camera:
             self.set_camera_projection("XY")
@@ -1718,6 +1828,25 @@ class NCViewerWidget(QWidget):
         if self.last_source_text:
             self.last_render_signature = None
             self.set_source_text(self.last_source_text)
+
+    def _apply_lathe_mode_ui(self):
+        """선반/밀링 전환에 따라 투영 버튼과 축 화살표 문자를 갱신한다(v1.6.4).
+
+        오버레이가 만들어지지 않았거나(생성 실패) 축이 아직 없을 수도 있으므로
+        어느 쪽이 실패해도 뷰어 전체를 잃지 않게 감싼다."""
+        lathe = self.is_lathe_mode()
+        overlay = getattr(self, "projection_overlay", None)
+        if overlay is not None:
+            try:
+                overlay.set_lathe_mode(lathe)
+                self.gl_view._reposition_top_left()
+            except Exception:
+                pass
+        try:
+            if getattr(self, "_axis_items", None):
+                self._add_axis_lines()
+        except Exception:
+            pass
 
     def update_machine_spec(self, machine_type, specs):
         if machine_type not in self.machine_specs:
@@ -1734,6 +1863,9 @@ class NCViewerWidget(QWidget):
         "XY": (90, -90),
         "XZ": (0, -90),
         "YZ": (0, 0),
+        # 선반 평면 뷰(v1.6.4). 월드 XZ 평면을 정면에서 보므로 화면에서
+        # 기계 Z가 수평(오른쪽 +), 기계 X(지름)가 수직(위 +)으로 보인다.
+        "LATHE": (0, -90),
     }
 
     def set_camera_angles(self, elevation, azimuth, distance=None, recenter=False):
@@ -1884,7 +2016,7 @@ class NCViewerWidget(QWidget):
         self.modal_state_map.clear()
 
         machine_type = self.current_machine_type
-        is_lathe = "선반" in machine_type
+        is_lathe = is_lathe_machine(machine_type)
         is_4axis = "4축" in machine_type
         is_5axis_ac = "5축 밀링 (A to C)" in machine_type
         is_5axis_bc = "5축 밀링 (B to C)" in machine_type
@@ -2057,13 +2189,27 @@ class NCViewerWidget(QWidget):
                     ])
 
             if g28_pattern.search(line_upper) and g91_pattern.search(line_upper):
+                if is_lathe:
+                    # v1.6.4: 선반의 원점 복귀. cx는 지름 값을 들고 있으므로
+                    # 반쪽(m_x)이 아니라 X 행정 전체를 지름으로 넣어야 반경이
+                    # 행정의 절반이 된다.
+                    if re.search(r"X\s*0", line_upper):
+                        cx = m_x * 2.0
+                    if re.search(r"Z\s*0", line_upper):
+                        cz = m_z
+                    final_pt = lathe_world_point(cz, cx, cc_deg)
+                    self.tool_paths[current_tool].append({
+                        "pt": final_pt, "type": "G00", "valid": True, "src_line": idx,
+                    })
+                    self.line_to_coord_map[idx] = final_pt
+                    continue
                 if re.search(r"X\s*0", line_upper):
                     cx = m_x
                 if re.search(r"Y\s*0", line_upper):
                     cy = m_y
                 if re.search(r"Z\s*0", line_upper):
                     cz = m_z
-                if g43_active or is_lathe:
+                if g43_active:
                     final_pt = [cx, cy, cz]
                     self.tool_paths[current_tool].append({
                         "pt": final_pt, "type": "G00", "valid": True, "src_line": idx,
@@ -2092,26 +2238,20 @@ class NCViewerWidget(QWidget):
                 start_pt = [cx, cy, cz]
 
                 if is_lathe:
+                    # v1.6.4 선반 모드: cx는 프로그램에 적힌 **지름** 값을 그대로
+                    # 들고 있고, 월드 좌표로 내릴 때만 반경(X/2)으로 환산한다
+                    # (lathe_world_point). 축도 여기서 스왑된다 — 기계 Z가 월드
+                    # X(수평), 기계 X 반경이 월드 Z(수직).
+                    start_pt = lathe_world_point(cz, cx, cc_deg)
                     if x_match:
-                        cx = float(x_match.group(1)) * 0.5
-                    if y_match:
-                        cy = float(y_match.group(1))
+                        cx = float(x_match.group(1))
                     if z_match:
                         cz = float(z_match.group(1))
                     if c_match:
                         cc_deg = float(c_match.group(1))
-
-                    if polar_interpolation:
-                        target_pt = [cx, cc_deg, cz]
-                    elif cc_deg != 0.0:
-                        rad_c = np.radians(cc_deg)
-                        target_pt = [
-                            cx * np.cos(rad_c) - cy * np.sin(rad_c),
-                            cx * np.sin(rad_c) + cy * np.cos(rad_c),
-                            cz,
-                        ]
-                    else:
-                        target_pt = [cy, cx, cz]
+                    # G12.1 극좌표 보간에서도 X는 지름, C는 각도라 같은 변환을
+                    # 쓴다(반경을 주축 둘레로 회전시킨 위치).
+                    target_pt = lathe_world_point(cz, cx, cc_deg)
                     local_target_pt = target_pt
                 else:
                     if x_match:
@@ -2130,7 +2270,25 @@ class NCViewerWidget(QWidget):
                         active_matrix @ coord_vec
                     ).tolist() if (is_5axis_ac or is_5axis_bc or is_4axis) else list(local_target_pt)
 
-                if cycle_active and (g43_active or is_lathe):
+                if cycle_active and is_lathe:
+                    # v1.6.4: 선반 고정 사이클은 주축 방향(기계 Z)으로 뚫는다.
+                    # 밀링처럼 Z(수직)로 내려가는 게 아니라, X(지름)를 유지한 채
+                    # Z만 R점 -> 최종 깊이로 움직인다. 밀링 블록과 완전히 분리.
+                    start_z = start_pt[0]
+                    target_z = cz
+                    r_val = float(r_cycle_match.group(1)) if r_cycle_match else start_z
+                    approach_pt = lathe_world_point(start_z, cx, cc_deg)
+                    r_point_pt = lathe_world_point(r_val, cx, cc_deg)
+                    final_z_pt = lathe_world_point(target_z, cx, cc_deg)
+                    self.tool_paths[current_tool].append({"pt": approach_pt, "type": "G00", "valid": True, "src_line": idx})
+                    self.tool_paths[current_tool].append({"pt": r_point_pt, "type": "G00", "valid": True, "src_line": idx})
+                    self.tool_paths[current_tool].append({"pt": final_z_pt, "type": "G01", "valid": True, "src_line": idx})
+                    if g98_active:
+                        self.tool_paths[current_tool].append({"pt": approach_pt, "type": "G00", "valid": True, "src_line": idx})
+                    self.line_to_coord_map[idx] = final_z_pt
+                    continue
+
+                if cycle_active and g43_active:
                     target_x = cx
                     target_y = cy
                     target_z = float(z_match.group(1)) if z_match else cz
@@ -2159,11 +2317,13 @@ class NCViewerWidget(QWidget):
                     continue
 
                 if is_arc_motion and is_lathe:
-                    # Lathe target_pt is already in the lathe's own (cylindrical/XY-style)
-                    # space with no rotation matrix involved, so the original single-space
-                    # arc computation is still correct here — left untouched.
+                    # v1.6.4: 선반 원호는 전용 "LATHE" 평면으로 보간한다.
+                    # start_pt/target_pt가 이미 반경 공간(월드 Z = X/2)이라
+                    # 지름 개념이 원호에도 그대로 반영되고, 중심 오프셋 I(X방향)와
+                    # R은 선반 관례대로 반경 값이므로 다시 나누지 않는다.
+                    # 회전행렬이 개입하지 않으므로 밀링 경로와는 무관하다.
                     arc_pts = self._arc_points(
-                        line_upper, start_pt, target_pt, current_motion, "G17",
+                        line_upper, start_pt, target_pt, current_motion, "LATHE",
                         i_pattern, j_pattern, k_pattern, r_pattern,
                     )
                     for pt in arc_pts:

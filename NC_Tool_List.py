@@ -26,7 +26,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
 
-APP_VERSION = '1.6.3'
+APP_VERSION = '1.6.4'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-09-05'
 APP_CREATOR = 'Hwang.seonmun'
@@ -362,6 +362,36 @@ def default_pdf_filename(metadata):
     stem = '_'.join(str(value).strip() for value in parts if value)
     stem = re.sub(r'[^\w.-]+', '_', stem).strip('_.')
     return (stem or 'NC') + '_TOOL_LIST.pdf'
+
+
+PDF_TEMP_DIR_NAME = 'NC_Tool_List_PDF'
+PDF_TEMP_MAX_ATTEMPTS = 50
+
+
+def pdf_preview_dir():
+    """v1.6.4: 바로 보기용 PDF를 모아 두는 임시 폴더."""
+    return Path(tempfile.gettempdir()) / PDF_TEMP_DIR_NAME
+
+
+def pdf_preview_path(metadata, directory=None):
+    """v1.6.4: 저장 위치를 묻지 않고 바로 기본 PDF 프로그램으로 띄우기 위한
+    임시 파일 경로를 만든다.
+
+    같은 이름의 PDF가 이미 뷰어에 열려 있으면 덮어쓸 수 없으므로(Windows에서
+    잠김), 지울 수 없는 파일이면 뒤에 (1), (2)... 를 붙여 새 이름을 찾는다."""
+    directory = Path(directory) if directory is not None else pdf_preview_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    base = Path(default_pdf_filename(metadata))
+    candidate = directory / base.name
+    for index in range(1, PDF_TEMP_MAX_ATTEMPTS + 1):
+        if not candidate.exists():
+            return candidate
+        try:
+            candidate.unlink()
+            return candidate
+        except OSError:
+            candidate = directory / ('%s(%d)%s' % (base.stem, index, base.suffix))
+    return candidate
 
 
 def find_next_regex_span(text, pattern, start=0):
@@ -1569,7 +1599,7 @@ else:
             '■ 공구 리스트\n'
             '  행을 더블클릭하면 바로 수정할 수 있습니다.\n'
             '  삭제 / 수정 / ＋ 행 추가 / 이름 경우의 수(이름→TYPE 변환표 편집) / 머리글 포함 /\n'
-            '  PDF 출력 / 표 복사(엑셀에 Ctrl+V로 붙여넣기).\n'
+            '  PDF 출력(기본 PDF 프로그램으로 바로 열림) / 표 복사(엑셀에 Ctrl+V로 붙여넣기).\n'
             '\n'
             '■ 3D 뷰어 조작\n'
             '  좌클릭 드래그: 카메라 회전 / 휠: 확대·축소\n'
@@ -2675,14 +2705,10 @@ else:
             if not rows:
                 QMessageBox.information(self, '알림', '먼저 공구 리스트를 생성하세요.')
                 return
-            path, _filter = QFileDialog.getSaveFileName(
-                self,
-                '공구 리스트 PDF 저장',
-                default_pdf_filename(self.metadata),
-                'PDF 파일 (*.pdf)',
-            )
-            if path:
-                self.save_pdf(path, rows)
+            # v1.6.4: 저장 위치를 묻지 않는다. 임시 폴더에 만든 뒤 곧바로
+            # 기본 PDF 프로그램으로 띄우고, 저장은 사용자가 그 프로그램에서
+            # 필요할 때만 하도록 한다.
+            self.save_pdf(pdf_preview_path(self.metadata), rows)
 
         def save_pdf(self, path, rows):
             try:
@@ -2694,10 +2720,9 @@ else:
             if open_error:
                 QMessageBox.warning(
                     self, 'PDF 열기 실패',
-                    'PDF 파일은 저장했지만 자동으로 열지 못했습니다.\n%s\n%s' % (path, open_error),
+                    'PDF를 만들었지만 기본 프로그램으로 열지 못했습니다.\n%s\n%s'
+                    % (path, open_error),
                 )
-                return
-            QMessageBox.information(self, 'PDF 출력 완료', 'PDF 파일을 저장하고 열었습니다.\n' + path)
 
         def current_rows(self):
             rows = []
