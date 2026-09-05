@@ -103,8 +103,24 @@ Last updated: 2026-09-05 (v1.6.7)
   (보정량/부호, 중앙에서는 무보정), `LatheModeTests` 추가분(옵셋 취소 중복 제거, M01 뒤 재분리,
   G99/G98/G96+G50 시간). 기존 테스트가 옛 장비 이름으로 `set_machine_type()`을 부르던 3곳은 새
   이름으로 갱신했다(QSettings에 장비 선택이 저장되어 다른 테스트로 모드가 새는 것을 막기 위함).
-- Installer/package status: **미생성** — 사용자 승인 후 기존 절차(PyInstaller onedir, UPX 비활성,
-  `dist/NC_Tool_List` 전체 설치, Inno Setup)대로 만든다.
+- Installer/package status: **생성 완료** (사용자 승인 후 빌드).
+  - `python -m PyInstaller --noconfirm --clean NC_Tool_List.spec` — onedir, UPX 비활성,
+    `dist\NC_Tool_List` 151 MB, `_internal` 포함. `_internal\OpenGL` 폴더 자체가 없어
+    freeglut/gle32/gle64 DLL이 배제됐음을 확인(경고 로그의 "Library not found: MSVCR90.dll"은
+    이 DLL들이 애초에 안 쓰여 링크 대상만 못 찾는 것 — 이전 버전들과 동일). `PyQt5\QtNetwork.pyd`와
+    `Qt5Network.dll`이 새로 포함됨(v1.6.7 단일 실행용).
+  - `ISCC.exe NC_Tool_List.iss` (Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.6.7.exe` 46.4 MB,
+    설치 경로 `C:\NC_Tool_List`, `.nc`/`.mpf`/`.tap` 파일 연결 등록 포함.
+  - 포터블: `installer\NC_Tool_List_Portable_v1.6.7.zip` 64.0 MB, 315개 항목(v1.6.3~v1.6.6은 311개 —
+    이번에 늘어난 4개는 QtNetwork 추가분(`Qt5Network.dll`/`QtNetwork.pyd` 및 부속 항목)이고, 그 외
+    레이아웃은 동일(`_internal` + `NC_Tool_List.exe`가 zip 루트)).
+  - 빌드 검증: 프리즈된 `NC_Tool_List.exe`의 파일/제품 버전이 `1.6.7.0`으로 찍히고, 실행하면
+    `startup.log`에 트레이스백 없이 `Starting Sum Path v1.6.7 frozen=True`가 남는 것을 확인한 뒤
+    종료했다. 설치 프로그램 자체의 VersionInfo도 1.6.7 / NC Tool List / S M.HWANG으로 확인했다.
+    **단일 실행도 프리즈된 exe로 실제 검증**: 첫 실행은 창이 뜨고(`MainWindowTitle` = "Sum Path
+    v1.6.7"), 그 상태에서 두 번째로 실행한 프로세스는 창을 만들지 않고 `startup.log`에
+    "Handed off to running instance" 를 남긴 뒤 곧바로 종료해 프로세스가 하나만 남는 것을 확인했다.
+  - 산출물은 저장소의 `installer\` 폴더(gitignore 대상이라 커밋되지 않음)에 둔다.
 
 ### 2026-09-05 (v1.6.6)
 
