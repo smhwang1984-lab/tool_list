@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-09-06 (v1.6.8)
+Last updated: 2026-09-06 (v1.6.9)
 
 ## About button requirements
 
@@ -34,7 +34,71 @@ Last updated: 2026-09-06 (v1.6.8)
 
 ## Version history
 
-### 2026-09-06 (latest, v1.6.8)
+### 2026-09-06 (latest, v1.6.9)
+
+- Version: 1.6.9
+- Release/build date: 2026-09-06 (코드/테스트 완료 — 설치본·포터블 패키지는 사용자 승인 후 생성)
+- Summary: 사용자 요청 3건(2026-09-06). 선반 3D 공정 경계를 N번호 기준으로 바로잡은 것과
+  G12.1 극좌표 보간의 M35/평면 의존성 제거가 핵심이고, 나머지는 산출 모드 콤보 표기다.
+  1. **선반 3D 공정 경계 — `N번호 ~ M0/M1/M30`** — 복귀+다음공구 예약이 한 줄에 있는
+     프로그램(`G00 X200. Z200. T0300`)에서 그 T워드가 새 공정을 열어버려, 복귀 이동이
+     이전 위치가 아니라 새 공정 쪽에 그려지던 버그를 고쳤다. N 라인이 없는 프로그램은
+     기존 `Tnn00` 기준으로 자동 폴백한다. '다음공구검색'은 여전히 `Tnn00` 기준이다.
+  2. **G12.1/G13.1 극좌표 보간 수정** — G12.1을 M35(구동공구 ON)와 무관하게 인식하고,
+     극좌표 원호는 G17/G18/G19 평면 지령과 무관하게 X(반경)-C(Y) 평면으로 강제
+     보간한다("G17 평면 설정이 없어도 가공 가능"이라는 요구). G13.1로 극좌표를 빠져나오면
+     로컬 Y를 리셋하고, `G28 H0.`(C축 원점 복귀)도 새로 인식한다.
+  3. **툴리스트 산출 모드 콤보에서 "MCT" 문구 제거** — `['MCT (밀링)', '선반']`이
+     `['밀링', '선반']`이 됐다.
+- Creator displayed: Hwang.seonmun
+- Open source used: Python, PyQt5, pyqtgraph, NumPy, PyOpenGL, ReportLab, PyInstaller,
+  Inno Setup (새 의존성 없음).
+- Details:
+  - **공정 경계(`nc_viewer_widget.py`):** `process_nc_lines()`에 N 블록 사전 스캔
+    (`_lathe_n_blocks`)을 추가했다 — `_expand_lathe_subprograms` 결과(서브프로그램 반복
+    포함)와 같은 시퀀스를 시퀀스 내 위치 기준으로 훑어, `LATHE_N_LINE_RE`(단독 `N<번호>`
+    라인)로 블록 경계를 찾고 블록별 대표 공구번호를 `parse_lathe_program`과 같은
+    우선순위(옵셋 살아있는 T 우선)로 고른다. N 라인이 있으면 이 기준으로, 없으면
+    기존 `Tnn00`+`active_lathe_tool` 로직(v1.6.7)으로 폴백한다. 공정이 닫힌 구간
+    (M0/M1/M30 ~ 다음 N)에서는 `current_tool`을 더미 버킷(`_LATHE_CLOSED_PROCESS_KEY`)
+    으로 돌려 그 구간의 경로 노드가 어느 공정에도 붙지 않게 하고, 파싱 끝에서 그 버킷을
+    통째로 버린다 — 모달 위치(`cx`/`cz`/`cc_deg`)는 그 구간에도 계속 갱신되므로 다음
+    공정은 정확히 그 실제 위치에서 시작한다. 밀링 경로(`M6 Tnn` 판정)는 손대지 않았다.
+  - **G12.1 극좌표(`nc_viewer_widget.py`):** `g12_1_pattern`/`g13_1_pattern`/`g28_pattern`에
+    `(?!\d)` 가드를 추가했다. G12.1/G13.1 처리에서 `lathe_milling_active` 게이팅을 뺐다
+    (`is_lathe`만 확인) — M35 밖에서도 C가 Y(mm)로 해석되고, 같은 줄에 모션 워드가
+    붙어도 버려지지 않는다. 극좌표 원호는 평면 분기(`current_plane in ("G17","G19")`)보다
+    먼저 `polar_interpolation` 분기를 둬 항상 `"LATHE_G17"`(반경-Y 평면)으로 보간한다.
+    `G13.1`에서 `cy_lathe = 0.0`을 추가했고, `G28`+`G91`+`H` 워드 조합에서 `cc_deg`를
+    0으로 리셋하는 분기를 추가했다(음수 X는 여전히 `abs()` 없이 그대로 둔다).
+  - **산출 모드 콤보(`NC_Tool_List.py`):** `addItems`/`setCurrentText` 3곳의
+    `'MCT (밀링)'`을 `'밀링'`으로 바꿨다. 판정 로직(`_tool_mode_combo_changed`)은
+    `'선반'` 문자열만 비교하므로 영향 없다.
+- Tests: `tests/test_nc_tool_list.py` 170개 통과(기존 159 + 신규 11, 무관한
+  `SingleInstanceTests` 1건은 이 PC에 실제로 실행 중인 `NC_Tool_List.exe`
+  인스턴스 때문에 환경 요인으로 실패 — v1.6.9 변경과 무관). 신규는 `LatheModeTests`에
+  추가: N 블록 패턴 일치, 공정 경계 버그 재현 케이스, 실제 프로그램 양식(N1~N4) 기준
+  공구 우선순위·시작점, 닫힌 구간 비귀속, N 없는 프로그램 폴백, G12.1 M35 비의존 +
+  같은 줄 모션 보존, G18에서도 극좌표 평면 강제, G13.1 리셋, 음수 X, G28 H0 리셋;
+  `ToolListModeComboTests`에 콤보 항목 문구 확인 1건 추가.
+- Installer/package status: **생성 완료** (사용자 승인 후 빌드).
+  - `python -m PyInstaller --noconfirm --clean NC_Tool_List.spec` — onedir, UPX 비활성,
+    `dist\NC_Tool_List` 151 MB, `_internal` 포함. `_internal\OpenGL` 폴더 부재로
+    freeglut/gle32/gle64 DLL 배제 유지 확인.
+  - `ISCC.exe NC_Tool_List.iss` (Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.6.9.exe`
+    46.4 MB, 설치 경로 `C:\NC_Tool_List`, `.nc`/`.mpf`/`.tap` 파일 연결 등록 포함.
+  - 포터블: `installer\NC_Tool_List_Portable_v1.6.9.zip` 64.0 MB, 315개 항목(v1.6.8과 동일 —
+    새 의존성이 없어 구성이 그대로다), `_internal` + `NC_Tool_List.exe`가 zip 루트.
+  - 빌드 검증: 프리즈된 `NC_Tool_List.exe`의 파일/제품 버전이 `1.6.9.0`으로 찍히고,
+    실행하면 `startup.log`에 트레이스백 없이 `Starting Sum Path v1.6.9 frozen=True`가
+    남는 것(이 PC에 이미 떠 있던 인스턴스로 정상 핸드오프 후 종료)을 확인했다.
+  - Installer SHA-256: 4D61A913317FB97A32A144F4B101C22DE33315B1D6ABF199DC9758D6CD48D102
+  - Portable ZIP SHA-256: 90455B529F34B882C281B290C157413C6CEE6400DD6CD051F067DA197106B12F
+  - App SHA-256: BDE1ADBCF07835CCFCAFD94EF5FB6143508BC45A9943D3C5C266C909D68A2D3E
+  - Signature status: still unsigned.
+  - 산출물은 저장소의 `installer\` 폴더(gitignore 대상이라 커밋되지 않음)에 둔다.
+
+### 2026-09-06 (v1.6.8)
 
 - Version: 1.6.8
 - Release/build date: 2026-09-06 (코드/테스트 완료 — 설치본·포터블 패키지는 사용자 승인 후 생성)

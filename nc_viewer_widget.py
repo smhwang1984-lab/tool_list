@@ -2437,6 +2437,69 @@ class NCViewerWidget(QWidget):
     _SUBPROGRAM_HEADER_RE = re.compile(r"^\s*O0*(\d+)\b")
     _LATHE_SUBPROGRAM_MAX_DEPTH = 10
 
+    # v1.6.9: 선반 공정 경계를 Tnn00에서 "N번호 ~ M0/M1/M30"으로 옮긴다
+    # (사용자 확정, 2026-09-06) — 복귀+다음공구 예약을 한 줄에 쓰는
+    # 프로그램(예: "G00 X200. Z200. T0300")에서 그 T워드가 새 공정을
+    # 열어버려, 복귀 이동이 이전 위치가 아니라 새 공정 쪽에 붙어 그려지던
+    # 버그를 고친다. LATHE_N_LINE_RE/LATHE_ANY_T_LINE_RE는
+    # NC_Tool_List.LATHE_N_RE/LATHE_ANY_T_RE(공구리스트 파서)와 반드시
+    # 같은 패턴이어야 한다 — 두 모듈은 순환 임포트를 피하려 상수를
+    # 공유하지 않고 복제해 두며, 드리프트는
+    # test_lathe_n_line_pattern_matches_tool_list_parser로 막는다.
+    LATHE_N_LINE_RE = re.compile(r"^\s*N(\d+)\s*$")
+    LATHE_ANY_T_LINE_RE = re.compile(r"T(\d{4})(?!\d)", re.I)
+    # N 라인이 하나도 없어 Tnn00 기준으로 폴백할 때가 아니면, 공정이 닫혀
+    # 있는 동안(M0/M1/M30 ~ 다음 N) 생기는 경로 노드는 전부 이 더미
+    # 버킷으로 흘려보낸 뒤 파싱 끝에서 통째로 버린다 — "공정 = 수행하는
+    # 부분"이라는 정의대로, 그 구간의 잔여 이동이 어느 공정에도 딸려
+    # 붙지 않게 하기 위해서다(process_nc_lines의 tool_paths[current_tool]
+    # .append 호출 지점을 전부 건드리지 않고, current_tool 자체를 이
+    # 버킷으로 잠깐 돌려놓는 방식).
+    _LATHE_CLOSED_PROCESS_KEY = "__lathe_closed_gap__"
+
+    def _lathe_n_blocks(self, sequence):
+        """v1.6.9: `sequence`(process_nc_lines가 실제로 순회할, 원본 줄번호
+        보존된 (idx, line) 목록 — _expand_lathe_subprograms 결과와 완전히
+        같은 것이어야 한다)를 훑어 N 블록 경계와 블록별 대표 공구번호를
+        구한다. 서브프로그램 반복 호출로 같은 원본 줄번호가 여러 번 나올
+        수 있어 원본 줄번호가 아니라 **시퀀스 안에서의 위치**로 블록을
+        나눈다 — 그래야 반복된 두 번째 실행도 별도 공정으로 잡힌다.
+
+        블록 안 공구번호 선택 우선순위는 NC_Tool_List.parse_lathe_program()
+        과 동일하다: ① 옵셋이 살아있는 Tnnnn(뒤 두 자리 != '00', T0000
+        제외) 중 첫 번째, ② 없으면 Tnn00(T0000 제외) 중 첫 번째.
+
+        반환값 (block_start_positions: set[int], block_tool_at_position:
+        dict[int, str]) — N 라인이 하나도 없으면 둘 다 빈 채로 반환되고,
+        호출부는 기존 Tnn00 기준으로 자동 폴백한다(2026-09-06 확정)."""
+        n_positions = [
+            pos for pos, (_, raw) in enumerate(sequence)
+            if self.LATHE_N_LINE_RE.match(raw)
+        ]
+        block_tool_at_position = {}
+        for order, start in enumerate(n_positions):
+            end = n_positions[order + 1] if order + 1 < len(n_positions) else len(sequence)
+            tool_digits = ""
+            fallback_digits = ""
+            for pos in range(start + 1, end):
+                code = self._code_without_comments(sequence[pos][1]).upper()
+                found = False
+                for match in self.LATHE_ANY_T_LINE_RE.finditer(code):
+                    digits = match.group(1)
+                    if digits == "0000":
+                        continue
+                    if digits[2:] != "00":
+                        tool_digits = digits
+                        found = True
+                        break
+                    if not fallback_digits:
+                        fallback_digits = digits
+                if found:
+                    break
+            digits = tool_digits or fallback_digits
+            block_tool_at_position[start] = self._normalize_tool_no(digits[:2]) if digits else ""
+        return set(n_positions), block_tool_at_position
+
     def _expand_lathe_subprograms(self, lines):
         """v1.6.6: 선반 M98 P<번호> [L<반복>] 서브프로그램 호출을 그 자리에
         펼친다. Fanuc 표준(사용자 확인): M30 뒤에 O<번호> 헤더로 시작하는
@@ -2652,8 +2715,13 @@ class NCViewerWidget(QWidget):
         current_feed = 0.0
         lathe_feed_per_rev = True   # 선반 기본은 G99(mm/rev).
         # v1.6.7: 지금 진행 중인 선반 공정의 공구 번호(옵셋 취소용 Tnn00을
-        # 새 공정으로 오인하지 않기 위한 기억). 밀링에서는 쓰이지 않는다.
+        # 새 공정으로 오인하지 않기 위한 기억). N 라인이 없어 Tnn00
+        # 폴백으로 갈 때만 쓰인다. 밀링에서는 쓰이지 않는다.
         active_lathe_tool = None
+        # v1.6.9: N번호 기준 공정이 지금 열려 있는가(M0/M1/M30 ~ 다음 N
+        # 사이는 닫힘). N 라인이 없는 폴백 모드에서는 항상 True로 둬
+        # v1.6.7 동작(Tnn00 기준, 닫힘 구간 없음)을 그대로 유지한다.
+        lathe_process_open = True
         spindle_mode = "G97"
         spindle_value = 0.0
         max_rpm = spec_max_rpm
@@ -2678,13 +2746,19 @@ class NCViewerWidget(QWidget):
         a_pattern = re.compile(r"A\s*([+-]?\d*\.?\d+)")
         b_pattern = re.compile(r"B\s*([+-]?\d*\.?\d+)")
         c_pattern = re.compile(r"C\s*([+-]?\d*\.?\d+)")
-        g28_pattern = re.compile(r"G28")
+        # v1.6.9: (?!\d) 가드 추가 — 기존 "G28"은 G28.1(원점복귀 세팅) 같은
+        # 다른 코드에도 우연히 매칭됐다.
+        g28_pattern = re.compile(r"G28(?!\d)")
         g91_pattern = re.compile(r"G91")
         g68_pattern = re.compile(r"G68\.2")
         g69_pattern = re.compile(r"G69")
         g53_1_pattern = re.compile(r"G53\.1")
-        g12_1_pattern = re.compile(r"G12\.1|G112")
-        g13_1_pattern = re.compile(r"G13\.1|G113")
+        # v1.6.9: (?!\d) 가드 추가 — 기존 정규식은 "G1123" 같은 값에도
+        # 우연히 매칭될 수 있었다.
+        g12_1_pattern = re.compile(r"G12\.1(?!\d)|G112(?!\d)")
+        g13_1_pattern = re.compile(r"G13\.1(?!\d)|G113(?!\d)")
+        # v1.6.9: G28 H0(C축 원점 복귀, H=C의 증분값)에서 H 워드를 읽는다.
+        h_pattern = re.compile(r"H\s*([+-]?\d*\.?\d+)")
         motion_pattern = re.compile(r"(G0[0-3]|G[0-3])(?![\.\d])")
         g17_pattern = re.compile(r"G17(?!\d)")
         g18_pattern = re.compile(r"G18(?!\d)")
@@ -2718,8 +2792,13 @@ class NCViewerWidget(QWidget):
         # v1.6.6: 선반만 M98 서브프로그램 호출을 그 자리에 펼친 시퀀스를
         # 돈다 — 밀링은 항상 원래 enumerate(lines) 그대로라 동작이
         # 전혀 바뀌지 않는다(가이드라인 0항).
-        line_sequence = self._expand_lathe_subprograms(lines) if is_lathe else enumerate(lines)
-        for idx, line in line_sequence:
+        lathe_sequence = self._expand_lathe_subprograms(lines) if is_lathe else list(enumerate(lines))
+        # v1.6.9: N 블록 사전 스캔(선반만). N 라인이 하나도 없으면 둘 다
+        # 비어 있고, 아래 루프는 기존 Tnn00 기준으로 자동 폴백한다.
+        n_block_starts, n_block_tool_at_position = (
+            self._lathe_n_blocks(lathe_sequence) if is_lathe else (set(), {})
+        )
+        for seq_pos, (idx, line) in enumerate(lathe_sequence):
             line_upper_with_comments = line.upper().replace(" ", "")
             line_upper = self._code_without_comments(line).upper().replace(" ", "")
 
@@ -2813,14 +2892,20 @@ class NCViewerWidget(QWidget):
 
             if g12_1_pattern.search(line_upper):
                 polar_interpolation = True
-                # v1.6.6: 선반 M35 구간의 G12.1은 같은 블록에 모션 워드가
-                # 붙을 수 있어(예: "G1X0.C0.F5000.") 그냥 넘기면 안 된다.
-                # 그 외(밀링, 선반이라도 구동공구 밀링 밖)는 기존처럼 스킵.
-                if not (is_lathe and lathe_milling_active):
+                # v1.6.9: G12.1은 M35(구동공구 ON)와 무관하게 인식한다
+                # (사용자 확정, 2026-09-06) — G17 평면 지령이 없어도 극좌표
+                # 가공은 성립한다. 같은 블록에 모션 워드가 붙을 수 있어
+                # (예: "G1X0.C0.F5000.") 선반이면 그냥 넘기지 않는다.
+                # 밀링만 기존처럼 스킵(선반 전용 코드라 밀링에서는 의미 없음).
+                if not is_lathe:
                     continue
             if g13_1_pattern.search(line_upper):
                 polar_interpolation = False
-                if not (is_lathe and lathe_milling_active):
+                # v1.6.9: G13.1로 극좌표를 빠져나오면 cy_lathe(로컬 Y)도
+                # 같이 0으로 되돌려야 이후 선삭 경로가 Y로 밀리지 않는다.
+                if is_lathe:
+                    cy_lathe = 0.0
+                else:
                     continue
 
             if g43_pattern.search(line_upper):
@@ -2849,24 +2934,49 @@ class NCViewerWidget(QWidget):
                     lathe_cycle_r = 0.0
                     lathe_cycle_depth = 0.0
 
-            # 공구 교체 판정 — 밀링/MCT는 M6 Tnn, 선반은 Tnn00 (v1.6.4).
-            # 두 갈래를 완전히 분리해 밀링 경로에는 선반 규칙이 끼어들지 않는다.
+            # 공구 교체/공정 판정 — 밀링/MCT는 M6 Tnn, 선반은 N번호 기준
+            # (v1.6.9, N 라인이 있으면) 또는 Tnn00 기준(폴백). 세 갈래를
+            # 완전히 분리해 밀링 경로에는 선반 규칙이 끼어들지 않는다.
             if is_lathe:
-                lathe_tool_change = lathe_tool_change_pattern.search(line_upper)
-                tool_changed = lathe_tool_change is not None
-                if tool_changed:
-                    detected_t = self._normalize_tool_no(lathe_tool_change.group(1))
-                    # v1.6.7: 선반 공정은 T0100으로 시작해 옵셋 취소용
-                    # T0100으로 끝난다 — 같은 공구 번호의 Tnn00이 다시
-                    # 나온 것은 공정의 끝이지 새 공정이 아니므로 필터에
-                    # 두 번 올리지 않는다. M00/M01/M30을 지난 뒤라면
-                    # 기억이 지워져 있어 같은 공구라도 새 공정이 된다.
-                    if detected_t == active_lathe_tool:
-                        tool_changed = False
-                    else:
-                        active_lathe_tool = detected_t
-                if lathe_process_end_pattern.search(line_upper):
-                    active_lathe_tool = None
+                if n_block_starts:
+                    # v1.6.9: 공정 경계 = N번호 ~ M0/M1/M30. 복귀+다음공구
+                    # 예약이 한 줄에 있는 프로그램(예: "G00 X200. Z200.
+                    # T0300")에서 그 T워드가 새 공정을 열어버려 복귀 이동이
+                    # 이전 위치가 아니라 새 공정 쪽에 그려지던 버그를
+                    # 고친다 — Tnn00은 더 이상 공정 경계가 아니다.
+                    tool_changed = seq_pos in n_block_starts
+                    if tool_changed:
+                        detected_t = n_block_tool_at_position[seq_pos]
+                        lathe_process_open = True
+                    elif not lathe_process_open:
+                        # 공정이 닫힌 구간(M0/M1/M30 ~ 다음 N)의 경로 노드는
+                        # 어느 공정에도 딸려 붙지 않아야 한다 — current_tool을
+                        # 잠깐 더미 버킷으로 돌려, 아래 모든
+                        # tool_paths[current_tool].append 호출이 여기로만
+                        # 흘러들게 한다. 파싱 끝에서 이 버킷은 통째로 버려진다.
+                        current_tool = self._LATHE_CLOSED_PROCESS_KEY
+                        self.tool_paths.setdefault(current_tool, [])
+                    if lathe_process_end_pattern.search(line_upper):
+                        lathe_process_open = False
+                else:
+                    # N 라인이 하나도 없는 프로그램은 기존 Tnn00 기준으로
+                    # 자동 폴백한다(2026-09-06 사용자 확정) — v1.6.7 동작
+                    # 그대로, 닫힘 구간 없이 항상 열려 있다.
+                    lathe_tool_change = lathe_tool_change_pattern.search(line_upper)
+                    tool_changed = lathe_tool_change is not None
+                    if tool_changed:
+                        detected_t = self._normalize_tool_no(lathe_tool_change.group(1))
+                        # v1.6.7: 선반 공정은 T0100으로 시작해 옵셋 취소용
+                        # T0100으로 끝난다 — 같은 공구 번호의 Tnn00이 다시
+                        # 나온 것은 공정의 끝이지 새 공정이 아니므로 필터에
+                        # 두 번 올리지 않는다. M00/M01/M30을 지난 뒤라면
+                        # 기억이 지워져 있어 같은 공구라도 새 공정이 된다.
+                        if detected_t == active_lathe_tool:
+                            tool_changed = False
+                        else:
+                            active_lathe_tool = detected_t
+                    if lathe_process_end_pattern.search(line_upper):
+                        active_lathe_tool = None
             else:
                 t_match = t_pattern.search(line_upper)
                 if t_match:
@@ -2939,6 +3049,13 @@ class NCViewerWidget(QWidget):
                         cx = m_x * 2.0
                     if re.search(r"Z\s*0", line_upper):
                         cz = m_z
+                    # v1.6.9: G28 H0.은 C축(스핀들 회전각) 원점 복귀 —
+                    # H는 C의 증분값이다(사용자 확정). U/W(X/Z 증분)는
+                    # LATHE_MODE_GUIDELINES.md §8에 따라 여전히 별도 승인
+                    # 단계로 남겨 둔다.
+                    if h_pattern.search(line_upper):
+                        cc_deg = 0.0
+                        self.line_to_c_rot[idx] = 0.0
                     final_pt = lathe_world_point(cz, cx, cc_deg)
                     self.tool_paths[current_tool].append({
                         "pt": final_pt, "type": "G00", "valid": True, "src_line": idx,
@@ -2993,10 +3110,11 @@ class NCViewerWidget(QWidget):
                         cx = float(x_match.group(1))
                     if z_match:
                         cz = float(z_match.group(1))
-                    if is_lathe and lathe_milling_active and polar_interpolation:
-                        # G12.1 극좌표 보간: C 워드는 각도가 아니라 Y(직선,
-                        # mm)로 해석한다(회전각 cc_deg는 그대로 유지) —
-                        # O4006.nc:107 "X-.076Z-11.C-.067R.077"처럼 R.077짜리
+                    if is_lathe and polar_interpolation:
+                        # v1.6.9: G12.1 극좌표 보간은 M35(구동공구)와 무관하게
+                        # 적용한다(사용자 확정) — C 워드는 각도가 아니라
+                        # Y(직선, mm)로 해석한다(회전각 cc_deg는 그대로 유지)
+                        # — O4006.nc:107 "X-.076Z-11.C-.067R.077"처럼 R.077짜리
                         # 원호에 C가 mm 단위로 붙는 것이 근거.
                         if c_match:
                             cy_lathe = float(c_match.group(1))
@@ -3119,7 +3237,23 @@ class NCViewerWidget(QWidget):
                     continue
 
                 if is_arc_motion and is_lathe:
-                    if lathe_milling_active and not polar_interpolation and current_plane in ("G17", "G19"):
+                    if polar_interpolation:
+                        # v1.6.9: 극좌표(G12.1~G13.1) 원호는 G17/G18/G19
+                        # 평면 지령이나 M35와 무관하게 X(반경)-C(Y) 평면
+                        # (LATHE_G17: I=반경 오프셋, J=C(Y) 오프셋)으로
+                        # 강제 보간한다(사용자 확정) — 로컬 평면에서 그린
+                        # 뒤 cc_deg만큼 통째로 배치 회전(M35 G17/G19 분기와
+                        # 같은 방식).
+                        local_arc_pts = self._arc_points(
+                            line_upper, start_local, target_local, current_motion, "LATHE_G17",
+                            i_pattern, j_pattern, k_pattern, r_pattern,
+                        )
+                        for local_pt in local_arc_pts:
+                            self.tool_paths[current_tool].append({
+                                "pt": lathe_rotate_c(local_pt, cc_deg), "type": current_motion,
+                                "valid": True, "src_line": idx,
+                            })
+                    elif lathe_milling_active and current_plane in ("G17", "G19"):
                         # v1.6.6: M35(구동공구) 중 G17/G19 평면 원호 — I/J/K가
                         # 회전 전 로컬 좌표계 기준이므로, 로컬(start_local/
                         # target_local) 평면에서 보간한 뒤 4/5축 밀링과 같은
@@ -3136,8 +3270,9 @@ class NCViewerWidget(QWidget):
                                 "valid": True, "src_line": idx,
                             })
                     else:
-                        # v1.6.4: 선삭(또는 G12.1 극좌표) 원호는 전용 "LATHE"
-                        # 평면으로 보간한다. start_pt/target_pt가 이미 반경
+                        # v1.6.4: 선삭 원호는 전용 "LATHE" 평면으로 보간한다
+                        # (극좌표는 위 polar_interpolation 분기로 이미
+                        # 갈라졌다, v1.6.9). start_pt/target_pt가 이미 반경
                         # 공간(월드 Z = X/2)이라 지름 개념이 원호에도 그대로
                         # 반영되고, 중심 오프셋 I(X방향)와 R은 선반 관례대로
                         # 반경 값이므로 다시 나누지 않는다. 회전행렬이
@@ -3179,6 +3314,11 @@ class NCViewerWidget(QWidget):
                     if g43_active or is_lathe:
                         self.line_to_coord_map[idx] = target_pt
 
+        # v1.6.9: 공정이 닫혀 있던 구간(M0/M1/M30 ~ 다음 N)에 흘러든 노드는
+        # 있다면 통째로 버린다 — 어느 공정에도 딸려 붙지 않아야 하므로
+        # 아래 "빈 공정 제거"와 별개로 이 더미 버킷은 내용 유무와 무관하게
+        # 항상 지운다.
+        self.tool_paths.pop(self._LATHE_CLOSED_PROCESS_KEY, None)
         self.tool_paths = {key: value for key, value in self.tool_paths.items() if value}
         self.process_tool_map = {
             key: value for key, value in self.process_tool_map.items()

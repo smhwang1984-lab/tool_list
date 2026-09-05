@@ -26,7 +26,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
 
-APP_VERSION = '1.6.8'
+APP_VERSION = '1.6.9'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-09-06'
 APP_CREATOR = 'Hwang.seonmun'
@@ -2297,7 +2297,9 @@ else:
             if combo is None:
                 return
             with QSignalBlocker(combo):
-                combo.setCurrentText('선반' if self.is_lathe_program() else 'MCT (밀링)')
+                # v1.6.9: 산출 모드 콤보 표기에서 "MCT" 문구를 뺐다 —
+                # 선반/밀링만 남긴다(사용자 확정, 2026-09-06).
+                combo.setCurrentText('선반' if self.is_lathe_program() else '밀링')
 
         def _tool_mode_combo_changed(self):
             """산출 모드 콤보 -> 장비 콤보 방향 동기화(v1.6.8). 장비 콤보가
@@ -2437,9 +2439,12 @@ else:
             self._last_mct_machine_type = self._load_last_mct_machine_type()
             self.tool_mode_combo = QComboBox()
             self.tool_mode_combo.setFont(row_button_font)
-            self.tool_mode_combo.addItems(['MCT (밀링)', '선반'])
+            # v1.6.9: 항목 표기에서 "MCT"를 뺐다 — 선반/밀링만 남긴다
+            # (사용자 확정, 2026-09-06). 판정 로직(_tool_mode_combo_changed)은
+            # '선반' 문자열만 비교하므로 영향 없다.
+            self.tool_mode_combo.addItems(['밀링', '선반'])
             self.tool_mode_combo.setCurrentText(
-                '선반' if self.is_lathe_program() else 'MCT (밀링)'
+                '선반' if self.is_lathe_program() else '밀링'
             )
             self.tool_mode_combo.currentIndexChanged.connect(self._tool_mode_combo_changed)
             rbar.addWidget(self.tool_mode_combo)
