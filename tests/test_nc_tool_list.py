@@ -1,4 +1,4 @@
-import inspect
+﻿import inspect
 import math
 import os
 import re
@@ -160,8 +160,10 @@ G01 X30 Y0 Z0
             keys = list(viewer.tool_paths)
             self.assertEqual(keys, ['P001_T01', 'P002_T01'])
             self.assertEqual([viewer.process_tool_map[key] for key in keys], ['T01', 'T01'])
-            self.assertEqual(viewer._tool_display_text(keys[0]), '공정 01 | T01 | FACE MILL')
-            self.assertEqual(viewer._tool_display_text(keys[1]), '공정 02 | T01 | FACE MILL')
+            # v1.6.7: 항목 끝에 그 공정의 가공시간이 붙는다(F가 없는 이
+            # 프로그램은 G00 급속 이동분만 잡혀 00:00으로 반올림된다).
+            self.assertEqual(viewer._tool_display_text(keys[0]), '공정 01 | T01 | FACE MILL | 00:00')
+            self.assertEqual(viewer._tool_display_text(keys[1]), '공정 02 | T01 | FACE MILL | 00:00')
             self.assertLessEqual(sum(len(items) for items in viewer.plot_items.values()), 4)
             self.assertFalse(viewer.set_source_text(source, {'T01': 'FACE MILL'}))
         finally:
@@ -533,11 +535,11 @@ G01 X10 Y0 Z0
         try:
             viewer._save_machine_specs = lambda: None
 
-            viewer.set_machine_type('5축 밀링 (A to C)')
+            viewer.set_machine_type('5축 MCT (A to C)')
             self.assertTrue(viewer.set_source_text(source, {'T01': 'BALL EM'}))
             ac_pt = viewer.line_to_coord_map[5]
 
-            viewer.set_machine_type('5축 밀링 (B to C)')
+            viewer.set_machine_type('5축 MCT (B to C)')
             bc_pt = viewer.line_to_coord_map[5]
 
             self.assertAlmostEqual(ac_pt[0], 0.0, places=6)
@@ -712,7 +714,7 @@ G02 X0 Y10 I-10 J0
         viewer = NCViewerWidget()
         try:
             viewer._save_machine_specs = lambda: None
-            viewer.set_machine_type('5축 밀링 (A to C)')
+            viewer.set_machine_type('5축 MCT (A to C)')
             self.assertTrue(viewer.set_source_text(source, {'T01': 'BALL EM'}))
             nodes = [n for n in viewer.tool_paths['P001_T01'] if n['valid']]
             rapid_end = nodes[0]['pt']
@@ -2902,6 +2904,126 @@ M30
         finally:
             self._restore(viewer, original, qapp)
 
+    # ---- v1.6.7: 공정 필터 중복(항목 3)과 선반 가공시간(항목 2) ----
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_process_is_listed_once_despite_closing_offset_cancel(self):
+        """v1.6.7 항목 3: 공정은 T0100으로 시작해 옵셋 취소용 T0100으로
+        끝난다. 예전에는 이 둘이 각각 공정으로 잡혀 필터에 같은 공구가
+        두 번 떴다 — 이제 한 번만 떠야 한다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        try:
+            viewer.set_source_text(
+                self.TWO_TOOL_LATHE_SOURCE, {'T01': 'OD ROUGH', 'T03': 'OD FINISH'}
+            )
+            tools = [viewer.process_tool_map[key] for key in viewer.tool_paths]
+            self.assertEqual(tools.count('T01'), 1, 'T0100~T0100은 한 공정이다')
+            self.assertEqual(tools.count('T03'), 1)
+            self.assertEqual(tools, ['T01', 'T03'])
+        finally:
+            self._restore(viewer, original, qapp)
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_same_tool_in_two_processes_still_splits_after_m01(self):
+        """M00/M01/M30을 지나면 같은 공구라도 새 공정으로 잡혀야 한다 —
+        옵셋 취소 무시가 정상적인 공정 분리까지 삼키면 안 된다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        source = """G50 S2500 T0100
+G00 X100. Z5.
+G01 X80. Z-20. F0.25
+G00 X120. Z20. T0100
+M1
+G50 S2500 T0100
+G00 X80. Z5.
+G01 X60. Z-30. F0.2
+G00 X120. Z20. T0100
+M30
+"""
+        try:
+            viewer.set_source_text(source, {'T01': 'OD ROUGH'})
+            tools = [viewer.process_tool_map[key] for key in viewer.tool_paths]
+            self.assertEqual(tools, ['T01', 'T01'], 'M1 뒤의 T0100은 새 공정이다')
+        finally:
+            self._restore(viewer, original, qapp)
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_g99_feed_per_rev_uses_spindle_speed(self):
+        """v1.6.7 항목 2: 선반 G99의 F는 mm/rev라 회전수를 곱해야 mm/min이
+        된다. G97이면 S가 그대로 회전수다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        # X는 지름이라 X100 -> X60은 반경 20mm만 움직인다.
+        source = """G50 S2500 T0100
+G97 S1000 M3
+G99
+G00 X100. Z0.
+G01 X60. Z0. F0.2
+"""
+        try:
+            viewer.set_source_text(source, {'T01': 'OD ROUGH'})
+            # 절삭: 이송 = 0.2mm/rev x 1000rev/min = 200mm/min, 거리 = 반경
+            # 20mm -> 20 / 200 x 60 = 6초.
+            # 급속: X100(반경 50)까지 50mm를 7000mm/min으로 -> 50 / 7000 x 60.
+            self.assertAlmostEqual(
+                viewer.total_time_sec, 6.0 + 50.0 / 7000.0 * 60.0, places=3
+            )
+        finally:
+            self._restore(viewer, original, qapp)
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_g98_feed_is_read_as_mm_per_min(self):
+        """G98에서는 F가 MCT와 똑같이 mm/min이라 회전수와 무관하다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        source = """G50 S2500 T0100
+G97 S1000 M3
+G98
+G00 X100. Z0.
+G01 X60. Z0. F200.
+"""
+        try:
+            viewer.set_source_text(source, {'T01': 'OD ROUGH'})
+            # 반경 20mm / 200mm/min x 60 = 6초 (회전수를 곱하지 않는다).
+            # 앞의 G00 50mm(반경)도 7000mm/min으로 함께 잡힌다.
+            self.assertAlmostEqual(
+                viewer.total_time_sec, 6.0 + 50.0 / 7000.0 * 60.0, places=3
+            )
+        finally:
+            self._restore(viewer, original, qapp)
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_g96_constant_surface_speed_is_capped_by_g50(self):
+        """G96은 지름이 줄수록 회전수가 올라가지만 G50 상한에서 멈춘다.
+        상한이 낮으면 회전수가 낮아 같은 경로라도 시간이 더 걸린다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        fast = """G50 S4000 T0100
+G96 S200 M3
+G99
+G00 X20. Z0.
+G01 X20. Z-50. F0.2
+"""
+        slow = fast.replace('G50 S4000', 'G50 S500')
+        try:
+            viewer.set_source_text(fast, {'T01': 'OD ROUGH'})
+            fast_seconds = viewer.total_time_sec
+            viewer.set_source_text(slow, {'T01': 'OD ROUGH'})
+            slow_seconds = viewer.total_time_sec
+            self.assertGreater(fast_seconds, 0.0)
+            self.assertGreater(
+                slow_seconds, fast_seconds,
+                'G50 상한이 낮으면 회전수가 줄어 같은 경로가 더 오래 걸린다',
+            )
+            # 상한 500rpm이 걸린 쪽은 이송 = 0.2 x 500 = 100mm/min, 절삭
+            # 거리 50mm -> 30초. 앞의 G00 10mm(반경)가 여기에 더해진다.
+            self.assertAlmostEqual(
+                slow_seconds, 30.0 + 10.0 / 7000.0 * 60.0, places=3
+            )
+        finally:
+            self._restore(viewer, original, qapp)
+
     @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
     def test_projection_overlay_is_not_squashed_when_buttons_are_swapped(self):
         """v1.6.4 버그: 이미 화면에 떠 있는 오버레이의 버튼을 갈아 끼우면
@@ -3272,6 +3394,271 @@ class PdfDirectOpenTests(unittest.TestCase):
         # 저장한 게 아니므로 "저장 완료" 안내창도 더 이상 띄우지 않는다.
         self.assertNotIn('PDF 출력 완료', inspect.getsource(app.App.save_pdf))
         self.assertIn('open_file_with_default_app', inspect.getsource(app.App.save_pdf))
+
+
+class MachiningTimeTests(unittest.TestCase):
+    """v1.6.7 가공시간 계산 (v1.6.7.md 2항).
+
+    MCT는 F를 mm/min으로 직독하고, 선반은 G99(mm/rev) x 회전수로 환산한다.
+    어느 쪽이든 G00은 7000mm/min 고정, G02/G03과 0.5mm 이하 미세 이동은
+    지령 F의 70%로 본다.
+    """
+
+    def test_rapid_moves_ignore_feed_and_use_7000(self):
+        from nc_viewer_widget import RAPID_FEED_MM_PER_MIN, effective_feed_mm_per_min
+
+        self.assertEqual(RAPID_FEED_MM_PER_MIN, 7000.0)
+        # F가 무엇이든(심지어 없어도) G00은 7000이다.
+        self.assertEqual(effective_feed_mm_per_min('G00', 100.0, 50.0), 7000.0)
+        self.assertEqual(effective_feed_mm_per_min('G00', 0.0, 0.1), 7000.0)
+
+    def test_cutting_feed_applies_100_and_70_percent_rules(self):
+        from nc_viewer_widget import effective_feed_mm_per_min
+
+        # G01은 0.5mm를 넘는 이동이면 지령 F 그대로.
+        self.assertAlmostEqual(effective_feed_mm_per_min('G01', 1000.0, 5.0), 1000.0)
+        # 0.5mm 이하의 미세 이동은 70%.
+        self.assertAlmostEqual(effective_feed_mm_per_min('G01', 1000.0, 0.5), 700.0)
+        self.assertAlmostEqual(effective_feed_mm_per_min('G01', 1000.0, 0.2), 700.0)
+        # 원호는 길이와 무관하게 70%.
+        self.assertAlmostEqual(effective_feed_mm_per_min('G02', 1000.0, 50.0), 700.0)
+        self.assertAlmostEqual(effective_feed_mm_per_min('G03', 1000.0, 50.0), 700.0)
+        # F가 한 번도 안 나온 절삭 이동은 0(시간을 추정해 부풀리지 않는다).
+        self.assertEqual(effective_feed_mm_per_min('G01', 0.0, 5.0), 0.0)
+
+    def test_lathe_rpm_g97_is_constant_and_g96_follows_surface_speed(self):
+        from nc_viewer_widget import lathe_spindle_rpm
+
+        # G97은 S가 곧 회전수.
+        self.assertAlmostEqual(lathe_spindle_rpm('G97', 1200.0, 80.0, 4000.0), 1200.0)
+        # G96은 V = D x pi x N / 1000 -> N = V x 1000 / (pi x D).
+        expected = 200.0 * 1000.0 / (math.pi * 80.0)
+        self.assertAlmostEqual(lathe_spindle_rpm('G96', 200.0, 80.0, 4000.0), expected)
+
+    def test_lathe_rpm_is_clamped_by_g50_maximum(self):
+        from nc_viewer_widget import lathe_spindle_rpm
+
+        # G97이라도 G50 상한을 넘지 못한다.
+        self.assertAlmostEqual(lathe_spindle_rpm('G97', 5000.0, 80.0, 4000.0), 4000.0)
+        # G96에서 지름이 0에 가까우면(센터 근처) 회전수가 발산하므로 상한으로 잘린다.
+        self.assertAlmostEqual(lathe_spindle_rpm('G96', 200.0, 0.0, 3000.0), 3000.0)
+        self.assertAlmostEqual(lathe_spindle_rpm('G96', 200.0, 0.01, 3000.0), 3000.0)
+
+    def test_duration_formatting_switches_to_hours(self):
+        from nc_viewer_widget import format_duration, format_elapsed_over_total
+
+        self.assertEqual(format_duration(0), '00:00')
+        self.assertEqual(format_duration(65), '01:05')
+        self.assertEqual(format_duration(3599), '59:59')
+        self.assertEqual(format_duration(3600), '1:00:00')
+        self.assertEqual(format_duration(4805), '1:20:05')
+        self.assertEqual(format_elapsed_over_total(65, 4805), '01:05 / 1:20:05')
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_milling_program_time_uses_modal_feed_and_rapid_rate(self):
+        """F는 모달이라 한 번 나오면 이후 G01에도 계속 적용되고, G00 구간만
+        7000mm/min으로 계산된다(사용자 확정 사항)."""
+        from nc_viewer_widget import NCViewerWidget
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        source = """M6T1
+G43
+G00 X0 Y0 Z0
+G00 X70 Y0 Z0
+G01 X170 Y0 Z0 F1000
+G01 X270 Y0 Z0
+"""
+        viewer = NCViewerWidget()
+        try:
+            self.assertTrue(viewer.set_source_text(source, {'T01': 'END MILL'}))
+            key = list(viewer.tool_paths)[0]
+            # G00 70mm / 7000 = 0.6초, G01 100mm / 1000 = 6초가 두 번(모달 F).
+            self.assertAlmostEqual(viewer.process_time_sec[key], 0.6 + 6.0 + 6.0, places=3)
+            self.assertAlmostEqual(viewer.total_time_sec, 12.6, places=3)
+            # 공정 필터 항목 끝에 그 시간이 붙는다.
+            self.assertTrue(viewer._tool_display_text(key).endswith('| 00:13'))
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_elapsed_over_total_overlay_text_advances_with_cursor(self):
+        from nc_viewer_widget import NCViewerWidget
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        source = """M6T1
+G43
+G00 X0 Y0 Z0
+G01 X100 Y0 Z0 F1000
+G01 X200 Y0 Z0
+"""
+        viewer = NCViewerWidget()
+        try:
+            self.assertTrue(viewer.set_source_text(source, {'T01': 'END MILL'}))
+            total = viewer.total_time_sec
+            self.assertAlmostEqual(total, 12.0, places=3)
+            # 첫 절삭 줄까지는 6초, 끝까지는 12초.
+            self.assertAlmostEqual(viewer.elapsed_seconds_at_line(3), 6.0, places=3)
+            self.assertAlmostEqual(viewer.elapsed_seconds_at_line(4), 12.0, places=3)
+            viewer.set_cursor_line(3)
+            self.assertEqual(viewer.coord_overlay.time_label.text(), '00:06 / 00:12')
+            viewer.set_cursor_line(4)
+            self.assertEqual(viewer.coord_overlay.time_label.text(), '00:12 / 00:12')
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+
+class MachineNameRenameTests(unittest.TestCase):
+    """v1.6.7 장비 명칭 변경 — "5축 밀링" -> "5축 MCT",
+    "2축 선반 (X Z 평면, X 2배)" -> "CNC 선반 (턴밀 포함)"."""
+
+    def test_default_specs_use_the_new_names(self):
+        from nc_viewer_widget import DEFAULT_MACHINE_SPECS, is_lathe_machine
+
+        self.assertIn('5축 MCT (A to C)', DEFAULT_MACHINE_SPECS)
+        self.assertIn('5축 MCT (B to C)', DEFAULT_MACHINE_SPECS)
+        self.assertIn('CNC 선반 (턴밀 포함)', DEFAULT_MACHINE_SPECS)
+        # 옛 이름은 남아 있지 않아야 한다.
+        self.assertNotIn('5축 밀링 (A to C)', DEFAULT_MACHINE_SPECS)
+        self.assertNotIn('2축 선반 (X Z 평면, X 2배)', DEFAULT_MACHINE_SPECS)
+        # A to C / B to C 구분은 설정이 달라 그대로 유지한다.
+        self.assertNotEqual(
+            DEFAULT_MACHINE_SPECS['5축 MCT (A to C)'],
+            DEFAULT_MACHINE_SPECS['5축 MCT (B to C)'],
+        )
+        # 새 선반 이름도 "선반" 키워드 판정에 그대로 걸린다.
+        self.assertTrue(is_lathe_machine('CNC 선반 (턴밀 포함)'))
+
+    def test_saved_settings_migrate_from_the_old_names(self):
+        from nc_viewer_widget import migrate_machine_type_name
+
+        self.assertEqual(migrate_machine_type_name('5축 밀링 (A to C)'), '5축 MCT (A to C)')
+        self.assertEqual(migrate_machine_type_name('5축 밀링 (B to C)'), '5축 MCT (B to C)')
+        self.assertEqual(
+            migrate_machine_type_name('2축 선반 (X Z 평면, X 2배)'), 'CNC 선반 (턴밀 포함)'
+        )
+        # 이미 새 이름이거나 모르는 이름은 그대로 둔다.
+        self.assertEqual(migrate_machine_type_name('3축 MCT (X Y Z)'), '3축 MCT (X Y Z)')
+        self.assertEqual(migrate_machine_type_name('5축 MCT (A to C)'), '5축 MCT (A to C)')
+
+    def test_app_fallback_specs_match_the_viewer_names(self):
+        from nc_viewer_widget import DEFAULT_MACHINE_SPECS
+
+        self.assertEqual(
+            sorted(app.FALLBACK_MACHINE_SPECS), sorted(DEFAULT_MACHINE_SPECS)
+        )
+
+
+class SingleInstanceTests(unittest.TestCase):
+    """v1.6.7 단일 실행 — NC 파일을 여러 번 열어도 창은 하나만 뜬다."""
+
+    def test_server_name_is_per_user_and_filesystem_safe(self):
+        original = os.environ.get('USERNAME')
+        try:
+            os.environ['USERNAME'] = 'Hong Gil-Dong'
+            name = app.single_instance_server_name()
+            self.assertTrue(name.startswith('NCToolList.SingleInstance.'))
+            # 공백 등 소켓 이름에 쓰기 곤란한 문자는 걸러진다.
+            self.assertNotIn(' ', name)
+            self.assertEqual(name, 'NCToolList.SingleInstance.Hong_Gil-Dong')
+        finally:
+            if original is None:
+                os.environ.pop('USERNAME', None)
+            else:
+                os.environ['USERNAME'] = original
+
+    def test_handoff_returns_false_when_no_instance_is_running(self):
+        # 떠 있는 창이 없으면 False -> 호출부가 평소대로 창을 띄운다.
+        self.assertFalse(app.send_to_running_instance('nonexistent.nc', timeout_ms=100))
+
+    def test_main_hands_off_before_creating_the_window(self):
+        source = inspect.getsource(app.main)
+        self.assertIn('send_to_running_instance', source)
+        self.assertIn('start_single_instance_server', source)
+        # 넘겨준 경우에는 App()을 만들기 전에 빠져나가야 창이 깜빡이지 않는다.
+        handoff = source.index('send_to_running_instance')
+        self.assertLess(handoff, source.index('window = App()'))
+
+
+class CursorAnchoredZoomTests(unittest.TestCase):
+    """v1.6.7 마우스 휠 줌 — 화면 중앙이 아니라 커서 위치를 기준으로 확대/축소."""
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_wheel_zoom_pans_toward_the_cursor(self):
+        from PyQt5.QtCore import QPoint, QPointF, Qt
+        from nc_viewer_widget import OrthographicGLViewWidget
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        view = OrthographicGLViewWidget()
+        try:
+            view.resize(800, 600)
+            calls = []
+            view.pan = lambda dx, dy, dz, relative=None: calls.append((dx, dy, relative))
+
+            class FakeWheelEvent:
+                def __init__(self, x, y, delta):
+                    self._pos = QPointF(x, y)
+                    self._delta = delta
+
+                def angleDelta(self):
+                    return QPoint(0, self._delta)
+
+                def position(self):
+                    return self._pos
+
+                def modifiers(self):
+                    return Qt.NoModifier
+
+            before = float(view.opts['distance'])
+            # 화면 중앙(400, 300)에서 오른쪽 아래로 떨어진 지점에서 확대.
+            view.wheelEvent(FakeWheelEvent(600.0, 450.0, 120))
+            after = float(view.opts['distance'])
+            factor = after / before
+            self.assertNotAlmostEqual(factor, 1.0)
+            self.assertEqual(len(calls), 1)
+            dx, dy, relative = calls[0]
+            self.assertEqual(relative, 'view')
+            # 보정량은 커서의 중앙 대비 오프셋 x (1 - 1/factor).
+            shift = 1.0 - 1.0 / factor
+            self.assertAlmostEqual(dx, 200.0 * shift, places=6)
+            self.assertAlmostEqual(dy, 150.0 * shift, places=6)
+            # 부호: 확대(거리 감소)면 커서 쪽으로 당기도록 음수여야 한다.
+            if factor < 1.0:
+                self.assertLess(dx, 0.0)
+                self.assertLess(dy, 0.0)
+        finally:
+            view.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_cursor_at_center_does_not_pan(self):
+        from PyQt5.QtCore import QPoint, QPointF, Qt
+        from nc_viewer_widget import OrthographicGLViewWidget
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        view = OrthographicGLViewWidget()
+        try:
+            view.resize(800, 600)
+            calls = []
+            view.pan = lambda dx, dy, dz, relative=None: calls.append((dx, dy, relative))
+
+            class FakeWheelEvent:
+                def angleDelta(self):
+                    return QPoint(0, 120)
+
+                def position(self):
+                    return QPointF(400.0, 300.0)
+
+                def modifiers(self):
+                    return Qt.NoModifier
+
+            view.wheelEvent(FakeWheelEvent())
+            # 커서가 정확히 화면 중앙이면 기존과 똑같이 팬 보정이 필요 없다.
+            self.assertEqual(calls, [])
+        finally:
+            view.deleteLater()
+            qapp.processEvents()
 
 
 if __name__ == '__main__':

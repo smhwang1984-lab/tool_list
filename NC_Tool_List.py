@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 NC 공구 리스트 생성기
 - 왼쪽: NC 프로그램(G코드) 입력
@@ -26,7 +26,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
 
-APP_VERSION = '1.6.6'
+APP_VERSION = '1.6.7'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-09-05'
 APP_CREATOR = 'Hwang.seonmun'
@@ -1139,6 +1139,97 @@ def startup_file_argument(argv):
             return value
     return None
 
+# --------------------------------------------------------------------------
+# 단일 실행(v1.6.7) — .nc/.mpf/.tap을 이 앱의 기본 프로그램으로 등록해 두면
+# 파일을 열 때마다 새 프로세스가 뜬다. 이미 떠 있는 창이 있으면 그 창에
+# 파일 경로만 넘기고 새로 뜬 쪽은 즉시 종료해, 항상 창 하나로 유지한다.
+# --------------------------------------------------------------------------
+
+def single_instance_server_name():
+    """사용자마다 다른 서버 이름 — 한 PC를 여러 계정이 동시에 쓰는
+    (원격 데스크톱 등) 환경에서 서로의 창을 건드리지 않게 한다."""
+    user = os.environ.get('USERNAME') or os.environ.get('USER') or 'user'
+    return 'NCToolList.SingleInstance.%s' % re.sub(r'[^A-Za-z0-9_.-]', '_', user)
+
+
+def send_to_running_instance(file_path, timeout_ms=800):
+    """이미 떠 있는 인스턴스에 파일 경로를 넘긴다.
+
+    넘겼으면 True(→ 이쪽 프로세스는 그냥 종료하면 된다), 떠 있는 창이
+    없거나 QtNetwork를 못 쓰면 False를 돌려 평소대로 창을 띄우게 한다.
+    """
+    try:
+        from PyQt5.QtNetwork import QLocalSocket
+    except Exception:
+        return False
+    try:
+        socket = QLocalSocket()
+        socket.connectToServer(single_instance_server_name())
+        if not socket.waitForConnected(timeout_ms):
+            return False
+        socket.write((file_path or '').encode('utf-8'))
+        socket.flush()
+        socket.waitForBytesWritten(timeout_ms)
+        socket.disconnectFromServer()
+        return True
+    except Exception:
+        return False
+
+
+def start_single_instance_server(window):
+    """이 프로세스를 "주인" 인스턴스로 등록하고, 뒤이어 실행된 프로세스가
+    보내오는 파일 경로를 받아 창에 연다.
+
+    서버를 못 열어도(권한/환경 문제) 앱 실행 자체는 막지 않는다 —
+    그때는 단일화만 안 될 뿐 예전과 똑같이 동작한다. 서버 객체는
+    가비지 컬렉션되지 않도록 창에 붙여 둔다.
+    """
+    try:
+        from PyQt5.QtNetwork import QLocalServer
+    except Exception:
+        return None
+
+    def handle_connection():
+        socket = server.nextPendingConnection()
+        if socket is None:
+            return
+
+        def read_path():
+            try:
+                payload = bytes(socket.readAll()).decode('utf-8', 'ignore').strip()
+            except Exception:
+                payload = ''
+            socket.disconnectFromServer()
+            # 최소화되어 있거나 다른 창에 가려 있어도 앞으로 끌어낸다.
+            try:
+                window.setWindowState(
+                    (window.windowState() & ~Qt.WindowMinimized) | Qt.WindowActive
+                )
+                window.showNormal()
+                window.raise_()
+                window.activateWindow()
+            except Exception:
+                pass
+            if payload and Path(payload).is_file():
+                window.load_file(payload)
+
+        socket.readyRead.connect(read_path)
+        socket.disconnected.connect(socket.deleteLater)
+
+    try:
+        name = single_instance_server_name()
+        # 앞서 비정상 종료한 인스턴스가 남긴 소켓이 있으면 치우고 연다.
+        QLocalServer.removeServer(name)
+        server = QLocalServer(window)
+        if not server.listen(name):
+            return None
+        server.newConnection.connect(handle_connection)
+        window._single_instance_server = server
+        return server
+    except Exception:
+        return None
+
+
 def resource_path(relative_path):
     """Resolve bundled files both from source and PyInstaller one-file builds."""
     base = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent))
@@ -1266,8 +1357,10 @@ else:
                 super().dropEvent(event)
 
 
+    # v1.6.7: 뷰어 모듈(DEFAULT_MACHINE_SPECS)과 같은 이름을 쓴다 —
+    # "5축 밀링" -> "5축 MCT", "2축 선반 ..." -> "CNC 선반 (턴밀 포함)".
     FALLBACK_MACHINE_SPECS = {
-        "5축 밀링 (A to C)": {
+        "5축 MCT (A to C)": {
             "X 행정": "800", "Y 행정": "800", "Z 행정": "600",
             "A축 범위": "-120~+30", "C축 범위": "360",
         },
@@ -1275,8 +1368,8 @@ else:
         "4축 MCT (B-Type)": {
             "X 행정": "1200", "Y 행정": "800", "Z 행정": "800", "B축 범위": "-120~+120",
         },
-        "2축 선반 (X Z 평면, X 2배)": {"X 행정": "300", "Z 행정": "500", "최대 RPM": "4000"},
-        "5축 밀링 (B to C)": {
+        "CNC 선반 (턴밀 포함)": {"X 행정": "300", "Z 행정": "500", "최대 RPM": "4000"},
+        "5축 MCT (B to C)": {
             "X 행정": "600", "Y 행정": "600", "Z 행정": "500",
             "B축 범위": "-110~+110", "C축 범위": "360",
         },
@@ -3156,9 +3249,15 @@ def main():
     if missing:
         raise SystemExit('GUI 실행에 필요한 Python 패키지가 없습니다: ' + ', '.join(missing))
     try:
-        app = QApplication(sys.argv)
-        window = App()
         initial_file = startup_file_argument(sys.argv)
+        app = QApplication(sys.argv)
+        # v1.6.7: 이미 떠 있는 창이 있으면 그 창에 파일만 넘기고 물러난다.
+        # 창(App)을 만들기 전에 끝내므로 화면에는 아무것도 뜨지 않는다.
+        if send_to_running_instance(initial_file):
+            write_startup_log('Handed off to running instance: %s' % initial_file)
+            return
+        window = App()
+        start_single_instance_server(window)
         if initial_file:
             QTimer.singleShot(0, lambda path=initial_file: window.load_file(path))
         window.show()

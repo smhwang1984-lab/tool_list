@@ -1,8 +1,8 @@
-; NC 공구 리스트 생성기 - Inno Setup 설치 스크립트
+﻿; NC 공구 리스트 생성기 - Inno Setup 설치 스크립트
 ; C:\NC_Tool_List 폴더에 설치됩니다.
 
 #define MyAppName "NC Tool List"
-#define MyAppVersion "1.6.6"
+#define MyAppVersion "1.6.7"
 #define MyAppPublisher "S M.HWANG"
 #define MyAppExeName "NC_Tool_List.exe"
 

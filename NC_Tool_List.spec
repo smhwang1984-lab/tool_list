@@ -6,7 +6,8 @@ from PyInstaller.utils.hooks import collect_submodules
 app_data = [('assets/nc_tool_list.ico', 'assets')]
 viewer_hiddenimports = [
     'numpy',
-    'PyQt5.QtCore', 'PyQt5.QtGui', 'PyQt5.QtWidgets', 'PyQt5.QtOpenGL',
+    # QtNetwork는 v1.6.7 단일 실행(QLocalServer/QLocalSocket)에 필요하다.
+    'PyQt5.QtCore', 'PyQt5.QtGui', 'PyQt5.QtWidgets', 'PyQt5.QtOpenGL', 'PyQt5.QtNetwork',
     'pyqtgraph', 'pyqtgraph.opengl',
 ] + collect_submodules('pyqtgraph.opengl') + collect_submodules('OpenGL')
 
