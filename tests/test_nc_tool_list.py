@@ -2579,6 +2579,201 @@ G01 X20. Z-40.
         finally:
             self._restore(viewer, original, qapp)
 
+    def test_lathe_world_point_y_axis_matches_local_plus_rotate(self):
+        """v1.6.6: lathe_world_point(y_value=...)는 lathe_local_point() +
+        lathe_rotate_c()의 합성과 정확히 같아야 하고, y_value=0이면 기존
+        (v1.6.4) 결과와 완전히 동일해야 한다(회귀 없음)."""
+        from nc_viewer_widget import lathe_local_point, lathe_rotate_c, lathe_world_point
+
+        local = lathe_local_point(-40.0, 100.0, 12.5)
+        self.assertEqual(local, [-40.0, 12.5, 50.0])
+        self.assertEqual(lathe_rotate_c(local, 90.0), lathe_world_point(-40.0, 100.0, 90.0, 12.5))
+        self.assertEqual(
+            lathe_world_point(-40.0, 100.0, 30.0),
+            lathe_world_point(-40.0, 100.0, 30.0, 0.0),
+        )
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_m35_g17_arc_uses_machine_xy_plane_and_c_rotation(self):
+        """v1.6.6: M35(구동공구) + G17이면 원호는 기계 X(반경)-Y 평면에서
+        로컬로 계산된 뒤 C(=90도, 고정 인덱스)만큼 통째로 회전해야 한다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        try:
+            source = """T0100
+G0 X100. Z5.
+M35
+G17
+C90.
+G1 X100. Y0. Z-10. F100
+G2 X100. Y10. I0. J5.
+M34
+"""
+            viewer.set_source_text(source, {'T01': 'END MILL'})
+            points = viewer.tool_paths[list(viewer.tool_paths)[0]]
+            arc = [entry['pt'] for entry in points if entry['type'] == 'G02']
+            self.assertGreater(len(arc), 2)
+            # 끝점(지령값에 스냅)은 C=90도 회전 후 값과 정확히 일치해야 한다.
+            self.assertEqual([round(v, 6) for v in arc[-1]], [-10.0, 50.0, -10.0])
+            # 모든 점을 -90도(역회전)로 되돌리면 로컬 평면에서 반경5, 중심
+            # (반경50, Y5)인 원 위에 있어야 한다(I0/J5로 지정한 원호).
+            from nc_viewer_widget import lathe_rotate_c
+            for pt in arc:
+                local = lathe_rotate_c(pt, -90.0)
+                self.assertAlmostEqual(local[0], -10.0, places=6)  # z(기계) 불변
+                radius = math.hypot(local[2] - 50.0, local[1] - 5.0)
+                self.assertAlmostEqual(radius, 5.0, places=6)
+        finally:
+            self._restore(viewer, original, qapp)
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_m35_g19_arc_uses_machine_yz_plane(self):
+        """v1.6.6: M35 + G19이면 원호는 기계 Y-Z(스핀들 축) 평면에서 계산돼야
+        한다 — G17과 다른 평면 키를 타는지 확인."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        try:
+            source = """T0100
+G0 X100. Z5.
+M35
+G19
+G1 X100. Y0. Z0. F100
+G2 X100. Y10. Z0. J5. K0.
+M34
+"""
+            viewer.set_source_text(source, {'T01': 'END MILL'})
+            points = viewer.tool_paths[list(viewer.tool_paths)[0]]
+            arc = [entry['pt'] for entry in points if entry['type'] == 'G02']
+            self.assertGreater(len(arc), 2)
+            self.assertEqual([round(v, 6) for v in arc[-1]], [0.0, 10.0, 50.0])
+            for pt in arc:
+                self.assertAlmostEqual(pt[2], 50.0, places=6)  # 반경(X) 불변
+                radius = math.hypot(pt[1] - 5.0, pt[0] - 0.0)
+                self.assertAlmostEqual(radius, 5.0, places=6)
+        finally:
+            self._restore(viewer, original, qapp)
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_g12_1_polar_interpolation_treats_c_as_y_not_angle(self):
+        """v1.6.6: G12.1 극좌표 보간 중에는 C 워드가 각도가 아니라 Y(mm)로
+        해석돼야 한다 — O4006.nc 실제 양식(R.077 원호에 C가 mm로 붙음)."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        try:
+            source = """T0100
+G0 X100. Z5.
+M35
+G17
+G12.1
+G1 X100. C0. Z-10. F100
+X100. C10.
+G13.1
+M34
+"""
+            viewer.set_source_text(source, {'T01': 'END MILL'})
+            points = viewer.tool_paths[list(viewer.tool_paths)[0]]
+            # C가 각도였다면 반경(50)이 sin/cos에 따라 흔들렸을 것 — 여기서는
+            # Y로 취급되어 월드 Y가 그대로 0 -> 10으로 움직이고, 월드 Z(반경)는
+            # 항상 50으로 고정돼야 한다(회전 없음).
+            last_two = [entry['pt'] for entry in points[-2:]]
+            self.assertAlmostEqual(last_two[0][1], 0.0, places=6)
+            self.assertAlmostEqual(last_two[0][2], 50.0, places=6)
+            self.assertAlmostEqual(last_two[1][1], 10.0, places=6)
+            self.assertAlmostEqual(last_two[1][2], 50.0, places=6)
+        finally:
+            self._restore(viewer, original, qapp)
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_m98_expands_subprogram_after_m30_and_ignores_uncalled_ones(self):
+        """v1.6.6: M30 뒤 O<번호> 서브프로그램은 M98 P<번호> [L<반복>]로 호출된
+        자리에만 펼쳐져야 한다 — 호출되지 않은 서브프로그램(O9001)은 경로에
+        전혀 나오면 안 되고, L2 반복이면 본문이 두 번 그려져야 한다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        try:
+            source = """T0100
+G0 X100. Z5.
+G1 X100. Z0. F100
+M98 P9000 L2
+G1 X50. Z-5.
+M30
+
+O9000
+G1 Z-1.
+Z-2.
+M99
+
+O9001
+G1 Z-99.
+M99
+"""
+            viewer.set_source_text(source, {'T01': 'OD TURN'})
+            points = [entry['pt'] for entry in viewer.tool_paths[list(viewer.tool_paths)[0]]]
+
+            # 호출되지 않은 O9001(Z-99.)은 경로에 전혀 없어야 한다.
+            self.assertFalse(any(abs(pt[0] - (-99.0)) < 1e-6 for pt in points))
+            # O9000 본문(Z-1., Z-2.)은 L2 반복이므로 각각 두 번씩 나타나야 한다.
+            z_minus_1 = sum(1 for pt in points if abs(pt[0] - (-1.0)) < 1e-6 and abs(pt[2] - 50.0) < 1e-6)
+            z_minus_2 = sum(1 for pt in points if abs(pt[0] - (-2.0)) < 1e-6 and abs(pt[2] - 50.0) < 1e-6)
+            self.assertEqual(z_minus_1, 2)
+            self.assertEqual(z_minus_2, 2)
+            # 메인 프로그램으로 복귀한 뒤(M98 다음 줄)의 이동도 정상 반영돼야 한다.
+            self.assertTrue(any(abs(pt[0] - (-5.0)) < 1e-6 and abs(pt[2] - 25.0) < 1e-6 for pt in points))
+
+            # 원본 줄번호가 유지돼 커서 동기화가 깨지지 않는지 확인 — 서브
+            # 프로그램 본문 줄(Z-2.)의 좌표는 "마지막 실행"(두 번째 호출) 값이다.
+            lines = source.splitlines()
+            sub_line_idx = next(i for i, ln in enumerate(lines) if ln.strip() == 'Z-2.')
+            last_pt = viewer.line_to_coord_map.get(sub_line_idx)
+            self.assertIsNotNone(last_pt)
+            self.assertAlmostEqual(last_pt[0], -2.0, places=6)
+            self.assertAlmostEqual(last_pt[2], 50.0, places=6)
+        finally:
+            self._restore(viewer, original, qapp)
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_c_axis_simulation_keeps_tool_fixed_at_plus_x_center(self):
+        """v1.6.6: 커서가 C!=0인 줄에 있을 때 커서 구는 회전 성분이 빠진
+        위치(+X 센터, 월드 Y=0)에 고정되고, 동적 트레이스 아이템에는 그
+        C를 상쇄하는 반대 회전이 걸려야 한다. 정적 전체 경로(plot_items)는
+        항목5 요구대로 손대지 않아야 한다(항등 변환 유지)."""
+        from PyQt5.QtGui import QVector3D, QMatrix4x4
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        try:
+            source = """T0100
+G00 X100. Z5.
+G01 X100. Z-10.
+C90.
+G01 X80. Z-10.
+"""
+            viewer.set_source_text(source, {'T01': 'OD TURN'})
+            lines = source.splitlines()
+            target_idx = next(i for i, ln in enumerate(lines) if ln.strip() == 'G01 X80. Z-10.')
+            viewer.set_cursor_line(target_idx)
+
+            # 커서 구: 반경40(X80/2), C=90 회전이 상쇄돼 월드 Y=0, 월드 Z=40에 있어야 한다.
+            sphere_pos = viewer.cursor_sphere.transform().map(QVector3D(0.0, 0.0, 0.0))
+            self.assertAlmostEqual(sphere_pos.x(), -10.0, places=5)
+            self.assertAlmostEqual(sphere_pos.y(), 0.0, places=5)
+            self.assertAlmostEqual(sphere_pos.z(), 40.0, places=5)
+
+            # 동적 트레이스 아이템에는 C=90도를 상쇄하는 회전이 걸려 있어야 한다.
+            expected = QMatrix4x4()
+            expected.rotate(90.0, 1, 0, 0)
+            visible_traces = [item for item in viewer.dynamic_trace_items if item.visible()]
+            self.assertTrue(visible_traces)
+            for item in visible_traces:
+                self.assertEqual(item.transform(), expected)
+
+            # 정적 전체 경로는 항목5 요구대로 항등 변환 그대로여야 한다.
+            for items in viewer.plot_items.values():
+                for item in items:
+                    self.assertEqual(item.transform(), QMatrix4x4())
+        finally:
+            self._restore(viewer, original, qapp)
+
     @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
     def test_lathe_projection_buttons_and_axis_labels_switch_and_restore(self):
         qapp = app.QApplication.instance() or app.QApplication([])
@@ -2891,6 +3086,32 @@ G02 X20. Y10. R10.
             self._restore(viewer, original, qapp)
 
     @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_view_cube_hidden_in_iso_too(self):
+        """v1.6.6 항목6: 선반 시뮬레이션은 ISO/선반 두 각도로만 봐야 하므로,
+        뷰 큐브를 클릭해 임의 각도로 새는 걸 막는다 — "선반" 뷰뿐 아니라
+        선반 ISO에서도 숨겨야 한다. 밀링은 항상 보여야 한다(회귀 없음)."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        try:
+            # 뷰가 실제로 화면에 show()되지 않은 헤드리스 테스트라 isVisible()은
+            # 부모 체인에 좌우된다 — setVisible() 자체로 걸린 의도된 상태는
+            # isHidden()으로 확인한다.
+            viewer.set_source_text(self.LATHE_SOURCE, {'T01': 'OD TURN'})
+            viewer.set_camera_projection('LATHE')
+            self.assertTrue(viewer.view_cube.isHidden())
+            viewer.set_camera_projection('ISO')
+            self.assertTrue(viewer.view_cube.isHidden(), '선반 ISO에서도 뷰 큐브는 숨겨야 한다')
+
+            mill_name = next(
+                name for name in viewer.machine_types() if not app.is_lathe_machine(name)
+            )
+            viewer.set_machine_type(mill_name)
+            viewer.set_camera_projection('ISO')
+            self.assertFalse(viewer.view_cube.isHidden(), '밀링에서는 뷰 큐브가 그대로 보여야 한다')
+        finally:
+            self._restore(viewer, original, qapp)
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
     def test_lathe_mode_moves_coord_overlay_above_playback_bar(self):
         """요청: 선반 뷰일 때 좌표 표시를 하단(재생 속도바 바로 위)으로."""
         qapp = app.QApplication.instance() or app.QApplication([])
@@ -2971,7 +3192,24 @@ M1
         self.assertEqual(by_no['T0101']['REMARK'], 'N2, N3')
         self.assertIn('T0111', by_no, 'T0101과 T0111은 별도 행으로 남아야 한다')
         self.assertNotEqual(by_no['T0101']['INSERT'], by_no['T0111']['INSERT'])
-        self.assertEqual([row['NO'] for row in rows], ['T0606', 'T0101', 'T0111'])
+
+    def test_lathe_parse_program_sorts_by_tool_number_with_blank_gaps(self):
+        """v1.6.6: MCT와 동일하게 공정(N블록) 순서가 아니라 공구번호 순으로
+        정렬하고, 중간에 쓰이지 않은 공구번호는 빈 행으로 남긴다 — 같은
+        공구번호 안에서는 옵셋 오름차순(T0101 -> T0111), T0101/T0111은
+        여전히 별도 행(승인된 규약)."""
+        rows = app.parse_lathe_program(self.LATHE_TOOLLIST_SOURCE)
+        # 프로그램에 등장하는 공구번호는 01(T0101/T0111)과 06(T0606)뿐이라
+        # 02~05가 빈 행으로 채워져야 한다.
+        self.assertEqual(
+            [row['NO'] for row in rows],
+            ['T0101', 'T0111', '', '', '', '', 'T0606'],
+        )
+        for row in rows:
+            if row['NO'] == '':
+                self.assertEqual(row['INSERT'], '')
+                self.assertEqual(row['HOLDER'], '')
+                self.assertEqual(row['REMARK'], '')
 
     def test_lathe_tool_name_map_uses_insert_keyed_by_tool_number(self):
         """요청: 3D 뷰어 필터 라벨에도 공구 이름 대신 인서트를 넣는다."""
