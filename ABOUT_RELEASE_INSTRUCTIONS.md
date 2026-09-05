@@ -34,7 +34,96 @@ Last updated: 2026-09-05 (v1.6.3)
 
 ## Version history
 
-### 2026-09-05 (latest, v1.6.3)
+### 2026-09-05 (latest, v1.6.4)
+
+- Version: 1.6.4
+- Release/build date: 2026-09-05 (사용자 승인 후 설치본·포터블 패키지 생성 완료)
+- Summary: 사용자 요청 3건.
+  1. **PDF 출력 방식 변경**: 툴 리스트 PDF를 낼 때 저장 위치를 묻지 않는다. 임시 폴더에 만들어
+     곧바로 기본 PDF 프로그램으로 띄우고, 저장은 사용자가 그 뷰어에서 필요할 때만 하게 한다.
+  2. **CNC 선반(Lathe) 모드 개념 도입 — 기본 모드까지**. 새 문서 `LATHE_MODE_GUIDELINES.md`에
+     설계 지침을 먼저 못박았다. **최우선 규칙: 선반은 기존 밀링/MCT 장비 툴패스에 절대 영향을
+     주지 않는다.**
+  3. **선반 공구 교체 기준 `Tnn00`** (사용자가 별도로 지시·승인). 선반은 M6가 없고 옵셋 00인
+     T 워드가 공구 교체 지점이다.
+- Creator displayed: Hwang.seonmun
+- Open source used: Python, PyQt5, pyqtgraph, NumPy, PyOpenGL, ReportLab, PyInstaller, Inno Setup
+  (변경 없음 — 의존성 추가/제거 없음).
+- Details:
+  - **PDF 바로 열기(`NC_Tool_List.py`):** 새 `pdf_preview_dir()` / `pdf_preview_path(metadata, directory=None)`.
+    `%TEMP%\NC_Tool_List_PDF` 아래에 `default_pdf_filename()` 이름으로 파일을 만든다. 같은 이름의
+    PDF가 이미 뷰어에 열려 있어 지울 수 없으면(Windows 파일 잠김) `이름(1).pdf`, `이름(2).pdf` …로
+    최대 50회까지 새 이름을 찾는다. `App.export_pdf()`에서 `QFileDialog.getSaveFileName` 호출을
+    제거하고 이 경로로 바로 `save_pdf()`를 부른다. `save_pdf()`는 더 이상 "PDF 출력 완료" 안내창을
+    띄우지 않는다(저장한 게 아니므로) — 생성 실패/열기 실패 시에만 메시지를 보여준다. 도움말
+    문구도 "PDF 출력(기본 PDF 프로그램으로 바로 열림)"으로 갱신.
+  - **선반 좌표계(`nc_viewer_widget.py`):** 새 모듈 함수 `is_lathe_machine()`, `lathe_world_point(z, x_diameter, c_deg)`.
+    선반은 축을 스왑해 월드에 올린다 — **기계 Z -> 월드 X(화면 수평), 기계 X 반경 -> 월드 Z(화면 수직)**,
+    C축은 반경을 주축(월드 X) 둘레로 회전시킨 성분(월드 Y). **X 워드는 지름이므로 반경 = X / 2**로
+    환산한다(X20 -> 실제 반경 10). `process_nc_lines()`의 선반 분기에서 `cx`가 이제 지름 값을 그대로
+    들고 있고, 월드로 내릴 때만 `lathe_world_point()`를 거친다. 좌표 오버레이(X~C)는 프로그램에
+    적힌 지령값을 그대로 보여주므로 X는 여전히 지름으로 표시된다.
+  - **선반 원호(`nc_viewer_widget.py`):** `ARC_PLANE_AXES`에 **새 키** `"LATHE": (0, 2, 1, "k", "i")`를
+    추가했다(기존 G17/G18/G19 항목은 손대지 않음 — 밀링 무영향). 선반 G02/G03은 이 평면으로 보간하며,
+    시작/끝점이 이미 반경 공간이라 지름 개념이 원호에도 반영되고, I(X 방향 중심 오프셋)와 R은 선반
+    관례대로 **반경 값**이므로 다시 절반으로 나누지 않는다. (u=월드 X, v=월드 Z) 배치라 기존 보간
+    루틴의 G02 규약이 선반 뷰에서도 그대로 시계 방향이 된다.
+  - **선반 전용 G28 / 고정 사이클(`nc_viewer_widget.py`):** 두 곳 모두 선반 전용 분기를 앞에 두고
+    `continue` 하도록 분리했고, 뒤따르는 밀링 블록의 조건은 `(g43_active or is_lathe)` -> `g43_active`로
+    바꿨다(밀링에서는 `is_lathe`가 항상 False라 동작은 동일, 의도만 명시적으로). 선반 사이클은
+    밀링처럼 수직 Z로 내려가지 않고 **주축 방향(기계 Z)으로** R점 -> 최종 깊이로 움직인다.
+  - **선반 전용 투영(`nc_viewer_widget.py`):** `_VIEW_PROJECTIONS`에 `"LATHE": (0, -90)` 추가 — 월드 XZ
+    평면 정면 뷰라 화면에서 기계 Z가 수평, 기계 X(지름)가 수직으로 보인다. `ProjectionOverlayWidget`을
+    버튼 목록 교체형으로 리팩터링(`MILL_BUTTONS` / `LATHE_BUTTONS`, `_rebuild_buttons()`, `set_lathe_mode()`,
+    `button_labels()`). 선반 모드에서는 XY/XZ/YZ 대신 **ISO(축이 바뀐 상태) + 선반** 2개만 노출한다.
+  - **투영 오버레이 찌그러짐 버그 수정(`nc_viewer_widget.py`):** 실제 앱을 띄워 장비를 선반으로 바꿨더니
+    오버레이가 라벨 폭(40x20)까지 줄어들고 버튼이 2px 폭으로 잘려 보였다. 원인은 **이미 화면에 떠 있는
+    오버레이의 레이아웃에 나중에 끼워 넣은 위젯이 숨김 상태로 들어와, 레이아웃 크기 계산에서 아예
+    빠지는 것**이었다(단위 테스트에서는 위젯을 띄우지 않아 드러나지 않았다). `_rebuild_buttons()`가
+    새 버튼을 `ensurePolished()` 후 `show()` 하고, 새 `_fit_to_contents()`가 레이아웃 캐시를 무효화한 뒤
+    `QApplication.sendPostedEvents(self, QEvent.LayoutRequest)`로 보류 중인 레이아웃 갱신을 동기로
+    흘려보내고 크기를 다시 잡은 다음 부모의 `_reposition_top_left()`로 위치까지 맞춘다.
+  - **선반 공구 교체 기준 `Tnn00`(사용자 승인, `NC_Tool_List.py` + `nc_viewer_widget.py`):** 선반은 M6가
+    없고 **`Tnn00`(옵셋 00)이 공구 교체 지점**이다. T 뒤 네 자리 중 앞 두 자리가 공구 번호, 뒤 두 자리가
+    옵셋 번호이며, `T0101`처럼 옵셋이 살아 있는 블록은 교체가 아니고 `T0000`은 옵셋 취소라 제외한다
+    (`LATHE_T_RE = r'T(?!0000)(\d{2})00(?!\d)'`). 적용 지점 3곳: ① `parse_program(text, name_types, lathe=False)`이
+    선반일 때 주석을 걷어낸(`code_without_comments`) 코드에서 `Tnn00`을 찾아 공구 블록을 끊는다,
+    ② 뷰어 `process_nc_lines()`의 공정 분리가 선반에서 `M6` 대신 `Tnn00`을 본다(밀링의 `M6 Tnn` 분기는
+    그대로 두고 `if is_lathe / else`로 완전히 갈랐다), ③ `find_next_tool_change_span(text, start, lathe=False)`
+    ('다음공구검색')도 선반에서 `Tnn00`만 짚고, 없을 때 안내 문구가 "Tnn00 항목 없음"으로 바뀐다.
+    `App.is_lathe_program()`이 장비 콤보를 보고 이 플래그를 넘기며, 장비를 바꾸면 같은 원문이라도
+    다시 파싱하도록 파싱 캐시 키에 `_last_parsed_lathe`를 추가했다. 뷰어 의존성 없이도 툴 리스트가
+    동작해야 하므로 `is_lathe_machine()`은 `NC_Tool_List.py`에도 따로 둔다.
+  - **선반 축 화살표 라벨(`nc_viewer_widget.py`):** 새 `_LATHE_AXIS_LABELS = ("Z", "C", "X")`와
+    `is_lathe_mode()` / `current_axis_labels()`. `set_machine_type()`이 새 `_apply_lathe_mode_ui()`를 불러
+    장비를 바꿀 때마다 투영 버튼과 축 문자를 갱신하고, 선반 최초 진입 시 카메라를 `"XZ"`가 아니라
+    `"LATHE"` 프리셋으로 맞춘다. 밀링으로 되돌리면 전부 원상복구된다.
+- Verification: `pytest tests/test_nc_tool_list.py` **113/113 통과** (기존 98개 전부 유지 + v1.6.4 신규 15개:
+  `Tnn00` 정규식이 T0101/T0000/T012345/M6T1을 걸러내는지, 선반 `parse_program`이 Tnn00으로 공구를
+  끊는지(같은 원문을 밀링 기준으로 읽으면 0개), '다음공구검색'이 선반에서 Tnn00만 짚는지,
+  밀링의 M6 Tnn 인식이 그대로인지, 뷰어 공정 분리가 Tnn00에서만 갈라지는지,
+  `lathe_world_point` 지름/축스왑/C축, 선반 경로 반경 환산, 선반 원호 R 정확도 + G02 시계방향,
+  선반 투영버튼·축라벨 전환/복구, **선반을 거쳤다 돌아와도 밀링 툴패스가 완전히 동일한지**,
+  투영 오버레이가 버튼 교체 후에도 찌그러지지 않는지(위 버그 회귀 고정 — 수정을 되돌리면 20 != 30으로
+  실패하는 것을 확인했다), PDF 임시 경로 이름/재사용/잠김 시 폴백, `export_pdf`에 저장 다이얼로그가 없는지).
+  또한 **실제 앱 창(1600x950)을 띄워** 선반 프로그램을 넣고 Viewer 모드 -> 장비 콤보에서 "2축 선반" 선택 ->
+  투영 "선반"/"ISO" 버튼을 실제로 클릭하는 사용자 경로 그대로 구동해 스크린샷으로 확인했다.
+  선반 샘플(`G00 X100. Z5.` / `G01 X100. Z-20.` / `G02 X60. Z-40. R20.` / `G01 X20. Z-40.`)을 오프스크린으로
+  돌려 X100 -> 월드 (5, 0, 50), 원호 12점이 중심 (-40, 50)에서 반지름 20.000000을 유지하고 각도가
+  단조 감소(선반 뷰 기준 시계 방향)하는 것을 확인했다.
+- Installer/package: **생성 완료** (사용자 승인 후 빌드).
+  - `python -m PyInstaller --noconfirm --clean NC_Tool_List.spec` — onedir, UPX 비활성(보안 프로그램 오탐 회피),
+    `dist\NC_Tool_List` 145.0 MB, `_internal` 포함.
+  - `ISCC.exe NC_Tool_List.iss` (Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.6.4.exe` 45.2 MB,
+    설치 경로 `C:\NC_Tool_List`, `.nc`/`.mpf`/`.tap` 파일 연결 등록 포함.
+  - 포터블: `installer\NC_Tool_List_Portable_v1.6.4.zip` 62.4 MB (dist 내용물을 zip 루트에 담는 기존 구조,
+    311개 항목으로 v1.6.3과 동일).
+  - 빌드 검증: 프리즈된 `NC_Tool_List.exe`의 파일/제품 버전이 `1.6.4.0`으로 찍히고, 실제로 실행해
+    `startup.log`에 트레이스백 없이 `Starting Sum Path v1.6.4 frozen=True`가 남는 것을 확인한 뒤 종료했다.
+    설치 프로그램 자체의 VersionInfo도 1.6.4 / NC Tool List / S M.HWANG으로 확인했다.
+  - 산출물은 저장소의 `installer\` 폴더(gitignore 대상이라 커밋되지 않음)에 둔다.
+
+### 2026-09-05 (v1.6.3)
 
 - Version: 1.6.3
 - Release/build date: 2026-09-05

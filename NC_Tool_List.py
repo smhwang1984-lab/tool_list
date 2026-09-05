@@ -26,7 +26,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
 
-APP_VERSION = '1.6.3'
+APP_VERSION = '1.6.4'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-09-05'
 APP_CREATOR = 'Hwang.seonmun'
@@ -119,6 +119,30 @@ TOOL_RE = re.compile(r'\(\s*T(\d+)\s*//\s*(.*?)\s*\[SO\s*([\d.]+)\]\s*//\s*T\d+\
 N_RE    = re.compile(r'^\s*N(\d+)\s*\(\s*#\d+\s*:\s*Tool\s*Change', re.I)
 M6_RE   = re.compile(r'^\s*M0?6\s*T0*(\d+)\b', re.I)
 M6_SEARCH_RE = re.compile(r'^\s*M0?6\s*T0*\d+\b', re.I | re.M)
+
+# ---------- 선반(Lathe) 전용 ----------
+# 선반은 밀링과 달리 M6가 없고, 툴체인지 기준이 **Tnn00**이다(v1.6.4).
+# T 뒤 네 자리에서 앞 두 자리가 공구 번호, 뒤 두 자리가 옵셋 번호이며,
+# 옵셋이 00인 블록이 공구 교체 지점이다. T0101처럼 옵셋이 살아 있는 블록은
+# 교체가 아니고, T0000은 공구 교체가 아니라 옵셋 취소이므로 제외한다.
+# 자세한 규약은 LATHE_MODE_GUIDELINES.md 참고.
+LATHE_MACHINE_KEYWORD = '선반'
+LATHE_T_RE = re.compile(r'T(?!0000)(\d{2})00(?!\d)', re.I)
+LATHE_T_SEARCH_RE = re.compile(r'T(?!0000)\d{2}00(?!\d)', re.I | re.M)
+NC_COMMENT_RE = re.compile(r'\([^)]*\)')
+
+
+def is_lathe_machine(machine_type):
+    """장비 이름으로 선반 여부를 판정한다.
+
+    뷰어(nc_viewer_widget)에도 같은 판정이 있지만, 뷰어 의존성(PyQt/OpenGL)이
+    없어도 툴 리스트 산출은 동작해야 하므로 여기서 따로 들고 있는다."""
+    return LATHE_MACHINE_KEYWORD in str(machine_type or '')
+
+
+def code_without_comments(line):
+    """괄호 주석을 걷어낸 코드 부분만 돌려준다(선반 T 워드 판정용)."""
+    return NC_COMMENT_RE.sub(' ', line or '')
 M00_STOP_RE = re.compile(r'M0?0(?!\d)', re.I)
 M01_STOP_RE = re.compile(r'M0?1(?!\d)', re.I)
 MAX_PLAYBACK_SPEED = 5000
@@ -364,6 +388,36 @@ def default_pdf_filename(metadata):
     return (stem or 'NC') + '_TOOL_LIST.pdf'
 
 
+PDF_TEMP_DIR_NAME = 'NC_Tool_List_PDF'
+PDF_TEMP_MAX_ATTEMPTS = 50
+
+
+def pdf_preview_dir():
+    """v1.6.4: 바로 보기용 PDF를 모아 두는 임시 폴더."""
+    return Path(tempfile.gettempdir()) / PDF_TEMP_DIR_NAME
+
+
+def pdf_preview_path(metadata, directory=None):
+    """v1.6.4: 저장 위치를 묻지 않고 바로 기본 PDF 프로그램으로 띄우기 위한
+    임시 파일 경로를 만든다.
+
+    같은 이름의 PDF가 이미 뷰어에 열려 있으면 덮어쓸 수 없으므로(Windows에서
+    잠김), 지울 수 없는 파일이면 뒤에 (1), (2)... 를 붙여 새 이름을 찾는다."""
+    directory = Path(directory) if directory is not None else pdf_preview_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    base = Path(default_pdf_filename(metadata))
+    candidate = directory / base.name
+    for index in range(1, PDF_TEMP_MAX_ATTEMPTS + 1):
+        if not candidate.exists():
+            return candidate
+        try:
+            candidate.unlink()
+            return candidate
+        except OSError:
+            candidate = directory / ('%s(%d)%s' % (base.stem, index, base.suffix))
+    return candidate
+
+
 def find_next_regex_span(text, pattern, start=0):
     text = text or ''
     if not text:
@@ -382,8 +436,11 @@ def find_next_regex_span(text, pattern, start=0):
     return None
 
 
-def find_next_tool_change_span(text, start=0):
-    return find_next_regex_span(text, M6_SEARCH_RE, start)
+def find_next_tool_change_span(text, start=0, lathe=False):
+    """'다음공구검색'이 찾을 다음 공구 교체 지점. 선반은 Tnn00 기준이다."""
+    return find_next_regex_span(
+        text, LATHE_T_SEARCH_RE if lathe else M6_SEARCH_RE, start
+    )
 
 
 def _stop_scan_code(line):
@@ -716,8 +773,11 @@ def derive_d(name):
     return m.group(1) if m else ''
 
 
-def parse_program(text, name_types=None):
-    """N번호 ~ M6 사이의 괄호 주석만 읽어서 공구별로 정리해 행 목록 반환"""
+def parse_program(text, name_types=None, lathe=False):
+    """N번호 ~ 공구 교체 사이의 괄호 주석만 읽어서 공구별로 정리해 행 목록 반환.
+
+    공구 교체 지점은 장비에 따라 다르다 — 밀링/MCT는 `M6 Tnn`, 선반은
+    `Tnn00`(옵셋 00)이다. lathe=False면 기존 밀링 동작 그대로다."""
     tools = {}          # 공구번호 -> {'f': {필드}, 'remarks': [...]}
     cur_n = [None]      # 리스트로 감싸 클로저에서 갱신값 참조
     buf = []
@@ -747,11 +807,21 @@ def parse_program(text, name_types=None):
             cur_n[0] = 'N' + m.group(1)
             buf = []
             continue
-        m = M6_RE.match(line)
-        if m:
-            flush(int(m.group(1)))
-            buf = []
-            continue
+        if lathe:
+            # 선반은 M6가 없고 Tnn00이 공구 교체 지점이다. T 워드가 블록
+            # 어디에 있어도 되므로(예: "N1 G50 S2500 T0100 M08") 주석을
+            # 걷어낸 코드 부분에서 찾는다.
+            m = LATHE_T_RE.search(code_without_comments(line))
+            if m:
+                flush(int(m.group(1)))
+                buf = []
+                continue
+        else:
+            m = M6_RE.match(line)
+            if m:
+                flush(int(m.group(1)))
+                buf = []
+                continue
         if '(' in line:
             buf.append(line)
 
@@ -1062,6 +1132,7 @@ else:
             self.current_file_path = None
             self.current_mode = 'tool'
             self._last_parsed_source = None
+            self._last_parsed_lathe = False
             self._last_parsed_rows = []
             self._last_parsed_metadata = {key: '' for key in METADATA_ALIASES}
             self.viewer_update_timer = QTimer(self)
@@ -1560,7 +1631,7 @@ else:
             '  탐색기에서 연결된 확장자(.nc/.mpf/.tap) 파일을 더블클릭해도 바로 열립니다.\n'
             '\n'
             '■ 검색\n'
-            '  다음공구검색: M6T 공구 교체 지점을 순서대로 찾습니다.\n'
+            '  다음공구검색: 공구 교체 지점을 순서대로 찾습니다(밀링 M6T, 선반 Tnn00).\n'
             '  문자 검색: 입력한 문자열이 있는 다음 줄을 찾습니다(끝까지 가면 처음부터 재검색).\n'
             '\n'
             '■ 장비 타입 및 스펙 설정\n'
@@ -1569,7 +1640,7 @@ else:
             '■ 공구 리스트\n'
             '  행을 더블클릭하면 바로 수정할 수 있습니다.\n'
             '  삭제 / 수정 / ＋ 행 추가 / 이름 경우의 수(이름→TYPE 변환표 편집) / 머리글 포함 /\n'
-            '  PDF 출력 / 표 복사(엑셀에 Ctrl+V로 붙여넣기).\n'
+            '  PDF 출력(기본 PDF 프로그램으로 바로 열림) / 표 복사(엑셀에 Ctrl+V로 붙여넣기).\n'
             '\n'
             '■ 3D 뷰어 조작\n'
             '  좌클릭 드래그: 카메라 회전 / 휠: 확대·축소\n'
@@ -2012,7 +2083,7 @@ else:
             self.table.doubleClicked.connect(lambda _index: self.edit_selected())
             layout.addWidget(self.table, 1)
 
-            self.tool_panel_hint = QLabel('행을 더블클릭하거나 수정/추가 버튼으로 직접 편집할 수 있습니다. (N번호 ~ M6 사이 괄호 주석을 읽음)')
+            self.tool_panel_hint = QLabel('행을 더블클릭하거나 수정/추가 버튼으로 직접 편집할 수 있습니다. (N번호 ~ 공구 교체 사이 괄호 주석을 읽음 / 밀링 M6T, 선반 Tnn00)')
             self._style_faint(self.tool_panel_hint)
             layout.addWidget(self.tool_panel_hint)
             self.stack.addWidget(panel)
@@ -2256,12 +2327,24 @@ else:
             selection.cursor.clearSelection()
             self.src.setExtraSelections([selection])
 
+        def is_lathe_program(self):
+            """현재 선택된 장비가 선반인가. 공구 교체 기준(M6 Tnn / Tnn00)이
+            갈리므로 파싱과 '다음공구검색'이 이 값을 본다(v1.6.4)."""
+            combo = getattr(self, 'machine_type_combo', None)
+            if combo is not None:
+                return is_lathe_machine(combo.currentText())
+            return is_lathe_machine(getattr(self, 'current_machine_type', ''))
+
         def parsed_program_data(self, source_text=None):
             source_text = self.src.toPlainText() if source_text is None else source_text
-            if source_text != self._last_parsed_source:
+            lathe = self.is_lathe_program()
+            # 장비를 바꾸면 같은 원문이라도 공구 교체 기준이 달라지므로
+            # 캐시 키에 선반 여부도 함께 넣는다.
+            if source_text != self._last_parsed_source or lathe != self._last_parsed_lathe:
                 self._last_parsed_source = source_text
+                self._last_parsed_lathe = lathe
                 self._last_parsed_metadata = parse_program_metadata(source_text)
-                self._last_parsed_rows = parse_program(source_text, self.name_types)
+                self._last_parsed_rows = parse_program(source_text, self.name_types, lathe=lathe)
             return self._last_parsed_metadata, list(self._last_parsed_rows)
 
         def invalidate_parse_cache(self):
@@ -2306,9 +2389,12 @@ else:
             self.search_status.setStyleSheet('color: %s;' % color)
 
         def find_next_tool_change(self):
-            result = find_next_tool_change_span(self.src.toPlainText(), self.source_cursor_offset())
+            lathe = self.is_lathe_program()
+            result = find_next_tool_change_span(
+                self.src.toPlainText(), self.source_cursor_offset(), lathe=lathe
+            )
             if not result:
-                self.set_search_status('M6T 항목 없음', True)
+                self.set_search_status('Tnn00 항목 없음' if lathe else 'M6T 항목 없음', True)
                 self.src.setFocus()
                 return
             start, end, wrapped = result
@@ -2675,14 +2761,10 @@ else:
             if not rows:
                 QMessageBox.information(self, '알림', '먼저 공구 리스트를 생성하세요.')
                 return
-            path, _filter = QFileDialog.getSaveFileName(
-                self,
-                '공구 리스트 PDF 저장',
-                default_pdf_filename(self.metadata),
-                'PDF 파일 (*.pdf)',
-            )
-            if path:
-                self.save_pdf(path, rows)
+            # v1.6.4: 저장 위치를 묻지 않는다. 임시 폴더에 만든 뒤 곧바로
+            # 기본 PDF 프로그램으로 띄우고, 저장은 사용자가 그 프로그램에서
+            # 필요할 때만 하도록 한다.
+            self.save_pdf(pdf_preview_path(self.metadata), rows)
 
         def save_pdf(self, path, rows):
             try:
@@ -2694,10 +2776,9 @@ else:
             if open_error:
                 QMessageBox.warning(
                     self, 'PDF 열기 실패',
-                    'PDF 파일은 저장했지만 자동으로 열지 못했습니다.\n%s\n%s' % (path, open_error),
+                    'PDF를 만들었지만 기본 프로그램으로 열지 못했습니다.\n%s\n%s'
+                    % (path, open_error),
                 )
-                return
-            QMessageBox.information(self, 'PDF 출력 완료', 'PDF 파일을 저장하고 열었습니다.\n' + path)
 
         def current_rows(self):
             rows = []

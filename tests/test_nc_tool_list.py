@@ -1,3 +1,4 @@
+import inspect
 import math
 import os
 import re
@@ -2487,6 +2488,358 @@ G02 X0 Y10 I-10 J0
             window.deleteLater()
             settings_dir.cleanup()
             qapp.processEvents()
+
+
+class LatheModeTests(unittest.TestCase):
+    """v1.6.4 선반 모드. LATHE_MODE_GUIDELINES.md의 규약을 검증한다.
+
+    선반 관련 테스트는 장비 선택이 QSettings에 저장되므로, 반드시 원래
+    장비로 되돌려 다른 테스트(밀링)가 영향을 받지 않게 한다."""
+
+    # 선반은 M6가 없다 — Tnn00(옵셋 00)이 공구 교체 지점이다.
+    LATHE_SOURCE = """T0100
+G00 X100. Z5.
+G01 X100. Z-20. F0.2
+G02 X60. Z-40. R20.
+G01 X20. Z-40.
+"""
+
+    def _lathe_viewer(self, qapp):
+        from nc_viewer_widget import NCViewerWidget, is_lathe_machine
+
+        viewer = NCViewerWidget()
+        original = viewer.current_machine_type
+        lathe_name = next(
+            name for name in viewer.machine_types() if is_lathe_machine(name)
+        )
+        viewer.set_machine_type(lathe_name)
+        return viewer, original
+
+    def _restore(self, viewer, original, qapp):
+        try:
+            viewer.set_machine_type(original)
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    def test_lathe_world_point_halves_diameter_and_swaps_axes(self):
+        from nc_viewer_widget import is_lathe_machine, lathe_world_point
+
+        # X는 지름이므로 X20이면 실제로는 반경 10만 움직인다.
+        self.assertEqual(lathe_world_point(-5.0, 20.0), [-5.0, 0.0, 10.0])
+        # 기계 Z -> 월드 X(수평), 기계 X 반경 -> 월드 Z(수직)로 스왑된다.
+        point = lathe_world_point(-40.0, 100.0)
+        self.assertEqual(point[0], -40.0)
+        self.assertEqual(point[2], 50.0)
+        # C축이 있으면 반경이 주축(월드 X) 둘레로 돈다.
+        rotated = lathe_world_point(0.0, 20.0, 90.0)
+        self.assertAlmostEqual(rotated[1], 10.0, places=6)
+        self.assertAlmostEqual(rotated[2], 0.0, places=6)
+
+        self.assertTrue(is_lathe_machine('2축 선반 (X Z 평면, X 2배)'))
+        self.assertFalse(is_lathe_machine('3축 MCT (X Y Z)'))
+        self.assertFalse(is_lathe_machine(None))
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_path_uses_radius_and_swapped_axes(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        try:
+            self.assertTrue(viewer.set_source_text(self.LATHE_SOURCE, {'T01': 'OD TURN'}))
+            points = viewer.tool_paths[list(viewer.tool_paths)[0]]
+            # G00 X100. Z5. -> 월드 (Z=5, 0, 반경 50)
+            self.assertEqual([round(v, 6) for v in points[1]['pt']], [5.0, 0.0, 50.0])
+            # 마지막 G01 X20. Z-40. -> 반경 10
+            self.assertEqual([round(v, 6) for v in points[-1]['pt']], [-40.0, 0.0, 10.0])
+        finally:
+            self._restore(viewer, original, qapp)
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_arc_radius_is_exact_and_g02_is_clockwise_on_lathe_view(self):
+        """R로 연결한 원호가 반경 공간에서 정확히 R을 유지해야 한다(지침 2항),
+        그리고 선반 뷰(Z 오른쪽, X 위)에서 G02가 시계 방향이어야 한다(지침 4항)."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        try:
+            viewer.set_source_text(self.LATHE_SOURCE, {'T01': 'OD TURN'})
+            points = viewer.tool_paths[list(viewer.tool_paths)[0]]
+            arc = [entry['pt'] for entry in points if entry['type'] == 'G02']
+            self.assertGreater(len(arc), 2)
+            # 끝점은 지령값에 정확히 붙는다(X60 -> 반경 30, Z-40).
+            self.assertEqual([round(v, 6) for v in arc[-1]], [-40.0, 0.0, 30.0])
+            # (-20, 50) -> (-40, 30) 을 R20으로 잇는 소원호의 중심은 (-40, 50).
+            center_u, center_v = -40.0, 50.0
+            for point in arc:
+                radius = math.hypot(point[0] - center_u, point[2] - center_v)
+                self.assertAlmostEqual(radius, 20.0, places=6)
+            # 화면상 (u=월드 X, v=월드 Z)에서 각도가 줄어들면 시계 방향이다.
+            angles = [math.atan2(p[2] - center_v, p[0] - center_u) for p in arc]
+            for previous, current in zip(angles, angles[1:]):
+                self.assertLess(current, previous)
+        finally:
+            self._restore(viewer, original, qapp)
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_projection_buttons_and_axis_labels_switch_and_restore(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        from nc_viewer_widget import is_lathe_machine
+
+        viewer, original = self._lathe_viewer(qapp)
+        try:
+            # 선반: ISO(축이 바뀐 상태) + 선반 평면 투영만 노출한다.
+            self.assertEqual(viewer.projection_overlay.button_labels(), ['ISO', '선반'])
+            self.assertEqual(viewer.current_axis_labels(), ('Z', 'C', 'X'))
+            # 화살표 색도 글자를 따라간다 — 수평(월드 X)은 "Z"라 파랑,
+            # 수직(월드 Z)은 "X"라 빨강이어야 밀링과 헷갈리지 않는다.
+            lathe_colors = viewer.current_axis_colors()
+            self.assertGreater(lathe_colors[0][2], lathe_colors[0][0], '수평 축은 파랑')
+            self.assertGreater(lathe_colors[2][0], lathe_colors[2][2], '수직 축은 빨강')
+            viewer.set_camera_projection('LATHE')
+            self.assertEqual(viewer.gl_view.opts['elevation'], 0)
+            self.assertEqual(viewer.gl_view.opts['azimuth'], -90)
+
+            # 밀링으로 되돌리면 원래 4개 투영/축 문자로 복구된다.
+            mill_name = next(
+                name for name in viewer.machine_types() if not is_lathe_machine(name)
+            )
+            viewer.set_machine_type(mill_name)
+            self.assertEqual(
+                viewer.projection_overlay.button_labels(), ['ISO', 'XY', 'XZ', 'YZ']
+            )
+            self.assertEqual(viewer.current_axis_labels(), ('X', 'Y', 'Z'))
+            mill_colors = viewer.current_axis_colors()
+            self.assertGreater(mill_colors[0][0], mill_colors[0][2], '밀링 X는 다시 빨강')
+            self.assertGreater(mill_colors[2][2], mill_colors[2][0], '밀링 Z는 다시 파랑')
+        finally:
+            self._restore(viewer, original, qapp)
+
+    TWO_TOOL_LATHE_SOURCE = """%
+O2001
+(PART NO. : SHAFT-2001)
+N1(#1: Tool Change)
+ (T0101 // OD ROUGH [SO 40] // T01 CNMG120408 )
+G50 S2500 T0100 M08
+G00 X100. Z5.
+T0101
+G01 X100. Z-20. F0.25
+G00 X120. Z20. T0100
+N2(#2: Tool Change)
+ (T0303 // OD FINISH [SO 40] // T03 DNMG150404 )
+T0300
+G00 X40. Z5.
+T0303
+G01 X36. Z-30. F0.12
+G00 X120. Z20. T0000
+M30
+%
+"""
+
+    def test_lathe_tool_change_regex_matches_only_offset_zero(self):
+        """선반 툴체인지 기준은 Tnn00 — 옵셋이 살아 있는 T0101이나 옵셋 취소
+        T0000은 공구 교체가 아니다."""
+        matches = [
+            (text, app.LATHE_T_RE.search(text))
+            for text in ('T0100', 'T0300', 'G50 S2500 T0100 M08',
+                         'T0101', 'T0303', 'T0000', 'T012345', 'M6T1')
+        ]
+        found = {text: (m.group(1) if m else None) for text, m in matches}
+        self.assertEqual(found['T0100'], '01')
+        self.assertEqual(found['T0300'], '03')
+        self.assertEqual(found['G50 S2500 T0100 M08'], '01')
+        self.assertIsNone(found['T0101'], 'T0101은 옵셋이 살아 있어 교체가 아니다')
+        self.assertIsNone(found['T0303'])
+        self.assertIsNone(found['T0000'], 'T0000은 옵셋 취소이지 공구 교체가 아니다')
+        self.assertIsNone(found['T012345'], '네 자리를 넘는 T 워드는 잡지 않는다')
+        self.assertIsNone(found['M6T1'], '밀링식 M6T는 선반 기준에 안 걸린다')
+
+    def test_lathe_parse_program_uses_tnn00_as_tool_change(self):
+        rows = app.parse_program(self.TWO_TOOL_LATHE_SOURCE, lathe=True)
+        filled = [row for row in rows if row['NO']]
+        self.assertEqual([row['NO'] for row in filled], ['T01', 'T03'])
+        self.assertEqual([row['NAME'] for row in filled], ['OD ROUGH', 'OD FINISH'])
+        self.assertEqual([row['HOLDER'] for row in filled],
+                         ['CNMG120408', 'DNMG150404'])
+        self.assertEqual([row['REMARK'] for row in filled], ['N1', 'N2'])
+        # 같은 원문을 밀링 기준으로 읽으면 M6가 없으니 아무 공구도 못 찾는다 —
+        # 즉 선반 기준이 실제로 갈라져 동작한다는 뜻이다.
+        self.assertEqual(app.parse_program(self.TWO_TOOL_LATHE_SOURCE), [])
+
+    def test_lathe_tool_change_search_skips_offset_blocks(self):
+        """'다음공구검색'도 선반에서는 Tnn00만 짚는다."""
+        source = self.TWO_TOOL_LATHE_SOURCE
+        first = app.find_next_tool_change_span(source, 0, lathe=True)
+        self.assertIsNotNone(first)
+        self.assertEqual(source[first[0]:first[1]], 'T0100')
+        second = app.find_next_tool_change_span(source, first[1], lathe=True)
+        self.assertEqual(source[second[0]:second[1]], 'T0100')  # 공정 1 종료 블록
+        third = app.find_next_tool_change_span(source, second[1], lathe=True)
+        self.assertEqual(source[third[0]:third[1]], 'T0300')
+        # 밀링 기준으로는 이 원문에서 아무것도 못 찾는다.
+        self.assertIsNone(app.find_next_tool_change_span(source, 0))
+
+    def test_milling_tool_change_detection_is_untouched(self):
+        """지침 0항: 선반 규칙 추가가 밀링의 M6 Tnn 인식을 건드리면 안 된다."""
+        rows = app.parse_program(app.EXAMPLE)
+        self.assertEqual([row['NO'] for row in rows if row['NO']],
+                         ['T02', 'T03', 'T04', 'T05', 'T06'])
+        self.assertEqual(app.find_next_tool_change_span('M6 T2\nM06T01', 0), (0, 5, False))
+        # 밀링 프로그램에 우연히 Tnn00 형태가 있어도 밀링 기준은 반응하지 않는다.
+        self.assertIsNone(app.find_next_tool_change_span('G00 X0 T0100', 0))
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_viewer_splits_processes_on_tnn00(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        try:
+            viewer.set_source_text(
+                self.TWO_TOOL_LATHE_SOURCE, {'T01': 'OD ROUGH', 'T03': 'OD FINISH'}
+            )
+            keys = list(viewer.tool_paths)
+            # T0100 / T0100(공정1 복귀) / T0300 세 번 잡히지만, 경로가 없는
+            # 공정은 걸러지므로 실제로 그려지는 공정만 남는다.
+            tools = [viewer.process_tool_map[key] for key in keys]
+            self.assertIn('T01', tools)
+            self.assertIn('T03', tools)
+            # T0101/T0303(옵셋 블록)은 새 공정을 만들지 않는다.
+            self.assertLessEqual(len(keys), 3)
+            # 마지막 T0000은 공정을 만들지 않는다.
+            self.assertNotIn('T00', tools)
+        finally:
+            self._restore(viewer, original, qapp)
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_projection_overlay_is_not_squashed_when_buttons_are_swapped(self):
+        """v1.6.4 버그: 이미 화면에 떠 있는 오버레이의 버튼을 갈아 끼우면
+        새 버튼이 숨김 상태로 들어와 레이아웃 크기 계산에서 빠지는 바람에,
+        오버레이가 라벨 폭(40x20)까지 줄고 버튼이 2px 폭으로 잘려 보였다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        from nc_viewer_widget import ProjectionOverlayWidget
+
+        overlay = ProjectionOverlayWidget()
+        try:
+            overlay.show()
+            qapp.processEvents()
+            mill_height = overlay.height()
+            self.assertEqual(overlay.button_labels(), ['ISO', 'XY', 'XZ', 'YZ'])
+
+            overlay.set_lathe_mode(True)
+            # 이벤트 루프를 한 번도 돌리지 않은 시점에서 이미 올바른 크기여야 한다.
+            self.assertEqual(overlay.button_labels(), ['ISO', '선반'])
+            self.assertEqual(overlay.size(), overlay.sizeHint())
+            self.assertEqual(overlay.height(), mill_height)
+            for index in range(overlay._fixed_item_count, overlay._row.count()):
+                button = overlay._row.itemAt(index).widget()
+                self.assertGreater(
+                    button.width(), 20,
+                    '버튼 "%s"이 잘려 보인다(폭 %d)' % (button.text(), button.width()),
+                )
+
+            # 밀링으로 되돌려도 마찬가지다.
+            overlay.set_lathe_mode(False)
+            self.assertEqual(overlay.size(), overlay.sizeHint())
+            self.assertEqual(overlay.height(), mill_height)
+        finally:
+            overlay.close()
+            overlay.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_mode_does_not_change_milling_paths(self):
+        """지침 0항: 선반 변경이 기존 밀링 툴패스를 건드리면 안 된다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        from nc_viewer_widget import NCViewerWidget, is_lathe_machine
+
+        mill_source = """M6T1
+G43 H1
+G00 X0 Y0 Z0
+G01 X10. Y0 Z0
+G02 X20. Y10. R10.
+"""
+        viewer = NCViewerWidget()
+        original = viewer.current_machine_type
+        try:
+            mill_name = next(
+                name for name in viewer.machine_types() if not is_lathe_machine(name)
+            )
+            viewer.set_machine_type(mill_name)
+            viewer.set_source_text(mill_source, {'T01': 'FLAT E/M'})
+            before = [
+                (entry['type'], [round(v, 9) for v in entry['pt']])
+                for entry in viewer.tool_paths[list(viewer.tool_paths)[0]]
+            ]
+
+            # 선반을 한 번 거쳤다 돌아와도 밀링 결과가 완전히 동일해야 한다.
+            lathe_name = next(
+                name for name in viewer.machine_types() if is_lathe_machine(name)
+            )
+            viewer.set_machine_type(lathe_name)
+            viewer.set_source_text(self.LATHE_SOURCE, {'T01': 'OD TURN'})
+            viewer.set_machine_type(mill_name)
+            viewer.set_source_text(mill_source, {'T01': 'FLAT E/M'})
+            after = [
+                (entry['type'], [round(v, 9) for v in entry['pt']])
+                for entry in viewer.tool_paths[list(viewer.tool_paths)[0]]
+            ]
+            self.assertEqual(before, after)
+            # 밀링 좌표는 지름 절반 환산 없이 지령값 그대로여야 한다.
+            self.assertIn(('G01', [10.0, 0.0, 0.0]), after)
+        finally:
+            self._restore(viewer, original, qapp)
+
+
+class PdfDirectOpenTests(unittest.TestCase):
+    """v1.6.4: PDF 출력은 저장 위치를 묻지 않고 임시 파일로 만들어 기본
+    프로그램으로 바로 띄운다."""
+
+    def test_pdf_preview_path_is_temporary_and_named_from_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            metadata = {'part_no': 'K10M41017', 'operation': 'OP10', 'program': 'O1017'}
+            path = app.pdf_preview_path(metadata, directory=directory)
+            self.assertEqual(path.name, 'K10M41017_OP10_O1017_TOOL_LIST.pdf')
+            self.assertEqual(path.parent, Path(directory))
+            # 저장 다이얼로그를 거치지 않으므로 기본 임시 폴더 아래여야 한다.
+            self.assertEqual(
+                app.pdf_preview_dir().parent, Path(tempfile.gettempdir())
+            )
+
+    def test_pdf_preview_path_reuses_name_when_file_can_be_replaced(self):
+        with tempfile.TemporaryDirectory() as directory:
+            metadata = {'part_no': 'A', 'operation': '', 'program': ''}
+            first = app.pdf_preview_path(metadata, directory=directory)
+            first.write_bytes(b'%PDF-1.4')
+            second = app.pdf_preview_path(metadata, directory=directory)
+            self.assertEqual(first, second)
+            self.assertFalse(second.exists())
+
+    def test_pdf_preview_path_falls_back_when_file_is_locked(self):
+        """열려 있는 PDF는 Windows에서 지울 수 없으므로 새 이름을 찾아야 한다."""
+        with tempfile.TemporaryDirectory() as directory:
+            metadata = {'part_no': 'B', 'operation': '', 'program': ''}
+            locked = app.pdf_preview_path(metadata, directory=directory)
+            locked.write_bytes(b'%PDF-1.4')
+            original_unlink = Path.unlink
+
+            def refuse_unlink(self, *args, **kwargs):
+                if self == locked:
+                    raise OSError('file is open in another program')
+                return original_unlink(self, *args, **kwargs)
+
+            Path.unlink = refuse_unlink
+            try:
+                fallback = app.pdf_preview_path(metadata, directory=directory)
+            finally:
+                Path.unlink = original_unlink
+            self.assertNotEqual(fallback, locked)
+            self.assertEqual(fallback.name, 'B_TOOL_LIST(1).pdf')
+            self.assertTrue(locked.exists())
+
+    def test_export_pdf_opens_without_asking_for_a_save_location(self):
+        source = inspect.getsource(app.App.export_pdf)
+        self.assertNotIn('getSaveFileName', source)
+        self.assertIn('pdf_preview_path', source)
+        # 저장한 게 아니므로 "저장 완료" 안내창도 더 이상 띄우지 않는다.
+        self.assertNotIn('PDF 출력 완료', inspect.getsource(app.App.save_pdf))
+        self.assertIn('open_file_with_default_app', inspect.getsource(app.App.save_pdf))
 
 
 if __name__ == '__main__':
