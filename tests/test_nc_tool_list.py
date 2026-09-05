@@ -360,40 +360,62 @@ X60 Y10 Z0
             qapp.processEvents()
 
     @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
-    def test_tool_list_table_cells_and_font_scaled_1_6x(self):
-        """툴 리스트 표기 칸(열 폭)과 폰트가 기존 값의 1.6배로 커져야 한다
-        (v1.5.9 요청)."""
+    def test_tool_list_table_cells_and_font_scaled_1_6x_then_shrunk_15pct(self):
+        """툴 리스트 표기 칸(열 폭)과 폰트는 기존 값의 1.6배로 커졌다가
+        (v1.5.9), v1.6.2에서 요청대로 다시 15% 줄어야 한다(COPY_TABLE_SCALE)."""
         qapp = app.QApplication.instance() or app.QApplication([])
         settings_dir = tempfile.TemporaryDirectory()
         window = app.App(_root=settings_dir.name)
         try:
-            self.assertEqual(window.table.font().pointSize(), 14)
+            self.assertAlmostEqual(app.TABLE_FONT_PT, 14 * app.COPY_TABLE_SCALE)
+            self.assertAlmostEqual(window.table.font().pointSizeF(), app.TABLE_FONT_PT, places=3)
             for index, (key, _label) in enumerate(app.COLUMNS):
                 self.assertEqual(window.table.columnWidth(index), app.COL_WIDTH[key])
             # v1.6.0: 셀 좌우에 글자가 가려지지 않도록 폭을
-            # TABLE_CELL_PADDING_PX * 2만큼 추가로 넓혔다.
+            # TABLE_CELL_PADDING_PX * 2만큼 추가로 넓혔다(그 패딩 자체도
+            # v1.6.2에서 같은 비율로 줄었다).
             padding = app.TABLE_CELL_PADDING_PX * 2
-            self.assertEqual(app.COL_WIDTH['NO'], 72 + padding)
-            self.assertEqual(app.COL_WIDTH['HOLDER'], 192 + padding)
+            self.assertEqual(app.COL_WIDTH['NO'], round(72 * app.COPY_TABLE_SCALE) + padding)
+            self.assertEqual(app.COL_WIDTH['HOLDER'], round(192 * app.COPY_TABLE_SCALE) + padding)
         finally:
             window.deleteLater()
             settings_dir.cleanup()
             qapp.processEvents()
 
     @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
-    def test_dark_mode_button_and_icon_enlarged(self):
-        """다크/라이트 모드 토글 버튼과 아이콘 크기가 더 커져야 한다
-        (v1.5.9 요청, v1.6.1에서 아이콘 2배(52px)로 재확대)."""
-        from nc_viewer_widget import NCViewerWidget
+    def test_dark_mode_button_size_matches_v162_shrink(self):
+        """v1.6.1에서 52px로 키웠던 다크/라이트 토글 버튼·아이콘을, 1920x1080
+        실사용 피드백으로 v1.6.2에서 40% 줄인다(52 -> 31px)."""
+        from nc_viewer_widget import DARK_MODE_BUTTON_PX, NCViewerWidget
 
         qapp = app.QApplication.instance() or app.QApplication([])
         viewer = NCViewerWidget()
         try:
-            self.assertEqual(viewer.dark_mode_button.size().width(), 52)
-            self.assertEqual(viewer.dark_mode_button.size().height(), 52)
-            self.assertEqual(viewer.dark_mode_button.iconSize().width(), 52)
+            self.assertEqual(DARK_MODE_BUTTON_PX, 31)
+            self.assertEqual(viewer.dark_mode_button.size().width(), DARK_MODE_BUTTON_PX)
+            self.assertEqual(viewer.dark_mode_button.size().height(), DARK_MODE_BUTTON_PX)
+            self.assertEqual(viewer.dark_mode_button.iconSize().width(), DARK_MODE_BUTTON_PX)
         finally:
             viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_dark_mode_button_moves_to_app_top_bar(self):
+        """v1.6.2: 다크모드 버튼은 뷰어의 감도/큐브 바가 아니라 App 상단 바
+        (모드 전환 버튼들 뒤, 오른쪽 끝)에 있어야 한다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        window = app.App(_root=settings_dir.name)
+        try:
+            self.assertIs(window.btn_dark_mode, window.viewer.dark_mode_button)
+            self.assertIs(window.btn_dark_mode.parentWidget(), window.top_bar)
+            top_layout = window.top_bar.layout()
+            widgets = [top_layout.itemAt(i).widget() for i in range(top_layout.count())]
+            widgets = [w for w in widgets if w is not None]
+            self.assertIs(widgets[-1], window.btn_dark_mode)
+        finally:
+            window.deleteLater()
+            settings_dir.cleanup()
             qapp.processEvents()
 
     @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
@@ -2257,6 +2279,213 @@ G02 X0 Y10 I-10 J0
             self.assertEqual(tuple(viewer.gl_view.opts['bgcolor']), dark_bg)
         finally:
             viewer.deleteLater()
+            qapp.processEvents()
+
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_dark_mode_icon_color_is_fixed_regardless_of_theme(self):
+        """v1.6.3 버그 수정: 다크모드 토글 버튼은 v1.6.2부터 항상 어두운
+        상단 바(top_bar) 위에 있으므로, 아이콘 색은 앱 테마(_dark_mode)와
+        무관하게 항상 같은(밝은) 색을 써야 한다 — 라이트 테마일 때 어두운
+        아이콘 색을 써서 똑같이 어두운 상단 바 위에서 거의 안 보이던 버그의
+        회귀 테스트."""
+        import nc_viewer_widget as viewer_mod
+        from nc_viewer_widget import NCViewerWidget
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer = NCViewerWidget()
+        captured = []
+        original_sun, original_moon = viewer_mod.sun_icon, viewer_mod.moon_icon
+
+        def spy_sun(color, size=20):
+            captured.append(color)
+            return original_sun(color, size=size)
+
+        def spy_moon(color, size=20):
+            captured.append(color)
+            return original_moon(color, size=size)
+
+        viewer_mod.sun_icon = spy_sun
+        viewer_mod.moon_icon = spy_moon
+        try:
+            viewer.set_dark_mode(True)
+            viewer.set_dark_mode(False)
+            viewer.set_dark_mode(True)
+        finally:
+            viewer_mod.sun_icon = original_sun
+            viewer_mod.moon_icon = original_moon
+            viewer.deleteLater()
+            qapp.processEvents()
+        self.assertEqual(len(captured), 3)
+        self.assertEqual(len(set(captured)), 1)
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_cube_ui_controls_shrunk_but_cube_defaults_untouched(self):
+        """v1.6.3: "큐브" 슬라이더/라벨도 감도 쪽과 같은 비율(40%)로 줄어야
+        한다(v1.6.2에서는 실수로 그대로 남아 있었다) — 다만 실제 3D
+        오리엔테이션 큐브 크기를 정하는 범위/기본값 자체는 그대로 둔다."""
+        from nc_viewer_widget import CONTROL_SHRINK, NCViewerWidget
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer = NCViewerWidget()
+        try:
+            self.assertEqual(viewer.view_cube_size_slider.width(), round(135 * CONTROL_SHRINK))
+            self.assertLess(
+                viewer.view_cube_size_label.font().pointSizeF(), 14,
+                '큐브 라벨 폰트도 감도처럼 줄어야 한다',
+            )
+            # 큐브 자체의 크기 범위/기본값은 손대지 않는다.
+            self.assertEqual(viewer.view_cube_size_slider.minimum(), 60)
+            self.assertEqual(viewer.view_cube_size_slider.maximum(), 240)
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_projection_overlay_buttons_are_spaced_apart(self):
+        """v1.6.3: ISO/XY/XZ/YZ 버튼이 서로 너무 붙어 있다는 피드백으로 간격을
+        넓힌다(4px -> 10px)."""
+        from nc_viewer_widget import NCViewerWidget
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer = NCViewerWidget()
+        try:
+            self.assertIsNotNone(viewer.projection_overlay)
+            self.assertGreaterEqual(viewer.projection_overlay.layout().spacing(), 10)
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_coord_overlay_is_transparent_with_white_axis_labels(self):
+        """v1.6.3: "좌표"는 더 이상 불투명 배경의 QGroupBox 행이 아니라 3D
+        화면 위에 뜨는 투명 오버레이여야 하고(공구 경로를 가리지 않도록),
+        축 프리픽스 글자(X:, Y: 등)는 어두운 3D 캔버스 위에서도 보이도록
+        흰색이어야 한다."""
+        from nc_viewer_widget import CoordOverlayWidget, NCViewerWidget
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer = NCViewerWidget()
+        try:
+            self.assertFalse(hasattr(viewer, 'coord_group'))
+            self.assertIsInstance(viewer.coord_overlay, CoordOverlayWidget)
+            self.assertIn(viewer.coord_overlay, viewer.gl_view.top_left_widgets)
+            self.assertIn('background: transparent', viewer.coord_overlay.styleSheet())
+            self.assertIn('color: white', viewer.coord_overlay.styleSheet())
+            # 좌표/투영 오버레이가 위→아래로 쌓여 있어야 한다(좌표가 위).
+            self.assertLess(
+                viewer.coord_overlay.y(), viewer.projection_overlay.y(),
+                '좌표 오버레이가 투영 오버레이보다 위에 있어야 한다',
+            )
+            # 값 갱신은 여전히 동작해야 한다.
+            viewer._set_coordinate_labels([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+            self.assertEqual(viewer.coord_labels['X'].text(), '1.0')
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_projection_buttons_recenter_and_zoom_to_fit_all_views(self):
+        """v1.6.3: ISO뿐 아니라 ISO/XY/XZ/YZ 4개 버튼 모두 (1) 좌표를 화면
+        중앙으로 되돌리고 (2) 로드된 경로 전체가 화면 안에 들어오도록 카메라
+        거리를 자동으로 맞춰야 한다(줌 전체 보기)."""
+        from math import radians, tan
+
+        from PyQt5.QtGui import QVector3D
+        from nc_viewer_widget import NCViewerWidget
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer = NCViewerWidget()
+        try:
+            viewer.resize(800, 600)
+            self.assertTrue(viewer.set_source_text(self._minimal_motion_source(), {'T01': 'FACE MILL'}))
+            self.assertGreater(viewer.gl_view.scene_radius, 0)
+
+            for view_type in ('ISO', 'XY', 'XZ', 'YZ'):
+                # 드래그로 카메라 중심을 원점에서 치우치게 만든 뒤 버튼을 누른다.
+                viewer.gl_view.pan(300, -200, 0)
+                viewer.set_camera_projection(view_type)
+
+                center = viewer.gl_view.opts['center']
+                self.assertEqual((center.x(), center.y(), center.z()), (0.0, 0.0, 0.0))
+
+                distance = viewer.gl_view.opts['distance']
+                fov = viewer.gl_view.opts.get('fov', 60.0)
+                half_extent = distance * tan(radians(fov) / 2.0)
+                self.assertGreaterEqual(
+                    half_extent, viewer.gl_view.scene_radius,
+                    '%s 투영에서 경로 전체가 화면 안에 들어와야 한다' % view_type,
+                )
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_playback_checkboxes_have_checked_visibility_style(self):
+        """v1.6.3: 재생 중 사용하는 체크박스(텍스트 정지/정지/옵션정지/PG
+        매칭)는 체크되면 눈에 띄게 표시되어야 한다는 요청 — 체크 상태 전용
+        스타일(초록 인디케이터/굵은 글자)이 적용돼 있는지 확인한다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        window = app.App(_root=settings_dir.name)
+        try:
+            for checkbox in (
+                window.stop_text_check, window.stop_m00_check,
+                window.stop_m01_check, window.pg_match_check,
+            ):
+                style = checkbox.styleSheet()
+                self.assertIn('indicator:checked', style)
+                self.assertIn('font-weight', style)
+        finally:
+            window.deleteLater()
+            settings_dir.cleanup()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_tool_table_autofits_without_horizontal_scrollbar(self):
+        """v1.6.3: 공구 리스트 표는 패널 폭이 좁아져도 가로 스크롤바 없이
+        폰트/셀 폭이 가변으로 줄어들어야 한다. 실제 스플리터를 통해 패널
+        폭을 좁히면 버튼 줄(삭제/수정/...) 등 다른 위젯의 최소 폭 제약과
+        얽혀 결과가 흔들리므로, viewport 폭을 직접 흉내내 _relayout_tool_table()
+        자체의 가변 스케일링 로직만 결정적으로 검증한다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        window = app.App(_root=settings_dir.name)
+        try:
+            window.set_mode('tool')
+            window.load_example()
+            window.run()
+            qapp.processEvents()
+
+            # 표 기준(1배) 폭 합보다 넉넉히 넓은 뷰포트에서는 기준 폰트를
+            # 그대로 유지해야 한다(스케일이 1.0을 넘어 더 커지지는 않는다).
+            viewport = window.table.viewport()
+            viewport.width = lambda: app._COL_WIDTH_TOTAL + 400
+            window._relayout_tool_table()
+            wide_font_pt = window.table.font().pointSizeF()
+            self.assertAlmostEqual(wide_font_pt, app.TABLE_FONT_PT, places=3)
+            self.assertFalse(window.table.horizontalScrollBar().isVisible())
+
+            # 기준 폭보다 훨씬 좁은 뷰포트를 흉내내면 폰트/셀 폭이 그 비율에
+            # 맞춰 줄어들고, 전체 열 폭 합이 그 좁은 폭을 넘지 않아야 한다
+            # (가로 스크롤바가 필요 없어야 한다).
+            narrow_width = round(app._COL_WIDTH_TOTAL * 0.6)
+            viewport.width = lambda: narrow_width
+            window._relayout_tool_table()
+
+            self.assertLess(window.table.font().pointSizeF(), wide_font_pt)
+            total_width = sum(
+                window.table.columnWidth(i) for i in range(window.table.columnCount())
+            )
+            self.assertLessEqual(total_width, narrow_width)
+            self.assertFalse(
+                window.table.horizontalScrollBar().isVisible(),
+                '폭이 좁아져도 가로 스크롤바 없이 표가 줄어들어야 한다',
+            )
+        finally:
+            del window.table.viewport().width
+            window.deleteLater()
+            settings_dir.cleanup()
             qapp.processEvents()
 
 
