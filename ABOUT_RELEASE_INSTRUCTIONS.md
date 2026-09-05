@@ -81,11 +81,25 @@ Last updated: 2026-09-05 (v1.6.3)
     새 버튼을 `ensurePolished()` 후 `show()` 하고, 새 `_fit_to_contents()`가 레이아웃 캐시를 무효화한 뒤
     `QApplication.sendPostedEvents(self, QEvent.LayoutRequest)`로 보류 중인 레이아웃 갱신을 동기로
     흘려보내고 크기를 다시 잡은 다음 부모의 `_reposition_top_left()`로 위치까지 맞춘다.
+  - **선반 공구 교체 기준 `Tnn00`(사용자 승인, `NC_Tool_List.py` + `nc_viewer_widget.py`):** 선반은 M6가
+    없고 **`Tnn00`(옵셋 00)이 공구 교체 지점**이다. T 뒤 네 자리 중 앞 두 자리가 공구 번호, 뒤 두 자리가
+    옵셋 번호이며, `T0101`처럼 옵셋이 살아 있는 블록은 교체가 아니고 `T0000`은 옵셋 취소라 제외한다
+    (`LATHE_T_RE = r'T(?!0000)(\d{2})00(?!\d)'`). 적용 지점 3곳: ① `parse_program(text, name_types, lathe=False)`이
+    선반일 때 주석을 걷어낸(`code_without_comments`) 코드에서 `Tnn00`을 찾아 공구 블록을 끊는다,
+    ② 뷰어 `process_nc_lines()`의 공정 분리가 선반에서 `M6` 대신 `Tnn00`을 본다(밀링의 `M6 Tnn` 분기는
+    그대로 두고 `if is_lathe / else`로 완전히 갈랐다), ③ `find_next_tool_change_span(text, start, lathe=False)`
+    ('다음공구검색')도 선반에서 `Tnn00`만 짚고, 없을 때 안내 문구가 "Tnn00 항목 없음"으로 바뀐다.
+    `App.is_lathe_program()`이 장비 콤보를 보고 이 플래그를 넘기며, 장비를 바꾸면 같은 원문이라도
+    다시 파싱하도록 파싱 캐시 키에 `_last_parsed_lathe`를 추가했다. 뷰어 의존성 없이도 툴 리스트가
+    동작해야 하므로 `is_lathe_machine()`은 `NC_Tool_List.py`에도 따로 둔다.
   - **선반 축 화살표 라벨(`nc_viewer_widget.py`):** 새 `_LATHE_AXIS_LABELS = ("Z", "C", "X")`와
     `is_lathe_mode()` / `current_axis_labels()`. `set_machine_type()`이 새 `_apply_lathe_mode_ui()`를 불러
     장비를 바꿀 때마다 투영 버튼과 축 문자를 갱신하고, 선반 최초 진입 시 카메라를 `"XZ"`가 아니라
     `"LATHE"` 프리셋으로 맞춘다. 밀링으로 되돌리면 전부 원상복구된다.
-- Verification: `pytest tests/test_nc_tool_list.py` **108/108 통과** (기존 98개 전부 유지 + v1.6.4 신규 10개:
+- Verification: `pytest tests/test_nc_tool_list.py` **113/113 통과** (기존 98개 전부 유지 + v1.6.4 신규 15개:
+  `Tnn00` 정규식이 T0101/T0000/T012345/M6T1을 걸러내는지, 선반 `parse_program`이 Tnn00으로 공구를
+  끊는지(같은 원문을 밀링 기준으로 읽으면 0개), '다음공구검색'이 선반에서 Tnn00만 짚는지,
+  밀링의 M6 Tnn 인식이 그대로인지, 뷰어 공정 분리가 Tnn00에서만 갈라지는지,
   `lathe_world_point` 지름/축스왑/C축, 선반 경로 반경 환산, 선반 원호 R 정확도 + G02 시계방향,
   선반 투영버튼·축라벨 전환/복구, **선반을 거쳤다 돌아와도 밀링 툴패스가 완전히 동일한지**,
   투영 오버레이가 버튼 교체 후에도 찌그러지지 않는지(위 버그 회귀 고정 — 수정을 되돌리면 20 != 30으로

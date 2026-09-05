@@ -2496,7 +2496,8 @@ class LatheModeTests(unittest.TestCase):
     선반 관련 테스트는 장비 선택이 QSettings에 저장되므로, 반드시 원래
     장비로 되돌려 다른 테스트(밀링)가 영향을 받지 않게 한다."""
 
-    LATHE_SOURCE = """M6T1
+    # 선반은 M6가 없다 — Tnn00(옵셋 00)이 공구 교체 지점이다.
+    LATHE_SOURCE = """T0100
 G00 X100. Z5.
 G01 X100. Z-20. F0.2
 G02 X60. Z-40. R20.
@@ -2609,6 +2610,100 @@ G01 X20. Z-40.
             mill_colors = viewer.current_axis_colors()
             self.assertGreater(mill_colors[0][0], mill_colors[0][2], '밀링 X는 다시 빨강')
             self.assertGreater(mill_colors[2][2], mill_colors[2][0], '밀링 Z는 다시 파랑')
+        finally:
+            self._restore(viewer, original, qapp)
+
+    TWO_TOOL_LATHE_SOURCE = """%
+O2001
+(PART NO. : SHAFT-2001)
+N1(#1: Tool Change)
+ (T0101 // OD ROUGH [SO 40] // T01 CNMG120408 )
+G50 S2500 T0100 M08
+G00 X100. Z5.
+T0101
+G01 X100. Z-20. F0.25
+G00 X120. Z20. T0100
+N2(#2: Tool Change)
+ (T0303 // OD FINISH [SO 40] // T03 DNMG150404 )
+T0300
+G00 X40. Z5.
+T0303
+G01 X36. Z-30. F0.12
+G00 X120. Z20. T0000
+M30
+%
+"""
+
+    def test_lathe_tool_change_regex_matches_only_offset_zero(self):
+        """선반 툴체인지 기준은 Tnn00 — 옵셋이 살아 있는 T0101이나 옵셋 취소
+        T0000은 공구 교체가 아니다."""
+        matches = [
+            (text, app.LATHE_T_RE.search(text))
+            for text in ('T0100', 'T0300', 'G50 S2500 T0100 M08',
+                         'T0101', 'T0303', 'T0000', 'T012345', 'M6T1')
+        ]
+        found = {text: (m.group(1) if m else None) for text, m in matches}
+        self.assertEqual(found['T0100'], '01')
+        self.assertEqual(found['T0300'], '03')
+        self.assertEqual(found['G50 S2500 T0100 M08'], '01')
+        self.assertIsNone(found['T0101'], 'T0101은 옵셋이 살아 있어 교체가 아니다')
+        self.assertIsNone(found['T0303'])
+        self.assertIsNone(found['T0000'], 'T0000은 옵셋 취소이지 공구 교체가 아니다')
+        self.assertIsNone(found['T012345'], '네 자리를 넘는 T 워드는 잡지 않는다')
+        self.assertIsNone(found['M6T1'], '밀링식 M6T는 선반 기준에 안 걸린다')
+
+    def test_lathe_parse_program_uses_tnn00_as_tool_change(self):
+        rows = app.parse_program(self.TWO_TOOL_LATHE_SOURCE, lathe=True)
+        filled = [row for row in rows if row['NO']]
+        self.assertEqual([row['NO'] for row in filled], ['T01', 'T03'])
+        self.assertEqual([row['NAME'] for row in filled], ['OD ROUGH', 'OD FINISH'])
+        self.assertEqual([row['HOLDER'] for row in filled],
+                         ['CNMG120408', 'DNMG150404'])
+        self.assertEqual([row['REMARK'] for row in filled], ['N1', 'N2'])
+        # 같은 원문을 밀링 기준으로 읽으면 M6가 없으니 아무 공구도 못 찾는다 —
+        # 즉 선반 기준이 실제로 갈라져 동작한다는 뜻이다.
+        self.assertEqual(app.parse_program(self.TWO_TOOL_LATHE_SOURCE), [])
+
+    def test_lathe_tool_change_search_skips_offset_blocks(self):
+        """'다음공구검색'도 선반에서는 Tnn00만 짚는다."""
+        source = self.TWO_TOOL_LATHE_SOURCE
+        first = app.find_next_tool_change_span(source, 0, lathe=True)
+        self.assertIsNotNone(first)
+        self.assertEqual(source[first[0]:first[1]], 'T0100')
+        second = app.find_next_tool_change_span(source, first[1], lathe=True)
+        self.assertEqual(source[second[0]:second[1]], 'T0100')  # 공정 1 종료 블록
+        third = app.find_next_tool_change_span(source, second[1], lathe=True)
+        self.assertEqual(source[third[0]:third[1]], 'T0300')
+        # 밀링 기준으로는 이 원문에서 아무것도 못 찾는다.
+        self.assertIsNone(app.find_next_tool_change_span(source, 0))
+
+    def test_milling_tool_change_detection_is_untouched(self):
+        """지침 0항: 선반 규칙 추가가 밀링의 M6 Tnn 인식을 건드리면 안 된다."""
+        rows = app.parse_program(app.EXAMPLE)
+        self.assertEqual([row['NO'] for row in rows if row['NO']],
+                         ['T02', 'T03', 'T04', 'T05', 'T06'])
+        self.assertEqual(app.find_next_tool_change_span('M6 T2\nM06T01', 0), (0, 5, False))
+        # 밀링 프로그램에 우연히 Tnn00 형태가 있어도 밀링 기준은 반응하지 않는다.
+        self.assertIsNone(app.find_next_tool_change_span('G00 X0 T0100', 0))
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_viewer_splits_processes_on_tnn00(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        try:
+            viewer.set_source_text(
+                self.TWO_TOOL_LATHE_SOURCE, {'T01': 'OD ROUGH', 'T03': 'OD FINISH'}
+            )
+            keys = list(viewer.tool_paths)
+            # T0100 / T0100(공정1 복귀) / T0300 세 번 잡히지만, 경로가 없는
+            # 공정은 걸러지므로 실제로 그려지는 공정만 남는다.
+            tools = [viewer.process_tool_map[key] for key in keys]
+            self.assertIn('T01', tools)
+            self.assertIn('T03', tools)
+            # T0101/T0303(옵셋 블록)은 새 공정을 만들지 않는다.
+            self.assertLessEqual(len(keys), 3)
+            # 마지막 T0000은 공정을 만들지 않는다.
+            self.assertNotIn('T00', tools)
         finally:
             self._restore(viewer, original, qapp)
 

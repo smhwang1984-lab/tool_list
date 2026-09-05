@@ -2083,6 +2083,10 @@ class NCViewerWidget(QWidget):
 
         t_pattern = re.compile(r"T0*(\d+)")
         m6_pattern = re.compile(r"M0?6(?!\d)")
+        # 선반 툴체인지 기준은 Tnn00 (앞 두 자리 = 공구 번호, 뒤 두 자리 =
+        # 옵셋 번호). 옵셋 00인 블록만 교체 지점이고, T0101처럼 옵셋이 살아
+        # 있는 블록은 교체가 아니다. T0000은 옵셋 취소라 제외한다(v1.6.4).
+        lathe_tool_change_pattern = re.compile(r"T(?!0000)(\d{2})00(?!\d)")
         x_pattern = re.compile(r"X\s*([+-]?\d*\.?\d+)")
         y_pattern = re.compile(r"Y\s*([+-]?\d*\.?\d+)")
         z_pattern = re.compile(r"Z\s*([+-]?\d*\.?\d+)")
@@ -2162,18 +2166,31 @@ class NCViewerWidget(QWidget):
                 cycle_active = cycle_code != "G80"
                 current_motion = cycle_code
 
-            t_match = t_pattern.search(line_upper)
-            if t_match:
-                detected_t = self._normalize_tool_no(t_match.group(1))
+            # 공구 교체 판정 — 밀링/MCT는 M6 Tnn, 선반은 Tnn00 (v1.6.4).
+            # 두 갈래를 완전히 분리해 밀링 경로에는 선반 규칙이 끼어들지 않는다.
+            if is_lathe:
+                lathe_tool_change = lathe_tool_change_pattern.search(line_upper)
+                tool_changed = lathe_tool_change is not None
+                if tool_changed:
+                    detected_t = self._normalize_tool_no(lathe_tool_change.group(1))
+            else:
+                t_match = t_pattern.search(line_upper)
+                if t_match:
+                    detected_t = self._normalize_tool_no(t_match.group(1))
+                tool_changed = m6_pattern.search(line_upper) is not None
 
-            if m6_pattern.search(line_upper):
+            if tool_changed:
                 process_no += 1
                 current_tool = self._make_process_key(process_no, detected_t)
                 self.tool_paths[current_tool] = []
                 self.process_tool_map[current_tool] = detected_t
                 self.process_first_line[current_tool] = idx
+                start_point = (
+                    lathe_world_point(cz, cx, cc_deg) if is_lathe else [cx, cy, cz]
+                )
                 self.tool_paths[current_tool].append({
-                    "pt": [cx, cy, cz], "type": current_motion, "valid": g43_active, "src_line": idx,
+                    "pt": start_point, "type": current_motion,
+                    "valid": True if is_lathe else g43_active, "src_line": idx,
                 })
                 self.line_to_tool_map[idx] = current_tool
 
