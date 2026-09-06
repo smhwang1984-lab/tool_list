@@ -396,7 +396,7 @@ def skip_icon(color, size=22, forward=True):
     return _make_icon(size, paint)
 
 
-_AXIS_GLYPH_COLORS = {"X": "#FF3333", "Y": "#33AA33", "Z": "#4D68FF"}
+_AXIS_GLYPH_COLORS = {"X": "#FF3333", "Y": "#33AA33", "Z": "#4D68FF", "C": "#219999"}
 
 
 def plane_icon(letters, size=16):
@@ -1105,7 +1105,12 @@ class ProjectionOverlayWidget(QWidget):
     # 밀링과 선반은 축 개념 자체가 달라 투영 버튼 구성을 다르게 쓴다(v1.6.4).
     # 선반은 XY/XZ/YZ가 의미가 없으므로 ISO(축이 바뀐 상태)와 선반 평면 뷰만 둔다.
     MILL_BUTTONS = (("ISO", "ISO"), ("XY", "XY"), ("XZ", "XZ"), ("YZ", "YZ"))
-    LATHE_BUTTONS = (("ISO", "ISO"), ("선반", "LATHE"))
+    # v1.7.1: "XC" 버튼 추가 — 극좌표(G12.1) 형상은 월드 Y(=C)×월드 Z(=X
+    # 반경) 평면에 그려지는데(LATHE_MODE_GUIDELINES.md §4-1 하위 G12.1 절),
+    # 기존 "선반"(월드 XZ 정면) 뷰는 그 평면이 화면 깊이라 선으로 눌려
+    # 보였다. 주축 방향에서 보는 이 뷰를 추가해 형상을 그대로 보여준다
+    # (사용자 확정, 2026-09-06). 기존 "선반" 뷰/계산은 변경 없음.
+    LATHE_BUTTONS = (("ISO", "ISO"), ("선반", "LATHE"), ("XC", "LATHE_XC"))
 
     def _rebuild_buttons(self, buttons):
         row = self._row
@@ -1121,6 +1126,8 @@ class ProjectionOverlayWidget(QWidget):
                 button.setIcon(iso_icon("#e4e8f0"))
             elif view_type == "LATHE":
                 button.setIcon(plane_icon("ZX"))
+            elif view_type == "LATHE_XC":
+                button.setIcon(plane_icon("CX"))
             else:
                 button.setIcon(plane_icon(view_type))
             button.setIconSize(QSize(14, 14))
@@ -2295,6 +2302,10 @@ class NCViewerWidget(QWidget):
         # 선반 평면 뷰(v1.6.4). 월드 XZ 평면을 정면에서 보므로 화면에서
         # 기계 Z가 수평(오른쪽 +), 기계 X(지름)가 수직(위 +)으로 보인다.
         "LATHE": (0, -90),
+        # v1.7.1: 극좌표(G12.1) 전용 뷰 — 주축 방향(월드 X)에서 정면으로
+        # 본다. 월드 YZ 평면이 화면에 오므로 화면 가로가 월드 Y(=C),
+        # 세로가 월드 Z(=X 반경)다 — G12.1 형상이 놓인 평면 그대로.
+        "LATHE_XC": (0, 0),
     }
 
     def set_camera_angles(self, elevation, azimuth, distance=None, recenter=False):
@@ -2378,10 +2389,11 @@ class NCViewerWidget(QWidget):
         elevation, azimuth = preset
         lathe = self.is_lathe_mode()
         # v1.6.5: 다른 투영으로 바꾸면 드래그줌 사각형 진행 상태가 애매해
-        # 지므로 취소한다. 선반 평면 뷰("선반" 버튼)에서만 좌드래그를 회전
-        # 대신 팬으로 잠근다(지침 3항 — 회전하면 Z-수평/X-수직 평면이 깨짐).
+        # 지므로 취소한다. 선반 평면 뷰("선반"/"XC" 버튼)에서만 좌드래그를
+        # 회전 대신 팬으로 잠근다(지침 3항 — 회전하면 평면이 깨짐). v1.7.1:
+        # "XC"도 정면 평면 뷰이므로 같은 잠금을 적용한다.
         self.gl_view.set_drag_zoom_active(False)
-        self.gl_view.orbit_locked = lathe and view_type == "LATHE"
+        self.gl_view.orbit_locked = lathe and view_type in ("LATHE", "LATHE_XC")
         view_cube = getattr(self, "view_cube", None)
         if view_cube is not None:
             # v1.6.6: 선반 ISO에서도 뷰 큐브를 숨긴다 — orbit_locked는
@@ -2698,6 +2710,11 @@ class NCViewerWidget(QWidget):
         polar_interpolation = False
         # v1.6.6: M35(구동공구 ON, 밀링 가공) ~ M34(선삭 복귀) 사이 상태.
         # is_lathe 분기 안에서만 세팅되며, 밀링 경로는 이 값을 전혀 읽지 않는다.
+        # v1.7.1 가공 모드 구간 원칙(사용자 확정, 2026-09-06):
+        #   - M35 ~ 다음 M34 전 = 밀링 가공 구간 (이 값 True)
+        #   - M34 ~ 다음 M35 전 = 선반 가공 구간 (이 값 False)
+        #   - 둘 다 없는 프로그램은 처음부터 끝까지 선반 가공 구간
+        #     — 아래 초기값 False가 그대로 이 규칙을 만족한다.
         lathe_milling_active = False
         g68_pending = False
         pending_i, pending_j, pending_k = 0.0, 0.0, 0.0
@@ -2707,9 +2724,10 @@ class NCViewerWidget(QWidget):
         detected_t = ""
         process_no = 0
 
-        # v1.6.8: 선반 고정 사이클 전용 모달 상태. G81~G89/G73/G74/G76 중
-        # 어느 것이든 활성화된 동안(G80까지) 유지된다. 밀링은 이 변수들을
-        # 전혀 읽지 않는다(가이드라인 0항).
+        # v1.6.8: 선반 고정 사이클 전용 모달 상태. G81~G89(v1.7.1부터 —
+        # G73/G74/G76은 선반에서 별개의 복합형 사이클이라 제외, 아래
+        # lathe_cycle_pattern 참고) 중 어느 것이든 활성화된 동안(G80까지)
+        # 유지된다. 밀링은 이 변수들을 전혀 읽지 않는다(가이드라인 0항).
         lathe_cycle_axis = None      # "Z"(주축 방향, G17) 또는 "X"(지름 방향, G19)
         lathe_cycle_ref = None       # 사이클 진입 직전 위치 — Z축은 mm, X축은 반경(mm)
         lathe_cycle_r = 0.0          # 마지막 R 워드(반경 공간 증분값, 모달)
@@ -2783,11 +2801,20 @@ class NCViewerWidget(QWidget):
         # v1.6.8: 드릴링 계열 고정 사이클을 전부 인식한다. 밀링은 코드별
         # 동작을 구분하지 않고 전부 동일한 4점(접근/R점/깊이/복귀) 전개다
         # (Q 펙·P 드웰·G76/G87의 I/J 시프트는 이번 범위 밖, 사용자 확정).
-        # G76은 여기서 밀링 파인보링과 같은 단순 드릴 계열로만 다룬다 —
-        # 선반의 실제 다중 패스 나사가공 G76(G70~G76 복합 선삭)은 여전히
-        # LATHE_MODE_GUIDELINES.md §8의 별도 승인 대상으로 남는다.
         cycle_pattern = re.compile(
             r"(G73|G74|G76|G81|G82|G83|G84|G85|G86|G87|G88|G89|G80)"
+        )
+        # v1.7.1: 선반은 이 중 G81~G89/G80(그룹 10, 드릴 계열)만 고정
+        # 사이클로 본다. G70~G76은 선반에서 **복합형 반복 사이클**(그룹
+        # 00, one-shot)이라 밀링의 동명 코드(G73 고속 펙/G74 역태핑/G76
+        # 파인보링)와 전혀 다르고, 무엇보다 **G80으로 취소되지 않는다**
+        # (O3230.nc 실사례: G76 나사가공 뒤 G80이 한 번도 안 나와 파일
+        # 끝까지 사이클로 오인되며, 그 뒤의 사이클 코드 없는 평범한 X
+        # 왕복 홈 펙과 G12.1 극좌표 구간까지 통째로 4점 전개로 깨졌다 —
+        # 사용자 확정 2026-09-06). 밀링/MCT는 위 cycle_pattern을 그대로
+        # 쓴다(가이드라인 §0 — 밀링 경로 불변).
+        lathe_cycle_pattern = re.compile(
+            r"(G81|G82|G83|G84|G85|G86|G87|G88|G89|G80)"
         )
         # v1.6.7 가공시간. G50S___(최대 회전수)는 먼저 떼어내고 나서 S를
         # 찾아야 "G50S2500G96S180" 같은 줄에서 상한을 절삭속도로 오인하지
@@ -2896,8 +2923,30 @@ class NCViewerWidget(QWidget):
             if is_lathe:
                 if m35_pattern.search(line_upper):
                     lathe_milling_active = True
+                    # v1.7.1: M35~M34 전환은 "가공 모드"가 바뀌는 경계이므로
+                    # 이전 모드에서 남은 선반 고정 사이클 모달을 비운다 —
+                    # G80 없이 M35/M34가 오가면(방어선, 실사례는 O3230.nc의
+                    # G76 나사가공 오인식이었고 변경1로 이미 잡혔다) 다음
+                    # 모드의 평범한 이동까지 4점 사이클로 새는 것을 막는다.
+                    # G80에 의한 정상 취소(위 cycle_match 분기)는 그대로 둔다.
+                    cycle_active = False
+                    lathe_cycle_axis = None
+                    lathe_cycle_ref = None
+                    lathe_cycle_r = 0.0
+                    lathe_cycle_depth = 0.0
+                    lathe_plane_explicit = False
+                    if lathe_cycle_pattern.fullmatch(current_motion or ""):
+                        current_motion = "G00"
                 elif m34_pattern.search(line_upper):
                     lathe_milling_active = False
+                    cycle_active = False
+                    lathe_cycle_axis = None
+                    lathe_cycle_ref = None
+                    lathe_cycle_r = 0.0
+                    lathe_cycle_depth = 0.0
+                    lathe_plane_explicit = False
+                    if lathe_cycle_pattern.fullmatch(current_motion or ""):
+                        current_motion = "G00"
                     # v1.7.0: G12.1~G13.1 극좌표 블록 "안에서" M34가 나올 수
                     # 있다(예: 폴리곤 윤곽을 밀링하다 잠깐 M34로 선반 가공
                     # 모드로 바꿔 X만으로 펙/플런지한 뒤 다시 M35로 돌아가는
@@ -2940,7 +2989,10 @@ class NCViewerWidget(QWidget):
             elif g99_pattern.search(line_upper):
                 g98_active = False
 
-            cycle_match = cycle_pattern.search(line_upper)
+            # v1.7.1: 선반은 드릴 계열(G81~G89/G80)만 고정 사이클로 본다 —
+            # 위 lathe_cycle_pattern 주석 참고. 밀링/MCT는 기존 cycle_pattern
+            # 그대로(가이드라인 §0 — 밀링 경로 불변).
+            cycle_match = (lathe_cycle_pattern if is_lathe else cycle_pattern).search(line_upper)
             if cycle_match:
                 cycle_code = cycle_match.group(1)
                 cycle_active = cycle_code != "G80"
