@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-09-06 (v1.7.0)
+Last updated: 2026-09-06 (v1.7.1)
 
 ## About button requirements
 
@@ -34,7 +34,74 @@ Last updated: 2026-09-06 (v1.7.0)
 
 ## Version history
 
-### 2026-09-06 (latest, v1.7.0)
+### 2026-09-06 (latest, v1.7.1)
+
+- Version: 1.7.1
+- Release/build date: 2026-09-06 (플랜 승인 후 구현·빌드)
+- Summary: 사용자 리포트 2건(2026-09-06), 실제 프로그램 `O3230.nc`로 원인 확정.
+  1. **선반 G76 나사가공 오인식 차단** — "m34읽고 홈 팩 가공 xz 이송 후 x축으로
+     가공하는데 사이클 같은 형태로 가공이 됨". 근본 원인은 선반의 `G76`(나사가공,
+     그룹 00 복합형 사이클, `G80`으로 취소되지 않음)을 v1.6.8부터 밀링 파인보링
+     `G76`(드릴 계열, 그룹 10)으로 오인식한 것 — `O3230.nc`가 나사가공(428행)
+     뒤 `G80`을 한 번도 안 써서 그 뒤로 파일 끝까지 고정 사이클 모드가 켜진 채
+     남았다. 선반은 이제 `G81~G89/G80`(그룹 10)만 고정 사이클로 인식하도록
+     `cycle_pattern`을 밀링/선반용으로 분리했다(`lathe_cycle_pattern`). MCT는
+     `G73/G74/G76` 포함 v1.6.8 그대로.
+  2. **M34/M35 가공 모드 구간 관리** — "m35를 읽고 다음 m34를 만나기전까지는
+     그사이 공정은 밀링 가공임 m34부터 m35를 읽기 전까지는 선반 공정임 2가지
+     코드가 없을 시 선반 모드 시작이 원칙임". `M35`~다음 `M34` 전=밀링,
+     `M34`~다음 `M35` 전=선반, 둘 다 없으면 전체가 선반이라는 원칙을 명문화하고
+     (기존 `lathe_milling_active` 초기값이 이미 만족), 모드 전환 시 선반 고정
+     사이클 모달을 리셋하는 방어선을 추가했다(`G80`에 의한 정상 취소와 별개로
+     병존, 사용자 확인: "추가로 G80이 취소 코드임").
+  3. **극좌표 XC 투영 뷰** — "극좌표 가공 패스 나타 낼 시 x c 평면으로 표기를
+     할 것 지금 단순 x축에 라인이 묶여있음". 선반 모드 투영 버튼에 "XC"를
+     추가했다(ISO/선반/XC) — 극좌표(G12.1) 형상이 놓이는 월드 YZ 평면을 주축
+     방향(elevation 0, azimuth 0)에서 정면으로 보는 뷰. 기존 "선반" 뷰와 극좌표
+     정적 경로/시뮬레이션 계산은 손대지 않았다.
+- Creator displayed: Hwang.seonmun
+- Open source used: Python, PyQt5, pyqtgraph, NumPy, PyOpenGL, ReportLab, PyInstaller,
+  Inno Setup (새 의존성 없음).
+- Details:
+  - **`nc_viewer_widget.py`**: `cycle_pattern`(밀링/MCT용, 변경 없음)과
+    `lathe_cycle_pattern`(선반용, `G81~G89|G80`만)을 나누고, 루프의 `cycle_match`
+    탐색을 `is_lathe` 여부로 갈라 쓴다. M35/M34 처리에 `cycle_active`/
+    `lathe_cycle_axis`/`lathe_cycle_ref`/`lathe_cycle_r`/`lathe_cycle_depth`/
+    `lathe_plane_explicit` 리셋과, 사이클 코드로 남아있던 `current_motion`을
+    `"G00"`으로 되돌리는 코드를 추가했다. `_AXIS_GLYPH_COLORS`에 `"C"` 색을
+    추가하고, `ProjectionOverlayWidget.LATHE_BUTTONS`에 `("XC","LATHE_XC")`를,
+    `_VIEW_PROJECTIONS`에 `"LATHE_XC": (0, 0)`을 추가했다. `set_camera_projection`의
+    `orbit_locked` 조건을 `view_type in ("LATHE","LATHE_XC")`로 넓혔다(뷰 큐브
+    숨김·바운딩박스 리센터는 기존 `if lathe:` 분기를 그대로 타 추가 변경 없음).
+  - **`LATHE_MODE_GUIDELINES.md`**: §3에 XC 뷰 설명 추가, §8 v1.6.8 항목에
+    "선반은 G73/G74/G76 제외" 정정, §8에 v1.7.1 항목 추가, §9(신설) "가공 모드
+    구간 — M34/M35"에 3줄 규칙 명문화, §10(구 §9) 승인 절차에 기록.
+- Tests: `tests/test_nc_tool_list.py` 180개 통과(v1.7.0의 173 + 신규 10,
+  무관한 `SingleInstanceTests` 1건은 여전히 이 PC의 실행 중인 인스턴스 때문에
+  환경 요인으로 실패). 신규는 `LatheModeTests`에 추가: G76 나사가공이 사이클을
+  열지 않음(핵심 회귀 테스트), MCT의 G73 인식 유지(밀링 회귀 방지), M34가
+  미취소 G83 사이클 모달을 리셋함, `O3230.nc` 축약 실사례 통합 검증(나사가공 +
+  극좌표 + 홈 펙 12점 전부 개별 이동), 가공 모드 구간 3케이스(M34/M35 없음,
+  M35~M34 밀링 구간, M34 이후 선반 복귀), XC 투영(각도/회전잠금/뷰큐브숨김).
+  기존 투영 버튼 테스트 3개는 XC 반영으로 갱신.
+- Installer/package status: **생성 완료** (사용자 직접 지시로 즉시 빌드).
+  - `python -m PyInstaller --noconfirm --clean NC_Tool_List.spec` — onedir, UPX 비활성,
+    `dist\NC_Tool_List` 151 MB, `_internal\OpenGL` 폴더 부재 유지(freeglut/gle32/64
+    DLL 배제, MSVCR90.dll 경고는 기존과 동일하게 무해).
+  - `ISCC.exe NC_Tool_List.iss` (Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.7.1.exe`
+    46.5 MB.
+  - 포터블: `installer\NC_Tool_List_Portable_v1.7.1.zip` 64.0 MB, 315개 항목
+    (이전 버전과 같은 구성 — 새 의존성 없음).
+  - 빌드 검증: 프리즈된 `NC_Tool_List.exe`의 파일/제품 버전이 `1.7.1.0`으로 찍히고,
+    실행하면 `startup.log`에 트레이스백 없이 `Starting Sum Path v1.7.1 frozen=True`가
+    남는 것을 확인했다. 설치 프로그램 자체의 VersionInfo도 `1.7.1`로 확인.
+  - Installer SHA-256: E15DBB01FB3F208A3F478BE22A8FF7E89D302A8E675BE46AB418325E2CF2FA3F
+  - Portable ZIP SHA-256: 5DACE82634940A172E7F0CE775CA8835D3F9EC10D65B6CBA618B8C482232823C
+  - App SHA-256: 747C280EA0075065B7F6234DB548DBF031B81629EF85C39AC16ADB4EBA3E1D5B
+  - Signature status: still unsigned.
+  - 산출물은 저장소의 `installer\` 폴더(gitignore 대상이라 커밋되지 않음)에 둔다.
+
+### 2026-09-06 (v1.7.0)
 
 - Version: 1.7.0
 - Release/build date: 2026-09-06 (사용자가 직접 지시한 재구현·재빌드)
