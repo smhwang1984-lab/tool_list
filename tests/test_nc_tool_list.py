@@ -2886,8 +2886,9 @@ G01 X80. Z-10.
 
         viewer, original = self._lathe_viewer(qapp)
         try:
-            # 선반: ISO(축이 바뀐 상태) + 선반 평면 투영만 노출한다.
-            self.assertEqual(viewer.projection_overlay.button_labels(), ['ISO', '선반'])
+            # 선반: ISO(축이 바뀐 상태) + 선반 평면 투영 + XC(극좌표 전용,
+            # v1.7.1)만 노출한다.
+            self.assertEqual(viewer.projection_overlay.button_labels(), ['ISO', '선반', 'XC'])
             self.assertEqual(viewer.current_axis_labels(), ('Z', 'C', 'X'))
             # 화살표 색도 글자를 따라간다 — 수평(월드 X)은 "Z"라 파랑,
             # 수직(월드 Z)은 "X"라 빨강이어야 밀링과 헷갈리지 않는다.
@@ -3096,6 +3097,155 @@ G01 X60. Z0. F200.
         finally:
             self._restore(viewer, original, qapp)
 
+    # ---- v1.7.2: 선반 가공시간 — "극좌표나 밀링 가공 시 mm/min속도 계산이
+    # 맞지 않는 것으로 보임. 13공정 시간이 2시간이 넘음"(사용자, 2026-09-06).
+    # 실제 원인은 O3230.nc:486 "G98X100.Z10.T0404"처럼 선반에서 G98/G99가
+    # 나온 줄에 자기 G-워드가 없으면 current_motion이 "G98"로 덮여 모달
+    # 이동(보통 G00 위치 복귀)이 절삭 이동으로 오인되고, 그 순간 직전
+    # 나사가공의 mm/rev값 F가 mm/min으로 잘못 적용된 것이었다. ----
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_g98_on_bare_line_does_not_corrupt_motion_type(self):
+        """G98/G99만 있고 자기 G-워드가 없는 줄(모달 이동)은 여전히 그
+        이전 모달 모션(G00)을 유지해야 한다 — current_motion이 "G98"로
+        덮이면 그 다음 급속 이동이 절삭으로 오인돼 시간이 크게 부풀었다
+        (O3230.nc:486 실사례, 사용자 확정 2026-09-06)."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        source = """T0100
+G97 S1000 M3
+G99
+G00 X200. Z200.
+G01 Z100. F1.5875
+G00 X200. Z200.
+G98 X100. Z10.
+"""
+        try:
+            viewer.set_source_text(source, {'T01': 'THREAD'})
+            points = viewer.tool_paths[list(viewer.tool_paths)[0]]
+            last = points[-1]
+            self.assertEqual(
+                last['type'], 'G00',
+                '자기 G-워드가 없는 G98 줄이 이전 모달 G00을 잃으면 안 된다',
+            )
+            # 마지막 이동(200,0,100 -> 10,0,50, G00 7000mm/min)이 F1.5875
+            # (mm/rev)로 잘못 걸렸다면 수백~수천 초가 나온다 — 몇 초 이내여야 한다.
+            self.assertLess(viewer.total_time_sec, 30.0)
+        finally:
+            self._restore(viewer, original, qapp)
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_feed_unit_switch_without_new_f_is_invalidated(self):
+        """이송 단위(G98/G99)가 실제로 바뀐 줄에 새 F가 없으면 이전 F
+        숫자를 무효화한다 — mm/rev 값을 mm/min으로(또는 반대로) 그대로
+        쓰면 시간이 크게 어긋난다. F를 모르는 절삭 이동은 시간 0으로
+        넘긴다(기존 설계 철학과 같은 원칙)."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        source = """T0100
+G97 S1000 M3
+G99
+G00 X100. Z50.
+G01 Z0. F0.2
+G98
+G01 X50. Z-30.
+"""
+        try:
+            viewer.set_source_text(source, {'T01': 'OD ROUGH'})
+            rapid_dist = math.hypot(50.0, 50.0)
+            cut1_dist = 50.0
+            # G98 전환 뒤 새 F 없는 마지막 절삭은 F를 모르는 채로(0초) 넘어가야
+            # 한다 — 무효화되지 않았다면 0.2(mm/rev 값을 mm/min으로 오인)가
+            # 남아 시간이 수 시간대로 부풀었을 것이다.
+            expected = rapid_dist / 7000.0 * 60.0 + cut1_dist / 200.0 * 60.0
+            self.assertAlmostEqual(viewer.total_time_sec, expected, places=3)
+        finally:
+            self._restore(viewer, original, qapp)
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_feed_unit_switch_with_new_f_on_same_line_uses_it(self):
+        """같은 줄에 새 F가 있으면(예: "G98G1X..F300.") 그 F가 그대로
+        쓰인다 — 무효화 대상이 아니다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        source = """T0100
+G97 S1000 M3
+G99
+G00 X100. Z50.
+G01 Z0. F0.2
+G98 G01 X50. Z-30. F300.
+"""
+        try:
+            viewer.set_source_text(source, {'T01': 'OD ROUGH'})
+            rapid_dist = math.hypot(50.0, 50.0)
+            cut1_dist = 50.0
+            cut2_dist = math.hypot(30.0, 25.0)
+            expected = (
+                rapid_dist / 7000.0 * 60.0
+                + cut1_dist / 200.0 * 60.0
+                + cut2_dist / 300.0 * 60.0
+            )
+            self.assertAlmostEqual(viewer.total_time_sec, expected, places=3)
+        finally:
+            self._restore(viewer, original, qapp)
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_mct_g98_still_marks_cycle_return_motion(self):
+        """밀링/MCT는 이번 변경의 영향을 받지 않는다 — G98은 여전히
+        current_motion을 "G98"로 표시한다(가이드라인 §0, 회귀 방지)."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        from nc_viewer_widget import NCViewerWidget
+
+        source = """M6T1
+G43
+G00 X0 Y0 Z50
+G98
+G82 X10 Y0 Z-5 R2 F100
+"""
+        viewer = NCViewerWidget()
+        try:
+            viewer.set_machine_type('3축 MCT (X Y Z)', init_camera=True)
+            self.assertTrue(viewer.set_source_text(source, {'T01': 'DRILL'}))
+            points = viewer.tool_paths['P001_T01']
+            # G98 복귀를 포함해 사이클이 4점(접근/R점/깊이/복귀)으로 그대로
+            # 전개돼야 한다(v1.6.8 동작 불변).
+            self.assertEqual(len(points[2:]), 4)
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_o3230_style_thread_then_m35_g98_time_is_seconds_not_hours(self):
+        """O3230.nc N12~N13 축약 실사례 — 나사가공(F1.5875 mm/rev, G99) 뒤
+        M35(밀링 가공 모드) 진입 시 G98과 함께 나오는 공구교체 복귀 이동이
+        수 시간이 아니라 수 초~수십 초 안에 들어와야 한다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        source = """T0500
+G0X200.Z200.
+T0500
+G97S400M3
+G99X100.Z30.T0505
+Z10.
+X22.947
+X17.12Z-9.2F1.5875
+X100.
+Z30.
+G0X200.Z200.T0500
+M35
+G28H0.
+T0400
+G98X100.Z10.T0404
+"""
+        try:
+            viewer.set_source_text(source, {'T05': 'THREAD', 'T04': 'END MILL'})
+            self.assertLess(
+                viewer.total_time_sec, 60.0,
+                '13공정 2시간 넘던 버그(O3230.nc)의 회귀 테스트 — 몇십 초 이내여야 한다',
+            )
+        finally:
+            self._restore(viewer, original, qapp)
+
     @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
     def test_lathe_g96_constant_surface_speed_is_capped_by_g50(self):
         """G96은 지름이 줄수록 회전수가 올라가지만 G50 상한에서 멈춘다.
@@ -3144,7 +3294,7 @@ G01 X20. Z-50. F0.2
 
             overlay.set_lathe_mode(True)
             # 이벤트 루프를 한 번도 돌리지 않은 시점에서 이미 올바른 크기여야 한다.
-            self.assertEqual(overlay.button_labels(), ['ISO', '선반'])
+            self.assertEqual(overlay.button_labels(), ['ISO', '선반', 'XC'])
             self.assertEqual(overlay.size(), overlay.sizeHint())
             self.assertEqual(overlay.height(), mill_height)
             for index in range(overlay._fixed_item_count, overlay._row.count()):
@@ -3459,6 +3609,15 @@ G80
 
             viewer.set_camera_projection('ISO')
             self.assertFalse(viewer.gl_view.orbit_locked, 'ISO에서는 자유 회전이어야 한다')
+
+            # v1.7.1: "XC"도 정면 평면 뷰이므로 "선반"과 마찬가지로 회전이
+            # 잠기고, 바운딩박스 중심으로 리센터된다.
+            viewer.set_camera_projection('LATHE_XC')
+            self.assertTrue(viewer.gl_view.orbit_locked, 'XC도 평면 뷰라 회전이 잠겨야 한다')
+            cam_center_xc = viewer.gl_view.opts['center']
+            self.assertAlmostEqual(cam_center_xc.x(), center[0], places=3)
+            self.assertAlmostEqual(cam_center_xc.y(), center[1], places=3)
+            self.assertAlmostEqual(cam_center_xc.z(), center[2], places=3)
         finally:
             self._restore(viewer, original, qapp)
 
@@ -3478,6 +3637,8 @@ G80
             self.assertTrue(viewer.view_cube.isHidden())
             viewer.set_camera_projection('ISO')
             self.assertTrue(viewer.view_cube.isHidden(), '선반 ISO에서도 뷰 큐브는 숨겨야 한다')
+            viewer.set_camera_projection('LATHE_XC')
+            self.assertTrue(viewer.view_cube.isHidden(), 'XC 뷰에서도 뷰 큐브는 숨겨야 한다(v1.7.1)')
 
             mill_name = next(
                 name for name in viewer.machine_types() if not app.is_lathe_machine(name)
@@ -3601,6 +3762,67 @@ M1
         mapping = app.lathe_tool_name_map_from_rows(rows)
         self.assertEqual(mapping['T06'], 'D50.0 X H103 T-DRILL')
         self.assertEqual(mapping['T01'], 'CNMG 120408 | R-0.8')
+
+    # ---- v1.7.2: 선반 SO 열 — "인서트 부분에 [SO nn] 값을 넣겠음, 넣은 so
+    # 길이를 홀더와 remark 사이에 SO를 넣어서 그 데이터를 넣어줘"(사용자,
+    # 2026-09-06). 홀더/인서트 두 주석 줄 중 어느 쪽에 있든 읽고, 표시
+    # 문구에서는 걷어낸다(승인된 규약). ----
+
+    LATHE_SO_ON_INSERT_LINE_SOURCE = """N1
+( T03 - SVJCR 2525 M16 )
+( T03 - VCMT 16 04 04 | R-0.4 [SO 40] )
+G0X400.Z200.
+T0300
+T0303
+G99X100.Z10.
+G0X400.Z200.T0300
+M1
+"""
+
+    LATHE_SO_ON_HOLDER_LINE_SOURCE = """N1
+( T03 - SVJCR 2525 M16 [SO 40] )
+( T03 - VCMT 16 04 04 | R-0.4 )
+G0X400.Z200.
+T0300
+T0303
+G99X100.Z10.
+G0X400.Z200.T0300
+M1
+"""
+
+    def test_lathe_parse_program_reads_so_from_insert_line(self):
+        rows = app.parse_lathe_program(self.LATHE_SO_ON_INSERT_LINE_SOURCE)
+        # T03이 유일한 공구라 앞의 공구번호 01/02 자리는 빈 행으로 채워진다
+        # (v1.6.6 정렬 규약, test_lathe_parse_program_sorts_by_tool_number_
+        # with_blank_gaps와 동일) — 'NO'로 실제 행을 찾는다.
+        row = next(r for r in rows if r['NO'] == 'T0303')
+        self.assertEqual(row['SO'], '40')
+        self.assertNotIn('SO', row['INSERT'], 'INSERT 표시 문구에서 [SO ..] 표기는 걷어내야 한다')
+        self.assertEqual(row['INSERT'], 'VCMT 16 04 04 | R-0.4')
+
+    def test_lathe_parse_program_reads_so_from_holder_line(self):
+        """두 주석 줄 중 어느 쪽에 [SO nn]이 있어도 읽어야 한다."""
+        rows = app.parse_lathe_program(self.LATHE_SO_ON_HOLDER_LINE_SOURCE)
+        row = next(r for r in rows if r['NO'] == 'T0303')
+        self.assertEqual(row['SO'], '40')
+        self.assertNotIn('SO', row['HOLDER'])
+        self.assertEqual(row['HOLDER'], 'SVJCR 2525 M16')
+
+    def test_lathe_parse_program_so_blank_when_absent(self):
+        """기존 프로그램(O1699.nc 양식)처럼 [SO ..]이 아예 없으면 빈 칸."""
+        rows = app.parse_lathe_program(self.LATHE_TOOLLIST_SOURCE)
+        for row in rows:
+            self.assertEqual(row.get('SO', ''), '')
+
+    def test_lathe_columns_schema_has_so_between_holder_and_remark(self):
+        keys = [key for key, _label in app.LATHE_COLUMNS]
+        self.assertEqual(keys, ['NO', 'INSERT', 'HOLDER', 'SO', 'REMARK'])
+
+    def test_lathe_pdf_column_weights_and_info_row_match_column_count(self):
+        """PDF 가중치 개수가 LATHE_COLUMNS 열 개수와 어긋나면 표가 깨진다."""
+        self.assertEqual(len(app.LATHE_PDF_COLUMN_WEIGHTS), len(app.LATHE_COLUMNS))
+        info_row = app.make_lathe_pdf_info_row({}, 'Helvetica')
+        self.assertEqual(len(info_row), len(app.LATHE_COLUMNS))
 
     # ---- v1.6.9 항목 1: 선반 공정 경계를 N번호 ~ M0/M1/M30으로 ----
 
@@ -4003,6 +4225,210 @@ G90 G0 X50. Z-10.
         finally:
             self._restore(viewer, original, qapp)
 
+    # ---- v1.7.1: G76 오인식 차단 + M34/M35 가공 모드 관리 + 극좌표 XC 뷰.
+    # 실제 프로그램 O3230.nc(사용자 제공)로 원인을 확정했다 — 자세한 배경은
+    # LATHE_MODE_GUIDELINES.md §8 v1.7.1 항목 참고. ----
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_g76_thread_cycle_does_not_open_fixed_cycle(self):
+        """O3230.nc 428~429행 형태(G76 나사가공, G80 취소 없음). 선반의
+        G70~G76은 그룹 00 복합형 사이클이라 드릴 계열(G81~G89, 그룹 10)과
+        다르고 G80으로 취소되지 않는다 — v1.6.8처럼 밀링 파인보링으로
+        오인하면 그 뒤 X/Z가 있는 모든 줄이 4점 사이클로 영원히 새게
+        된다. 각 줄이 (4점이 아니라) 점 1개씩만 만드는지 확인한다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        source = """T0100
+G0 X100. Z30.
+G76P020060Q30R.02
+G76X17.12Z-9.2P914Q120R0.F1.5875
+X100.
+Z30.
+"""
+        try:
+            viewer.set_source_text(source, {'T01': 'THREAD'})
+            points = viewer.tool_paths[list(viewer.tool_paths)[0]]
+            self.assertEqual(
+                len(points), 5,
+                'G76이 사이클을 열면 뒤따르는 줄들이 4점씩 새서 개수가 늘어난다',
+            )
+            self.assertEqual([p['type'] for p in points], ['G00'] * 5)
+            self.assertEqual([round(v, 6) for v in points[2]['pt']], [-9.2, 0.0, 8.56])
+            self.assertEqual([round(v, 6) for v in points[3]['pt']], [-9.2, 0.0, 50.0])
+            self.assertEqual([round(v, 6) for v in points[4]['pt']], [30.0, 0.0, 50.0])
+        finally:
+            self._restore(viewer, original, qapp)
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_mct_g73_is_still_recognized_after_lathe_split(self):
+        """v1.7.1: cycle_pattern을 밀링/선반용으로 나눈 뒤에도 MCT(밀링)는
+        G73을 여전히 드릴 계열 고정 사이클로 인식해야 한다(회귀 방지)."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        from nc_viewer_widget import NCViewerWidget
+
+        source = """M6T1
+G43
+G00 X0 Y0 Z50
+G73 X10 Y0 Z-5 R2 F100
+"""
+        viewer = NCViewerWidget()
+        try:
+            viewer.set_machine_type('3축 MCT (X Y Z)', init_camera=True)
+            self.assertTrue(viewer.set_source_text(source, {'T01': 'DRILL'}))
+            points = viewer.tool_paths['P001_T01']
+            self.assertEqual(
+                [p['type'] for p in points[2:]], ['G00', 'G00', 'G01'],
+                'MCT의 G73이 선반 분리 이후에도 사이클로 인식돼야 한다',
+            )
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_m34_resets_leftover_fixed_cycle_state(self):
+        """v1.7.1 방어선: 실제 드릴 사이클(G83)이 G80 없이 열린 채로
+        M34로 넘어가면, 그 뒤의 평범한 이동(X50.)이 이전 사이클 상태를
+        물려받아 4점으로 새면 안 된다 — 모드 전환이 사이클 모달을
+        비운다. G80에 의한 정상 취소는 이 리셋과 별개로 그대로 동작한다
+        (사용자 확인: "추가로 G80이 취소 코드임")."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        source = """T0100
+M35
+G0 X100. Z30.
+G83 Z-10. R5. F0.1
+M34
+X50.
+"""
+        try:
+            viewer.set_source_text(source, {'T01': 'DRILL'})
+            points = viewer.tool_paths[list(viewer.tool_paths)[0]]
+            # [0]=시작 (0,0,0), [1]=G0 이동, [2:6]=G83 사이클 4점(정상),
+            # [6]=M34 뒤 X50. — 사이클이 새지 않았다면 점 1개여야 한다.
+            self.assertEqual(len(points), 7, 'M34 뒤 X50.이 사이클로 새면 개수가 10으로 늘어난다')
+            self.assertEqual(points[6]['type'], 'G00')
+            self.assertEqual([round(v, 6) for v in points[6]['pt']], [30.0, 0.0, 25.0])
+        finally:
+            self._restore(viewer, original, qapp)
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_g76_leak_does_not_collapse_polar_c_to_line(self):
+        """O3230.nc 실사례 축약 — N12(G76 나사가공, G80 없음) 뒤 N13(M35
+        구동공구 밀링, G12.1 극좌표)이 이어지는 구성. v1.6.8 사이클
+        오인식이 있었다면 극좌표 구간까지 cycle_active가 새서, 극좌표
+        C(로컬 Y) 성분이 lathe_world_point()에서 버려져 패스가 반경축
+        (world Y=0) 한 줄로 뭉쳤을 것이다("단순 X축에 라인이 묶여있음").
+        수정 후에는 world Y(=C)가 지령값 그대로 살아 있어야 한다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        source = """T0100
+G0 X100. Z30.
+G76P020060Q0R0.
+G76X17.12Z-9.2P914Q914R0.F1.5875
+X100.
+Z30.
+M35
+G12.1
+G1X-6.352C27.243F100.
+X-20.494C20.172F100.
+G13.1
+M34
+X42.1
+G1Z-18.68F4.
+X36.F.05
+X37.
+X29.9
+"""
+        try:
+            viewer.set_source_text(source, {'T01': 'END MILL'})
+            points = viewer.tool_paths[list(viewer.tool_paths)[0]]
+            # [0]=시작, [1]=G0X100Z30, [2]=G76X17.12Z-9.2, [3]=X100.,
+            # [4]=Z30. (여기까지 나사가공 구간, 5점), [5][6]=극좌표 2점,
+            # [7..11]=M34 뒤 홈 펙 5점(X42.1/G1Z-18.68/X36./X37./X29.9).
+            # 전부 1점씩이면 총 12점(사이클로 샜다면 훨씬 많아진다).
+            self.assertEqual(len(points), 12, '어딘가에서 4점 사이클로 샜다')
+
+            # 극좌표 두 점의 world Y(=C)가 0으로 뭉개지지 않고 지령값
+            # 그대로 살아 있어야 한다(cc_deg=0이라 world == local).
+            self.assertAlmostEqual(points[5]['pt'][1], 27.243, places=6)
+            self.assertAlmostEqual(points[6]['pt'][1], 20.172, places=6)
+
+            # M34 뒤 홈 펙(X42.1~X29.9)이 4점 사이클이 아니라 각각 점
+            # 1개(직선 이동)여야 한다.
+            peck_pts = points[7:12]
+            self.assertEqual([p['type'] for p in peck_pts], ['G01'] * 5)
+            # 반경(world[2]) 값 — X42.1/G1Z-18.68(반경은 그대로 21.05,
+            # Z만 바뀜)/X36./X37./X29.9. 4점 사이클이었다면 여기서
+            # R점/복귀 같은 중간값이 섞여 개수·값이 어긋난다.
+            self.assertEqual(
+                [round(p['pt'][2], 6) for p in peck_pts],
+                [21.05, 21.05, 18.0, 18.5, 14.95],
+            )
+            self.assertEqual(round(points[7]['pt'][0], 6), 30.0)
+            self.assertEqual(round(points[8]['pt'][0], 6), -18.68)
+        finally:
+            self._restore(viewer, original, qapp)
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_mode_defaults_to_lathe_without_m34_m35(self):
+        """M34/M35가 하나도 없는 프로그램은 처음부터 끝까지 선반 가공
+        구간이어야 한다 — M35 전용(구동공구) Y워드 해석이 적용되면 안
+        된다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        source = """T0100
+G0 X100. Z10.
+Y5.
+X50.
+"""
+        try:
+            viewer.set_source_text(source, {'T01': 'OD TURN'})
+            points = viewer.tool_paths[list(viewer.tool_paths)[0]]
+            # Y5.가 무시돼야 하므로 world Y(index1)는 0으로 남는다.
+            self.assertAlmostEqual(points[-1]['pt'][1], 0.0, places=6)
+            self.assertEqual([round(v, 6) for v in points[-1]['pt']], [10.0, 0.0, 25.0])
+        finally:
+            self._restore(viewer, original, qapp)
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_mode_m35_m34_toggle_defines_milling_and_lathe_segments(self):
+        """M35~다음 M34 전은 밀링 가공 구간(Y워드가 실제로 반영), M34~
+        다음 M35 전은 다시 선반 가공 구간(Y워드 무시)이어야 한다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        source = """T0100
+G0 X100. Z10.
+M35
+Y5.
+X50.
+M34
+Y8.
+X60.
+"""
+        try:
+            viewer.set_source_text(source, {'T01': 'END MILL'})
+            points = viewer.tool_paths[list(viewer.tool_paths)[0]]
+            # M35~M34 구간: Y5.가 반영돼 world Y=5.
+            self.assertEqual([round(v, 6) for v in points[3]['pt']], [10.0, 5.0, 25.0])
+            # M34 이후: 다시 선반 구간이라 Y8.은 무시되고 world Y=0.
+            self.assertEqual([round(v, 6) for v in points[-1]['pt']], [10.0, 0.0, 30.0])
+        finally:
+            self._restore(viewer, original, qapp)
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_xc_projection_locks_orbit_and_faces_polar_plane(self):
+        """v1.7.1: XC 투영은 주축 방향(elevation 0, azimuth 0)에서 보고,
+        "선반" 뷰와 마찬가지로 평면 뷰이므로 회전이 잠긴다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        try:
+            viewer.set_camera_projection('LATHE_XC')
+            self.assertEqual(viewer.gl_view.opts['elevation'], 0)
+            self.assertEqual(viewer.gl_view.opts['azimuth'], 0)
+            self.assertTrue(viewer.gl_view.orbit_locked)
+        finally:
+            self._restore(viewer, original, qapp)
+
 
 class PdfDirectOpenTests(unittest.TestCase):
     """v1.6.4: PDF 출력은 저장 위치를 묻지 않고 임시 파일로 만들어 기본
@@ -4254,9 +4680,10 @@ class ToolListModeComboTests(unittest.TestCase):
             window.tool_mode_combo.setCurrentText('선반')
             self.assertTrue(window.is_lathe_program())
             self.assertTrue(app.is_lathe_machine(window.machine_type_combo.currentText()))
-            self.assertEqual(len(window.active_columns()), 4)
+            # v1.7.2: SO 열이 추가돼 4열 -> 5열이 됐다.
+            self.assertEqual(len(window.active_columns()), 5)
             # run()이 즉시 다시 불려 표 스키마도 실제로 갱신됐어야 한다.
-            self.assertEqual(window.table.columnCount(), 4)
+            self.assertEqual(window.table.columnCount(), 5)
             self.assertEqual(window.table.horizontalHeaderItem(0).text(), 'TOOL NO')
 
             window.tool_mode_combo.setCurrentText('밀링')
@@ -4265,6 +4692,21 @@ class ToolListModeComboTests(unittest.TestCase):
             # 항목으로 임의 폴백하면 안 된다.
             self.assertEqual(window.machine_type_combo.currentText(), '3축 MCT (X Y Z)')
             self.assertEqual(window.table.columnCount(), 16)
+        finally:
+            self._restore(window, settings_dir, orig_machine, orig_last_mct, qapp)
+
+    def test_tool_mode_combo_width_fits_both_item_labels(self):
+        """요청: 산출 모드 콤보('밀링'/'선반')의 문자가 가려지지 않게 폭을
+        늘린다. 최소 폭이 두 항목 실측 폭 + 여유보다 커야 한다."""
+        from PyQt5.QtGui import QFontMetrics
+
+        qapp, window, settings_dir, orig_machine, orig_last_mct = self._window()
+        try:
+            metrics = QFontMetrics(window.tool_mode_combo.font())
+            widest = max(metrics.horizontalAdvance(text) for text in ('밀링', '선반'))
+            self.assertGreaterEqual(
+                window.tool_mode_combo.minimumWidth(), widest + app.TOOL_MODE_COMBO_EXTRA_PX
+            )
         finally:
             self._restore(window, settings_dir, orig_machine, orig_last_mct, qapp)
 

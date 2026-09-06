@@ -26,7 +26,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
 
-APP_VERSION = '1.7.0'
+APP_VERSION = '1.7.2'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-09-06'
 APP_CREATOR = 'Hwang.seonmun'
@@ -150,9 +150,14 @@ LATHE_ANY_T_RE = re.compile(r'T(\d{4})(?!\d)', re.I)
 # 툴리스트 정렬(v1.6.6)과 3D 뷰어 필터 매핑(lathe_tool_name_map_from_rows)이
 # 같은 규약을 쓴다.
 LATHE_TOOL_NO_SPLIT_RE = re.compile(r'^T(\d{2})(\d{2})$', re.I)
+# v1.7.2: 선반 주석에도 밀링 TOOL_RE와 같은 "[SO nn]" 표기가 들어올 예정
+# (사용자 확정, 2026-09-06) — 홀더/인서트 두 주석 줄 중 어느 쪽에 있어도
+# 찾는다. 값은 밀링과 같은 형식(숫자 문자열, 예 '40')으로 저장한다.
+LATHE_SO_RE = re.compile(r'\[\s*SO\s*([\d.]+)\s*\]', re.I)
 
 LATHE_COLUMNS = [
-    ('NO', 'TOOL NO'), ('INSERT', 'INSERT'), ('HOLDER', '홀더'), ('REMARK', 'REMARK'),
+    ('NO', 'TOOL NO'), ('INSERT', 'INSERT'), ('HOLDER', '홀더'), ('SO', 'SO'),
+    ('REMARK', 'REMARK'),
 ]
 
 
@@ -174,7 +179,11 @@ def parse_lathe_program(text):
     TOOL NO로 삼고, 그런 T워드가 없으면 옵셋 00짜리 T워드를 그대로 쓴다
     (v1.6.4 Tnn00 규약과 같은 우선순위). 같은 TOOL NO가 여러 N 블록에서
     쓰이면 한 행으로 합치고 REMARK에 N번호를 누적한다 — 옵셋이 다르면
-    (T0101 vs T0111) 별도 행으로 남는다(승인된 규약)."""
+    (T0101 vs T0111) 별도 행으로 남는다(승인된 규약).
+
+    v1.7.2: 두 주석 줄 중 어느 쪽이든 "[SO nn]"이 있으면 SO 열로 뽑아내고
+    (먼저 나오는 줄의 값을 쓴다), INSERT/홀더 표시 문구에서는 그 표기를
+    걷어낸다(사용자 확정, 2026-09-06)."""
     lines = text.splitlines()
     n_indices = [i for i, line in enumerate(lines) if LATHE_N_RE.match(line)]
     tools = {}
@@ -194,6 +203,14 @@ def parse_lathe_program(text):
             comments.append(_strip_lathe_tool_prefix(comment_match.group(1)))
             if len(comments) >= 2:
                 break
+        so_value = ''
+        cleaned_comments = []
+        for comment_text in comments:
+            so_match = LATHE_SO_RE.search(comment_text)
+            if so_match and not so_value:
+                so_value = so_match.group(1)
+            cleaned_comments.append(LATHE_SO_RE.sub('', comment_text).strip())
+        comments = cleaned_comments
         holder = comments[0] if len(comments) >= 1 else ''
         insert = comments[1] if len(comments) >= 2 else ''
 
@@ -218,11 +235,15 @@ def parse_lathe_program(text):
             tool_no = fallback_tool_no
 
         key = tool_no or ('__N%d__' % start)
-        entry = tools.setdefault(key, {'tool_no': tool_no, 'holder': '', 'insert': '', 'remarks': []})
+        entry = tools.setdefault(
+            key, {'tool_no': tool_no, 'holder': '', 'insert': '', 'so': '', 'remarks': []}
+        )
         if not entry['holder']:
             entry['holder'] = holder
         if not entry['insert']:
             entry['insert'] = insert
+        if not entry['so']:
+            entry['so'] = so_value
         if n_label not in entry['remarks']:
             entry['remarks'].append(n_label)
         if key not in order:
@@ -234,6 +255,7 @@ def parse_lathe_program(text):
             'NO': entry['tool_no'],
             'INSERT': entry['insert'],
             'HOLDER': entry['holder'],
+            'SO': entry['so'],
             'REMARK': ', '.join(entry['remarks']),
         }
 
@@ -345,7 +367,7 @@ _COL_WIDTH_TOTAL = sum(COL_WIDTH.values())
 # 좁고, INSERT/홀더/REMARK는 실제 문구가 길어(예: "CNMG 120408 | R-0.8")
 # 여유를 넉넉히 둔다. 같은 스케일/패딩 규칙을 적용해 밀링 표와 크기 감이
 # 어긋나지 않게 한다.
-_LATHE_COL_WIDTH_BASE = {'NO': 88, 'INSERT': 220, 'HOLDER': 220, 'REMARK': 140}
+_LATHE_COL_WIDTH_BASE = {'NO': 88, 'INSERT': 220, 'HOLDER': 220, 'SO': 64, 'REMARK': 140}
 LATHE_COL_WIDTH = {
     key: round(width * COPY_TABLE_SCALE) + TABLE_CELL_PADDING_PX * 2
     for key, width in _LATHE_COL_WIDTH_BASE.items()
@@ -357,6 +379,12 @@ _LATHE_COL_WIDTH_TOTAL = sum(LATHE_COL_WIDTH.values())
 # 셀 폭을 함께 가변으로 줄인다(App._relayout_tool_table). 너무 작아져
 # 읽기 힘들어지는 것만 막는 하한.
 TOOL_TABLE_MIN_SCALE = 0.45
+
+# v1.7.2: 산출 모드 콤보('밀링'/'선반')의 보이는 창에서 글자가 화살표에
+# 가려 잘려 보인다는 리포트 — 다크/라이트 공용 QSS가 QComboBox 테두리를
+# 그려 네이티브 여백 계산이 어긋난 것으로 보인다. 항목 문구의 실측 폭에
+# 이 여유(화살표 버튼 + 테두리 + 좌우 패딩)를 더해 최소 폭으로 못박는다.
+TOOL_MODE_COMBO_EXTRA_PX = 46
 
 # TOOL_LIST_PG.xlsx의 A:P 열 폭 비율
 PDF_COLUMN_WEIGHTS = [48, 100, 150, 40, 40, 40, 40, 40, 40, 40, 40, 60, 140, 70, 70, 88]
@@ -544,14 +572,15 @@ def make_pdf_story(rows, metadata, available_width, fonts):
 
 
 # ---------- 선반 전용 PDF(v1.6.5) ----------
-# 밀링 PDF(16열, [SO]/[HOLDER] 등 고정 병합 칸)와 선반(4열: TOOL NO/INSERT/
-# 홀더/REMARK)은 열 구성 자체가 다르므로 표/스타일을 따로 만든다. 문서
-# 골격(register_pdf_fonts/make_pdf_document/PDF_ROWS_PER_PAGE 등)은 그대로
-# 재사용한다.
+# 밀링 PDF(16열, [SO]/[HOLDER] 등 고정 병합 칸)와 선반(5열: TOOL NO/INSERT/
+# 홀더/SO/REMARK, v1.7.2)은 열 구성 자체가 다르므로 표/스타일을 따로
+# 만든다. 문서 골격(register_pdf_fonts/make_pdf_document/PDF_ROWS_PER_PAGE
+# 등)은 그대로 재사용한다.
 # v1.6.6: NO는 "T0101"처럼 항상 짧고 REMARK도 "N1, N5"처럼 짧은 편인 반면
 # INSERT/홀더 문구는 길어(예: "T10-D4 X R0.3 FILLET EN MILL, ANGLE / D-4.")
 # 화면 표와 마찬가지로 말줄임이 나던 문제 — 두 열의 비중을 넓힌다.
-LATHE_PDF_COLUMN_WEIGHTS = [55, 300, 300, 100]
+# v1.7.2: SO(옵셋 번호 한두 자리, 예 "40")도 NO/REMARK처럼 짧으므로 좁게 둔다.
+LATHE_PDF_COLUMN_WEIGHTS = [55, 285, 285, 50, 100]
 
 
 def lathe_pdf_column_widths(available_width):
@@ -569,7 +598,9 @@ def make_lathe_pdf_info_row(metadata, font_name):
         value = str(metadata.get(key, '')).strip()
         if value:
             parts.append('%s : %s' % (label, escape(value)))
-    return [Paragraph('   |   '.join(parts), style), '', '', '']
+    # v1.7.2: 4칸으로 하드코딩돼 있던 것을 LATHE_COLUMNS 열 개수만큼
+    # 만들도록 고쳤다 — SO 열 추가로 5칸이 됐을 때도 안 깨지게.
+    return [Paragraph('   |   '.join(parts), style)] + [''] * (len(LATHE_COLUMNS) - 1)
 
 
 def make_lathe_pdf_table(rows, metadata, available_width, fonts):
@@ -592,6 +623,10 @@ def style_lathe_pdf_table(data, available_width, regular_font, bold_font):
     commands.extend(pdf_table_row_backgrounds())
     # INSERT/홀더/REMARK는 문구가 길어 왼쪽 정렬한다(TOOL NO만 가운데 유지).
     commands.append(('ALIGN', (1, 2), (-1, -1), 'LEFT'))
+    # v1.7.2: SO(인덱스 3)는 "40"처럼 짧은 숫자라 TOOL NO와 같이 가운데
+    # 정렬한다(뒤에 추가해 위 LEFT 지정을 이 열에서만 덮어쓴다).
+    so_col_index = [key for key, _label in LATHE_COLUMNS].index('SO')
+    commands.append(('ALIGN', (so_col_index, 2), (so_col_index, -1), 'CENTER'))
     table.setStyle(TableStyle(commands))
     return table
 
@@ -2446,6 +2481,16 @@ else:
             self.tool_mode_combo.setCurrentText(
                 '선반' if self.is_lathe_program() else '밀링'
             )
+            # v1.7.2: 보이는 창에서 문자가 화살표에 가려 잘리는 문제 —
+            # 항목 문구 실측 폭 + 여유(TOOL_MODE_COMBO_EXTRA_PX)를 최소
+            # 폭으로 두고, 폭 정책도 항상 내용에 맞추게 한다.
+            combo_metrics = QFontMetrics(row_button_font)
+            widest_item = max(
+                combo_metrics.horizontalAdvance(text)
+                for text in ('밀링', '선반')
+            )
+            self.tool_mode_combo.setMinimumWidth(widest_item + TOOL_MODE_COMBO_EXTRA_PX)
+            self.tool_mode_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
             self.tool_mode_combo.currentIndexChanged.connect(self._tool_mode_combo_changed)
             rbar.addWidget(self.tool_mode_combo)
             btn_delete = self._add_button(rbar, '삭제', self.delete_selected, row_button_font)
