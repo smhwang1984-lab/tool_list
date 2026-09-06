@@ -2872,10 +2872,22 @@ class NCViewerWidget(QWidget):
             if is_lathe:
                 # 선반만 이송 단위와 회전 모드를 읽는다 — 밀링의 G98/G99는
                 # 고정 사이클 복귀 레벨이라 뜻이 다르다(가이드라인 0항).
+                prev_feed_per_rev = lathe_feed_per_rev
                 if g99_pattern.search(line_upper):
                     lathe_feed_per_rev = True
                 elif g98_pattern.search(line_upper):
                     lathe_feed_per_rev = False
+                if lathe_feed_per_rev != prev_feed_per_rev and not f_match:
+                    # v1.7.2: 이송 단위가 실제로 바뀐 줄에 새 F가 없으면
+                    # 이전 F 숫자를 무효화한다 — mm/rev로 지정된 F는
+                    # mm/min에서(그 반대도) 의미가 다르므로, 단위째
+                    # 바뀐 상태에서 옛 숫자를 그대로 쓰면 시간이 크게
+                    # 어긋난다(사용자 확정, 2026-09-06). F를 모르는 절삭
+                    # 이동은 시간 0으로 넘기는 기존 설계 철학(아래
+                    # effective_feed_mm_per_min 참고)과 같은 원칙이다.
+                    # 같은 줄에 새 F가 있으면(f_match) 그 값이 이미
+                    # current_feed에 반영돼 있으므로 건드리지 않는다.
+                    current_feed = 0.0
                 spindle_scan = line_upper
                 g50_s_match = g50_s_pattern.search(spindle_scan)
                 if g50_s_match:
@@ -2983,11 +2995,25 @@ class NCViewerWidget(QWidget):
                 g43_active = False
                 continue
 
-            if g98_pattern.search(line_upper):
-                g98_active = True
-                current_motion = "G98"
-            elif g99_pattern.search(line_upper):
-                g98_active = False
+            if not is_lathe:
+                # v1.7.2: 선반의 G98/G99는 밀링/MCT의 "고정 사이클 복귀
+                # 레벨"과 전혀 다른 뜻(이송 단위, mm/min vs mm/rev)이라 이
+                # 블록을 타면 안 된다 — 선반 전용 이송 단위 판정은 이미
+                # 위(2875행 부근)에서 따로 한다. 이 블록을 선반에도 그대로
+                # 적용하면 G98/G99가 나온 줄의 current_motion이 "G98"로
+                # 덮여 그 줄의 모달 이동(보통 G00 위치 복귀)이 절삭 이동으로
+                # 오인되고, 그 결과 직전 나사가공 F(mm/rev 값, 예 1.5875)가
+                # mm/min으로 잘못 적용돼 가공시간이 수백~수천 배 부풀었다
+                # (실사례: O3230.nc:486 "G98X100.Z10.T0404" 뒤 13공정 시간이
+                # 2시간을 넘김 — 사용자 리포트, 2026-09-06). g98_active
+                # 자체는 선반에서 아무도 읽지 않는다(v1.6.8부터 선반 사이클은
+                # G98/G99와 무관하게 항상 초기점 복귀이고, g43_active 게이트
+                # 분기는 밀링 전용).
+                if g98_pattern.search(line_upper):
+                    g98_active = True
+                    current_motion = "G98"
+                elif g99_pattern.search(line_upper):
+                    g98_active = False
 
             # v1.7.1: 선반은 드릴 계열(G81~G89/G80)만 고정 사이클로 본다 —
             # 위 lathe_cycle_pattern 주석 참고. 밀링/MCT는 기존 cycle_pattern
