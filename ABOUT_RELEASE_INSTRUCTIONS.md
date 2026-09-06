@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-09-06 (v1.7.2)
+Last updated: 2026-09-06 (v1.7.3)
 
 ## About button requirements
 
@@ -34,7 +34,87 @@ Last updated: 2026-09-06 (v1.7.2)
 
 ## Version history
 
-### 2026-09-06 (latest, v1.7.2)
+### 2026-09-06 (latest, v1.7.3)
+
+- Version: 1.7.3
+- Release/build date: 2026-09-06 (플랜 승인 후 구현, 빌드는 별도 확인 대기)
+- Summary: 사용자 요청 4건(2026-09-06). 1번은 선반 전용, 2~4번은 선반/밀링
+  공통. 실제 프로그램 `O4811.nc` N5 공정(측면 드릴 G87 + `H-180.`)으로
+  1번 원인을 확정했다.
+  1. **선반 H = C축 증분 좌표(모션 안 나오던 버그)**. "선반 가공 중 H= C축의
+     증분 좌표. 사이클 가공 중 C0에서 가공 후 H-180.이라면 반대로 회전해서
+     가공 필요. 확인 결과 O4811.nc 모션이 안 나옴". 좌표 생성 게이트가
+     X/Y/Z/C/R 워드가 없는 `H-180.Q2500` 같은 줄을 통째로 걸러내 모달
+     드릴 사이클(G87) 반복이 아예 트리거되지 않았다. H를 게이트에 추가하고
+     "현재 C에서의 증분 회전"(`cc_deg += H`)으로 해석하도록 고쳐, 사이클
+     중이면 새 C 각도에서 4점이 다시 그려지고 G0/G1 모드에서도 그대로
+     누적 회전한다. 대화 중 사용자가 정정·확정: "G91g28h0은 c축을
+     기계원점으로 복귀한다는 뜻" / "선반에는 G91개념이 없어 G28 H0일 때
+     원점 복귀 맞음" — `G28`+`H`는 G91 유무와 무관하게 C축 기계원점
+     복귀로 인식하도록 넓혔다(`G28V0.H0.`도 인식). "M89는 c축 클램프
+     M90은 c축 클램프 해제" — 툴패스에 영향이 없어 계속 파싱하지 않는다.
+  2. **프로그램 입력창 폰트 크기 유지**. "프로그램 입력창에 콘트롤
+     드래그로 폰트 사이즈 지정되면 다음 번에 열 때도 동일한 폰트 사이즈로
+     표기". Ctrl+휠 확대/축소(Qt 기본 동작)가 지금까지 재시작하면 사라졌다
+     — `layout_settings`(`App(_root=...)`로 테스트 격리되는 저장소)에
+     `program_font_size`로 저장하고 다음 실행 시 복원한다.
+  3. **기본 프로그램 항상 최대화로 열기**. "기본프로그램 열 때 항상
+     최대화로 열리게". 이전에는 저장된 창 기하가 있으면 최대화하지
+     않았는데, 이제 항상 최대화를 예약한다(스플리터 비율/저장 크기 복원은
+     그대로 유지 — 최대화를 풀었을 때를 위해).
+  4. **좌상단 운용 중인 프로그램 번호 표기**. "화면 왼쪽 상단에 지금 운용
+     중인 프로그램 번호 기재. 프로그램은 입력 프로그램 % 아래 Onnnn(내용)
+     (내용이 없는 것은 () 생략)". 메인 창 상단 바(제목 옆)에 라벨을 추가해
+     `run()`/`clear()`에서 갱신한다.
+- Creator displayed: Hwang.seonmun
+- Open source used: Python, PyQt5, pyqtgraph, NumPy, PyOpenGL, ReportLab, PyInstaller,
+  Inno Setup (새 의존성 없음).
+- Details:
+  - **`nc_viewer_widget.py`**: `process_nc_lines()`의 `G28` 분기(3141행
+    부근)를 `g28_here`/`g28_c_home`으로 나눠 선반은 G91 없이도 `G28`+`H`를
+    C축 원점 복귀로 인식하게 했다. 좌표 생성 게이트(옛 3194행)에
+    `h_incr_match`를 추가하고, 비극좌표 C 처리(`else: if c_match: ...`)
+    옆에 `elif h_incr_match: cc_deg += float(...)`를 추가했다 — `G28`이나
+    `G43`이 있는 줄, 극좌표(G12.1) 구간은 제외한다. M89/M90/Q/P는 여전히
+    파싱하지 않는다(오인식되지 않음을 회귀 테스트로 못박음).
+  - **`NC_Tool_List.py`**: `ProgramTextEdit`에 `fontZoomed` 신호와
+    `wheelEvent` 오버라이드를 추가(Ctrl 상태에서만 발신, 확대/축소 자체는
+    Qt 기본 동작 그대로). `_load_program_font_size()`/
+    `_restore_program_font_size()`/`_save_program_font_size()`를
+    `_load_playback_speed()`와 같은 패턴으로 추가하고 `layout_settings`에
+    `program_font_size`로 저장(범위 6~48pt, 기본 10pt). `App.__init__`의
+    `if not self.restore_layout_settings(): QTimer.singleShot(...)`을
+    무조건 호출로 바꿨다. `PROGRAM_HEADER_RE`/`program_header_text()`를
+    추가(기존 `PROGRAM_NO_RE`/`parse_program_metadata()`의 'program' 키는
+    헤더 주석 `PROGRAM:` 값을 O번호보다 우선해 표기 목적이 달라 재사용하지
+    않음). 상단 바에 `self.program_no_label`을 추가하고 `run()`/`clear()`
+    에서 갱신한다.
+- Tests: `tests/test_nc_tool_list.py` 202개 통과(v1.7.2의 191 + 신규 11,
+  무관한 `SingleInstanceTests` 1건은 여전히 이 PC의 실행 중인 인스턴스
+  때문에 환경 요인으로 실패). 신규는 `LatheModeTests`에 6건(G91 없는
+  `G28V0.H0.` 원점 복귀, H 없는 `G28V0.` 회귀 방어, G0/G1 모드 H 누적
+  회전, O4811.nc N5 축약형 사이클 반복, M89/M90 무영향, 밀링 회귀 방어)과
+  `ToolListModeComboTests`에 5건(폰트 크기 저장/복원·클램프, 항상 최대화
+  소스 검증, `program_header_text()` 포맷 3케이스, 라벨 갱신/초기화) 추가.
+  기존 `test_top_caption_removed_and_top_bar_buttons_left_aligned`은 새
+  `program_no_label`을 반영해 갱신.
+- Installer/package status: **생성 완료** (사용자 직접 지시로 빌드).
+  - `python -m PyInstaller --noconfirm --clean NC_Tool_List.spec` — onedir, UPX 비활성,
+    `dist\NC_Tool_List` 151 MB, `_internal\OpenGL` 폴더 부재 유지(freeglut/gle32/64
+    DLL 배제, MSVCR90.dll 경고는 기존과 동일하게 무해).
+  - `ISCC.exe NC_Tool_List.iss` (Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.7.3.exe`
+    (컴파일 85.8초).
+  - 포터블: `installer\NC_Tool_List_Portable_v1.7.3.zip` 64.0 MB, 315개 항목
+    (이전 버전과 같은 구성 — 새 의존성 없음).
+  - 빌드 검증: 프리즈된 `NC_Tool_List.exe`의 파일/제품 버전이 `1.7.3.0`으로 찍히고,
+    실행하면 `startup.log`에 트레이스백 없이 `Starting Sum Path v1.7.3 frozen=True`가
+    남고 창 제목도 `Sum Path v1.7.3`으로 뜨는 것을 확인했다(테스트 실행 후 정상 종료).
+  - Installer SHA-256: 1465C59BBBEA98DB274DB916F4CEAF7C01D6A9CAB8D41F0D79CD5019B9E0ABD8
+  - Portable ZIP SHA-256: 3B3BA413204461D26907B08DBB4DE2500FCEFFE75C5F08B2AF1CB2A8F082459E
+  - App SHA-256: 874976B7BDF9DD102C5986FF5F82BA8E89E221042E57337F341574CE33970CDD
+  - Signature status: still unsigned.
+
+### 2026-09-06 (v1.7.2)
 
 - Version: 1.7.2
 - Release/build date: 2026-09-06 (플랜 승인 후 구현·빌드)

@@ -26,7 +26,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
 
-APP_VERSION = '1.7.2'
+APP_VERSION = '1.7.3'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-09-06'
 APP_CREATOR = 'Hwang.seonmun'
@@ -319,10 +319,19 @@ def code_without_comments(line):
 M00_STOP_RE = re.compile(r'M0?0(?!\d)', re.I)
 M01_STOP_RE = re.compile(r'M0?1(?!\d)', re.I)
 MAX_PLAYBACK_SPEED = 5000
+# v1.7.3: 프로그램 입력창 Ctrl+휠 확대/축소 폰트 크기 저장 범위(포인트).
+PROGRAM_FONT_MIN_PT = 6
+PROGRAM_FONT_MAX_PT = 48
+PROGRAM_FONT_DEFAULT_PT = 10
 # 키 뒤 숫자만 추출(값이 없으면 매칭 안 됨). 긴 키를 앞에 둬서 FL이 F로 잘못 잡히지 않게 함
 KV_RE   = re.compile(r'\b(LCF|SPINDL|FEED|FL|GL|DC|RE|SIG|PL|F)\s+(-?\d+(?:\.\d+)?)', re.I)
 COMMENT_RE = re.compile(r'\(([^()]*)\)', re.S)
 PROGRAM_NO_RE = re.compile(r'^\s*(O\d+)\b', re.I | re.M)
+# v1.7.3: 화면 좌상단 "운용 중인 프로그램 번호" 표시 전용 — `%` 아래 첫
+# `Onnnn` 줄의 O번호(+있으면 같은 줄 괄호 주석)를 그대로 쓴다. 헤더 주석의
+# `PROGRAM:` 값을 O번호보다 우선하는 parse_program_metadata()의 'program'
+# 키(위 PROGRAM_NO_RE가 그 폴백)와는 표기 목적이 달라 재사용하지 않는다.
+PROGRAM_HEADER_RE = re.compile(r'^\s*(O\d+)\s*(?:\(([^)\r\n]*)\))?', re.I | re.M)
 OPERATION_FROM_PROGRAM_RE = re.compile(
     r'(?<![A-Z0-9])(OP(?:ERATION)?\s*[-_ ]?\d+[A-Z]?)(?=$|[^A-Z0-9])', re.I,
 )
@@ -434,6 +443,18 @@ def parse_program_metadata(text):
         remainder = program[:operation_match.start()] + program[operation_match.end():]
         metadata['part_no'] = remainder.strip(' _-/')
     return metadata
+
+
+def program_header_text(text):
+    """v1.7.3: 화면 좌상단에 표시할 문구 — `%` 아래 첫 `Onnnn` 줄을
+    `Onnnn(내용)` 형태로 돌려준다. 주석이 없거나 공백뿐이면 괄호를 생략해
+    `Onnnn`만 돌려준다. 해당 줄이 없으면 빈 문자열."""
+    match = PROGRAM_HEADER_RE.search((text or '')[:2000])
+    if not match:
+        return ''
+    program_no = match.group(1).upper()
+    comment = (match.group(2) or '').strip()
+    return '%s(%s)' % (program_no, comment) if comment else program_no
 
 
 def register_pdf_fonts():
@@ -1346,10 +1367,20 @@ else:
         # ExtraSelection의 typedef라 같은 타입이다).
         filesDropped = pyqtSignal(list)
         focusGained = pyqtSignal()
+        # v1.7.3: Ctrl+휠로 확대/축소되는 폰트 크기를 다음 실행에도 유지하기
+        # 위한 신호. 실제 확대/축소는 QPlainTextEdit 기본 wheelEvent가
+        # Ctrl 상태에서 zoomIn/zoomOut을 이미 처리하므로 그대로 두고, 여기서는
+        # 그 뒤에 바뀐 폰트를 저장하라는 신호만 올린다.
+        fontZoomed = pyqtSignal()
 
         def __init__(self, parent=None):
             super().__init__(parent)
             self.setAcceptDrops(True)
+
+        def wheelEvent(self, event):
+            super().wheelEvent(event)
+            if event.modifiers() & Qt.ControlModifier:
+                self.fontZoomed.emit()
 
         def focusInEvent(self, event):
             super().focusInEvent(event)
@@ -1535,8 +1566,13 @@ else:
             self._build_ui()
             self._install_shortcuts()
             self.apply_theme(self.theme_name)
-            if not self.restore_layout_settings():
-                QTimer.singleShot(0, self.showMaximized)
+            # v1.7.3: 기본 프로그램은 항상 최대화로 연다(사용자 요청) —
+            # 이전에는 저장된 창 기하가 없을 때만 최대화했다. 스플리터
+            # 비율/저장된 창 크기(사용자가 최대화를 풀었을 때를 위한 값)는
+            # restore_layout_settings()가 그대로 복원하고, 최대화만 항상
+            # 뒤이어 예약한다.
+            self.restore_layout_settings()
+            QTimer.singleShot(0, self.showMaximized)
 
 
         def _create_viewer(self):
@@ -1733,6 +1769,13 @@ else:
             title.setFont(QFont('맑은 고딕', 13, QFont.Bold))
             top_layout.addWidget(title)
 
+            # v1.7.3: 좌상단에 지금 운용 중인 프로그램 번호를 표기(사용자
+            # 요청) — 제목 바로 옆, 선반/밀링 공통. run()/clear()에서
+            # update_program_no_label()이 채우거나 비운다.
+            self.program_no_label = QLabel('')
+            self.program_no_label.setFont(QFont('맑은 고딕', 12))
+            top_layout.addWidget(self.program_no_label)
+
             # About/모드 전환 버튼은 창 오른쪽 끝(addStretch 뒤)이 아니라 제목
             # 바로 옆(왼쪽)에 붙도록 배치하고, 폰트를 기존의 1.3배로 키운다
             # (v1.5.9 요청) — 9pt → 12pt. 패딩은 _style_mode_buttons에서
@@ -1833,6 +1876,7 @@ else:
 
             self.src = ProgramTextEdit()
             self.src.setFont(mono)
+            self._restore_program_font_size()
             self.src.setLineWrapMode(QPlainTextEdit.NoWrap)
             self.src.setReadOnly(True)
             self.src.setAcceptDrops(True)
@@ -1841,6 +1885,7 @@ else:
             self.src.cursorPositionChanged.connect(self.source_cursor_changed)
             self.src.cursorPositionChanged.connect(self._highlight_current_line)
             self.src.focusGained.connect(lambda: self.set_machine_panel_expanded(False))
+            self.src.fontZoomed.connect(self._save_program_font_size)
             self._highlight_current_line()
             self.input_splitter.addWidget(self.src)
 
@@ -2646,6 +2691,31 @@ else:
             self.play_speed = max(1, min(MAX_PLAYBACK_SPEED, int(value)))
             self.layout_settings.setValue('playback_speed', self.play_speed)
 
+        def _load_program_font_size(self):
+            raw = self.layout_settings.value('program_font_size', PROGRAM_FONT_DEFAULT_PT)
+            try:
+                value = float(raw)
+            except (TypeError, ValueError):
+                value = PROGRAM_FONT_DEFAULT_PT
+            return max(PROGRAM_FONT_MIN_PT, min(PROGRAM_FONT_MAX_PT, value))
+
+        def _restore_program_font_size(self):
+            """v1.7.3: Ctrl+휠로 바꾼 프로그램 입력창 폰트 크기를 다음 실행에도
+            유지한다 — self.src.setFont(mono) 이후에 호출해야 여기서 되돌린
+            값이 덮어써지지 않는다."""
+            font = self.src.font()
+            font.setPointSizeF(self._load_program_font_size())
+            self.src.setFont(font)
+
+        def _save_program_font_size(self):
+            size = self.src.font().pointSizeF()
+            if size <= 0:
+                size = self.src.font().pointSize()
+            if size <= 0:
+                return
+            clamped = max(PROGRAM_FONT_MIN_PT, min(PROGRAM_FONT_MAX_PT, size))
+            self.layout_settings.setValue('program_font_size', clamped)
+
         @staticmethod
         def _as_bool_setting(raw, default):
             if raw is None:
@@ -3055,9 +3125,15 @@ else:
                 self.table.setUpdatesEnabled(True)
             self.update_count()
             self.update_metadata_summary()
+            self.update_program_no_label(source_text)
             self._relayout_tool_table()
             if self.current_mode == 'viewer':
                 self.sync_viewer_from_source()
+
+        def update_program_no_label(self, source_text):
+            """v1.7.3: 좌상단 프로그램 번호 표시를 현재 입력 프로그램의 첫
+            `Onnnn` 줄로 갱신한다(§4 요구, 주석 없으면 괄호 생략)."""
+            self.program_no_label.setText(program_header_text(source_text))
 
         def _relayout_tool_table(self):
             """공구 리스트 표의 폰트/셀 폭을 현재 패널 폭에 맞춰 가변으로
@@ -3189,6 +3265,7 @@ else:
             self.metadata = {key: '' for key in METADATA_ALIASES}
             self.invalidate_parse_cache()
             self.metadata_summary.setText('출력 정보: -')
+            self.program_no_label.setText('')
             self.viewer.clear()
 
         def show_type_list(self):

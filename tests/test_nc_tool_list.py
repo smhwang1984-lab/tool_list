@@ -328,12 +328,14 @@ X60 Y10 Z0
             top_layout = window.top_bar.layout()
             widgets = [top_layout.itemAt(i).widget() for i in range(top_layout.count())]
             widgets = [w for w in widgets if w is not None]
-            # title 다음 곧바로 About/도움말/툴리스트/뷰어 버튼이 와야 하고
-            # (stretch는 addStretch()라 itemAt().widget()이 None이라 widgets
-            # 리스트에는 나타나지 않는다), 안내 문구 QLabel은 더 이상 없다.
+            # title, program_no_label(v1.7.3: 좌상단 프로그램 번호 표시) 다음
+            # 곧바로 About/도움말/툴리스트/뷰어 버튼이 와야 하고(stretch는
+            # addStretch()라 itemAt().widget()이 None이라 widgets 리스트에는
+            # 나타나지 않는다), 안내 문구 QLabel은 더 이상 없다.
             # v1.6.1: About 다음에 도움말 버튼이 추가되었다.
+            self.assertEqual(widgets[1], window.program_no_label)
             self.assertEqual(
-                widgets[1:5],
+                widgets[2:6],
                 [window.btn_about, window.btn_help, window.btn_tool_mode, window.btn_viewer_mode],
             )
         finally:
@@ -4225,6 +4227,172 @@ G90 G0 X50. Z-10.
         finally:
             self._restore(viewer, original, qapp)
 
+    # ---- v1.7.3: H = C축 증분 좌표. 실제 프로그램 O4811.nc(사용자 제공)
+    # N5 공정(측면 드릴 G87 + "H-180.")으로 원인을 확정했다 — 자세한 배경은
+    # LATHE_MODE_GUIDELINES.md §8 v1.7.3 항목 참고. ----
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_g28_h0_resets_c_without_g91(self):
+        """선반에는 G91(증분 모드) 개념이 없다(사용자 확정) — 실제
+        프로그램(O4811.nc)처럼 G91 없이 `G28V0.H0.`만 있어도
+        test_lathe_g28_h0_resets_c_axis_rotation과 똑같이 C축 기계원점
+        복귀로 인식해야 한다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        source = """T0100
+G0 X100. Z5.
+C90.
+G28V0.H0.
+G0 X50. Z-10.
+"""
+        try:
+            viewer.set_source_text(source, {'T01': 'END MILL'})
+            points = viewer.tool_paths[list(viewer.tool_paths)[0]]
+            self.assertEqual([round(v, 6) for v in points[2]['pt']], [5.0, 50.0, 0.0])
+            self.assertEqual([round(v, 6) for v in points[3]['pt']], [5.0, 0.0, 50.0])
+            self.assertEqual(points[3]['type'], 'G00')
+            self.assertEqual([round(v, 6) for v in points[4]['pt']], [-10.0, 0.0, 25.0])
+        finally:
+            self._restore(viewer, original, qapp)
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_g28_without_h_still_ignored(self):
+        """회귀 방어: G91 요구를 뺀 것이 다른 G28 용법까지 넓히면 안 된다
+        — `G28V0.`처럼 H가 없는 줄은 기존처럼 무시(좌표 게이트를 못 넘어
+        새 점도, C 리셋도 없음)돼야 한다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        source = """T0100
+G0 X100. Z5.
+C90.
+G28V0.
+G0 X50. Z-10.
+"""
+        try:
+            viewer.set_source_text(source, {'T01': 'END MILL'})
+            points = viewer.tool_paths[list(viewer.tool_paths)[0]]
+            # G28V0. 줄은 아무 점도 추가하지 않는다: start / G0 / C90 /
+            # 마지막 G0(C가 90에 남아 있는 채 회전) 이렇게 4개뿐이다.
+            self.assertEqual(len(points), 4)
+            self.assertEqual([round(v, 6) for v in points[2]['pt']], [5.0, 50.0, 0.0])
+            self.assertEqual([round(v, 6) for v in points[-1]['pt']], [-10.0, 25.0, 0.0])
+        finally:
+            self._restore(viewer, original, qapp)
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_h_rotates_c_incrementally_in_g0_g1_mode(self):
+        """G0/G1 모드에서 단독 H 워드는 절대각(C)이 아니라 "현재 C
+        위치에서의 증분 회전"이다(사용자 확정) — H90.을 두 번 연속으로
+        줘서 90 -> 180으로 누적되는지 확인한다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        source = """T0100
+G0 X100. Z5.
+C0.
+H90.
+G0 X50. Z-10.
+H90.
+"""
+        try:
+            viewer.set_source_text(source, {'T01': 'END MILL'})
+            points = viewer.tool_paths[list(viewer.tool_paths)[0]]
+            # 순서: [0,0,0](시작) / [5,0,50](G0) / [5,0,50](C0, 변화 없음)
+            # / [5,50,0](H90 → C=90) / [-10,25,0](G0, C=90인 채 이동)
+            # / [-10,0,-25](H90 → C=90+90=180, 절대 지정이 아님을 확인).
+            self.assertEqual([round(v, 6) for v in points[3]['pt']], [5.0, 50.0, 0.0])
+            self.assertEqual(points[3]['type'], 'G00')
+            self.assertEqual([round(v, 6) for v in points[4]['pt']], [-10.0, 25.0, 0.0])
+            self.assertEqual([round(v, 6) for v in points[5]['pt']], [-10.0, 0.0, -25.0])
+        finally:
+            self._restore(viewer, original, qapp)
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_h_repeats_cycle_at_incremental_c_angle(self):
+        """O4811.nc N5 축약형(G19 명시 + G87 측면 드릴 + "H-180.") — H
+        줄이 모달 사이클(G87)을 새 C 각도(-180)에서 다시 4점(접근/R점/
+        깊이/복귀)으로 전개해야 한다. 이전에는 H-180.Q2500이 X/Y/Z/C/R
+        워드가 없어 좌표 게이트를 통과하지 못해 모션이 아예 안 나왔다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        source = """T0400
+G19
+G0 X100. Z10.
+C0.
+G87X-5.225Z-16.51R-39.11F46.8
+H-180.
+G80
+"""
+        try:
+            viewer.set_source_text(source, {'T04': 'DRILL'})
+            points = viewer.tool_paths[list(viewer.tool_paths)[0]]
+            self.assertEqual(len(points), 11)
+            # C=0에서의 첫 사이클 전개(접근/R점/깊이/복귀).
+            first = [(p['type'], [round(v, 6) for v in p['pt']]) for p in points[3:7]]
+            self.assertEqual(first, [
+                ('G00', [-16.51, 0.0, 50.0]),
+                ('G00', [-16.51, 0.0, 10.89]),
+                ('G01', [-16.51, 0.0, 44.775]),
+                ('G00', [-16.51, 0.0, 50.0]),
+            ])
+            # H-180. 뒤 같은 4점이 반대편(C=-180)에서 반복돼야 한다 —
+            # R/깊이(lathe_cycle_r/lathe_cycle_depth)는 이 줄에 X/R 워드가
+            # 없으므로 모달로 그대로 유지된 값이다.
+            repeat = [(p['type'], [round(v, 6) for v in p['pt']]) for p in points[-4:]]
+            self.assertEqual(repeat, [
+                ('G00', [-16.51, 0.0, -50.0]),
+                ('G00', [-16.51, 0.0, -10.89]),
+                ('G01', [-16.51, 0.0, -44.775]),
+                ('G00', [-16.51, 0.0, -50.0]),
+            ])
+        finally:
+            self._restore(viewer, original, qapp)
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_m89_m90_do_not_affect_toolpath(self):
+        """M89(C축 클램프)/M90(클램프 해제)은 툴패스에 영향이 없다(사용자
+        확정) — 좌표 워드가 없는 이 줄들은 무시되고, M34/M35나 사이클
+        취소(G80) 같은 다른 모달 상태도 건드리지 않아야 한다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        source = """T0100
+G19
+G0 X100. Z10.
+C0.
+G87X-5.225Z-16.51R-39.11F46.8M89
+G80
+M90
+"""
+        try:
+            viewer.set_source_text(source, {'T01': 'DRILL'})
+            points = viewer.tool_paths[list(viewer.tool_paths)[0]]
+            # start + G0 + C0 + 사이클 4점 = 7. M89/M90/G80 줄은 아무 점도
+            # 추가하지 않는다.
+            self.assertEqual(len(points), 7)
+            self.assertEqual(points[-1]['type'], 'G00')
+        finally:
+            self._restore(viewer, original, qapp)
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_milling_h_word_does_not_trigger_lathe_c_rotation_gate(self):
+        """가이드라인 §0 회귀 방어 — 새로 추가한 h_incr_match 게이트는
+        `is_lathe`일 때만 동작한다. 밀링에서 사이클(G81) 모달 중 좌표
+        없이 H만 있는 줄은 기존처럼 무시돼야 한다(G43 H01의 H는 공구장
+        보정 옵셋 번호이지 C 회전이 아니다)."""
+        from nc_viewer_widget import NCViewerWidget
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer = NCViewerWidget()
+        viewer.set_machine_type('3축 MCT (X Y Z)')
+        source = "T01\nG90 G54 G0 X10. Y0.\nG43 H01 Z50.\nG81 X10. Y0. Z-5. R2. F100.\nH5.\nG80\n"
+        try:
+            viewer.set_source_text(source, {'T01': 'DRILL'})
+            points = viewer.tool_paths[list(viewer.tool_paths)[0]]
+            h_only_line_idx = source.splitlines().index('H5.')
+            self.assertFalse(any(p.get('src_line') == h_only_line_idx for p in points))
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
     # ---- v1.7.1: G76 오인식 차단 + M34/M35 가공 모드 관리 + 극좌표 XC 뷰.
     # 실제 프로그램 O3230.nc(사용자 제공)로 원인을 확정했다 — 자세한 배경은
     # LATHE_MODE_GUIDELINES.md §8 v1.7.1 항목 참고. ----
@@ -4755,6 +4923,79 @@ class ToolListModeComboTests(unittest.TestCase):
             self.assertEqual(items, ['밀링', '선반'])
             for item in items:
                 self.assertNotIn('MCT', item)
+        finally:
+            self._restore(window, settings_dir, orig_machine, orig_last_mct, qapp)
+
+    # ---- v1.7.3: 프로그램 입력창 폰트 유지 / 항상 최대화 / 좌상단 프로그램
+    # 번호 표시(사용자 요청 3건, 선반·밀링 공통). ----
+
+    def test_program_font_size_is_persisted_and_restored(self):
+        """Ctrl+휠로 바꾼 프로그램 입력창 폰트 크기는 다음 실행(재생성)에도
+        유지돼야 한다 — layout_settings(App(_root=...)로 격리되는 유일한
+        저장소, [[project_tests_share_real_qsettings]])에 저장한다."""
+        qapp, window, settings_dir, orig_machine, orig_last_mct = self._window()
+        try:
+            font = window.src.font()
+            font.setPointSizeF(18.0)
+            window.src.setFont(font)
+            window.src.fontZoomed.emit()
+            self.assertEqual(window.layout_settings.value('program_font_size'), 18.0)
+
+            window2 = app.App(_root=settings_dir.name)
+            try:
+                self.assertAlmostEqual(window2.src.font().pointSizeF(), 18.0, places=3)
+            finally:
+                window2.deleteLater()
+                qapp.processEvents()
+        finally:
+            self._restore(window, settings_dir, orig_machine, orig_last_mct, qapp)
+
+    def test_program_font_size_is_clamped_to_valid_range(self):
+        """방어선: 저장된 값이 범위를 벗어나거나 손상돼도 폰트가 비정상적으로
+        크거나 작아지지 않는다."""
+        qapp, window, settings_dir, orig_machine, orig_last_mct = self._window()
+        try:
+            window.layout_settings.setValue('program_font_size', 999)
+            self.assertEqual(window._load_program_font_size(), app.PROGRAM_FONT_MAX_PT)
+            window.layout_settings.setValue('program_font_size', 'not-a-number')
+            self.assertEqual(window._load_program_font_size(), app.PROGRAM_FONT_DEFAULT_PT)
+        finally:
+            self._restore(window, settings_dir, orig_machine, orig_last_mct, qapp)
+
+    def test_window_is_always_maximized_even_with_saved_geometry(self):
+        """기본 프로그램은 저장된 창 크기가 있어도 항상 최대화로 열려야
+        한다(사용자 요청) — 이전에는 저장된 geometry가 있으면 최대화하지
+        않았다. offscreen QPA에서 실제 최대화 여부는 신뢰할 수 없어(기존
+        test_main_splitter_keeps_program_panel_minimum_width 주석 참고),
+        __init__ 소스가 restore 결과와 무관하게 최대화를 예약하는지로
+        확인한다(test_main_hands_off_before_creating_the_window과 같은 방식)."""
+        source = inspect.getsource(app.App.__init__)
+        self.assertIn('self.restore_layout_settings()', source)
+        self.assertIn('QTimer.singleShot(0, self.showMaximized)', source)
+        self.assertNotIn('if not self.restore_layout_settings():', source)
+
+    def test_program_header_text_formats_o_number_with_and_without_comment(self):
+        """좌상단 표시용 — `%` 아래 첫 `Onnnn` 줄에서 주석이 있으면
+        `Onnnn(내용)`, 없으면 괄호를 생략한다(§4 요구)."""
+        self.assertEqual(
+            app.program_header_text('%\nO4811(232A4811-21)\n \n(MAKE DATE)\n'),
+            'O4811(232A4811-21)',
+        )
+        self.assertEqual(app.program_header_text('%\n O1234\nG0G99G40G18\n'), 'O1234')
+        self.assertEqual(app.program_header_text('%\nO77()\n'), 'O77')
+        self.assertEqual(app.program_header_text('아무 내용도 없음'), '')
+        self.assertEqual(app.program_header_text(''), '')
+
+    def test_program_no_label_updates_on_run_and_clears(self):
+        """run()이 좌상단 라벨을 현재 프로그램 번호로 채우고, clear()가
+        다시 비워야 한다."""
+        qapp, window, settings_dir, orig_machine, orig_last_mct = self._window()
+        try:
+            window.src.setPlainText('%\nO4811(232A4811-21)\nG0G99G40G18\n')
+            window.run()
+            self.assertEqual(window.program_no_label.text(), 'O4811(232A4811-21)')
+            window.clear()
+            self.assertEqual(window.program_no_label.text(), '')
         finally:
             self._restore(window, settings_dir, orig_machine, orig_last_mct, qapp)
 
