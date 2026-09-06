@@ -3138,7 +3138,12 @@ class NCViewerWidget(QWidget):
                         [-np.sin(rad_b), 0, np.cos(rad_b)],
                     ])
 
-            if g28_pattern.search(line_upper) and g91_pattern.search(line_upper):
+            g28_here = g28_pattern.search(line_upper)
+            # v1.7.3: 선반에는 G91(증분 모드) 개념이 없다(사용자 확정) —
+            # G28 H.. 는 G91 유무와 무관하게 C축 기계원점 복귀다. 밀링/MCT는
+            # 기존대로 G91이 같은 줄에 있어야만 이 분기를 탄다.
+            g28_c_home = is_lathe and g28_here and h_pattern.search(line_upper)
+            if g28_here and (g91_pattern.search(line_upper) or g28_c_home):
                 if is_lathe:
                     # v1.6.4: 선반의 원점 복귀. cx는 지름 값을 들고 있으므로
                     # 반쪽(m_x)이 아니라 X 행정 전체를 지름으로 넣어야 반경이
@@ -3148,9 +3153,10 @@ class NCViewerWidget(QWidget):
                     if re.search(r"Z\s*0", line_upper):
                         cz = m_z
                     # v1.6.9: G28 H0.은 C축(스핀들 회전각) 원점 복귀 —
-                    # H는 C의 증분값이다(사용자 확정). U/W(X/Z 증분)는
-                    # LATHE_MODE_GUIDELINES.md §8에 따라 여전히 별도 승인
-                    # 단계로 남겨 둔다.
+                    # H는 C의 증분값이다(사용자 확정). v1.7.3: 선반에는 G91
+                    # 개념이 없으므로 G91 없이도(위 g28_c_home) 이 분기를
+                    # 탄다. U/W(X/Z 증분)는 LATHE_MODE_GUIDELINES.md §8에
+                    # 따라 여전히 별도 승인 단계로 남겨 둔다.
                     if h_pattern.search(line_upper):
                         cc_deg = 0.0
                         self.line_to_c_rot[idx] = 0.0
@@ -3179,6 +3185,23 @@ class NCViewerWidget(QWidget):
             z_match = z_pattern.search(line_upper)
             c_match = c_pattern.search(line_upper)
             r_cycle_match = r_pattern.search(line_upper)
+            # v1.7.3: 선반 G0/G1(비극좌표) 모드에서 단독 H 워드는 "현재 C
+            # 위치에서의 증분 회전"이다(사용자 확정) — 사이클이 모달로 열려
+            # 있는 동안 나오면 그 사이클을 새 C 각도에서 반복한다(예:
+            # O4811.nc N5 "G87X..Z..R.." 다음 줄 "H-180."). G28(C축 원점
+            # 복귀, 위에서 이미 처리·continue됨)이나 G43(공구장보정, H가
+            # 옵셋 번호로 쓰임)이 있는 줄은 제외한다.
+            h_match = h_pattern.search(line_upper) if is_lathe else None
+            h_incr_match = (
+                h_match
+                if (
+                    h_match
+                    and not polar_interpolation
+                    and not g28_here
+                    and not g43_pattern.search(line_upper)
+                )
+                else None
+            )
 
             # A full-circle arc (e.g. "G02 I50 J0") carries no X/Y/Z word at all, so it needs
             # its own entry into this block. Guard against G68.2/G53.1 tilt-plane lines, which
@@ -3191,7 +3214,7 @@ class NCViewerWidget(QWidget):
                 and (i_pattern.search(line_upper) or j_pattern.search(line_upper) or k_pattern.search(line_upper))
             )
 
-            if x_match or y_match or z_match or c_match or (cycle_active and r_cycle_match) or arc_center_present:
+            if x_match or y_match or z_match or c_match or h_incr_match or (cycle_active and r_cycle_match) or arc_center_present:
                 start_pt = [cx, cy, cz]
 
                 if is_lathe:
@@ -3230,6 +3253,11 @@ class NCViewerWidget(QWidget):
                     else:
                         if c_match:
                             cc_deg = float(c_match.group(1))
+                            self.line_to_c_rot[idx] = cc_deg
+                        elif h_incr_match:
+                            # v1.7.3: H는 절대각(C)과 달리 현재 cc_deg에
+                            # 더하는 증분 회전이다(사용자 확정).
+                            cc_deg += float(h_incr_match.group(1))
                             self.line_to_c_rot[idx] = cc_deg
                         if lathe_milling_active and y_match:
                             # M35 구동공구 밀링의 실제 기계 Y워드(예: O1699.nc
