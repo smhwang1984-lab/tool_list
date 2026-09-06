@@ -98,7 +98,21 @@ Last updated: 2026-09-06 (v1.7.3)
   소스 검증, `program_header_text()` 포맷 3케이스, 라벨 갱신/초기화) 추가.
   기존 `test_top_caption_removed_and_top_bar_buttons_left_aligned`은 새
   `program_no_label`을 반영해 갱신.
-- Installer/package status: 미생성 — 사용자 승인 후 진행 예정.
+- Installer/package status: **생성 완료** (사용자 직접 지시로 빌드).
+  - `python -m PyInstaller --noconfirm --clean NC_Tool_List.spec` — onedir, UPX 비활성,
+    `dist\NC_Tool_List` 151 MB, `_internal\OpenGL` 폴더 부재 유지(freeglut/gle32/64
+    DLL 배제, MSVCR90.dll 경고는 기존과 동일하게 무해).
+  - `ISCC.exe NC_Tool_List.iss` (Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.7.3.exe`
+    (컴파일 85.8초).
+  - 포터블: `installer\NC_Tool_List_Portable_v1.7.3.zip` 64.0 MB, 315개 항목
+    (이전 버전과 같은 구성 — 새 의존성 없음).
+  - 빌드 검증: 프리즈된 `NC_Tool_List.exe`의 파일/제품 버전이 `1.7.3.0`으로 찍히고,
+    실행하면 `startup.log`에 트레이스백 없이 `Starting Sum Path v1.7.3 frozen=True`가
+    남고 창 제목도 `Sum Path v1.7.3`으로 뜨는 것을 확인했다(테스트 실행 후 정상 종료).
+  - Installer SHA-256: 1465C59BBBEA98DB274DB916F4CEAF7C01D6A9CAB8D41F0D79CD5019B9E0ABD8
+  - Portable ZIP SHA-256: 3B3BA413204461D26907B08DBB4DE2500FCEFFE75C5F08B2AF1CB2A8F082459E
+  - App SHA-256: 874976B7BDF9DD102C5986FF5F82BA8E89E221042E57337F341574CE33970CDD
+  - Signature status: still unsigned.
 
 ### 2026-09-06 (v1.7.2)
 
