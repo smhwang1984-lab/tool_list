@@ -26,7 +26,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
 
-APP_VERSION = '1.6.9'
+APP_VERSION = '1.6.10'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-09-06'
 APP_CREATOR = 'Hwang.seonmun'

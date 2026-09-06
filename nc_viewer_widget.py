@@ -3130,6 +3130,25 @@ class NCViewerWidget(QWidget):
                     target_local = lathe_local_point(cz, cx, cy_lathe)
                     target_pt = lathe_rotate_c(target_local, cc_deg)
                     local_target_pt = target_local
+                    if polar_interpolation:
+                        # v1.6.9(재구현): 정적 전체 경로(target_pt)는 그대로
+                        # X-C(Y) 평면에 납작하게 그린다("먼저 xy평면에
+                        # 라인을 그리고" — 사용자 확정). 다만 그 상태로는
+                        # 선반 정면 뷰(월드 X-Z)에서 C(월드 Y, 화면 깊이)
+                        # 변화가 전혀 보이지 않아 "모션이 안 나온다"는
+                        # 문제가 있었다. 실제 기계는 X 슬라이드가 반경
+                        # 방향으로만(항상 +) 움직이고 그 자리를 잡기 위해
+                        # C(주축)가 회전하는 식으로 이 XY점을 만들어낸다 —
+                        # 그래서 재생 커서(시뮬레이션)에서는 이 점을 극좌표
+                        # (r, theta)로 분해해 theta를 실제 C 회전각으로
+                        # 취급한다. set_cursor_line()의 기존
+                        # "lathe_rotate_c(pt, -c_rot)"이 이 theta를 되돌려
+                        # 커서를 +X(반경, 항상 0 이상) 축 위에 고정하고 C
+                        # 회전만으로 위치가 설명되게 만든다(v1.6.6 C축 회전
+                        # 시뮬레이션과 같은 메커니즘 재사용).
+                        y0, z0 = target_local[1], target_local[2]
+                        theta_deg = float(np.degrees(np.arctan2(y0, z0))) if (y0 or z0) else 0.0
+                        self.line_to_c_rot[idx] = cc_deg + theta_deg
                 else:
                     if x_match:
                         cx = float(x_match.group(1))

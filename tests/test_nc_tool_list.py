@@ -3846,6 +3846,62 @@ G13.1
             self._restore(viewer, original, qapp)
 
     @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_g12_1_simulation_shows_positive_radius_with_c_absorbing_rotation(self):
+        """v1.6.9 재구현: 정적 전체 경로는 X-C(Y) 평면에 납작하게 그대로
+        남지만("먼저 xy평면에 라인을 그리고" — 사용자 확정), 재생
+        커서(시뮬레이션)는 그 점을 극좌표(r, theta)로 분해해 theta를 실제
+        C 회전각처럼 취급한다 — v1.6.6 C축 회전 시뮬레이션과 똑같은
+        메커니즘(재생 커서 + 동적 트레이스만 반대로 회전, 정적 경로는
+        항등 변환 유지)을 재사용해, 커서가 반경(월드 Z, 항상 0 이상) 축
+        위에 고정되고 C가 회전만 담당하게 만든다. 그래야 "X축이 상하로
+        움직이며 C축이 회전"하는 실제 기계 동작처럼 보인다."""
+        from PyQt5.QtGui import QVector3D, QMatrix4x4
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        source = """T0100
+G0 X100. Z5.
+G12.1
+G1 X100. C10. Z-10. F100
+G13.1
+"""
+        try:
+            viewer.set_source_text(source, {'T01': 'END MILL'})
+            lines = source.splitlines()
+            target_idx = next(
+                i for i, ln in enumerate(lines) if ln.strip() == 'G1 X100. C10. Z-10. F100'
+            )
+            viewer.set_cursor_line(target_idx)
+
+            # 로컬 좌표: y0=C(=10), z0=반경(X100 -> 50). r=hypot(10,50),
+            # theta=atan2(10,50) — 이 값이 커서를 +Z(반경) 축으로 되돌리는
+            # 회전각이어야 한다.
+            y0, z0 = 10.0, 50.0
+            expected_r = math.hypot(y0, z0)
+
+            sphere_pos = viewer.cursor_sphere.transform().map(QVector3D(0.0, 0.0, 0.0))
+            self.assertAlmostEqual(sphere_pos.x(), -10.0, places=5)
+            self.assertAlmostEqual(sphere_pos.y(), 0.0, places=5, msg='C가 회전으로 상쇄돼 Y=0')
+            self.assertAlmostEqual(sphere_pos.z(), expected_r, places=5, msg='X(반경)는 항상 0 이상')
+
+            # 동적 트레이스도 같은 회전이 걸려, 이 줄의 로컬 점(0,y0,z0)을
+            # 트레이스 변환으로 옮기면 마찬가지로 (0, r)에 와야 한다.
+            visible_traces = [item for item in viewer.dynamic_trace_items if item.visible()]
+            self.assertTrue(visible_traces)
+            probe = QVector3D(0.0, y0, z0)
+            for item in visible_traces:
+                mapped = item.transform().map(probe)
+                self.assertAlmostEqual(mapped.y(), 0.0, places=5)
+                self.assertAlmostEqual(mapped.z(), expected_r, places=5)
+
+            # 정적 전체 경로(XY 평면에 납작한 라인)는 항등 변환 그대로다.
+            for items in viewer.plot_items.values():
+                for item in items:
+                    self.assertEqual(item.transform(), QMatrix4x4())
+        finally:
+            self._restore(viewer, original, qapp)
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
     def test_lathe_g28_h0_resets_c_axis_rotation(self):
         """v1.6.9: G28 H0.은 C축(스핀들 회전각) 원점 복귀다 — H는 C의
         증분값(사용자 확정). G91 G28 H0. 뒤에는 cc_deg가 0으로 리셋되어,

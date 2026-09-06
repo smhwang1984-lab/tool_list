@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-09-06 (v1.6.9)
+Last updated: 2026-09-06 (v1.6.10)
 
 ## About button requirements
 
@@ -34,7 +34,54 @@ Last updated: 2026-09-06 (v1.6.9)
 
 ## Version history
 
-### 2026-09-06 (latest, v1.6.9)
+### 2026-09-06 (latest, v1.6.10)
+
+- Version: 1.6.10
+- Release/build date: 2026-09-06 (사용자가 직접 지시한 재구현·재빌드)
+- Summary: v1.6.9 배포 뒤 사용자 리포트 — "극좌표 가공 모션이 안나옴". v1.6.9의
+  G12.1/G13.1 극좌표 계산 자체(X-C를 Cartesian 평면으로 그리는 것)는 맞았지만,
+  그 결과가 월드 Y(화면 깊이 축)에 놓여 재생 커서/동적 트레이스에서 사실상
+  움직이지 않는 것처럼 보였다.
+  1. **극좌표 시뮬레이션 재구현** — 정적 전체 경로(X-C 평면에 납작한 라인/원호)는
+     그대로 두고, 재생 커서/동적 트레이스만 재구현했다. 극좌표 구간의 각
+     대상점에서 로컬 (C, 반경)을 극좌표로 분해해(`r=hypot`, `theta=atan2`)
+     `theta`를 v1.6.6 "C축 회전 시뮬레이션"이 쓰는 `line_to_c_rot`에 얹었다.
+     기존 되돌리기 메커니즘(`lathe_rotate_c(pt, -c_rot)`)이 그대로 재사용되어,
+     커서가 반경(항상 +) 축 위에 고정되고 동적 트레이스는 반대로 회전한다 —
+     "X축이 상하로 움직이며(항상 +) C축이 회전"하는 실제 기계 동작처럼 보인다.
+- Creator displayed: Hwang.seonmun
+- Open source used: Python, PyQt5, pyqtgraph, NumPy, PyOpenGL, ReportLab, PyInstaller,
+  Inno Setup (새 의존성 없음).
+- Details:
+  - **`nc_viewer_widget.py`**: `process_nc_lines()`의 선반 모션 블록에서
+    `target_local`을 계산한 직후, `polar_interpolation`이면 로컬 (y=C, z=반경)을
+    `np.arctan2`/`hypot`로 분해해 `self.line_to_c_rot[idx] = cc_deg + theta_deg`를
+    덮어쓴다. `target_pt`/`start_pt`/원호 계산은 전혀 손대지 않았다 — 정적 경로는
+    v1.6.9 그대로다. `set_cursor_line()`/`_rotate_gl_items()`는 기존 코드 그대로
+    재사용(변경 없음).
+- Tests: `tests/test_nc_tool_list.py` 171개 통과(v1.6.9의 170 + 신규 1, 무관한
+  `SingleInstanceTests` 1건은 여전히 이 PC의 실행 중인 인스턴스 때문에 환경
+  요인으로 실패). 신규 `test_lathe_g12_1_simulation_shows_positive_radius_
+  with_c_absorbing_rotation`은 v1.6.6 `test_lathe_c_axis_simulation_keeps_tool_
+  fixed_at_plus_x_center`와 같은 방식으로 커서 구/동적 트레이스/정적 경로
+  세 가지를 모두 검증한다.
+- Installer/package status: **생성 완료** (사용자 직접 지시로 즉시 빌드).
+  - `python -m PyInstaller --noconfirm --clean NC_Tool_List.spec` — onedir, UPX 비활성,
+    `_internal\OpenGL` 폴더 부재 유지.
+  - `ISCC.exe NC_Tool_List.iss` (Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.6.10.exe`
+    46.5 MB.
+  - 포터블: `installer\NC_Tool_List_Portable_v1.6.10.zip` 64.0 MB, 315개 항목
+    (v1.6.9와 같은 구성).
+  - 빌드 검증: 프리즈된 `NC_Tool_List.exe`의 파일/제품 버전이 `1.6.10.0`으로 찍히고,
+    실행하면 `startup.log`에 트레이스백 없이 `Starting Sum Path v1.6.10 frozen=True`가
+    남는 것을 확인했다(이 PC에 이미 떠 있던 인스턴스로 정상 핸드오프 후 종료).
+  - Installer SHA-256: 8ED42C1300D52DC62D5362199F83ACE704DBC75CE93CDD867AA48E231104621E
+  - Portable ZIP SHA-256: E89A2C1BDA86A625DF96499B0E7A06D659324C8DE1AD6B39C433A37472B4AEC8
+  - App SHA-256: 9C93D07CF31E1AA5C60224A3DE4738056EEB6C979A8CAC90BF5BB5C79CB5A068
+  - Signature status: still unsigned.
+  - 산출물은 저장소의 `installer\` 폴더(gitignore 대상이라 커밋되지 않음)에 둔다.
+
+### 2026-09-06 (v1.6.9)
 
 - Version: 1.6.9
 - Release/build date: 2026-09-06 (코드/테스트 완료 — 설치본·포터블 패키지는 사용자 승인 후 생성)
