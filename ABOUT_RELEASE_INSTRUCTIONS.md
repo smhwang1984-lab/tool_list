@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-09-06 (v1.6.10)
+Last updated: 2026-09-06 (v1.7.0)
 
 ## About button requirements
 
@@ -34,7 +34,58 @@ Last updated: 2026-09-06 (v1.6.10)
 
 ## Version history
 
-### 2026-09-06 (latest, v1.6.10)
+### 2026-09-06 (latest, v1.7.0)
+
+- Version: 1.7.0
+- Release/build date: 2026-09-06 (사용자가 직접 지시한 재구현·재빌드)
+- Summary: v1.6.10 배포 뒤 사용자 리포트 2건.
+  1. **극좌표 연속 X 가공 회전 고정** — "시뮬레이션에서 회전은 확인했지만, X로만
+     연속 가공하는(펙/플런지) 형태에서는 반경만 바뀌는데도 회전이 흔들려 다른 축으로
+     끌려가는 것처럼 보인다. 선반에서는 X만 움직이면 된다." v1.6.10은 극좌표 구간의
+     매 대상점마다 그 순간의(로컬 Y, 반경)으로 회전각(theta)을 매번 새로 계산했다.
+     C 없이 X(반경)만 바뀌는 연속 줄에서는 Y가 고정인데 반경만 바뀌어 매 줄 theta가
+     흔들렸다. 이제는 `lathe_polar_theta_deg`를 C가 실제로 새로 지정된 줄에서만
+     다시 계산하고, C가 없는 줄은 그 값을 그대로 물려받는다.
+  2. **M34가 극좌표 블록 안에서 Y를 밀던 버그** — "M35 밀링 가공 모드, M34 선반
+     가공 모드 차이" 확인 요청에서 발견. M35~M34 토글은 G12.1~G13.1 극좌표 블록
+     안에서도 나올 수 있는데, 기존 M34 처리가 `polar_interpolation` 상태와
+     무관하게 `cy_lathe`를 0으로 밀어버려 그 순간 좌표가 꺾여 보였다. G12.1~G13.1이
+     아직 열려 있는 동안은 M34가 나와도 리셋하지 않도록 고쳤다(G13.1에서만 리셋).
+  3. 정적 전체 경로(X-Y(C) 평면에 납작한 라인/원호)는 이번에도 그대로 뒀다.
+- Creator displayed: Hwang.seonmun
+- Open source used: Python, PyQt5, pyqtgraph, NumPy, PyOpenGL, ReportLab, PyInstaller,
+  Inno Setup (새 의존성 없음).
+- Details:
+  - **`nc_viewer_widget.py`**: 선반 모션 블록에 `lathe_polar_theta_deg` 모달 상태를
+    추가했다. `polar_interpolation` 중 `c_match`가 있는 줄에서만 그 시점의 `cx/2.0`
+    (반경)과 새 `cy_lathe`로 `np.arctan2`를 다시 구해 저장하고, `line_to_c_rot[idx]`
+    계산은 매번 `cc_deg + lathe_polar_theta_deg`(저장된 값)를 쓰도록 바꿨다(v1.6.10은
+    매 줄 `target_local`의 그 순간 y/z로 다시 계산했었다). `G13.1`에서 0으로 리셋.
+    M34 핸들러의 `cy_lathe = 0.0`도 `if not polar_interpolation:`으로 감쌌다.
+    `target_pt`/`target_local`(정적 경로)은 전혀 손대지 않았다.
+- Tests: `tests/test_nc_tool_list.py` 173개 통과(v1.6.10의 171 + 신규 2, 무관한
+  `SingleInstanceTests` 1건은 여전히 이 PC의 실행 중인 인스턴스 때문에 환경 요인으로
+  실패). 신규 `test_lathe_g12_1_c_less_continuation_lines_freeze_rotation_angle`은
+  C가 지정된 줄과 그 뒤를 잇는 C 없는 연속 X 줄들의 `line_to_c_rot` 값이 전부
+  동일한지, `test_lathe_m34_inside_polar_block_does_not_reset_c_as_y`는 극좌표
+  블록 안의 M34가 극좌표 Y를 밀지 않는지 검증한다.
+- Installer/package status: **생성 완료** (사용자 직접 지시로 즉시 빌드).
+  - `python -m PyInstaller --noconfirm --clean NC_Tool_List.spec` — onedir, UPX 비활성,
+    `_internal\OpenGL` 폴더 부재 유지.
+  - `ISCC.exe NC_Tool_List.iss` (Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.7.0.exe`
+    46.4 MB.
+  - 포터블: `installer\NC_Tool_List_Portable_v1.7.0.zip` 64.0 MB, 315개 항목
+    (이전 버전과 같은 구성).
+  - 빌드 검증: 프리즈된 `NC_Tool_List.exe`의 파일/제품 버전이 `1.7.0.0`으로 찍히고,
+    실행하면 `startup.log`에 트레이스백 없이 `Starting Sum Path v1.7.0 frozen=True`가
+    남는 것을 확인했다.
+  - Installer SHA-256: 42BA53CCF11815F583B4B14AC9AC5E2E32868F2AEEFD9BFA09570CA36A0B5906
+  - Portable ZIP SHA-256: F1E744FE325A28A76AA051318E3C1432F6746F3CEDF643D8D19B674A1218FCD4
+  - App SHA-256: 1D904ACC7348FF1A56FFAB48DCE74F4A12D540264D6ED2BE2E9C51C74A6C1F8A
+  - Signature status: still unsigned.
+  - 산출물은 저장소의 `installer\` 폴더(gitignore 대상이라 커밋되지 않음)에 둔다.
+
+### 2026-09-06 (v1.6.10)
 
 - Version: 1.6.10
 - Release/build date: 2026-09-06 (사용자가 직접 지시한 재구현·재빌드)

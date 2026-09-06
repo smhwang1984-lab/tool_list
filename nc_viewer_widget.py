@@ -2681,6 +2681,15 @@ class NCViewerWidget(QWidget):
         # 보간 중의 C 워드, 아래 참고)가 들어갈 자리. 선삭(M35 이전/M34
         # 이후)에는 항상 0으로 유지되어 v1.6.4 동작과 완전히 같다.
         cy_lathe = 0.0
+        # v1.7.0: 극좌표(G12.1) 시뮬레이션용 "물리 회전각" — C 워드가 실제로
+        # 갱신될 때만(=새 좌표를 지정할 때만) 그 시점의 (Y, 반경)으로
+        # 다시 계산하고, C가 없는 줄(연속 X 펙/플런지)에서는 그대로
+        # 유지한다. 매 줄마다 그 순간의 반경으로 다시 atan2를 걸면, C
+        # 없이 X만 바뀌는 연속 가공(예: X36→X29.9→X17.7 …)에서 반경이
+        # 작아질수록 각도가 크게 흔들려 "회전이 X만 바뀌는데도 같이
+        # 도는" 것처럼 보였다 — 실제로는 C가 안 바뀌었으니 X(반경)만
+        # 움직여야 한다(사용자 확정, 2026-09-06).
+        lathe_polar_theta_deg = 0.0
         modal_values = ["0.000", "0.000", "0.000", "0.000", "0.000", "0.000"]
 
         g43_active = False
@@ -2882,13 +2891,23 @@ class NCViewerWidget(QWidget):
                 # 평면 자체의 의미나 밀링 원호 처리는 손대지 않는다.
                 lathe_plane_explicit = True
 
-            # v1.6.6: M35(구동공구 ON) ~ M34(선삭 복귀) — is_lathe 분기에서만.
+            # v1.6.6: M35(구동공구 ON, 밀링 가공 모드) ~ M34(선삭 복귀, 선반
+            # 가공 모드) — is_lathe 분기에서만.
             if is_lathe:
                 if m35_pattern.search(line_upper):
                     lathe_milling_active = True
                 elif m34_pattern.search(line_upper):
                     lathe_milling_active = False
-                    cy_lathe = 0.0
+                    # v1.7.0: G12.1~G13.1 극좌표 블록 "안에서" M34가 나올 수
+                    # 있다(예: 폴리곤 윤곽을 밀링하다 잠깐 M34로 선반 가공
+                    # 모드로 바꿔 X만으로 펙/플런지한 뒤 다시 M35로 돌아가는
+                    # 구성 — 사용자 확정, 2026-09-06). 이때 cy_lathe(극좌표
+                    # Y)를 0으로 밀어버리면 그 순간 좌표가 갑자기 꺾여
+                    # 보였다. G12.1~G13.1은 M35/M34와 별개의 모달 상태이므로,
+                    # 극좌표가 아직 열려 있는 동안은 cy_lathe를 리셋하지
+                    # 않는다 — G13.1이 나올 때만(위 참고) 리셋된다.
+                    if not polar_interpolation:
+                        cy_lathe = 0.0
 
             if g12_1_pattern.search(line_upper):
                 polar_interpolation = True
@@ -2905,6 +2924,7 @@ class NCViewerWidget(QWidget):
                 # 같이 0으로 되돌려야 이후 선삭 경로가 Y로 밀리지 않는다.
                 if is_lathe:
                     cy_lathe = 0.0
+                    lathe_polar_theta_deg = 0.0  # v1.7.0: 물리 회전각도 리셋
                 else:
                     continue
 
@@ -3118,6 +3138,17 @@ class NCViewerWidget(QWidget):
                         # 원호에 C가 mm 단위로 붙는 것이 근거.
                         if c_match:
                             cy_lathe = float(c_match.group(1))
+                            # v1.7.0: 실제 C(각도) 재계산은 C가 "새로
+                            # 지정된" 순간에만 한다 — 이 시점의 반경(cx/2,
+                            # 이미 위에서 갱신됨)과 새 Y로 (r, theta)를
+                            # 구해 두면, 다음에 C 없이 X만 바뀌는 줄들은
+                            # 이 값을 그대로 물려받아 회전 없이 반경만
+                            # 움직인 것처럼 시뮬레이션된다.
+                            radius_now = cx / 2.0
+                            lathe_polar_theta_deg = (
+                                float(np.degrees(np.arctan2(cy_lathe, radius_now)))
+                                if (cy_lathe or radius_now) else 0.0
+                            )
                     else:
                         if c_match:
                             cc_deg = float(c_match.group(1))
@@ -3131,24 +3162,22 @@ class NCViewerWidget(QWidget):
                     target_pt = lathe_rotate_c(target_local, cc_deg)
                     local_target_pt = target_local
                     if polar_interpolation:
-                        # v1.6.9(재구현): 정적 전체 경로(target_pt)는 그대로
-                        # X-C(Y) 평면에 납작하게 그린다("먼저 xy평면에
-                        # 라인을 그리고" — 사용자 확정). 다만 그 상태로는
-                        # 선반 정면 뷰(월드 X-Z)에서 C(월드 Y, 화면 깊이)
-                        # 변화가 전혀 보이지 않아 "모션이 안 나온다"는
-                        # 문제가 있었다. 실제 기계는 X 슬라이드가 반경
-                        # 방향으로만(항상 +) 움직이고 그 자리를 잡기 위해
-                        # C(주축)가 회전하는 식으로 이 XY점을 만들어낸다 —
-                        # 그래서 재생 커서(시뮬레이션)에서는 이 점을 극좌표
-                        # (r, theta)로 분해해 theta를 실제 C 회전각으로
-                        # 취급한다. set_cursor_line()의 기존
-                        # "lathe_rotate_c(pt, -c_rot)"이 이 theta를 되돌려
-                        # 커서를 +X(반경, 항상 0 이상) 축 위에 고정하고 C
-                        # 회전만으로 위치가 설명되게 만든다(v1.6.6 C축 회전
-                        # 시뮬레이션과 같은 메커니즘 재사용).
-                        y0, z0 = target_local[1], target_local[2]
-                        theta_deg = float(np.degrees(np.arctan2(y0, z0))) if (y0 or z0) else 0.0
-                        self.line_to_c_rot[idx] = cc_deg + theta_deg
+                        # v1.6.9(재구현), v1.7.0(수정): 정적 전체 경로
+                        # (target_pt)는 그대로 X-C(Y) 평면에 납작하게
+                        # 그린다("먼저 xy평면에 라인을 그리고" — 사용자
+                        # 확정). 재생 커서/동적 트레이스(시뮬레이션)는
+                        # lathe_polar_theta_deg(C가 새로 지정될 때만 그
+                        # 시점의 반경으로 다시 계산되는 물리 회전각, 위
+                        # 참고)를 v1.6.6 "C축 회전 시뮬레이션"이 쓰는
+                        # line_to_c_rot에 얹는다. set_cursor_line()의 기존
+                        # "lathe_rotate_c(pt, -c_rot)"이 이를 되돌려 커서를
+                        # +X(반경, 항상 0 이상) 축 위에 고정한다. C가 안
+                        # 바뀐 연속 X 펙/플런지 줄들은 같은 theta를 그대로
+                        # 물려받으므로 회전 없이 반경만 움직인 것처럼
+                        # 보인다(사용자 확정, v1.6.10에서는 매 줄 반경으로
+                        # theta를 다시 구해 반경이 작아질수록 회전이 크게
+                        # 흔들리는 문제가 있었다).
+                        self.line_to_c_rot[idx] = cc_deg + lathe_polar_theta_deg
                 else:
                     if x_match:
                         cx = float(x_match.group(1))

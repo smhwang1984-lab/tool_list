@@ -3902,6 +3902,83 @@ G13.1
             self._restore(viewer, original, qapp)
 
     @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_g12_1_c_less_continuation_lines_freeze_rotation_angle(self):
+        """v1.7.0: C 없이 X만 이어지는 연속 가공(펙/플런지, 예:
+        "X36.F.05/X37./X29.9/X30.9/…")은 선반에서 X(반경)만 움직여야
+        한다(사용자 확정) — C가 새로 지정된 줄에서만 그 시점의 반경으로
+        회전각(theta)을 다시 구하고, C가 없는 줄은 그 값을 그대로
+        물려받는다. v1.6.10처럼 매 줄 그 순간의(계속 작아지는) 반경으로
+        theta를 다시 구하면, C가 전혀 안 바뀌었는데도 반경이 바뀔 때마다
+        회전이 흔들려 마치 위치가 다른 축(Z)으로 끌려가는 것처럼
+        보였다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        source = """T0100
+G12.1
+G1 X30. C40. Z-5. F.1
+X36. F.05
+X37.
+X29.9
+X30.9
+G13.1
+"""
+        try:
+            viewer.set_source_text(source, {'T01': 'END MILL'})
+            lines = source.splitlines()
+            c_line_idx = next(i for i, ln in enumerate(lines) if 'C40.' in ln)
+            expected_c_rot = viewer.line_to_c_rot[c_line_idx]
+            self.assertNotAlmostEqual(expected_c_rot, 0.0, places=6, msg='C40 -> 회전각이 0이면 안 된다')
+
+            followers = [
+                i for i, ln in enumerate(lines)
+                if ln.strip().startswith('X') and 'C' not in ln
+            ]
+            self.assertEqual(len(followers), 4, 'X만 있는 연속 줄 4개(X36/X37/X29.9/X30.9)')
+            for idx in followers:
+                self.assertAlmostEqual(
+                    viewer.line_to_c_rot[idx], expected_c_rot, places=6,
+                    msg='C 없는 연속 X 줄은 직전 회전각을 그대로 물려받아야 한다',
+                )
+        finally:
+            self._restore(viewer, original, qapp)
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_m34_inside_polar_block_does_not_reset_c_as_y(self):
+        """v1.7.0: M35(밀링 가공 모드) ~ M34(선반 가공 모드) 토글이
+        G12.1~G13.1 극좌표 블록 "안에서" 나올 수 있다(사용자 확정,
+        2026-09-06) — 예: 폴리곤 윤곽을 밀링하다 잠깐 M34로 바꿔 X만으로
+        펙/플런지한 뒤 다시 M35로 돌아가는 구성. G12.1~G13.1은 M35/M34와
+        별개의 모달 상태이므로, 극좌표가 아직 열려 있는 동안 M34가
+        나와도 cy_lathe(극좌표 Y)가 0으로 꺾이면 안 된다 — 그러면 그
+        순간 좌표가 갑자기 다른 축으로 끌려간 것처럼 보인다. G13.1에서만
+        리셋돼야 한다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        source = """T0100
+M35
+G12.1
+G1 X30. C40. Z-5. F.1
+M34
+X36. F.05
+X37.
+M35
+G13.1
+"""
+        try:
+            viewer.set_source_text(source, {'T01': 'END MILL'})
+            points = viewer.tool_paths[list(viewer.tool_paths)[0]]
+            # X36./X37. 두 점 모두 M34를 지나왔지만 로컬 Y(world[1])는
+            # C40에서 정한 40.0을 그대로 유지해야 한다(반경만 X36/X37로
+            # 바뀐다). cc_deg는 0이라 world == local이다.
+            last_two = [entry['pt'] for entry in points[-2:]]
+            self.assertAlmostEqual(last_two[0][1], 40.0, places=6, msg='M34가 극좌표 Y를 밀면 안 된다')
+            self.assertAlmostEqual(last_two[1][1], 40.0, places=6, msg='M34가 극좌표 Y를 밀면 안 된다')
+            self.assertAlmostEqual(last_two[0][2], 18.0, places=6)  # X36 -> 반경 18
+            self.assertAlmostEqual(last_two[1][2], 18.5, places=6)  # X37 -> 반경 18.5
+        finally:
+            self._restore(viewer, original, qapp)
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
     def test_lathe_g28_h0_resets_c_axis_rotation(self):
         """v1.6.9: G28 H0.은 C축(스핀들 회전각) 원점 복귀다 — H는 C의
         증분값(사용자 확정). G91 G28 H0. 뒤에는 cc_deg가 0으로 리셋되어,
