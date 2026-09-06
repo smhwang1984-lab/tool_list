@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-09-05 (v1.6.7)
+Last updated: 2026-09-06 (v1.7.0)
 
 ## About button requirements
 
@@ -34,7 +34,244 @@ Last updated: 2026-09-05 (v1.6.7)
 
 ## Version history
 
-### 2026-09-05 (latest, v1.6.7)
+### 2026-09-06 (latest, v1.7.0)
+
+- Version: 1.7.0
+- Release/build date: 2026-09-06 (사용자가 직접 지시한 재구현·재빌드)
+- Summary: v1.6.10 배포 뒤 사용자 리포트 2건.
+  1. **극좌표 연속 X 가공 회전 고정** — "시뮬레이션에서 회전은 확인했지만, X로만
+     연속 가공하는(펙/플런지) 형태에서는 반경만 바뀌는데도 회전이 흔들려 다른 축으로
+     끌려가는 것처럼 보인다. 선반에서는 X만 움직이면 된다." v1.6.10은 극좌표 구간의
+     매 대상점마다 그 순간의(로컬 Y, 반경)으로 회전각(theta)을 매번 새로 계산했다.
+     C 없이 X(반경)만 바뀌는 연속 줄에서는 Y가 고정인데 반경만 바뀌어 매 줄 theta가
+     흔들렸다. 이제는 `lathe_polar_theta_deg`를 C가 실제로 새로 지정된 줄에서만
+     다시 계산하고, C가 없는 줄은 그 값을 그대로 물려받는다.
+  2. **M34가 극좌표 블록 안에서 Y를 밀던 버그** — "M35 밀링 가공 모드, M34 선반
+     가공 모드 차이" 확인 요청에서 발견. M35~M34 토글은 G12.1~G13.1 극좌표 블록
+     안에서도 나올 수 있는데, 기존 M34 처리가 `polar_interpolation` 상태와
+     무관하게 `cy_lathe`를 0으로 밀어버려 그 순간 좌표가 꺾여 보였다. G12.1~G13.1이
+     아직 열려 있는 동안은 M34가 나와도 리셋하지 않도록 고쳤다(G13.1에서만 리셋).
+  3. 정적 전체 경로(X-Y(C) 평면에 납작한 라인/원호)는 이번에도 그대로 뒀다.
+- Creator displayed: Hwang.seonmun
+- Open source used: Python, PyQt5, pyqtgraph, NumPy, PyOpenGL, ReportLab, PyInstaller,
+  Inno Setup (새 의존성 없음).
+- Details:
+  - **`nc_viewer_widget.py`**: 선반 모션 블록에 `lathe_polar_theta_deg` 모달 상태를
+    추가했다. `polar_interpolation` 중 `c_match`가 있는 줄에서만 그 시점의 `cx/2.0`
+    (반경)과 새 `cy_lathe`로 `np.arctan2`를 다시 구해 저장하고, `line_to_c_rot[idx]`
+    계산은 매번 `cc_deg + lathe_polar_theta_deg`(저장된 값)를 쓰도록 바꿨다(v1.6.10은
+    매 줄 `target_local`의 그 순간 y/z로 다시 계산했었다). `G13.1`에서 0으로 리셋.
+    M34 핸들러의 `cy_lathe = 0.0`도 `if not polar_interpolation:`으로 감쌌다.
+    `target_pt`/`target_local`(정적 경로)은 전혀 손대지 않았다.
+- Tests: `tests/test_nc_tool_list.py` 173개 통과(v1.6.10의 171 + 신규 2, 무관한
+  `SingleInstanceTests` 1건은 여전히 이 PC의 실행 중인 인스턴스 때문에 환경 요인으로
+  실패). 신규 `test_lathe_g12_1_c_less_continuation_lines_freeze_rotation_angle`은
+  C가 지정된 줄과 그 뒤를 잇는 C 없는 연속 X 줄들의 `line_to_c_rot` 값이 전부
+  동일한지, `test_lathe_m34_inside_polar_block_does_not_reset_c_as_y`는 극좌표
+  블록 안의 M34가 극좌표 Y를 밀지 않는지 검증한다.
+- Installer/package status: **생성 완료** (사용자 직접 지시로 즉시 빌드).
+  - `python -m PyInstaller --noconfirm --clean NC_Tool_List.spec` — onedir, UPX 비활성,
+    `_internal\OpenGL` 폴더 부재 유지.
+  - `ISCC.exe NC_Tool_List.iss` (Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.7.0.exe`
+    46.4 MB.
+  - 포터블: `installer\NC_Tool_List_Portable_v1.7.0.zip` 64.0 MB, 315개 항목
+    (이전 버전과 같은 구성).
+  - 빌드 검증: 프리즈된 `NC_Tool_List.exe`의 파일/제품 버전이 `1.7.0.0`으로 찍히고,
+    실행하면 `startup.log`에 트레이스백 없이 `Starting Sum Path v1.7.0 frozen=True`가
+    남는 것을 확인했다.
+  - Installer SHA-256: 42BA53CCF11815F583B4B14AC9AC5E2E32868F2AEEFD9BFA09570CA36A0B5906
+  - Portable ZIP SHA-256: F1E744FE325A28A76AA051318E3C1432F6746F3CEDF643D8D19B674A1218FCD4
+  - App SHA-256: 1D904ACC7348FF1A56FFAB48DCE74F4A12D540264D6ED2BE2E9C51C74A6C1F8A
+  - Signature status: still unsigned.
+  - 산출물은 저장소의 `installer\` 폴더(gitignore 대상이라 커밋되지 않음)에 둔다.
+
+### 2026-09-06 (v1.6.10)
+
+- Version: 1.6.10
+- Release/build date: 2026-09-06 (사용자가 직접 지시한 재구현·재빌드)
+- Summary: v1.6.9 배포 뒤 사용자 리포트 — "극좌표 가공 모션이 안나옴". v1.6.9의
+  G12.1/G13.1 극좌표 계산 자체(X-C를 Cartesian 평면으로 그리는 것)는 맞았지만,
+  그 결과가 월드 Y(화면 깊이 축)에 놓여 재생 커서/동적 트레이스에서 사실상
+  움직이지 않는 것처럼 보였다.
+  1. **극좌표 시뮬레이션 재구현** — 정적 전체 경로(X-C 평면에 납작한 라인/원호)는
+     그대로 두고, 재생 커서/동적 트레이스만 재구현했다. 극좌표 구간의 각
+     대상점에서 로컬 (C, 반경)을 극좌표로 분해해(`r=hypot`, `theta=atan2`)
+     `theta`를 v1.6.6 "C축 회전 시뮬레이션"이 쓰는 `line_to_c_rot`에 얹었다.
+     기존 되돌리기 메커니즘(`lathe_rotate_c(pt, -c_rot)`)이 그대로 재사용되어,
+     커서가 반경(항상 +) 축 위에 고정되고 동적 트레이스는 반대로 회전한다 —
+     "X축이 상하로 움직이며(항상 +) C축이 회전"하는 실제 기계 동작처럼 보인다.
+- Creator displayed: Hwang.seonmun
+- Open source used: Python, PyQt5, pyqtgraph, NumPy, PyOpenGL, ReportLab, PyInstaller,
+  Inno Setup (새 의존성 없음).
+- Details:
+  - **`nc_viewer_widget.py`**: `process_nc_lines()`의 선반 모션 블록에서
+    `target_local`을 계산한 직후, `polar_interpolation`이면 로컬 (y=C, z=반경)을
+    `np.arctan2`/`hypot`로 분해해 `self.line_to_c_rot[idx] = cc_deg + theta_deg`를
+    덮어쓴다. `target_pt`/`start_pt`/원호 계산은 전혀 손대지 않았다 — 정적 경로는
+    v1.6.9 그대로다. `set_cursor_line()`/`_rotate_gl_items()`는 기존 코드 그대로
+    재사용(변경 없음).
+- Tests: `tests/test_nc_tool_list.py` 171개 통과(v1.6.9의 170 + 신규 1, 무관한
+  `SingleInstanceTests` 1건은 여전히 이 PC의 실행 중인 인스턴스 때문에 환경
+  요인으로 실패). 신규 `test_lathe_g12_1_simulation_shows_positive_radius_
+  with_c_absorbing_rotation`은 v1.6.6 `test_lathe_c_axis_simulation_keeps_tool_
+  fixed_at_plus_x_center`와 같은 방식으로 커서 구/동적 트레이스/정적 경로
+  세 가지를 모두 검증한다.
+- Installer/package status: **생성 완료** (사용자 직접 지시로 즉시 빌드).
+  - `python -m PyInstaller --noconfirm --clean NC_Tool_List.spec` — onedir, UPX 비활성,
+    `_internal\OpenGL` 폴더 부재 유지.
+  - `ISCC.exe NC_Tool_List.iss` (Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.6.10.exe`
+    46.5 MB.
+  - 포터블: `installer\NC_Tool_List_Portable_v1.6.10.zip` 64.0 MB, 315개 항목
+    (v1.6.9와 같은 구성).
+  - 빌드 검증: 프리즈된 `NC_Tool_List.exe`의 파일/제품 버전이 `1.6.10.0`으로 찍히고,
+    실행하면 `startup.log`에 트레이스백 없이 `Starting Sum Path v1.6.10 frozen=True`가
+    남는 것을 확인했다(이 PC에 이미 떠 있던 인스턴스로 정상 핸드오프 후 종료).
+  - Installer SHA-256: 8ED42C1300D52DC62D5362199F83ACE704DBC75CE93CDD867AA48E231104621E
+  - Portable ZIP SHA-256: E89A2C1BDA86A625DF96499B0E7A06D659324C8DE1AD6B39C433A37472B4AEC8
+  - App SHA-256: 9C93D07CF31E1AA5C60224A3DE4738056EEB6C979A8CAC90BF5BB5C79CB5A068
+  - Signature status: still unsigned.
+  - 산출물은 저장소의 `installer\` 폴더(gitignore 대상이라 커밋되지 않음)에 둔다.
+
+### 2026-09-06 (v1.6.9)
+
+- Version: 1.6.9
+- Release/build date: 2026-09-06 (코드/테스트 완료 — 설치본·포터블 패키지는 사용자 승인 후 생성)
+- Summary: 사용자 요청 3건(2026-09-06). 선반 3D 공정 경계를 N번호 기준으로 바로잡은 것과
+  G12.1 극좌표 보간의 M35/평면 의존성 제거가 핵심이고, 나머지는 산출 모드 콤보 표기다.
+  1. **선반 3D 공정 경계 — `N번호 ~ M0/M1/M30`** — 복귀+다음공구 예약이 한 줄에 있는
+     프로그램(`G00 X200. Z200. T0300`)에서 그 T워드가 새 공정을 열어버려, 복귀 이동이
+     이전 위치가 아니라 새 공정 쪽에 그려지던 버그를 고쳤다. N 라인이 없는 프로그램은
+     기존 `Tnn00` 기준으로 자동 폴백한다. '다음공구검색'은 여전히 `Tnn00` 기준이다.
+  2. **G12.1/G13.1 극좌표 보간 수정** — G12.1을 M35(구동공구 ON)와 무관하게 인식하고,
+     극좌표 원호는 G17/G18/G19 평면 지령과 무관하게 X(반경)-C(Y) 평면으로 강제
+     보간한다("G17 평면 설정이 없어도 가공 가능"이라는 요구). G13.1로 극좌표를 빠져나오면
+     로컬 Y를 리셋하고, `G28 H0.`(C축 원점 복귀)도 새로 인식한다.
+  3. **툴리스트 산출 모드 콤보에서 "MCT" 문구 제거** — `['MCT (밀링)', '선반']`이
+     `['밀링', '선반']`이 됐다.
+- Creator displayed: Hwang.seonmun
+- Open source used: Python, PyQt5, pyqtgraph, NumPy, PyOpenGL, ReportLab, PyInstaller,
+  Inno Setup (새 의존성 없음).
+- Details:
+  - **공정 경계(`nc_viewer_widget.py`):** `process_nc_lines()`에 N 블록 사전 스캔
+    (`_lathe_n_blocks`)을 추가했다 — `_expand_lathe_subprograms` 결과(서브프로그램 반복
+    포함)와 같은 시퀀스를 시퀀스 내 위치 기준으로 훑어, `LATHE_N_LINE_RE`(단독 `N<번호>`
+    라인)로 블록 경계를 찾고 블록별 대표 공구번호를 `parse_lathe_program`과 같은
+    우선순위(옵셋 살아있는 T 우선)로 고른다. N 라인이 있으면 이 기준으로, 없으면
+    기존 `Tnn00`+`active_lathe_tool` 로직(v1.6.7)으로 폴백한다. 공정이 닫힌 구간
+    (M0/M1/M30 ~ 다음 N)에서는 `current_tool`을 더미 버킷(`_LATHE_CLOSED_PROCESS_KEY`)
+    으로 돌려 그 구간의 경로 노드가 어느 공정에도 붙지 않게 하고, 파싱 끝에서 그 버킷을
+    통째로 버린다 — 모달 위치(`cx`/`cz`/`cc_deg`)는 그 구간에도 계속 갱신되므로 다음
+    공정은 정확히 그 실제 위치에서 시작한다. 밀링 경로(`M6 Tnn` 판정)는 손대지 않았다.
+  - **G12.1 극좌표(`nc_viewer_widget.py`):** `g12_1_pattern`/`g13_1_pattern`/`g28_pattern`에
+    `(?!\d)` 가드를 추가했다. G12.1/G13.1 처리에서 `lathe_milling_active` 게이팅을 뺐다
+    (`is_lathe`만 확인) — M35 밖에서도 C가 Y(mm)로 해석되고, 같은 줄에 모션 워드가
+    붙어도 버려지지 않는다. 극좌표 원호는 평면 분기(`current_plane in ("G17","G19")`)보다
+    먼저 `polar_interpolation` 분기를 둬 항상 `"LATHE_G17"`(반경-Y 평면)으로 보간한다.
+    `G13.1`에서 `cy_lathe = 0.0`을 추가했고, `G28`+`G91`+`H` 워드 조합에서 `cc_deg`를
+    0으로 리셋하는 분기를 추가했다(음수 X는 여전히 `abs()` 없이 그대로 둔다).
+  - **산출 모드 콤보(`NC_Tool_List.py`):** `addItems`/`setCurrentText` 3곳의
+    `'MCT (밀링)'`을 `'밀링'`으로 바꿨다. 판정 로직(`_tool_mode_combo_changed`)은
+    `'선반'` 문자열만 비교하므로 영향 없다.
+- Tests: `tests/test_nc_tool_list.py` 170개 통과(기존 159 + 신규 11, 무관한
+  `SingleInstanceTests` 1건은 이 PC에 실제로 실행 중인 `NC_Tool_List.exe`
+  인스턴스 때문에 환경 요인으로 실패 — v1.6.9 변경과 무관). 신규는 `LatheModeTests`에
+  추가: N 블록 패턴 일치, 공정 경계 버그 재현 케이스, 실제 프로그램 양식(N1~N4) 기준
+  공구 우선순위·시작점, 닫힌 구간 비귀속, N 없는 프로그램 폴백, G12.1 M35 비의존 +
+  같은 줄 모션 보존, G18에서도 극좌표 평면 강제, G13.1 리셋, 음수 X, G28 H0 리셋;
+  `ToolListModeComboTests`에 콤보 항목 문구 확인 1건 추가.
+- Installer/package status: **생성 완료** (사용자 승인 후 빌드).
+  - `python -m PyInstaller --noconfirm --clean NC_Tool_List.spec` — onedir, UPX 비활성,
+    `dist\NC_Tool_List` 151 MB, `_internal` 포함. `_internal\OpenGL` 폴더 부재로
+    freeglut/gle32/gle64 DLL 배제 유지 확인.
+  - `ISCC.exe NC_Tool_List.iss` (Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.6.9.exe`
+    46.4 MB, 설치 경로 `C:\NC_Tool_List`, `.nc`/`.mpf`/`.tap` 파일 연결 등록 포함.
+  - 포터블: `installer\NC_Tool_List_Portable_v1.6.9.zip` 64.0 MB, 315개 항목(v1.6.8과 동일 —
+    새 의존성이 없어 구성이 그대로다), `_internal` + `NC_Tool_List.exe`가 zip 루트.
+  - 빌드 검증: 프리즈된 `NC_Tool_List.exe`의 파일/제품 버전이 `1.6.9.0`으로 찍히고,
+    실행하면 `startup.log`에 트레이스백 없이 `Starting Sum Path v1.6.9 frozen=True`가
+    남는 것(이 PC에 이미 떠 있던 인스턴스로 정상 핸드오프 후 종료)을 확인했다.
+  - Installer SHA-256: 4D61A913317FB97A32A144F4B101C22DE33315B1D6ABF199DC9758D6CD48D102
+  - Portable ZIP SHA-256: 90455B529F34B882C281B290C157413C6CEE6400DD6CD051F067DA197106B12F
+  - App SHA-256: BDE1ADBCF07835CCFCAFD94EF5FB6143508BC45A9943D3C5C266C909D68A2D3E
+  - Signature status: still unsigned.
+  - 산출물은 저장소의 `installer\` 폴더(gitignore 대상이라 커밋되지 않음)에 둔다.
+
+### 2026-09-06 (v1.6.8)
+
+- Version: 1.6.8
+- Release/build date: 2026-09-06 (코드/테스트 완료 — 설치본·포터블 패키지는 사용자 승인 후 생성)
+- Summary: 사용자 요청 3건(2026-09-06). 고정 사이클 지원이 이번 버전의 핵심이고,
+  나머지는 툴리스트 산출 모드의 선반/MCT 선택, 좌표·투영 오버레이 공통 배치다.
+  1. **고정 사이클(G73/G74/G76/G81~G89, 취소 G80)** — MCT/선반 양쪽에서 인식한다.
+     코드별 세부 동작은 구분하지 않고 전부 동일한 4점(접근/R점/깊이/복귀) 전개다.
+     MCT는 R=절대 초기점 Z, Z=절대 가공깊이(기존 그대로). 선반은 R/깊이 모두
+     **사이클 진입 직전 위치에서의 증분**이다 — 평면(G17=Z축/G19=X축)이 명시됐으면
+     그걸 따르고, 없으면 사이클 블록의 깊이 워드로 자동 판정한다. 선반은 이송
+     단위(G98/G99)와 무관하게 항상 초기점으로 복귀한다(이전엔 G99에서 복귀 경로가
+     통째로 안 그려지던 문제).
+  2. **툴리스트 산출 모드 선반/MCT 콤보** — 산출 모드는 장비 설정 패널이 숨겨져
+     선반/MCT를 바꿀 방법이 없던 문제를 고쳤다. 새 축약 콤보가 기존 장비 콤보와
+     완전히 연동되며(진실 원천은 하나), 직전에 쓰던 MCT 장비를 기억해 돌아간다.
+  3. **좌표/투영 오버레이 하단 공통 배치** — 이전엔 선반일 때만 좌표 표시가
+     화면 하단(재생 속도바 위)으로 내려가고 밀링은 좌상단에 남았다. 이제
+     밀링·선반 공통으로 항상 하단이고, 투영 버튼이 그 좌표 표시 왼쪽에 나란히 붙는다.
+- Creator displayed: Hwang.seonmun
+- Open source used: Python, PyQt5, pyqtgraph, NumPy, PyOpenGL, ReportLab, PyInstaller,
+  Inno Setup (새 의존성 없음).
+- Details:
+  - **고정 사이클(`nc_viewer_widget.py`):** `cycle_pattern`을 `G81|G83|G85|G73|G84|G80`
+    5개에서 `G73|G74|G76|G81|G82|G83|G84|G85|G86|G87|G88|G89|G80` 12개+취소로 넓혔다
+    — 확장 전에는 이 코드들이 정규식에 안 걸려 조용히 직선으로 이어지던(오동작) 것을
+    바로잡았다. MCT 쪽 4점 전개 로직(`g43_active` 게이트 포함)은 손대지 않았다 —
+    인식 범위만 넓어지면 자동으로 적용된다. 선반은 `process_nc_lines()`의 사이클
+    블록을 전면 재작성했다: `lathe_cycle_axis`/`lathe_cycle_ref`/`lathe_cycle_r`/
+    `lathe_cycle_depth` 모달 상태를 새로 두고, 평면이 한 번이라도 명시됐는지
+    (`lathe_plane_explicit`)를 추적해 축 방향을 판정한다(G19=X축, 그 외=Z축;
+    평면이 전혀 없었으면 사이클 블록의 Z/X 워드 유무로 자동 판정). R과 깊이 워드는
+    둘 다 진입 시 기준점(Z는 mm, X는 반경 mm)에서 독립적으로 더하는 증분값이고,
+    X축 방향의 R·깊이는 반경 공간 값 그대로 쓴다(다시 나누지 않음 — 2026-09-06
+    사용자 정정). 사이클이 끝나면 항상 초기점으로 복귀하는 세그먼트를 추가하고
+    (기존 `g98_active` 게이트를 선반에서만 제거), 모달 절대 위치(`cz`/`cx`)도
+    그 초기점으로 되돌려 다음 일반 이동이 어긋나지 않게 한다. G80을 만나면
+    선반 사이클 모달 상태를 전부 비운다.
+  - **산출 모드 콤보(`NC_Tool_List.py`):** `_build_tool_panel()`의 공구 개수 라벨
+    뒤에 `tool_mode_combo`(`MCT (밀링)`/`선반`)를 추가했다. `_tool_mode_combo_changed()`가
+    기존 `machine_type_combo`의 선택을 바꿔 `_viewer_machine_type_changed()` 경로를
+    그대로 태우므로(뷰어/QSettings 반영까지 자동), `is_lathe_program()`은 여전히
+    유일한 진실 원천이다. `_last_mct_machine_type`(+ QSettings `last_mct_machine_type`
+    키)이 마지막으로 쓰던 MCT 장비를 기억해 "선반→MCT" 왕복 시 그 장비로 돌아간다.
+    첫 실행이라 저장된 값이 없으면 지금 선택돼 있는 장비가 MCT일 때 그것을 시드로
+    쓴다(목록 첫 항목으로 임의 폴백하지 않는다). `sync_visible_machine_settings()`도
+    이 콤보를 함께 동기화한다.
+  - **오버레이 배치(`nc_viewer_widget.py`):** `_place_coord_overlay()`가 이제
+    `lathe` 인자와 무관하게 좌표 오버레이와 투영 오버레이를 둘 다
+    `top_left_widgets`에서 빼 `bottom_coord_widget`/`bottom_projection_widget`로
+    옮긴다. `_reposition_bottom_coord()`를 확장해 두 위젯을 하나의 묶음으로 보고
+    가로 중앙에 맞추며(투영이 왼쪽, 좌표가 오른쪽), 각자 자기 높이만큼만 재생
+    속도바 위로 띄워 높이가 달라도 바닥선이 맞게 정렬한다. 카메라/투영 각도
+    로직(`set_camera_projection`)은 손대지 않은 순수 화면 배치 변경이다.
+- Tests: `tests/test_nc_tool_list.py` 160개 통과(기존 148 + 신규 12). 신규는
+  `CannedCycleTests`(MCT 새 코드 인식, G98 복귀, G80 취소), `LatheModeTests` 추가분
+  (Z축/X축 증분 계산, 평면 없을 때 자동 판정, 평면 명시 시 우선, 모달 반복,
+  G99에서도 복귀, 가공시간 반영), `ToolListModeComboTests`(4열↔16열 전환, 양방향
+  동기화, 직전 MCT 기억, no-op 무변경). 기존 2개(`test_coord_overlay_is_transparent_
+  with_white_axis_labels`, `test_lathe_mode_moves_coord_overlay_above_playback_bar`)는
+  바뀐 배치 규약(밀링도 항상 하단)에 맞춰 갱신했다.
+- Installer/package status: **생성 완료** (사용자 승인 후 빌드).
+  - `python -m PyInstaller --noconfirm --clean NC_Tool_List.spec` — onedir, UPX 비활성,
+    `dist\NC_Tool_List` 151 MB, `_internal` 포함. `_internal\OpenGL` 폴더 부재로
+    freeglut/gle32/gle64 DLL 배제 확인(MSVCR90.dll 경고는 v1.6.3부터 동일하게 무해).
+  - `ISCC.exe NC_Tool_List.iss` (Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.6.8.exe`
+    46.4 MB, 설치 경로 `C:\NC_Tool_List`, `.nc`/`.mpf`/`.tap` 파일 연결 등록 포함.
+  - 포터블: `installer\NC_Tool_List_Portable_v1.6.8.zip` 64.0 MB, 315개 항목(v1.6.7과 동일 —
+    새 의존성이 없어 구성이 그대로다), `_internal` + `NC_Tool_List.exe`가 zip 루트.
+  - 빌드 검증: 프리즈된 `NC_Tool_List.exe`의 파일/제품 버전이 `1.6.8.0`으로 찍히고,
+    실행하면 `startup.log`에 트레이스백 없이 `Starting Sum Path v1.6.8 frozen=True`가
+    남는 것을 확인한 뒤 종료했다. 설치 프로그램 자체의 VersionInfo도
+    1.6.8 / NC Tool List / S M.HWANG으로 확인했다.
+  - 산출물은 저장소의 `installer\` 폴더(gitignore 대상이라 커밋되지 않음)에 둔다.
+
+### 2026-09-05 (v1.6.7)
 
 - Version: 1.6.7
 - Release/build date: 2026-09-05 (코드/테스트 완료 — 설치본·포터블 패키지는 사용자 승인 후 생성)
