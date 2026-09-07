@@ -68,9 +68,19 @@ Last updated: 2026-09-07 (v1.7.7)
   잔존 상태, `SingleInstanceTests.test_handoff_returns_false_when_no_
   instance_is_running`의 로컬 소켓 의존)은 이 변경과 무관한 환경 요인임을
   검증했다(회귀 없음).
-- Installer/package status: 아직 생성하지 않음(사용자가 빌드를 지시하면
-  진행). `version_info.txt`/`NC_Tool_List.iss`의 버전 문자열은 1.7.7로
-  동기화해 뒀다.
+- Installer/package status: **생성 완료**(사용자 직접 지시로 빌드).
+  - `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` — onedir, UPX 비활성,
+    `_internal\OpenGL\DLLS` 폴더 부재 유지(freeglut/gle32/64 DLL 배제,
+    MSVCR90.dll 경고는 기존과 동일하게 무해).
+  - `ISCC.exe NC_Tool_List.iss`(Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.7.7.exe`
+    (컴파일 46.4초, 46.5 MB).
+  - 포터블: `installer\NC_Tool_List_Portable_v1.7.7.zip` 64.0 MB, 298개 항목.
+  - 빌드 검증: 프리즈된 `NC_Tool_List.exe`의 파일 버전이 `1.7.7.0`로
+    찍히고, 실행하면 `startup.log`에 트레이스백 없이
+    `Starting Sum Path v1.7.7 frozen=True`가 남는 것을 확인했다(다른
+    OpenGL 관련 경고 줄은 이전 세션에서 남은 것으로 이번 실행과 무관).
+  - Setup EXE SHA-256: 5932E2FF4EE74218A5E980A53383F409504E80CE8DDD416028B6FB17FDFDC33D
+  - Portable ZIP SHA-256: 17B88196EBEDB4AA5855712FA8D00C44AF64BF2C054A0BA5663777ED8EFCD3B1
 
 ### 2026-09-07 (v1.7.6)
 
