@@ -4598,6 +4598,404 @@ X60.
             self._restore(viewer, original, qapp)
 
 
+class SubprogramTests(unittest.TestCase):
+    """v1.7.4: M98/M99 서브프로그램 호출을 선반·밀링 공용 호출 스택
+    인터프리터(`NCViewerWidget._expand_subprograms`)로 처리한다(사용자
+    확정 2026-09-07: A 그린다 / B 넣지 않음 / C seq 기준 / D M99 P<n>은
+    N<n> 라벨 점프 / E 반복은 L 워드일 때만).
+
+    많은 테스트가 `_expand_subprograms()`를 직접 호출한다 — 순수 텍스트
+    처리라 Qt 위젯 상태(장비 종류 등)와 무관하기 때문이다. 밀링 경로
+    계산까지 확인하는 테스트만 `NCViewerWidget.set_source_text()`로
+    끝까지 돌린다."""
+
+    def _milling_viewer(self, qapp):
+        from nc_viewer_widget import NCViewerWidget
+
+        viewer = NCViewerWidget()
+        original = viewer.current_machine_type
+        viewer.set_machine_type('3축 MCT (X Y Z)')
+        return viewer, original
+
+    def _restore(self, viewer, original, qapp):
+        try:
+            viewer.set_machine_type(original)
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    def test_milling_without_m98_keeps_flat_sequence(self):
+        """확정 A/회귀 봉인: M98이 하나도 없는 파일은 확장을 거치지 않고
+        list(enumerate(lines))와 완전히 동일한 시퀀스를 낸다 — 밀링 기존
+        동작 불변, 선반은 M30 뒤 내용도 그대로 살아난다(항목 2)."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        from nc_viewer_widget import NCViewerWidget
+
+        lines = [
+            'M6T1', 'G43', 'G00 X0 Y0 Z0', 'G01 X10 Y0 Z0', 'M30',
+            '', 'O0001 ( 이 뒤로 M98이 없으면 그대로 보여야 한다 )',
+            'G01 X999 Y0 Z0', 'M99',
+        ]
+        viewer = NCViewerWidget()
+        try:
+            self.assertEqual(viewer._expand_subprograms(lines), list(enumerate(lines)))
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    def test_milling_m98_expands_subprogram_and_returns_to_next_line(self):
+        """요구 2·3: 밀링에서도 M98 P0001이 그 자리에서 O0001을 실행하고,
+        M99에서 M98 바로 다음 줄로 복귀한다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._milling_viewer(qapp)
+        source = """M6T1
+G43
+G00 X0 Y0 Z0
+G01 X10 Y0 Z0
+M98 P0001
+G01 X99 Y0 Z0
+M30
+
+O0001
+G01 X50 Y0 Z0
+M99
+"""
+        try:
+            self.assertTrue(viewer.set_source_text(source, {'T01': 'FACE MILL'}))
+            key = list(viewer.tool_paths)[0]
+            pts = [entry['pt'] for entry in viewer.tool_paths[key]]
+            # 서브프로그램 본문(X50)이 실제로 그려지고, 그 뒤 M98 바로
+            # 다음 줄(X99)로 이어져야 한다 — 순서까지 확인한다.
+            idx_50 = next(i for i, pt in enumerate(pts) if abs(pt[0] - 50.0) < 1e-6)
+            idx_99 = next(i for i, pt in enumerate(pts) if abs(pt[0] - 99.0) < 1e-6)
+            self.assertLess(idx_50, idx_99)
+            self.assertEqual([round(v, 6) for v in pts[-1]], [99.0, 0.0, 0.0])
+        finally:
+            self._restore(viewer, original, qapp)
+
+    def test_subprogram_body_ends_at_m99_not_next_o_header(self):
+        """달라지는 점(의도된 수정): 본문 끝은 다음 O헤더가 아니라 M99다.
+        M99 뒤 · 다음 O헤더 앞에 남은 줄은 실행되면 안 된다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        from nc_viewer_widget import NCViewerWidget
+
+        lines = [
+            'M6T1', 'G43', 'G00 X0 Y0 Z0', 'M98 P0001', 'M30', '',
+            'O0001', 'G01 X10 Y0 Z0', 'M99',
+            'G01 X999 Y0 Z0',  # <- M99 뒤, 다음 헤더 앞: 실행되면 안 된다
+            '', 'O0002', 'G01 X20 Y0 Z0', 'M99',
+        ]
+        stray_idx = lines.index('G01 X999 Y0 Z0')
+        viewer = NCViewerWidget()
+        try:
+            expanded_indices = [idx for idx, _ in viewer._expand_subprograms(lines)]
+            self.assertNotIn(stray_idx, expanded_indices)
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    def test_same_m98_called_twice_expands_twice(self):
+        """요구 2 후단: 같은 M98을 다시 만나면(반복문이 아니라 그냥 두 번
+        적혀 있어도) 그때마다 새로 펼쳐진다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        from nc_viewer_widget import NCViewerWidget
+
+        lines = [
+            'M6T1', 'G43', 'M98 P0001', 'M98 P0001', 'M30',
+            '', 'O0001', 'G01 X7 Y0 Z0', 'M99',
+        ]
+        body_line_idx = lines.index('G01 X7 Y0 Z0')
+        viewer = NCViewerWidget()
+        try:
+            expanded_indices = [idx for idx, _ in viewer._expand_subprograms(lines)]
+            self.assertEqual(
+                expanded_indices.count(body_line_idx), 2,
+                '본문 줄이 두 번 나와야 한다(두 번 호출됨)',
+            )
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    def test_multiple_subprograms_dispatch_by_number(self):
+        """요구 1: O0001/O0002/O0003이 배치 순서와 무관하게 P번호로
+        정확히 호출된다(순서를 뒤섞어 호출해도 번호로 찾는다)."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._milling_viewer(qapp)
+        source = """M6T1
+G43
+G00 X0 Y0 Z0
+M98 P0002
+M98 P0001
+M98 P0003
+M30
+
+O0001
+G01 X10 Y0 Z0
+M99
+
+O0002
+G01 X20 Y0 Z0
+M99
+
+O0003
+G01 X30 Y0 Z0
+M99
+"""
+        try:
+            self.assertTrue(viewer.set_source_text(source, {'T01': 'FACE MILL'}))
+            key = list(viewer.tool_paths)[0]
+            xs = [round(entry['pt'][0], 6) for entry in viewer.tool_paths[key]
+                  if entry.get('pt') is not None]
+            # 호출 순서(P0002 -> P0001 -> P0003) 그대로 20 -> 10 -> 30이어야 한다.
+            order = [x for x in xs if x in (10.0, 20.0, 30.0)]
+            self.assertEqual(order, [20.0, 10.0, 30.0])
+        finally:
+            self._restore(viewer, original, qapp)
+
+    def test_repeat_only_applies_with_l_word(self):
+        """확정 E: 반복은 M98 P… L<n> 형태일 때만이다. L이 없으면 1회,
+        `P51002`처럼 P 앞자리를 반복수로 보는 축약형은 지원하지 않는다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        from nc_viewer_widget import NCViewerWidget
+
+        lines_no_l = [
+            'M6T1', 'G43', 'M98 P0001', 'M30',
+            '', 'O0001', 'G01 X7 Y0 Z0', 'M99',
+        ]
+        body_idx = lines_no_l.index('G01 X7 Y0 Z0')
+        viewer = NCViewerWidget()
+        try:
+            expanded = [idx for idx, _ in viewer._expand_subprograms(lines_no_l)]
+            self.assertEqual(expanded.count(body_idx), 1, 'L 없으면 1회만 실행')
+
+            lines_with_l = [
+                'M6T1', 'G43', 'M98 P0001 L3', 'M30',
+                '', 'O0001', 'G01 X7 Y0 Z0', 'M99',
+            ]
+            body_idx2 = lines_with_l.index('G01 X7 Y0 Z0')
+            expanded2 = [idx for idx, _ in viewer._expand_subprograms(lines_with_l)]
+            self.assertEqual(expanded2.count(body_idx2), 3, 'L3이면 3회')
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    def test_subprogram_m99_p_returns_to_caller_n_sequence(self):
+        """요구 4: 서브프로그램 안의 M99 P2는 호출자(본 프로그램)의 N2
+        라벨로 복귀한다 — M98 바로 다음 줄(N2 이전)은 건너뛴다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._milling_viewer(qapp)
+        source = """M6T1
+G43
+G00 X0 Y0 Z0
+M98 P0001
+G01 X999 Y0 Z0
+N2
+G01 X77 Y0 Z0
+M30
+
+O0001
+G01 X10 Y0 Z0
+M99 P2
+"""
+        try:
+            self.assertTrue(viewer.set_source_text(source, {'T01': 'FACE MILL'}))
+            key = list(viewer.tool_paths)[0]
+            xs = [round(entry['pt'][0], 6) for entry in viewer.tool_paths[key]
+                  if entry.get('pt') is not None]
+            self.assertNotIn(999.0, xs, 'M98 다음 줄(N2 이전)은 건너뛰어야 한다')
+            self.assertEqual(xs[-1], 77.0)
+        finally:
+            self._restore(viewer, original, qapp)
+
+    def test_main_program_m99_p_jumps_to_n_label_skipping_earlier_ones(self):
+        """요구 4: 본 프로그램의 M99 P3은 N3으로 점프한다(N1/N2는
+        건너뛴다). (M98/M99 없이는 확장 자체가 스킵되므로(확정 A), 활성화용
+        더미 M98 호출을 하나 둔다 — 실제 값에는 영향 없다.)"""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._milling_viewer(qapp)
+        source = """M6T1
+G43
+G00 X0 Y0 Z0
+M98 P0009
+M99 P3
+N1
+G01 X999 Y0 Z0
+N2
+G01 X888 Y0 Z0
+N3
+G01 X55 Y0 Z0
+M30
+
+O0009
+G04 P100
+M99
+"""
+        try:
+            self.assertTrue(viewer.set_source_text(source, {'T01': 'FACE MILL'}))
+            key = list(viewer.tool_paths)[0]
+            xs = [round(entry['pt'][0], 6) for entry in viewer.tool_paths[key]
+                  if entry.get('pt') is not None]
+            self.assertNotIn(999.0, xs)
+            self.assertNotIn(888.0, xs)
+            self.assertEqual(xs[-1], 55.0)
+        finally:
+            self._restore(viewer, original, qapp)
+
+    def test_main_program_bare_m99_is_ignored_and_continues(self):
+        """확정 F: 본 프로그램의 P 없는 M99은 프로그램을 끝내지 않고
+        무시한 채 다음 줄로 진행한다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._milling_viewer(qapp)
+        source = """M6T1
+G43
+G00 X0 Y0 Z0
+M98 P0001
+M99
+G01 X42 Y0 Z0
+M30
+
+O0001
+G01 X5 Y0 Z0
+M99
+"""
+        try:
+            self.assertTrue(viewer.set_source_text(source, {'T01': 'FACE MILL'}))
+            key = list(viewer.tool_paths)[0]
+            xs = [round(entry['pt'][0], 6) for entry in viewer.tool_paths[key]
+                  if entry.get('pt') is not None]
+            self.assertEqual(xs[-1], 42.0, 'P 없는 M99 뒤에도 계속 그려져야 한다')
+        finally:
+            self._restore(viewer, original, qapp)
+
+    def test_subprogram_max_steps_guards_infinite_loop(self):
+        """M99 P1이 자기 앞(N1)으로 계속 되돌아가는 프로그램도 상한에서
+        멈추고 예외 없이 끝나야 한다(무한 루프 방어)."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        from nc_viewer_widget import NCViewerWidget
+
+        lines = [
+            'M6T1', 'G43', 'M98 P0001',  # 활성화용 더미 호출
+            'N1', 'G00 X1 Y0 Z0', 'M99 P1',  # N1로 계속 되돌아간다
+            'M30', '', 'O0001', 'M99',
+        ]
+        viewer = NCViewerWidget()
+        try:
+            expanded = viewer._expand_subprograms(lines)
+            self.assertLessEqual(len(expanded), viewer._SUBPROGRAM_MAX_STEPS + 10)
+            self.assertGreater(len(expanded), 1000, '상한 전까지는 계속 펼쳐져야 한다')
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    def test_subprogram_empty_body_with_huge_repeat_does_not_hang(self):
+        """빈 본문을 아주 큰 L로 반복해도(줄을 한 번도 못 내는 경로) 스텝
+        상한이 걸려 즉시 끝나야 한다 — repeat_left 감소 분기 자체도 steps를
+        세지 않으면 진짜 무한루프가 된다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        from nc_viewer_widget import NCViewerWidget
+
+        lines = [
+            'M6T1', 'G43', 'M98 P0001 L999999999', 'M30',
+            '', 'O0001', '', 'O0002', 'G01 X1 Y0 Z0', 'M99',
+        ]
+        viewer = NCViewerWidget()
+        try:
+            expanded = viewer._expand_subprograms(lines)
+            self.assertLessEqual(len(expanded), viewer._SUBPROGRAM_MAX_STEPS + 10)
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    def test_cursor_trim_uses_execution_order_with_subprograms(self):
+        """항목 3: 서브프로그램 확장으로 src_line이 단조 증가하지 않아도,
+        커서 트레이스가 첫 M98에서 끊기지 않고 seq(실행 순서) 기준으로
+        끝까지 그려져야 한다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._milling_viewer(qapp)
+        source = """M6T1
+G43
+G00 X0 Y0 Z0
+G01 X10 Y0 Z0
+M98 P0001
+G01 X99 Y0 Z0
+M30
+
+O0001
+G01 X50 Y0 Z0
+M99
+"""
+        try:
+            self.assertTrue(viewer.set_source_text(source, {'T01': 'FACE MILL'}))
+            key = list(viewer.tool_paths)[0]
+            full = viewer._render_segment_buckets(viewer.tool_paths[key])
+            full_count = sum(len(b) for b in full.values())
+            # 커서를 M98 호출 줄(원본 4번째 줄, index 4)에 두면 예전
+            # src_line 기준으로는 여기서 트레이스가 끊겼다(8점 고정). 이제는
+            # 그 이후(서브프로그램+복귀)까지 실행 순서로 이어져야 한다.
+            m98_line_idx = source.splitlines().index('M98 P0001')
+            seq_limit = viewer.line_to_seq.get(m98_line_idx, m98_line_idx)
+            trimmed = viewer._render_segment_buckets(viewer.tool_paths[key], seq_limit)
+            trimmed_count = sum(len(b) for b in trimmed.values())
+            self.assertGreater(trimmed_count, 0)
+            # 본 프로그램이 실제로 끝나는 M30 줄에 커서를 두면 전체 경로와
+            # 같아야 한다. (서브프로그램은 M30보다 뒤에 physically 있지만
+            # 실행은 M30 전에 끝나므로, "파일의 마지막 물리 줄"이 아니라
+            # M30 줄이 "실행이 끝나는 지점"이다.)
+            m30_line_idx = source.splitlines().index('M30')
+            m30_seq = viewer.line_to_seq.get(m30_line_idx, m30_line_idx)
+            at_end = viewer._render_segment_buckets(viewer.tool_paths[key], m30_seq)
+            self.assertEqual(sum(len(b) for b in at_end.values()), full_count)
+        finally:
+            self._restore(viewer, original, qapp)
+
+    def test_sample_1111_nc_expands_to_expected_sequence_and_processes(self):
+        """부록 A 실측 스모크 테스트. 사용자 제공 예제(`test files/1111.nc`)
+        는 리포지터리에 커밋돼 있지 않으므로 파일이 있을 때만 돈다."""
+        candidates = [
+            Path(__file__).resolve().parent.parent / 'test files' / '1111.nc',
+            Path(r'C:\dev\NC_Tool_List\test files\1111.nc'),
+        ]
+        sample_path = next((p for p in candidates if p.exists()), None)
+        if sample_path is None:
+            self.skipTest('test files/1111.nc가 없어 스킵 (리포지터리에 커밋되지 않는 예제 파일)')
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        from nc_viewer_widget import NCViewerWidget, is_lathe_machine
+
+        text = sample_path.read_text(encoding='utf-8', errors='replace')
+        lines = text.splitlines()
+        viewer = NCViewerWidget()
+        original = viewer.current_machine_type
+        try:
+            lathe_name = next(name for name in viewer.machine_types() if is_lathe_machine(name))
+            viewer.set_machine_type(lathe_name)
+
+            expanded = viewer._expand_subprograms(lines)
+            self.assertGreater(len(expanded), len(lines))  # 서브프로그램이 펼쳐져 늘어난다
+
+            self.assertTrue(viewer.set_source_text(text))
+            self.assertEqual(len(viewer.tool_paths), 2, '공정 2개(T04, T07)가 나와야 한다')
+
+            # 항목 3 수정 확인: 본 프로그램이 끝나는 M30 줄에 커서를 두면
+            # 첫 M98에서 끊기지 않고(예전엔 8점 고정) 정적 전체 경로와
+            # 같아야 한다. (서브프로그램은 파일 안에서 M30보다 뒤에 있지만
+            # 실행은 M30 전에 끝나므로 "파일의 마지막 줄"이 아니라 M30
+            # 줄이 실행이 끝나는 지점이다.)
+            key = list(viewer.tool_paths)[0]
+            full = viewer._render_segment_buckets(viewer.tool_paths[key])
+            full_count = sum(len(b) for b in full.values())
+            m30_idx = lines.index('M30')
+            last_seq = viewer.line_to_seq.get(m30_idx, m30_idx)
+            at_end = viewer._render_segment_buckets(viewer.tool_paths[key], last_seq)
+            end_count = sum(len(b) for b in at_end.values())
+            self.assertGreater(end_count, 100, '예전처럼 8점에 고정되면 안 된다')
+            self.assertEqual(end_count, full_count)
+        finally:
+            viewer.set_machine_type(original)
+            viewer.deleteLater()
+            qapp.processEvents()
+
+
 class PdfDirectOpenTests(unittest.TestCase):
     """v1.6.4: PDF 출력은 저장 위치를 묻지 않고 임시 파일로 만들어 기본
     프로그램으로 바로 띄운다."""

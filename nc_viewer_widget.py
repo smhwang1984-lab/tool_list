@@ -1449,6 +1449,11 @@ class NCViewerWidget(QWidget):
         self.line_to_tool_map = {}
         self.process_first_line = {}
         self.modal_state_map = {}
+        # v1.7.4: 원본 줄번호(idx) -> 실행 순서(seq_pos). M98/M99 서브프로그램
+        # 확장으로 같은 idx가 여러 번 실행되면 마지막 실행의 seq가 남는다
+        # (modal_state_map과 같은 "마지막 실행" 계약). 서브프로그램이 없는
+        # 파일에서는 seq_pos == idx라 이 맵을 거쳐도 값이 그대로다.
+        self.line_to_seq = {}
         # v1.6.6: 선반 C축 회전 시뮬레이션 — 줄마다 "그 시점에 유효한 C
         # 회전각"(lathe_rotate_c에 넘긴 cc_deg)을 들고 있는다. is_lathe가
         # 아니면 항상 채워지지 않고(get() 기본값 0), 밀링 재생에는 쓰이지
@@ -1457,9 +1462,11 @@ class NCViewerWidget(QWidget):
         # v1.6.7 가공시간. line_feed_state는 줄마다 "그 줄에서 유효한 이송
         # 상태"(F, 선반 G99 여부, G96/G97 모드, S, G50 상한)를 들고 있고,
         # 나머지 셋은 파싱이 끝난 뒤 _compute_machining_times()가 채운다.
+        # v1.7.4: 누적 시간은 seq(실행 순서) 기준으로 쌓는다 — 서브프로그램
+        # 반복 구간에서 src_line 기준이면 시간이 되감기는 것처럼 보인다.
         self.line_feed_state = {}
-        self.line_to_elapsed_sec = {}
-        self._elapsed_line_keys = []
+        self.seq_to_elapsed_sec = {}
+        self._elapsed_seq_keys = []
         self.process_time_sec = {}
         self.total_time_sec = 0.0
         self.dynamic_trace_items = []
@@ -1804,15 +1811,19 @@ class NCViewerWidget(QWidget):
         self._pick_flash_sphere.setVisible(True)
         self._pick_flash_timer.start()
 
-    def _collect_pick_segments(self, path_data, segments, lines, line_limit=None):
+    def _collect_pick_segments(self, path_data, segments, lines, seq_limit=None):
         """path_data를 (세계좌표 선분, 도착 지점 src_line) 쌍으로 뽑아
-        segments/lines에 이어붙인다. line_limit이 주어지면 그 라인을 넘는
-        지점부터는 _render_segments()와 똑같이 잘라낸다 — 클릭 판정 대상이
-        실제로 화면에 그려진 구간과 정확히 일치해야 하기 때문이다."""
+        segments/lines에 이어붙인다. seq_limit이 주어지면 그 실행 순서를
+        넘는 지점부터는 _render_segments()와 똑같이 잘라낸다 — 클릭 판정
+        대상이 실제로 화면에 그려진 구간과 정확히 일치해야 하기 때문이다.
+
+        v1.7.4: 자르는 기준은 seq(실행 순서)지만, 클릭으로 되돌려주는
+        값은 여전히 src_line(원본 줄번호)이다 — 에디터가 그 줄로 이동하는
+        데 쓰는 값이라 실행 순서가 아니라 원본 줄번호여야 한다."""
         previous_pt = None
         for node in path_data:
             src_line = node.get("src_line", -1)
-            if line_limit is not None and src_line > line_limit:
+            if seq_limit is not None and node.get("seq", -1) > seq_limit:
                 break
             if not node.get("valid"):
                 previous_pt = None
@@ -1851,9 +1862,12 @@ class NCViewerWidget(QWidget):
         if self.pg_match_mode:
             current_tool = self.line_to_tool_map.get(self.current_cursor_line)
             if current_tool and current_tool in self.tool_paths and self._tool_selected(current_tool):
+                seq_limit = self.line_to_seq.get(
+                    self.current_cursor_line, self.current_cursor_line
+                )
                 self._collect_pick_segments(
                     self.tool_paths[current_tool], segments, lines,
-                    line_limit=self.current_cursor_line,
+                    seq_limit=seq_limit,
                 )
         else:
             selected = self.selected_tools()
@@ -2186,6 +2200,7 @@ class NCViewerWidget(QWidget):
         self.line_to_tool_map.clear()
         self.process_first_line.clear()
         self.modal_state_map.clear()
+        self.line_to_seq.clear()
         self.line_to_c_rot.clear()
         self.current_cursor_line = 0
         self._refresh_tool_filter()
@@ -2444,10 +2459,20 @@ class NCViewerWidget(QWidget):
 
     _M30_RE = re.compile(r"M30(?!\d)")
     _M98_RE = re.compile(r"M98(?!\d)")
+    _M99_RE = re.compile(r"M99(?!\d)")
     _M98_P_RE = re.compile(r"P0*(\d+)(?!\d)")
     _M98_L_RE = re.compile(r"L0*(\d+)(?!\d)")
     _SUBPROGRAM_HEADER_RE = re.compile(r"^\s*O0*(\d+)\b")
-    _LATHE_SUBPROGRAM_MAX_DEPTH = 10
+    # v1.7.4: N 라벨 점프(M99 P<n>)용 — 뒤에 지령이 붙어도 잡는다
+    # ("N1 (COMMENT)", "N1 G0X0" 모두 매치). 공정 경계 판정용
+    # LATHE_N_LINE_RE(= "N만 있는 줄"만 매치, 아래)와는 목적이 달라
+    # 재사용하지 않는다.
+    _N_LABEL_RE = re.compile(r"^\s*N0*(\d+)")
+    _SUBPROGRAM_MAX_DEPTH = 10
+    # 무한 루프(M99 Pn이 자기 앞으로 되돌아오는 프로그램 등) 방지용 스텝
+    # 상한. 실사용 최대치(사용자 제공 1111.nc 확장 결과 19,653줄)의 10배
+    # 이상 여유를 둔다.
+    _SUBPROGRAM_MAX_STEPS = 200_000
 
     # v1.6.9: 선반 공정 경계를 Tnn00에서 "N번호 ~ M0/M1/M30"으로 옮긴다
     # (사용자 확정, 2026-09-06) — 복귀+다음공구 예약을 한 줄에 쓰는
@@ -2512,10 +2537,45 @@ class NCViewerWidget(QWidget):
             block_tool_at_position[start] = self._normalize_tool_no(digits[:2]) if digits else ""
         return set(n_positions), block_tool_at_position
 
-    def _expand_lathe_subprograms(self, lines):
-        """v1.6.6: 선반 M98 P<번호> [L<반복>] 서브프로그램 호출을 그 자리에
-        펼친다. Fanuc 표준(사용자 확인): M30 뒤에 O<번호> 헤더로 시작하는
-        서브프로그램이 붙고, 본문은 다음 O헤더(또는 파일 끝)까지다.
+    class _SubprogramFrame:
+        """v1.7.4: `_expand_subprograms()`의 호출 스택 한 칸. `start`/`end`는
+        이 프레임이 실행 중인 프로그램 구간(본 프로그램 또는 서브프로그램
+        본문)의 [start, end) 원본 줄 범위, `pc`는 다음에 실행할 줄
+        번호(원본 idx), `repeat_left`는 `M98 P… L<n>`으로 남은 반복 횟수
+        (본 프로그램 프레임은 항상 1 — 반복 개념이 없다)."""
+        __slots__ = ("start", "end", "pc", "repeat_left")
+
+        def __init__(self, start, end, pc, repeat_left):
+            self.start = start
+            self.end = end
+            self.pc = pc
+            self.repeat_left = repeat_left
+
+    def _expand_subprograms(self, lines):
+        """v1.7.4: M98 P<번호> [L<반복>] 서브프로그램 호출을 그 자리에
+        펼치고, M99 / M99 P<n>을 해석한다. **선반·밀링 공용**(사용자 확정
+        — 요구 3). Fanuc 표준(사용자 확인): M30 뒤에 O<번호> 헤더로
+        시작하는 서브프로그램이 붙고, 본문은 다음 O헤더(또는 파일 끝)까지,
+        단 그 안에서 실제로 실행되는 범위는 M99를 만나는 곳까지다.
+
+        규칙(전부 사용자 확정, 2026-09-07):
+        - 파일 전체에 M98이 하나도 없으면 확장을 **하지 않고**
+          `list(enumerate(lines))`를 그대로 돌려준다(확정 A) — 밀링 기존
+          동작은 완전히 그대로고, 선반은 M30 뒤 내용도 그려지게 된다
+          (append_nc_programs로 이어붙인 여러 프로그램을 포함해서).
+        - 반복은 `L` 워드가 있을 때만이다(확정 E) — `M98 P0001 L2`처럼.
+          `P51002` 같은 "앞자리가 반복수" 축약형은 쓰지 않는다.
+        - `M99 P<n>`은 **`N<n>` 라벨로 점프**한다(확정 D): 서브프로그램
+          안이면 그 호출자(caller)의 N<n>으로, 본 프로그램 안이면 자기
+          자신의 N<n>으로. 라벨이 없으면: 서브프로그램은 일반 M99(= 호출자
+          복귀)로 폴백하고, 본 프로그램은 그 자리에서 끝낸다.
+        - 본 프로그램의 P 없는 `M99`은 무시하고 다음 줄로 진행한다
+          (확정 F) — "M99 = N번호를 찾는 호출"인데 찾을 N이 없으면 지시가
+          없는 것이고, 여기서 끝내면 뒤에 남은 본 프로그램이 안 그려져
+          그림이 사라지는 쪽으로 틀린다.
+        - `M99 P<n>`은 반복(`repeat_left`)을 적용하지 않고 그 자리에서
+          즉시 빠져나간다 — 제어가 다른 지점으로 명시적으로 넘어가므로
+          "이 서브프로그램을 다시 도는" 개념이 없다(Fanuc 실기와 동일).
 
         반환값은 (원본 줄번호, 줄 텍스트) 쌍의 리스트다 — 서브프로그램
         본문은 같은 원본 줄번호로 여러 번 나올 수 있는데(반복 호출), 원본
@@ -2523,13 +2583,18 @@ class NCViewerWidget(QWidget):
         깨지지 않는다(에디터에서 그 줄을 클릭하면 그 줄이 '마지막으로
         실행된' 위치로 맞춰진다).
 
-        정의되지 않은 P번호나 10단계를 넘는 재귀 호출은 조용히 무시한다
-        (파싱이 죽지 않게) — 이번 단계는 M98/M99/M30만 다루고, U/W 증분
-        지령이나 G90/G92/G94 선반 고정 사이클은 그대로 미구현으로 둔다
-        (LATHE_MODE_GUIDELINES.md §8, 승인 후 별도 단계)."""
+        정의되지 않은 P번호나 `_SUBPROGRAM_MAX_DEPTH`를 넘는 중첩 호출은
+        조용히 무시한다(파싱이 죽지 않게) — U/W 증분 지령이나 G90/G92/G94
+        선반 고정 사이클은 그대로 미구현으로 둔다(LATHE_MODE_GUIDELINES.md
+        §8, 승인 후 별도 단계)."""
+        code_cache = [self._code_without_comments(raw).upper() for raw in lines]
+
+        if not any(self._M98_RE.search(code) for code in code_cache):
+            return list(enumerate(lines))
+
         m30_idx = None
-        for i, raw in enumerate(lines):
-            if self._M30_RE.search(self._code_without_comments(raw).upper()):
+        for i, code in enumerate(code_cache):
+            if self._M30_RE.search(code):
                 m30_idx = i
                 break
 
@@ -2544,27 +2609,99 @@ class NCViewerWidget(QWidget):
                 end = headers[pos + 1][1] if pos + 1 < len(headers) else len(lines)
                 subprograms.setdefault(prog_no, (start + 1, end))
 
+        main_start = 0
         main_end = m30_idx + 1 if m30_idx is not None else len(lines)
 
-        def expand(index_range, depth):
-            for i in index_range:
-                raw = lines[i]
-                code = self._code_without_comments(raw).upper()
-                yield i, raw
-                if depth >= self._LATHE_SUBPROGRAM_MAX_DEPTH or not self._M98_RE.search(code):
-                    continue
-                p_match = self._M98_P_RE.search(code)
-                if not p_match:
-                    continue
-                body = subprograms.get(int(p_match.group(1)))
-                if body is None:
-                    continue
-                l_match = self._M98_L_RE.search(code)
-                repeat = max(1, int(l_match.group(1))) if l_match else 1
-                for _ in range(repeat):
-                    yield from expand(range(body[0], body[1]), depth + 1)
+        n_label_cache = {}
 
-        return list(expand(range(0, main_end), 0))
+        def n_labels(scope):
+            """scope = (start, end) 범위 안의 {N번호: 줄번호}. 같은 N이
+            두 번 나오면 먼저 나온 것(Fanuc 관례)."""
+            table = n_label_cache.get(scope)
+            if table is not None:
+                return table
+            start, end = scope
+            table = {}
+            for i in range(start, end):
+                match = self._N_LABEL_RE.match(lines[i])
+                if match:
+                    table.setdefault(int(match.group(1)), i)
+            n_label_cache[scope] = table
+            return table
+
+        Frame = self._SubprogramFrame
+        frames = [Frame(main_start, main_end, main_start, 1)]
+        result = []
+        steps = 0
+
+        while frames and steps < self._SUBPROGRAM_MAX_STEPS:
+            frame = frames[-1]
+            if frame.pc >= frame.end:
+                # 본문(또는 본 프로그램) 끝 = 암묵적 M99. L 반복이 남아
+                # 있으면 처음부터 다시 돈다 — M98 P… L<n>은 "본문 전체를
+                # n번" 돈다는 뜻이라, M99가 본문 중간에 있어도 다음 반복은
+                # 항상 본문 시작으로 되돌아간다.
+                # steps도 여기서 반드시 센다 — 본문이 빈 채로(start==end)
+                # L이 아주 큰 값이면 줄을 한 번도 못 내면서 이 분기만
+                # 무한히 도는 진짜 무한루프가 된다.
+                steps += 1
+                frame.repeat_left -= 1
+                if frame.repeat_left > 0:
+                    frame.pc = frame.start
+                else:
+                    frames.pop()
+                continue
+
+            idx = frame.pc
+            code = code_cache[idx]
+            result.append((idx, lines[idx]))
+            frame.pc += 1
+            steps += 1
+
+            m99_match = self._M99_RE.search(code)
+            if m99_match:
+                p_match = self._M98_P_RE.search(code)
+                is_main = len(frames) == 1
+                if p_match:
+                    n = int(p_match.group(1))
+                    if is_main:
+                        target = n_labels((frame.start, frame.end)).get(n)
+                        if target is not None:
+                            frame.pc = target
+                        else:
+                            # 확정 D: 라벨이 없으면 그 자리에서 끝낸다.
+                            frames.pop()
+                    else:
+                        # 서브프로그램의 M99 P<n> — 반복 미적용, 즉시 반환.
+                        frames.pop()
+                        if frames:
+                            caller = frames[-1]
+                            target = n_labels((caller.start, caller.end)).get(n)
+                            if target is not None:
+                                caller.pc = target
+                            # else: 라벨 없음 -> 폴백 = 이미 일반 복귀 지점
+                elif is_main:
+                    # 확정 F: 본 프로그램의 P 없는 M99은 무시하고 계속.
+                    pass
+                else:
+                    # 서브프로그램의 일반 M99 — 반복(L) 적용 후 반환/재실행.
+                    frame.repeat_left -= 1
+                    if frame.repeat_left > 0:
+                        frame.pc = frame.start
+                    else:
+                        frames.pop()
+                continue
+
+            if len(frames) < self._SUBPROGRAM_MAX_DEPTH and self._M98_RE.search(code):
+                p_match = self._M98_P_RE.search(code)
+                if p_match:
+                    body = subprograms.get(int(p_match.group(1)))
+                    if body is not None:
+                        l_match = self._M98_L_RE.search(code)
+                        repeat = max(1, int(l_match.group(1))) if l_match else 1
+                        frames.append(Frame(body[0], body[1], body[0], repeat))
+
+        return result
 
     def _process_time_suffix(self, process_key):
         """v1.6.7: 공정별 경로 필터 항목 끝에 붙일 " | MM:SS" 조각.
@@ -2654,10 +2791,11 @@ class NCViewerWidget(QWidget):
         self.line_to_tool_map.clear()
         self.process_first_line.clear()
         self.modal_state_map.clear()
+        self.line_to_seq.clear()
         self.line_to_c_rot.clear()
         self.line_feed_state.clear()
-        self.line_to_elapsed_sec.clear()
-        self._elapsed_line_keys = []
+        self.seq_to_elapsed_sec.clear()
+        self._elapsed_seq_keys = []
         self.process_time_sec.clear()
         self.total_time_sec = 0.0
 
@@ -2825,16 +2963,18 @@ class NCViewerWidget(QWidget):
         g96_pattern = re.compile(r"G96(?!\d)")
         g97_pattern = re.compile(r"G97(?!\d)")
 
-        # v1.6.6: 선반만 M98 서브프로그램 호출을 그 자리에 펼친 시퀀스를
-        # 돈다 — 밀링은 항상 원래 enumerate(lines) 그대로라 동작이
-        # 전혀 바뀌지 않는다(가이드라인 0항).
-        lathe_sequence = self._expand_lathe_subprograms(lines) if is_lathe else list(enumerate(lines))
+        # v1.7.4: M98/M99 서브프로그램 호출을 그 자리에 펼친 시퀀스를 선반과
+        # 밀링 모두에서 돈다(사용자 확정 — 요구 3). 단 `_expand_subprograms`
+        # 내부에서 파일 전체에 M98이 하나도 없으면 확장을 하지 않고
+        # `list(enumerate(lines))`를 그대로 돌려주므로, M98을 안 쓰는 기존
+        # 밀링/선반 파일은 시퀀스가 지금과 완전히 동일하다(회귀 없음).
+        line_sequence = self._expand_subprograms(lines)
         # v1.6.9: N 블록 사전 스캔(선반만). N 라인이 하나도 없으면 둘 다
         # 비어 있고, 아래 루프는 기존 Tnn00 기준으로 자동 폴백한다.
         n_block_starts, n_block_tool_at_position = (
-            self._lathe_n_blocks(lathe_sequence) if is_lathe else (set(), {})
+            self._lathe_n_blocks(line_sequence) if is_lathe else (set(), {})
         )
-        for seq_pos, (idx, line) in enumerate(lathe_sequence):
+        for seq_pos, (idx, line) in enumerate(line_sequence):
             line_upper_with_comments = line.upper().replace(" ", "")
             line_upper = self._code_without_comments(line).upper().replace(" ", "")
 
@@ -2843,6 +2983,9 @@ class NCViewerWidget(QWidget):
                 if match:
                     modal_values[pos] = match.group(1)
             self.modal_state_map[idx] = tuple(modal_values)
+            # v1.7.4: 같은 idx가 서브프로그램 반복으로 여러 번 실행되면
+            # 마지막 실행의 seq가 남는다(modal_state_map과 같은 계약).
+            self.line_to_seq[idx] = seq_pos
             # v1.6.6: 이 줄 시작 시점의 C 회전각으로 우선 채워 두고, 이 줄에서
             # 실제로 C가 갱신되면(아래 is_lathe 모션 블록) 그 값으로 덮어쓴다
             # — G12.1 극좌표 중에는 cc_deg가 그대로라 자연히 이전 값이 유지된다.
@@ -3092,7 +3235,7 @@ class NCViewerWidget(QWidget):
                 )
                 self.tool_paths[current_tool].append({
                     "pt": start_point, "type": current_motion,
-                    "valid": True if is_lathe else g43_active, "src_line": idx,
+                    "valid": True if is_lathe else g43_active, "src_line": idx, "seq": seq_pos,
                 })
                 self.line_to_tool_map[idx] = current_tool
 
@@ -3162,7 +3305,7 @@ class NCViewerWidget(QWidget):
                         self.line_to_c_rot[idx] = 0.0
                     final_pt = lathe_world_point(cz, cx, cc_deg)
                     self.tool_paths[current_tool].append({
-                        "pt": final_pt, "type": "G00", "valid": True, "src_line": idx,
+                        "pt": final_pt, "type": "G00", "valid": True, "src_line": idx, "seq": seq_pos,
                     })
                     self.line_to_coord_map[idx] = final_pt
                     continue
@@ -3175,7 +3318,7 @@ class NCViewerWidget(QWidget):
                 if g43_active:
                     final_pt = [cx, cy, cz]
                     self.tool_paths[current_tool].append({
-                        "pt": final_pt, "type": "G00", "valid": True, "src_line": idx,
+                        "pt": final_pt, "type": "G00", "valid": True, "src_line": idx, "seq": seq_pos,
                     })
                     self.line_to_coord_map[idx] = final_pt
                 continue
@@ -3351,14 +3494,14 @@ class NCViewerWidget(QWidget):
                         final_pt = lathe_world_point(cz, depth_target * 2.0, cc_deg)
                         cx = start_local[2] * 2.0  # 사이클은 항상 초기점으로 복귀(아래)
 
-                    self.tool_paths[current_tool].append({"pt": approach_pt, "type": "G00", "valid": True, "src_line": idx})
-                    self.tool_paths[current_tool].append({"pt": r_point_pt, "type": "G00", "valid": True, "src_line": idx})
-                    self.tool_paths[current_tool].append({"pt": final_pt, "type": "G01", "valid": True, "src_line": idx})
+                    self.tool_paths[current_tool].append({"pt": approach_pt, "type": "G00", "valid": True, "src_line": idx, "seq": seq_pos})
+                    self.tool_paths[current_tool].append({"pt": r_point_pt, "type": "G00", "valid": True, "src_line": idx, "seq": seq_pos})
+                    self.tool_paths[current_tool].append({"pt": final_pt, "type": "G01", "valid": True, "src_line": idx, "seq": seq_pos})
                     # v1.6.8: 선반은 g98_active(=이송 단위 G98/G99와 같은
                     # 변수) 상태와 무관하게 항상 초기점으로 복귀한다 — 기존
                     # 코드가 G99(선반 기본)에서 복귀 경로를 그리지 않던
                     # 문제를 바로잡는다.
-                    self.tool_paths[current_tool].append({"pt": approach_pt, "type": "G00", "valid": True, "src_line": idx})
+                    self.tool_paths[current_tool].append({"pt": approach_pt, "type": "G00", "valid": True, "src_line": idx, "seq": seq_pos})
                     self.line_to_coord_map[idx] = final_pt
                     continue
 
@@ -3381,11 +3524,11 @@ class NCViewerWidget(QWidget):
                         xy_approach_pt, r_point_pt, final_z_pt, return_pt = [
                             raw.tolist() for raw in raw_points
                         ]
-                    self.tool_paths[current_tool].append({"pt": xy_approach_pt, "type": "G00", "valid": True, "src_line": idx})
-                    self.tool_paths[current_tool].append({"pt": r_point_pt, "type": "G00", "valid": True, "src_line": idx})
-                    self.tool_paths[current_tool].append({"pt": final_z_pt, "type": "G01", "valid": True, "src_line": idx})
+                    self.tool_paths[current_tool].append({"pt": xy_approach_pt, "type": "G00", "valid": True, "src_line": idx, "seq": seq_pos})
+                    self.tool_paths[current_tool].append({"pt": r_point_pt, "type": "G00", "valid": True, "src_line": idx, "seq": seq_pos})
+                    self.tool_paths[current_tool].append({"pt": final_z_pt, "type": "G01", "valid": True, "src_line": idx, "seq": seq_pos})
                     if g98_active:
-                        self.tool_paths[current_tool].append({"pt": return_pt, "type": "G00", "valid": True, "src_line": idx})
+                        self.tool_paths[current_tool].append({"pt": return_pt, "type": "G00", "valid": True, "src_line": idx, "seq": seq_pos})
                     cz = target_z
                     self.line_to_coord_map[idx] = final_z_pt
                     continue
@@ -3405,7 +3548,7 @@ class NCViewerWidget(QWidget):
                         for local_pt in local_arc_pts:
                             self.tool_paths[current_tool].append({
                                 "pt": lathe_rotate_c(local_pt, cc_deg), "type": current_motion,
-                                "valid": True, "src_line": idx,
+                                "valid": True, "src_line": idx, "seq": seq_pos,
                             })
                     elif lathe_milling_active and current_plane in ("G17", "G19"):
                         # v1.6.6: M35(구동공구) 중 G17/G19 평면 원호 — I/J/K가
@@ -3421,7 +3564,7 @@ class NCViewerWidget(QWidget):
                         for local_pt in local_arc_pts:
                             self.tool_paths[current_tool].append({
                                 "pt": lathe_rotate_c(local_pt, cc_deg), "type": current_motion,
-                                "valid": True, "src_line": idx,
+                                "valid": True, "src_line": idx, "seq": seq_pos,
                             })
                     else:
                         # v1.6.4: 선삭 원호는 전용 "LATHE" 평면으로 보간한다
@@ -3437,7 +3580,7 @@ class NCViewerWidget(QWidget):
                         )
                         for pt in arc_pts:
                             self.tool_paths[current_tool].append({
-                                "pt": pt, "type": current_motion, "valid": True, "src_line": idx,
+                                "pt": pt, "type": current_motion, "valid": True, "src_line": idx, "seq": seq_pos,
                             })
                     self.line_to_coord_map[idx] = target_pt
                 elif is_arc_motion:
@@ -3453,7 +3596,7 @@ class NCViewerWidget(QWidget):
                             if (is_5axis_ac or is_5axis_bc or is_4axis) else local_pt
                         )
                         self.tool_paths[current_tool].append({
-                            "pt": rotated_pt, "type": current_motion, "valid": point_valid, "src_line": idx,
+                            "pt": rotated_pt, "type": current_motion, "valid": point_valid, "src_line": idx, "seq": seq_pos,
                         })
                         last_pt = rotated_pt
                     if point_valid:
@@ -3463,7 +3606,7 @@ class NCViewerWidget(QWidget):
                         "pt": target_pt,
                         "type": current_motion,
                         "valid": True if is_lathe else g43_active,
-                        "src_line": idx,
+                        "src_line": idx, "seq": seq_pos,
                     })
                     if g43_active or is_lathe:
                         self.line_to_coord_map[idx] = target_pt
@@ -3490,8 +3633,12 @@ class NCViewerWidget(QWidget):
         거리는 이미 그려진 점 사이 거리이고, 이송 상태는 점에 붙어 있는
         src_line으로 line_feed_state에서 되읽는다. 선반은 여기에 더해
         G99(mm/rev)를 그 순간의 회전수로 mm/min으로 환산한다.
+
+        v1.7.4: 누적 시간은 점의 "seq"(실행 순서) 기준으로 쌓는다 —
+        M98/M99 서브프로그램 반복 구간에서 src_line 기준이면 두 번째
+        실행이 첫 번째 실행 시점의 누적값으로 되감기는 것처럼 보인다.
         """
-        self.line_to_elapsed_sec.clear()
+        self.seq_to_elapsed_sec.clear()
         self.process_time_sec.clear()
         self.total_time_sec = 0.0
 
@@ -3504,6 +3651,7 @@ class NCViewerWidget(QWidget):
                 if pt is None or len(pt) < 3:
                     continue
                 src_line = point.get("src_line")
+                seq = point.get("seq")
                 if prev_pt is not None:
                     distance = float(np.linalg.norm(np.array(pt, dtype=float) - prev_pt))
                     if distance > 0.0:
@@ -3533,12 +3681,16 @@ class NCViewerWidget(QWidget):
                         )
                         if speed > 0.0:
                             elapsed += distance / speed * 60.0
-                if src_line is not None:
-                    self.line_to_elapsed_sec[src_line] = elapsed
+                if seq is not None:
+                    self.seq_to_elapsed_sec[seq] = elapsed
+                elif src_line is not None:
+                    # 방어적 폴백 — 이론상 tool_paths 노드는 전부 "seq"를
+                    # 들고 있어야 한다(process_nc_lines가 항상 채운다).
+                    self.seq_to_elapsed_sec[src_line] = elapsed
                 prev_pt = np.array(pt, dtype=float)
             self.process_time_sec[process_key] = elapsed - process_start
         self.total_time_sec = elapsed
-        self._elapsed_line_keys = sorted(self.line_to_elapsed_sec)
+        self._elapsed_seq_keys = sorted(self.seq_to_elapsed_sec)
 
     def _arc_points(self, line_upper, start_pt, target_pt, current_motion, plane,
                      i_pattern, j_pattern, k_pattern, r_pattern):
@@ -3657,12 +3809,22 @@ class NCViewerWidget(QWidget):
         self.gl_view.addItem(line_item)
         self.plot_items[tool].append(line_item)
 
-    def _render_segments(self, path_data, line_limit=None):
+    def _render_segments(self, path_data, seq_limit=None):
+        """path_data(경로 노드 목록)를 이어진 세그먼트로 묶어 낸다.
+        seq_limit이 주어지면 노드의 "seq"(실행 순서)가 그 값을 넘는
+        지점부터 잘라낸다.
+
+        v1.7.4: 예전에는 "src_line"(원본 줄번호) 기준으로 잘랐는데, M98
+        서브프로그램 확장이 들어오면 src_line이 단조 증가하지 않아
+        (서브프로그램 본문이 본 프로그램보다 뒤쪽 줄번호다) 첫 M98에서
+        엉뚱하게 끊겼다. "seq"는 확장된 시퀀스 안에서의 실행 순서라 항상
+        단조 증가이므로 이 문제가 없다. 서브프로그램이 없는 파일은
+        seq == src_line이라 동작이 그대로다."""
         current_seg = []
         current_type = None
         previous_node = None
         for node in path_data:
-            if line_limit is not None and node.get("src_line", -1) > line_limit:
+            if seq_limit is not None and node.get("seq", -1) > seq_limit:
                 break
             if not node["valid"]:
                 if current_seg:
@@ -3687,9 +3849,9 @@ class NCViewerWidget(QWidget):
         if current_seg:
             yield current_seg, current_type
 
-    def _render_segment_buckets(self, path_data, line_limit=None):
+    def _render_segment_buckets(self, path_data, seq_limit=None):
         buckets = {"G00": [], "CUT": []}
-        for pts_list, motion_type in self._render_segments(path_data, line_limit):
+        for pts_list, motion_type in self._render_segments(path_data, seq_limit):
             if len(pts_list) < 2:
                 continue
             key = "G00" if motion_type == "G00" else "CUT"
@@ -3799,9 +3961,13 @@ class NCViewerWidget(QWidget):
         except ValueError:
             tool_index = 0
         base_color = tool_color_for_index(tool_index)
+        # v1.7.4: line_index(원본 줄번호)를 seq(실행 순서)로 바꿔 넘긴다 —
+        # M98 서브프로그램 확장 구간에서도 트레이스가 첫 M98에서 끊기지
+        # 않는다. line_to_seq에 없으면 seq == line_index(서브프로그램 없음).
+        seq_limit = self.line_to_seq.get(line_index, line_index)
         trace_index = 0
         for motion_type, pts_list in self._render_segment_buckets(
-            self.tool_paths[current_tool], line_index
+            self.tool_paths[current_tool], seq_limit
         ).items():
             if self.update_trace_item(trace_index, pts_list, motion_type, base_color):
                 trace_index += 1
@@ -3815,17 +3981,24 @@ class NCViewerWidget(QWidget):
     def elapsed_seconds_at_line(self, line_index):
         """v1.6.7: 그 줄까지의 누적 가공시간(초). 경로 점이 없는 줄(주석,
         공구 교체 블록 등)은 그보다 앞선 줄 중 가장 가까운 값을 쓴다 —
-        커서를 그런 줄에 올려도 시간이 0으로 튀지 않게 한다."""
-        if not self.line_to_elapsed_sec:
+        커서를 그런 줄에 올려도 시간이 0으로 튀지 않게 한다.
+
+        v1.7.4: 원본 줄번호(line_index)를 실행 순서(seq)로 바꾼 뒤
+        seq_to_elapsed_sec에서 찾는다 — 서브프로그램 반복으로 같은
+        줄번호가 여러 번 나와도(line_to_seq는 마지막 실행) 시간이
+        되감기지 않는다. line_to_seq에 없으면(서브프로그램이 없어 seq를
+        따로 채울 필요가 없었던 파일) seq_pos == idx이므로 그대로 쓴다."""
+        if not self.seq_to_elapsed_sec:
             return 0.0
-        value = self.line_to_elapsed_sec.get(line_index)
+        seq = self.line_to_seq.get(line_index, line_index)
+        value = self.seq_to_elapsed_sec.get(seq)
         if value is not None:
             return value
         # 재생 중 매 틱마다 불리므로 미리 정렬해 둔 키에 이분 탐색을 건다.
-        position = bisect.bisect_right(self._elapsed_line_keys, line_index)
+        position = bisect.bisect_right(self._elapsed_seq_keys, seq)
         if position == 0:
             return 0.0
-        return self.line_to_elapsed_sec[self._elapsed_line_keys[position - 1]]
+        return self.seq_to_elapsed_sec[self._elapsed_seq_keys[position - 1]]
 
     def _update_time_overlay(self, line_index):
         """좌표 오버레이 끝의 "진행중인 시간 / 전체 시간"을 갱신한다(v1.6.7)."""

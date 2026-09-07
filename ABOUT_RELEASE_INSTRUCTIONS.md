@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-09-06 (v1.7.3)
+Last updated: 2026-09-07 (v1.7.4)
 
 ## About button requirements
 
@@ -34,7 +34,60 @@ Last updated: 2026-09-06 (v1.7.3)
 
 ## Version history
 
-### 2026-09-06 (latest, v1.7.3)
+### 2026-09-07 (latest, v1.7.4)
+
+- Version: 1.7.4
+- Release/build date: 2026-09-07
+- Summary: 사용자 요청(2026-09-07). M98/M99 서브프로그램 호출을 선반 전용
+  기능에서 **선반·밀링 공용**으로 확장했다(`v1.7.4_PLAN.md` 참고, 2차
+  플랜에서 결정사항 A~G 확정 후 구현).
+  1. **호출 스택 인터프리터로 교체**. `_expand_lathe_subprograms()`(재귀
+     제너레이터, 본문 끝 = "다음 O헤더")를 `_expand_subprograms()`(pc +
+     프레임 스택)로 바꿔, M99에서 정확히 멈추고 M98 바로 다음 줄로
+     복귀하며, 같은 M98을 다시 만나면 다시 펼쳐진다.
+  2. **선반·밀링 공용 적용**. 단, 파일 전체에 M98이 하나도 없으면 확장을
+     하지 않고 원본 그대로 돌려준다 — 밀링 기존 동작은 완전히 그대로고,
+     선반은 M30 뒤 내용(이어붙인 프로그램 포함)도 계속 그려진다.
+  3. **M99 P<n> = N<n> 라벨 점프**. 서브프로그램 안이면 호출자(caller)의
+     N<n>으로, 본 프로그램 안이면 자기 자신의 N<n>으로 점프한다. 라벨이
+     없으면: 서브프로그램은 일반 M99(호출자 복귀)로 폴백, 본 프로그램은
+     그 자리에서 끝낸다. P 없는 본 프로그램의 M99은 무시하고 계속
+     진행한다. 반복은 `M98 P… L<n>` 형태일 때만 적용된다.
+  4. **커서·재생 트리밍을 실행 순서(seq) 기준으로 전환**. 서브프로그램
+     확장으로 원본 줄번호가 단조 증가하지 않게 되면서, 커서/재생 트레이스가
+     첫 M98에서 끊기던 기존 결함(선반에서 이미 존재)도 함께 고쳤다.
+     가공시간 누적도 seq 기준으로 옮겨, 반복 구간에서 시간이 되감기지
+     않는다.
+  5. 무한 루프 방어(스텝 상한 20만)와 실제 사용자 제공 예제
+     (`test files/1111.nc`, 9,870줄 -> 확장 19,653줄)로 회귀 없음을 확인.
+- Open source software used: 변경 없음(PyQt5/pyqtgraph/numpy).
+- Tests: `tests/test_nc_tool_list.py` 215개 통과(v1.7.3의 202 + 신규 13,
+  `SubprogramTests` 신설 — 밀링 M98 확장/복귀, M98 없는 파일 회귀 봉인,
+  M99 본문 종료, 같은 M98 재호출, O0001~O0003 번호 디스패치, `L` 워드
+  반복 확정, 서브프로그램 M99 P→호출자 N라벨, 본 프로그램 M99 P→N라벨
+  (앞 N 건너뜀), 본 프로그램 P 없는 M99 무시, 무한 루프 스텝 상한 2건,
+  seq 기준 커서 트리밍, 실제 예제 `test files/1111.nc` 스모크(파일 없으면
+  스킵)). 무관한 `SingleInstanceTests` 1건은 이 PC에서 실행 중이던 구버전
+  인스턴스 때문에 환경 요인으로 실패(빌드한 새 exe도 그 인스턴스로
+  정상 핸드오프 후 종료됨 — 단일 실행 로직 자체가 의도대로 동작).
+- Installer/package status: **생성 완료**(사용자 직접 지시로 빌드).
+  - `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` — onedir, UPX 비활성,
+    `_internal\OpenGL\DLLS` 폴더 부재 유지(freeglut/gle32/64 DLL 배제,
+    MSVCR90.dll 경고는 기존과 동일하게 무해).
+  - `ISCC.exe NC_Tool_List.iss`(Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.7.4.exe`
+    (컴파일 79.0초).
+  - 포터블: `installer\NC_Tool_List_Portable_v1.7.4.zip` 64.0 MB, 361개 항목.
+  - 빌드 검증: 프리즈된 `NC_Tool_List.exe`/설치 파일의 파일·제품 버전이
+    `1.7.4.0`/`1.7.4`로 찍히고, 실행하면 `startup.log`에 트레이스백 없이
+    `Starting Sum Path v1.7.4 frozen=True`가 남는 것을 확인했다(이 PC에
+    이미 떠 있던 구버전 인스턴스로 정상 핸드오프 후 종료 — 사용자의
+    실행 중인 앱은 건드리지 않았다).
+  - Installer SHA-256: C193C437FFAA794B59662EBDDDA8D82417D3CC64838C83E1504EAE8F0FDDB0C7
+  - Portable ZIP SHA-256: D575DFA0C7AE16404B2EA836BE0A324F071B9B00B785342263769D441137C1CE
+  - App SHA-256: 33BD0E83538BF202BB15B71BAB478DA03C5354643D1049D3DCE4B96B69F93105
+  - Signature status: still unsigned.
+
+### 2026-09-06 (v1.7.3)
 
 - Version: 1.7.3
 - Release/build date: 2026-09-06 (플랜 승인 후 구현, 빌드는 별도 확인 대기)
