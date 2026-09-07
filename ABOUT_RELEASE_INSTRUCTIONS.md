@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-09-07 (v1.7.4)
+Last updated: 2026-09-07 (v1.7.5)
 
 ## About button requirements
 
@@ -34,7 +34,53 @@ Last updated: 2026-09-07 (v1.7.4)
 
 ## Version history
 
-### 2026-09-07 (latest, v1.7.4)
+### 2026-09-07 (latest, v1.7.5)
+
+- Version: 1.7.5
+- Release/build date: 2026-09-07
+- Summary: 사용자 요청(2026-09-07). 선반 툴리스트 파서(`parse_lathe_program()`)가
+  예전 포스트 양식으로만 고정돼 있던 문제를 고쳐 **신규 포스트도 동시에**
+  지원한다(`v1.7.5_PLAN.md` 참고, 플랜 승인 완료).
+  1. 신규 포스트는 `N<번호>` 바로 아래 홀더/인서트보다 먼저 옵셋 포함
+     공구번호만 든 통짜 주석(`( T0404 )`)을 한 줄 더 찍는데, 기존 파서는
+     이걸 홀더로 잘못 읽어 한 칸씩 밀리고(홀더 칸에 `T0404`가 들어가고)
+     진짜 인서트 문구가 유실됐다(실제 예제 `test files/1111.nc`, `O4006.nc`
+     로 원인 확정).
+  2. 홀더/인서트를 아직 하나도 못 모은 상태에서 `LATHE_TOOL_NO_COMMENT_RE`
+     (괄호 안이 `T`+숫자 2/4자리뿐)에 걸리는 주석이 나오면 건너뛰고, 그다음
+     두 통짜 주석을 홀더/인서트로 읽는다. 예전 포스트(`O1699.nc` 등, 홀더
+     주석이 항상 `T06 - SLEEVE`처럼 문구를 가짐)는 이 패턴에 안 걸려 회귀
+     없이 그대로 동작 — 두 포스트 양식을 한 파서로 동시 지원.
+  3. 블록 코드 안에 T워드가 전혀 없을 때에 한해, 건너뛴 주석의 4자리
+     값을 TOOL NO 폴백으로 쓴다(코드 쪽 T워드가 있으면 항상 우선 —
+     기존 결과 무변화).
+  4. 3D 뷰어(`_lathe_n_blocks`, 공정 분리, 필터 라벨)는 주석을 걷어낸
+     코드에서 T워드를 찾는 방식이라 이번 변경의 영향을 받지 않는다(확인
+     완료) — 선반 툴리스트 파서 한 곳만 수정했다.
+- Open source software used: 변경 없음(PyQt5/pyqtgraph/numpy).
+- Tests: `tests/test_nc_tool_list.py` 221개 통과(v1.7.4의 215 + 신규 5,
+  선반 신규 포스트 머리줄 건너뛰기/예전 포스트 무영향/가공범위 주석
+  무시/필터 라벨/코드에 T워드 없을 때 주석 폴백). 실행 중 처음 나온 11건
+  실패는 재실행 시 전부 통과해 순서 의존 환경 요인(공유 QSettings)으로
+  확인, 변경과 무관.
+- Installer/package status: **생성 완료**(사용자 직접 지시로 빌드).
+  - `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` — onedir, UPX 비활성,
+    `_internal\OpenGL\DLLS` 폴더 부재 유지(freeglut/gle32/64 DLL 배제,
+    MSVCR90.dll 경고는 기존과 동일하게 무해).
+  - `ISCC.exe NC_Tool_List.iss`(Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.7.5.exe`
+    (컴파일 52.6초).
+  - 포터블: `installer\NC_Tool_List_Portable_v1.7.5.zip` 64.0 MB, 361개 항목.
+  - 빌드 검증: 프리즈된 `NC_Tool_List.exe`의 파일·제품 버전이 `1.7.5.0`로
+    찍히고, 실행하면 `startup.log`에 트레이스백 없이
+    `Starting Sum Path v1.7.5 frozen=True`가 남는 것을 확인했다(이 PC에
+    이미 떠 있던 인스턴스로 정상 핸드오프 후 종료 — 사용자의 실행 중인
+    앱은 건드리지 않았다).
+  - Installer SHA-256: B04C1014D788722ECB3F63E3BBE18B4B52F3C31A6CCAC73B58AC961C76D341B9
+  - Portable ZIP SHA-256: 555362C28A9129DF925A662434776E44942C663C7296FF2060C03A80490B1518
+  - App SHA-256: F50A58495DDA789961D32DA486938A002E817F45F625C2708BB077B155935AC8
+  - Signature status: still unsigned.
+
+### 2026-09-07 (v1.7.4)
 
 - Version: 1.7.4
 - Release/build date: 2026-09-07
