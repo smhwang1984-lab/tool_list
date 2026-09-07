@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-09-07 (v1.7.5)
+Last updated: 2026-09-07 (v1.7.6)
 
 ## About button requirements
 
@@ -34,7 +34,42 @@ Last updated: 2026-09-07 (v1.7.5)
 
 ## Version history
 
-### 2026-09-07 (latest, v1.7.5)
+### 2026-09-07 (latest, v1.7.6)
+
+- Version: 1.7.6
+- Release/build date: 2026-09-07
+- Summary: 사용자 요청(2026-09-07). 시뮬레이션(PG 매칭 재생 + 방향키)이
+  M98/M99 서브프로그램 호출을 실제 기계처럼 재생하도록 고쳤다
+  (`v1.7.6_PLAN.md` 참고, 플랜 승인 완료).
+  1. v1.7.4에서 경로 파싱은 이미 "실행 순서(seq)" 기준으로 돌고 있었지만,
+     재생기(`_playback_tick()`)와 방향키는 여전히 **문서 줄 번호**를
+     그대로 따라갔다 — 그래서 `M98 P..` 다음 줄에서 서브프로그램 전체가
+     한 틱에 나타나 버리고, M30 뒤에 붙는 `O<번호>` 서브프로그램 본문을
+     끝까지 다시 재생하는 것처럼 보였다.
+  2. 뷰어(`nc_viewer_widget.py`)에 seq 키 맵(`seq_to_tool_map` /
+     `seq_to_coord_map` / `seq_to_modal_state` / `seq_to_c_rot` /
+     `seq_to_line` / `process_first_seq`)을 추가하고, 재생/커서 갱신의
+     실체를 새 `set_cursor_seq()`로 옮겼다 — 반복 호출(`M98 P.. L<n>`)
+     구간에서도 회차별 값이 더 이상 섞이지 않는다.
+  3. 재생기(`NC_Tool_List.py`)의 `_playback_tick`/`playback_rewind`/
+     `_jump_relative_tool`/`toggle_pg_match_mode`를 전부 seq 기준
+     `_goto_seq()`로 전환했다. 이제 `M98 P0001`을 만나면 그 자리에서
+     `O0001` 본문이 재생되고, `M99`에서 `M98` 바로 다음 줄로 복귀하며
+     (중첩 호출도 동일), 재생은 시퀀스의 마지막 원소인 `M30` 줄에서
+     끝난다 — `M98`이 없는 파일은 seq == 문서 줄이라 기존 동작과 완전히
+     같다(회귀 없음).
+  4. 방향키(↓/↑)도 PG 매칭 모드에서는 같은 실행 순서로 한 걸음씩
+     움직인다(`ProgramTextEdit.stepRequested`) — PG 매칭이 꺼져 있으면
+     기존 문서 줄 이동 그대로다.
+- Open source software used: 변경 없음(PyQt5/pyqtgraph/numpy).
+- Tests: `tests/test_nc_tool_list.py` 226개 통과(v1.7.5의 221 + 신규 5,
+  서브프로그램 호출/복귀·중첩·반복(L) 회차 구분·방향키 실행 순서·PG
+  매칭 꺼졌을 때 방향키 폴백).
+- Installer/package status: 미생성 — 코드/테스트/문서만 반영. 사용자
+  요청 시 `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean`
+  + `ISCC.exe NC_Tool_List.iss`로 빌드.
+
+### 2026-09-07 (v1.7.5)
 
 - Version: 1.7.5
 - Release/build date: 2026-09-07

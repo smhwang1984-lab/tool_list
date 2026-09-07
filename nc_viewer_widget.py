@@ -1448,12 +1448,34 @@ class NCViewerWidget(QWidget):
         self.line_to_coord_map = {}
         self.line_to_tool_map = {}
         self.process_first_line = {}
+        # v1.7.6: process_first_line과 같은 키(공정)를 들지만 값은 그 공정이
+        # 시작되는 실행 순서(seq_pos) — 재생/방향키가 seq 기준으로 도는
+        # 동안 F6/F8·되감기가 공정 경계로 점프할 때 쓴다.
+        self.process_first_seq = {}
         self.modal_state_map = {}
         # v1.7.4: 원본 줄번호(idx) -> 실행 순서(seq_pos). M98/M99 서브프로그램
         # 확장으로 같은 idx가 여러 번 실행되면 마지막 실행의 seq가 남는다
         # (modal_state_map과 같은 "마지막 실행" 계약). 서브프로그램이 없는
         # 파일에서는 seq_pos == idx라 이 맵을 거쳐도 값이 그대로다.
         self.line_to_seq = {}
+        # v1.7.6: 위와 같은 idx -> seq 관계지만 "마지막 실행"이 아니라 그
+        # 줄이 실행된 **모든** seq를 순서대로 담는다 — 반복 호출(M98 P..
+        # L<n>)로 같은 원본 줄이 여러 번 실행됐을 때, 지금 재생 위치에
+        # "가장 가까운" 실행 회차를 찾는 데 쓴다(resolve_seq_for_line).
+        self.line_to_seq_all = {}
+        # v1.7.6: seq_pos -> 원본 줄번호(idx). 재생기가 "다음 seq가 문서의
+        # 몇 번째 줄인가"를 물을 때 쓰는 역방향 테이블 — line_sequence
+        # 자체를 그대로 저장한 것과 같다(process_nc_lines가 채운다).
+        self.seq_to_line = []
+        # v1.7.6: 아래 4개는 위 line_to_* 맵들의 "seq 키" 짝이다. 서브프로그램
+        # 반복 구간에서 같은 원본 줄(idx)이 여러 번 실행되면 line_to_* 쪽은
+        # 마지막 실행 값만 남지만, 이 맵들은 실행 회차마다 다른 키(seq_pos)를
+        # 쓰므로 회차별 값이 전부 보존된다. set_cursor_seq()가 이 맵들을
+        # 읽어 재생 중 "그 시점의" 좌표/공구/모달/C각을 보여준다.
+        self.seq_to_tool_map = {}
+        self.seq_to_coord_map = {}
+        self.seq_to_modal_state = {}
+        self.seq_to_c_rot = {}
         # v1.6.6: 선반 C축 회전 시뮬레이션 — 줄마다 "그 시점에 유효한 C
         # 회전각"(lathe_rotate_c에 넘긴 cc_deg)을 들고 있는다. is_lathe가
         # 아니면 항상 채워지지 않고(get() 기본값 0), 밀링 재생에는 쓰이지
@@ -2199,8 +2221,15 @@ class NCViewerWidget(QWidget):
         self.line_to_coord_map.clear()
         self.line_to_tool_map.clear()
         self.process_first_line.clear()
+        self.process_first_seq.clear()
         self.modal_state_map.clear()
         self.line_to_seq.clear()
+        self.line_to_seq_all.clear()
+        self.seq_to_line = []
+        self.seq_to_tool_map.clear()
+        self.seq_to_coord_map.clear()
+        self.seq_to_modal_state.clear()
+        self.seq_to_c_rot.clear()
         self.line_to_c_rot.clear()
         self.current_cursor_line = 0
         self._refresh_tool_filter()
@@ -2790,8 +2819,15 @@ class NCViewerWidget(QWidget):
         self.line_to_coord_map.clear()
         self.line_to_tool_map.clear()
         self.process_first_line.clear()
+        self.process_first_seq.clear()
         self.modal_state_map.clear()
         self.line_to_seq.clear()
+        self.line_to_seq_all.clear()
+        self.seq_to_line = []
+        self.seq_to_tool_map.clear()
+        self.seq_to_coord_map.clear()
+        self.seq_to_modal_state.clear()
+        self.seq_to_c_rot.clear()
         self.line_to_c_rot.clear()
         self.line_feed_state.clear()
         self.seq_to_elapsed_sec.clear()
@@ -2823,6 +2859,7 @@ class NCViewerWidget(QWidget):
         self.tool_paths[current_tool] = []
         self.process_tool_map[current_tool] = ""
         self.process_first_line[current_tool] = 0
+        self.process_first_seq[current_tool] = 0
 
         cx, cy, cz = 0.0, 0.0, 0.0
         cc_deg = 0.0
@@ -2969,6 +3006,9 @@ class NCViewerWidget(QWidget):
         # `list(enumerate(lines))`를 그대로 돌려주므로, M98을 안 쓰는 기존
         # 밀링/선반 파일은 시퀀스가 지금과 완전히 동일하다(회귀 없음).
         line_sequence = self._expand_subprograms(lines)
+        # v1.7.6: seq_pos -> 원본 줄번호(idx) 역방향 테이블. 재생기가
+        # "다음 seq가 문서의 몇 번째 줄인가"를 알아야 커서를 옮길 수 있다.
+        self.seq_to_line = [idx for idx, _ in line_sequence]
         # v1.6.9: N 블록 사전 스캔(선반만). N 라인이 하나도 없으면 둘 다
         # 비어 있고, 아래 루프는 기존 Tnn00 기준으로 자동 폴백한다.
         n_block_starts, n_block_tool_at_position = (
@@ -2982,24 +3022,28 @@ class NCViewerWidget(QWidget):
                 match = pattern.search(line_upper)
                 if match:
                     modal_values[pos] = match.group(1)
-            self.modal_state_map[idx] = tuple(modal_values)
+            self.modal_state_map[idx] = self.seq_to_modal_state[seq_pos] = tuple(modal_values)
             # v1.7.4: 같은 idx가 서브프로그램 반복으로 여러 번 실행되면
             # 마지막 실행의 seq가 남는다(modal_state_map과 같은 계약).
             self.line_to_seq[idx] = seq_pos
+            # v1.7.6: line_to_seq와 달리 이 줄이 실행된 모든 seq를 순서대로
+            # 쌓아 둔다 — resolve_seq_for_line()이 "지금 위치에 가장 가까운
+            # 실행 회차"를 고를 때 쓴다.
+            self.line_to_seq_all.setdefault(idx, []).append(seq_pos)
             # v1.6.6: 이 줄 시작 시점의 C 회전각으로 우선 채워 두고, 이 줄에서
             # 실제로 C가 갱신되면(아래 is_lathe 모션 블록) 그 값으로 덮어쓴다
             # — G12.1 극좌표 중에는 cc_deg가 그대로라 자연히 이전 값이 유지된다.
-            self.line_to_c_rot[idx] = cc_deg
+            self.line_to_c_rot[idx] = self.seq_to_c_rot[seq_pos] = cc_deg
 
             comment_t_match = t_pattern.search(line_upper_with_comments)
             if comment_t_match:
                 detected_t = self._normalize_tool_no(comment_t_match.group(1))
 
             if not line_upper:
-                self.line_to_tool_map[idx] = current_tool
+                self.line_to_tool_map[idx] = self.seq_to_tool_map[seq_pos] = current_tool
                 continue
 
-            self.line_to_tool_map[idx] = current_tool
+            self.line_to_tool_map[idx] = self.seq_to_tool_map[seq_pos] = current_tool
 
             # v1.6.7 가공시간: 이 줄에서 유효한 이송/회전 상태를 갱신해
             # 둔다. 경로 계산에는 전혀 관여하지 않고, 파싱이 끝난 뒤
@@ -3230,6 +3274,7 @@ class NCViewerWidget(QWidget):
                 self.tool_paths[current_tool] = []
                 self.process_tool_map[current_tool] = detected_t
                 self.process_first_line[current_tool] = idx
+                self.process_first_seq[current_tool] = seq_pos
                 start_point = (
                     lathe_world_point(cz, cx, cc_deg) if is_lathe else [cx, cy, cz]
                 )
@@ -3237,7 +3282,7 @@ class NCViewerWidget(QWidget):
                     "pt": start_point, "type": current_motion,
                     "valid": True if is_lathe else g43_active, "src_line": idx, "seq": seq_pos,
                 })
-                self.line_to_tool_map[idx] = current_tool
+                self.line_to_tool_map[idx] = self.seq_to_tool_map[seq_pos] = current_tool
 
             motion_match = motion_pattern.search(line_upper)
             if motion_match and not cycle_active:
@@ -3302,12 +3347,12 @@ class NCViewerWidget(QWidget):
                     # 따라 여전히 별도 승인 단계로 남겨 둔다.
                     if h_pattern.search(line_upper):
                         cc_deg = 0.0
-                        self.line_to_c_rot[idx] = 0.0
+                        self.line_to_c_rot[idx] = self.seq_to_c_rot[seq_pos] = 0.0
                     final_pt = lathe_world_point(cz, cx, cc_deg)
                     self.tool_paths[current_tool].append({
                         "pt": final_pt, "type": "G00", "valid": True, "src_line": idx, "seq": seq_pos,
                     })
-                    self.line_to_coord_map[idx] = final_pt
+                    self.line_to_coord_map[idx] = self.seq_to_coord_map[seq_pos] = final_pt
                     continue
                 if re.search(r"X\s*0", line_upper):
                     cx = m_x
@@ -3320,7 +3365,7 @@ class NCViewerWidget(QWidget):
                     self.tool_paths[current_tool].append({
                         "pt": final_pt, "type": "G00", "valid": True, "src_line": idx, "seq": seq_pos,
                     })
-                    self.line_to_coord_map[idx] = final_pt
+                    self.line_to_coord_map[idx] = self.seq_to_coord_map[seq_pos] = final_pt
                 continue
 
             x_match = x_pattern.search(line_upper)
@@ -3396,12 +3441,12 @@ class NCViewerWidget(QWidget):
                     else:
                         if c_match:
                             cc_deg = float(c_match.group(1))
-                            self.line_to_c_rot[idx] = cc_deg
+                            self.line_to_c_rot[idx] = self.seq_to_c_rot[seq_pos] = cc_deg
                         elif h_incr_match:
                             # v1.7.3: H는 절대각(C)과 달리 현재 cc_deg에
                             # 더하는 증분 회전이다(사용자 확정).
                             cc_deg += float(h_incr_match.group(1))
-                            self.line_to_c_rot[idx] = cc_deg
+                            self.line_to_c_rot[idx] = self.seq_to_c_rot[seq_pos] = cc_deg
                         if lathe_milling_active and y_match:
                             # M35 구동공구 밀링의 실제 기계 Y워드(예: O1699.nc
                             # "C270.Y0." 이후 구간) — C는 고정 인덱스 각도로
@@ -3426,7 +3471,9 @@ class NCViewerWidget(QWidget):
                         # 보인다(사용자 확정, v1.6.10에서는 매 줄 반경으로
                         # theta를 다시 구해 반경이 작아질수록 회전이 크게
                         # 흔들리는 문제가 있었다).
-                        self.line_to_c_rot[idx] = cc_deg + lathe_polar_theta_deg
+                        self.line_to_c_rot[idx] = self.seq_to_c_rot[seq_pos] = (
+                            cc_deg + lathe_polar_theta_deg
+                        )
                 else:
                     if x_match:
                         cx = float(x_match.group(1))
@@ -3502,7 +3549,7 @@ class NCViewerWidget(QWidget):
                     # 코드가 G99(선반 기본)에서 복귀 경로를 그리지 않던
                     # 문제를 바로잡는다.
                     self.tool_paths[current_tool].append({"pt": approach_pt, "type": "G00", "valid": True, "src_line": idx, "seq": seq_pos})
-                    self.line_to_coord_map[idx] = final_pt
+                    self.line_to_coord_map[idx] = self.seq_to_coord_map[seq_pos] = final_pt
                     continue
 
                 if cycle_active and g43_active:
@@ -3530,7 +3577,7 @@ class NCViewerWidget(QWidget):
                     if g98_active:
                         self.tool_paths[current_tool].append({"pt": return_pt, "type": "G00", "valid": True, "src_line": idx, "seq": seq_pos})
                     cz = target_z
-                    self.line_to_coord_map[idx] = final_z_pt
+                    self.line_to_coord_map[idx] = self.seq_to_coord_map[seq_pos] = final_z_pt
                     continue
 
                 if is_arc_motion and is_lathe:
@@ -3582,7 +3629,7 @@ class NCViewerWidget(QWidget):
                             self.tool_paths[current_tool].append({
                                 "pt": pt, "type": current_motion, "valid": True, "src_line": idx, "seq": seq_pos,
                             })
-                    self.line_to_coord_map[idx] = target_pt
+                    self.line_to_coord_map[idx] = self.seq_to_coord_map[seq_pos] = target_pt
                 elif is_arc_motion:
                     local_arc_pts = self._arc_points(
                         line_upper, start_pt, local_target_pt, current_motion, current_plane,
@@ -3600,7 +3647,9 @@ class NCViewerWidget(QWidget):
                         })
                         last_pt = rotated_pt
                     if point_valid:
-                        self.line_to_coord_map[idx] = last_pt if last_pt is not None else target_pt
+                        self.line_to_coord_map[idx] = self.seq_to_coord_map[seq_pos] = (
+                            last_pt if last_pt is not None else target_pt
+                        )
                 else:
                     self.tool_paths[current_tool].append({
                         "pt": target_pt,
@@ -3609,7 +3658,7 @@ class NCViewerWidget(QWidget):
                         "src_line": idx, "seq": seq_pos,
                     })
                     if g43_active or is_lathe:
-                        self.line_to_coord_map[idx] = target_pt
+                        self.line_to_coord_map[idx] = self.seq_to_coord_map[seq_pos] = target_pt
 
         # v1.6.9: 공정이 닫혀 있던 구간(M0/M1/M30 ~ 다음 N)에 흘러든 노드는
         # 있다면 통째로 버린다 — 어느 공정에도 딸려 붙지 않아야 하므로
@@ -3924,24 +3973,88 @@ class NCViewerWidget(QWidget):
             if c_rot:
                 item.rotate(c_rot, 1, 0, 0)
 
-    def set_cursor_line(self, line_index):
+    def sequence_length(self):
+        """v1.7.6: 실행 시퀀스(M98/M99 확장 결과)의 길이. 재생기가 "seq가
+        몇까지 갈 수 있는가"를 물을 때 쓴다. 파싱 전이면 0."""
+        return len(self.seq_to_line)
+
+    def line_at_seq(self, seq):
+        """v1.7.6: seq(실행 순서 위치) -> 원본 줄번호(idx). 범위를 벗어나면
+        마지막(또는 첫) 유효 위치로 자른다. 시퀀스가 비어 있으면(파싱 전)
+        seq를 그대로 돌려준다(호출부가 문서 줄로 바로 써도 안전하도록)."""
+        if not self.seq_to_line:
+            return max(0, int(seq))
+        seq = max(0, min(int(seq), len(self.seq_to_line) - 1))
+        return self.seq_to_line[seq]
+
+    def resolve_seq_for_line(self, line_index, near_seq=None):
+        """v1.7.6: 원본 줄번호(line_index)가 실행된 seq 후보 중 하나를
+        고른다. `near_seq`가 없으면 **마지막 실행**(기존
+        `set_cursor_line()` 계약과 동일) — 회귀 없음. `near_seq`가 있으면
+        그 값에 **가장 가까운** 실행 회차를 고른다(동률이면 앞선 쪽) —
+        반복 호출(`M98 P.. L<n>`) 구간에서 지금 보고 있는 회차 맥락을
+        유지하기 위해서다(§3.5). 그 줄이 한 번도 실행되지 않았으면
+        `None`(호출부가 "시뮬레이션 위치는 바꾸지 않는다"로 처리한다)."""
+        seqs = self.line_to_seq_all.get(line_index)
+        if not seqs:
+            return None
+        if near_seq is None:
+            return seqs[-1]
+        best = seqs[0]
+        best_dist = abs(seqs[0] - near_seq)
+        for candidate in seqs[1:]:
+            dist = abs(candidate - near_seq)
+            if dist < best_dist:
+                best, best_dist = candidate, dist
+        return best
+
+    def set_cursor_line(self, line_index, near_seq=None):
+        """읽기전용 소스 커서가 옮겨간 원본 줄번호로 시뮬레이션을 갱신한다.
+        내부적으로 seq(실행 순서)를 찾아 `set_cursor_seq()`에 위임한다
+        (v1.7.6) — 실제 갱신 로직은 거기 하나뿐이다. 그 줄이 한 번도
+        실행되지 않았으면(예: M30 뒤 서브프로그램 본문을 호출 없이 클릭)
+        시뮬레이션 위치는 그대로 두고 표시용 줄 번호만 기록한다.
+
+        반환값은 실제로 반영한 seq(찾지 못했으면 `None`) — 호출부(재생기)가
+        `playback_seq`를 이 결과로 재동기화할 때 쓴다."""
         try:
             line_index = max(0, int(line_index))
         except (TypeError, ValueError):
             line_index = 0
-        self.current_cursor_line = line_index
+        seq = self.resolve_seq_for_line(line_index, near_seq)
+        if seq is None:
+            self.current_cursor_line = line_index
+            return None
+        self.set_cursor_seq(seq)
+        return seq
 
-        modal_values = self.modal_state_map.get(line_index)
+    def set_cursor_seq(self, seq):
+        """v1.7.6: 시뮬레이션 갱신의 실체 — seq(실행 순서 위치)를 직접
+        받아 그 시점의 좌표/공구/모달/C각을 seq 키 맵에서 읽는다. 반복
+        호출 구간에서도 같은 원본 줄이 회차마다 다른 seq를 가지므로 회차별
+        값이 섞이지 않는다(§2.3). `set_cursor_line()`이 원본 줄번호를 이
+        seq로 변환해 위임하는 얇은 래퍼가 됐다."""
+        try:
+            seq = max(0, int(seq))
+        except (TypeError, ValueError):
+            seq = 0
+        if self.seq_to_line:
+            seq = min(seq, len(self.seq_to_line) - 1)
+            self.current_cursor_line = self.seq_to_line[seq]
+        else:
+            self.current_cursor_line = seq
+
+        modal_values = self.seq_to_modal_state.get(seq)
         if modal_values:
             self._set_coordinate_labels(modal_values)
-        self._update_time_overlay(line_index)
+        self._update_time_overlay_seq(seq)
 
         # v1.6.6: 선반 C축 회전 시뮬레이션. 밀링에서는 항상 0(변화 없음) —
-        # is_lathe_mode()가 아니면 line_to_c_rot 자체가 채워지지 않는다.
-        c_rot = self.line_to_c_rot.get(line_index, 0.0) if self.is_lathe_mode() else 0.0
+        # is_lathe_mode()가 아니면 seq_to_c_rot 자체가 채워지지 않는다.
+        c_rot = self.seq_to_c_rot.get(seq, 0.0) if self.is_lathe_mode() else 0.0
 
-        current_tool = self.line_to_tool_map.get(line_index)
-        current_pt = self.line_to_coord_map.get(line_index)
+        current_tool = self.seq_to_tool_map.get(seq)
+        current_pt = self.seq_to_coord_map.get(seq)
         if current_tool and current_pt is not None and self._tool_selected(current_tool):
             self.cursor_sphere.resetTransform()
             # 커서 구는 회전 성분을 뺀 위치에 둔다 — 화면상 항상 +X 센터
@@ -3961,13 +4074,9 @@ class NCViewerWidget(QWidget):
         except ValueError:
             tool_index = 0
         base_color = tool_color_for_index(tool_index)
-        # v1.7.4: line_index(원본 줄번호)를 seq(실행 순서)로 바꿔 넘긴다 —
-        # M98 서브프로그램 확장 구간에서도 트레이스가 첫 M98에서 끊기지
-        # 않는다. line_to_seq에 없으면 seq == line_index(서브프로그램 없음).
-        seq_limit = self.line_to_seq.get(line_index, line_index)
         trace_index = 0
         for motion_type, pts_list in self._render_segment_buckets(
-            self.tool_paths[current_tool], seq_limit
+            self.tool_paths[current_tool], seq
         ).items():
             if self.update_trace_item(trace_index, pts_list, motion_type, base_color):
                 trace_index += 1
@@ -3978,19 +4087,14 @@ class NCViewerWidget(QWidget):
         # 달리 항목4의 "공구 고정" 요구가 그대로 적용된다.
         self._rotate_gl_items(self.dynamic_trace_items, c_rot)
 
-    def elapsed_seconds_at_line(self, line_index):
-        """v1.6.7: 그 줄까지의 누적 가공시간(초). 경로 점이 없는 줄(주석,
-        공구 교체 블록 등)은 그보다 앞선 줄 중 가장 가까운 값을 쓴다 —
-        커서를 그런 줄에 올려도 시간이 0으로 튀지 않게 한다.
-
-        v1.7.4: 원본 줄번호(line_index)를 실행 순서(seq)로 바꾼 뒤
-        seq_to_elapsed_sec에서 찾는다 — 서브프로그램 반복으로 같은
-        줄번호가 여러 번 나와도(line_to_seq는 마지막 실행) 시간이
-        되감기지 않는다. line_to_seq에 없으면(서브프로그램이 없어 seq를
-        따로 채울 필요가 없었던 파일) seq_pos == idx이므로 그대로 쓴다."""
+    def elapsed_seconds_at_seq(self, seq):
+        """v1.7.6: `elapsed_seconds_at_line()`과 같은 계산을 seq(실행
+        순서 위치)를 직접 받아서 한다 — 줄번호 변환이 필요 없는
+        `set_cursor_seq()` 경로가 이 메서드를 쓴다. 경로 점이 없는
+        seq(주석, 공구 교체 블록 등)는 그보다 앞선 것 중 가장 가까운
+        값을 쓴다."""
         if not self.seq_to_elapsed_sec:
             return 0.0
-        seq = self.line_to_seq.get(line_index, line_index)
         value = self.seq_to_elapsed_sec.get(seq)
         if value is not None:
             return value
@@ -4000,15 +4104,27 @@ class NCViewerWidget(QWidget):
             return 0.0
         return self.seq_to_elapsed_sec[self._elapsed_seq_keys[position - 1]]
 
-    def _update_time_overlay(self, line_index):
-        """좌표 오버레이 끝의 "진행중인 시간 / 전체 시간"을 갱신한다(v1.6.7)."""
+    def elapsed_seconds_at_line(self, line_index):
+        """v1.6.7: 그 줄까지의 누적 가공시간(초).
+
+        v1.7.4: 원본 줄번호(line_index)를 실행 순서(seq)로 바꾼 뒤
+        `elapsed_seconds_at_seq()`에 위임한다 — 서브프로그램 반복으로
+        같은 줄번호가 여러 번 나와도(line_to_seq는 마지막 실행) 시간이
+        되감기지 않는다. line_to_seq에 없으면(서브프로그램이 없어 seq를
+        따로 채울 필요가 없었던 파일) seq_pos == idx이므로 그대로 쓴다."""
+        seq = self.line_to_seq.get(line_index, line_index)
+        return self.elapsed_seconds_at_seq(seq)
+
+    def _update_time_overlay_seq(self, seq):
+        """좌표 오버레이 끝의 "진행중인 시간 / 전체 시간"을 갱신한다(v1.6.7).
+        v1.7.6: seq를 직접 받는다 — `set_cursor_seq()`가 이걸 쓴다."""
         overlay = getattr(self, "coord_overlay", None)
         if overlay is None:
             return
         try:
             overlay.set_time_text(
                 format_elapsed_over_total(
-                    self.elapsed_seconds_at_line(line_index), self.total_time_sec
+                    self.elapsed_seconds_at_seq(seq), self.total_time_sec
                 )
             )
         except Exception:
