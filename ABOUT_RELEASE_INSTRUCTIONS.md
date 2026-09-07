@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-09-07 (v1.7.6)
+Last updated: 2026-09-07 (v1.7.7)
 
 ## About button requirements
 
@@ -34,7 +34,45 @@ Last updated: 2026-09-07 (v1.7.6)
 
 ## Version history
 
-### 2026-09-07 (latest, v1.7.6)
+### 2026-09-07 (latest, v1.7.7)
+
+- Version: 1.7.7
+- Release/build date: 2026-09-07
+- Summary: 사용자 요청(2026-09-07). 선반 툴리스트에 SO와 REMARK 사이 SPINDL/
+  FEED 2열을 자동 입력하도록 추가했다(`v1.7.7_PLAN.md` 참고, 플랜 승인 완료).
+  1. `LATHE_COLUMNS`가 `NO/INSERT/홀더/SO/SPINDL/FEED/REMARK` 7열이 됐다
+     (기존 5열에서 2열 추가). 표/행 편집/복사/PDF는 전부 `active_columns()`를
+     거치므로 자동으로 새 스키마를 따른다.
+  2. `parse_lathe_program()`이 N 블록 코드부(주석 걷어낸 뒤)에서 SPINDL/FEED
+     를 자동으로 뽑는다. SPINDL은 `G96`/`G97` 모달을 만날 때마다 기억해 뒀다가
+     뒤따르는 단독 `S<숫자>`에 그 모달을 접두어로 붙이고(`G96S225`,
+     `G97S800` — 모달 코드는 값에서 지우지 않는다, 사용자 확정),
+     `G50`/`G92` 바로 뒤의 S(주축 최고 회전수 클램프)는 절삭 회전수가
+     아니므로 제외한다. FEED는 모달 구분 없이 코드부의 `F<숫자>` 전부(접근/
+     도피 이송, 나사 리드 F 포함)를 모은다.
+  3. 값이 여러 개면 숫자 크기 오름차순으로 `최소~최대`를 잇되, 프로그램
+     원문 표기를 그대로 보존한다(정규화하지 않음) — 사용자 예시
+     "F.1~.35" → `F.1~F0.35`, "F1000.~F5000" 형태.
+  4. 선반 전용 PDF(`LATHE_PDF_COLUMN_WEIGHTS`)도 7열로 재배분하고 SPINDL/
+     FEED를 SO와 같이 가운데 정렬에 포함시켰다. 표 셀 폭(`_LATHE_COL_WIDTH_
+     BASE`)에도 두 열을 추가했다.
+  5. 밀링 16열 툴리스트와 밀링 툴패스 계산은 손대지 않았다
+     (`LATHE_MODE_GUIDELINES.md` §0 완전 분리 원칙 준수).
+- Open source software used: 변경 없음(PyQt5/pyqtgraph/numpy/reportlab).
+- Tests: `tests/test_nc_tool_list.py` 231개(스킵 1개 제외 230개 실행) —
+  v1.7.6의 226개(스킵 포함) + 신규 5개(SPINDL/FEED 단일값·범위·G50 클램프
+  제외·주석 오검출 방지·빈칸 처리) + 기존 열 스키마 테스트 갱신(5열 → 7열).
+  회귀 확인: 미수정 `main` 브랜치로 같은 스위트를 두 번 돌려 실패 집합이
+  동일함을 확인 — 이번 변경 전후로 남는 실패 2건(`ToolListModeComboTests.
+  test_switching_to_lathe_changes_table_schema_and_machine`의 QSettings
+  잔존 상태, `SingleInstanceTests.test_handoff_returns_false_when_no_
+  instance_is_running`의 로컬 소켓 의존)은 이 변경과 무관한 환경 요인임을
+  검증했다(회귀 없음).
+- Installer/package status: 아직 생성하지 않음(사용자가 빌드를 지시하면
+  진행). `version_info.txt`/`NC_Tool_List.iss`의 버전 문자열은 1.7.7로
+  동기화해 뒀다.
+
+### 2026-09-07 (v1.7.6)
 
 - Version: 1.7.6
 - Release/build date: 2026-09-07

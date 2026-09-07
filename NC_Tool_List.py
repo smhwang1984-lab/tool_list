@@ -26,7 +26,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
 
-APP_VERSION = '1.7.6'
+APP_VERSION = '1.7.7'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-09-07'
 APP_CREATOR = 'Hwang.seonmun'
@@ -160,10 +160,75 @@ LATHE_SO_RE = re.compile(r'\[\s*SO\s*([\d.]+)\s*\]', re.I)
 # 항상 "T06 - SLEEVE"처럼 "-" 뒤에 문구가 붙어 이 패턴에 걸리지 않는다.
 LATHE_TOOL_NO_COMMENT_RE = re.compile(r'^T\s*\d{2}(?:\d{2})?$', re.I)
 
+# v1.7.7: SO와 REMARK 사이에 SPINDL/FEED 2열 추가(사용자 확정, 2026-09-07).
+# 코드부(주석 걷어낸 뒤)를 훑으며 G96/G97(주속 모달)/G50/G92(주축 클램프)/
+# S<숫자> 토큰을 등장 순서대로 잡는다 — 밀링 정규식(KV_RE 등)과는 완전히
+# 별개(지침 §0-2, 재사용 금지). 그룹 1은 G96/G97의 뒤 숫자('6'/'7'),
+# 그룹 2는 클램프가 아닌 단독 S 뒤 숫자값. G50/G92 뒤에 바로 붙는 S는
+# 통째로 그룹 없이 매칭시켜 건너뛴다(주축 최고 회전수 클램프이지 절삭
+# 회전수가 아니므로 — 결정 A). 대안(모달을 못 찾은 첫 S)도 안전하게
+# 처리하도록 아래 _lathe_collect_spindle_feed()가 모달 상태를 직접 추적한다.
+LATHE_SPINDLE_TOKEN_RE = re.compile(
+    r'G9([67])(?!\d)|G(?:50|92)\s*S\s*[\d.]+|S\s*([\d.]+)', re.I
+)
+# FEED는 모달 구분 없이 코드부의 F<숫자> 워드 전부를 모은다(결정 D — 접근/
+# 도피 이송, 나사 리드 F도 포함. G98/G99 단위 구분도 안 한다 — 결정 E).
+LATHE_FEED_RE = re.compile(r'F\s*([\d.]+)', re.I)
+
 LATHE_COLUMNS = [
     ('NO', 'TOOL NO'), ('INSERT', 'INSERT'), ('HOLDER', '홀더'), ('SO', 'SO'),
-    ('REMARK', 'REMARK'),
+    ('SPINDL', 'SPINDL'), ('FEED', 'FEED'), ('REMARK', 'REMARK'),
 ]
+
+
+def _lathe_collect_spindle_feed(code):
+    """코드부(주석 제외)에서 SPINDL 표시 문구 목록과 FEED 표시 문구 목록을
+    등장 순서대로 뽑는다(v1.7.7).
+
+    SPINDL: G96/G97을 만날 때마다 "현재 모달"로 기억해 두고, 그 뒤에 나오는
+    단독 S<숫자>에 그 모달을 접두어로 붙인다(예: "G97S800"). G50/G92 바로
+    뒤의 S(주축 클램프, 결정 A)는 건너뛰고 모달도 갱신하지 않는다 — 그
+    다음에 나오는 G96/G97이 새 모달이 된다. 아직 모달을 한 번도 못 만난
+    상태에서 단독 S가 나오면(실제 샘플엔 없는 경우) 모달 없이 "S<숫자>"만
+    쓴다.
+
+    FEED: 모달 구분 없이 F<숫자> 전부."""
+    mode = ''
+    spindle = []
+    for m in LATHE_SPINDLE_TOKEN_RE.finditer(code):
+        if m.group(1):
+            mode = 'G9' + m.group(1)
+            continue
+        if m.group(2):
+            spindle.append((mode + 'S' if mode else 'S') + m.group(2))
+    feed = ['F' + m.group(1) for m in LATHE_FEED_RE.finditer(code)]
+    return spindle, feed
+
+
+def _lathe_numeric_value(word):
+    """SPINDL/FEED 표시 문구에서 정렬용 숫자 크기만 뽑는다
+    ("G97S800" -> 800.0, "F.07" -> 0.07)."""
+    m = re.search(r'([\d.]+)$', word)
+    try:
+        return float(m.group(1)) if m else 0.0
+    except ValueError:
+        return 0.0
+
+
+def _lathe_value_range(words):
+    """SPINDL/FEED 표시 문구 목록을 3.3 표기 규칙(v1.7.7 플랜)으로 합친다.
+
+    숫자 크기 기준 오름차순으로 최솟값/최댓값을 고르고, 크기가 전부
+    같으면(값이 하나뿐이거나 반복만 됐으면) 단일 표기, 그렇지 않으면
+    "최소~최대"로 잇는다. 원문 표기(및 SPINDL의 모달 접두어)는 그대로
+    보존한다 — 정규화하지 않는다(결정 B)."""
+    if not words:
+        return ''
+    ordered = sorted(words, key=_lathe_numeric_value)
+    lo, hi = ordered[0], ordered[-1]
+    if _lathe_numeric_value(lo) == _lathe_numeric_value(hi):
+        return lo
+    return '%s~%s' % (lo, hi)
 
 
 def _strip_lathe_tool_prefix(text):
@@ -257,9 +322,17 @@ def parse_lathe_program(text):
         if not tool_no and len(comment_tool_no) == 5:
             tool_no = comment_tool_no
 
+        # v1.7.7: SPINDL/FEED는 블록 전체 코드(여러 줄에 걸친 G96/G97 모달
+        # 추적이 필요하므로)를 한 번에 이어붙여 스캔한다.
+        block_code = '\n'.join(code_without_comments(line) for line in block)
+        block_spindle, block_feed = _lathe_collect_spindle_feed(block_code)
+
         key = tool_no or ('__N%d__' % start)
         entry = tools.setdefault(
-            key, {'tool_no': tool_no, 'holder': '', 'insert': '', 'so': '', 'remarks': []}
+            key, {
+                'tool_no': tool_no, 'holder': '', 'insert': '', 'so': '',
+                'remarks': [], 'spindle': [], 'feed': [],
+            }
         )
         if not entry['holder']:
             entry['holder'] = holder
@@ -267,6 +340,8 @@ def parse_lathe_program(text):
             entry['insert'] = insert
         if not entry['so']:
             entry['so'] = so_value
+        entry['spindle'].extend(block_spindle)
+        entry['feed'].extend(block_feed)
         if n_label not in entry['remarks']:
             entry['remarks'].append(n_label)
         if key not in order:
@@ -279,6 +354,8 @@ def parse_lathe_program(text):
             'INSERT': entry['insert'],
             'HOLDER': entry['holder'],
             'SO': entry['so'],
+            'SPINDL': _lathe_value_range(entry['spindle']),
+            'FEED': _lathe_value_range(entry['feed']),
             'REMARK': ', '.join(entry['remarks']),
         }
 
@@ -399,7 +476,12 @@ _COL_WIDTH_TOTAL = sum(COL_WIDTH.values())
 # 좁고, INSERT/홀더/REMARK는 실제 문구가 길어(예: "CNMG 120408 | R-0.8")
 # 여유를 넉넉히 둔다. 같은 스케일/패딩 규칙을 적용해 밀링 표와 크기 감이
 # 어긋나지 않게 한다.
-_LATHE_COL_WIDTH_BASE = {'NO': 88, 'INSERT': 220, 'HOLDER': 220, 'SO': 64, 'REMARK': 140}
+# v1.7.7: SPINDL은 모달 접두어(예 "G96S40~G97S800")까지 붙어 SO보다
+# 길어질 수 있어 FEED보다도 조금 더 넓게 잡는다.
+_LATHE_COL_WIDTH_BASE = {
+    'NO': 88, 'INSERT': 220, 'HOLDER': 220, 'SO': 64, 'SPINDL': 128,
+    'FEED': 104, 'REMARK': 140,
+}
 LATHE_COL_WIDTH = {
     key: round(width * COPY_TABLE_SCALE) + TABLE_CELL_PADDING_PX * 2
     for key, width in _LATHE_COL_WIDTH_BASE.items()
@@ -616,15 +698,17 @@ def make_pdf_story(rows, metadata, available_width, fonts):
 
 
 # ---------- 선반 전용 PDF(v1.6.5) ----------
-# 밀링 PDF(16열, [SO]/[HOLDER] 등 고정 병합 칸)와 선반(5열: TOOL NO/INSERT/
-# 홀더/SO/REMARK, v1.7.2)은 열 구성 자체가 다르므로 표/스타일을 따로
-# 만든다. 문서 골격(register_pdf_fonts/make_pdf_document/PDF_ROWS_PER_PAGE
-# 등)은 그대로 재사용한다.
+# 밀링 PDF(16열, [SO]/[HOLDER] 등 고정 병합 칸)와 선반(7열: TOOL NO/INSERT/
+# 홀더/SO/SPINDL/FEED/REMARK, v1.7.7)은 열 구성 자체가 다르므로 표/스타일을
+# 따로 만든다. 문서 골격(register_pdf_fonts/make_pdf_document/
+# PDF_ROWS_PER_PAGE 등)은 그대로 재사용한다.
 # v1.6.6: NO는 "T0101"처럼 항상 짧고 REMARK도 "N1, N5"처럼 짧은 편인 반면
 # INSERT/홀더 문구는 길어(예: "T10-D4 X R0.3 FILLET EN MILL, ANGLE / D-4.")
 # 화면 표와 마찬가지로 말줄임이 나던 문제 — 두 열의 비중을 넓힌다.
 # v1.7.2: SO(옵셋 번호 한두 자리, 예 "40")도 NO/REMARK처럼 짧으므로 좁게 둔다.
-LATHE_PDF_COLUMN_WEIGHTS = [55, 285, 285, 50, 100]
+# v1.7.7: SPINDL/FEED 2열 추가. SPINDL은 모달 접두어(예 "G96S40~G97S800")가
+# 붙어 SO보다 길어질 수 있어 FEED보다 조금 더 넓게 잡는다.
+LATHE_PDF_COLUMN_WEIGHTS = [50, 250, 250, 40, 95, 80, 90]
 
 
 def lathe_pdf_column_widths(available_width):
@@ -667,10 +751,13 @@ def style_lathe_pdf_table(data, available_width, regular_font, bold_font):
     commands.extend(pdf_table_row_backgrounds())
     # INSERT/홀더/REMARK는 문구가 길어 왼쪽 정렬한다(TOOL NO만 가운데 유지).
     commands.append(('ALIGN', (1, 2), (-1, -1), 'LEFT'))
-    # v1.7.2: SO(인덱스 3)는 "40"처럼 짧은 숫자라 TOOL NO와 같이 가운데
-    # 정렬한다(뒤에 추가해 위 LEFT 지정을 이 열에서만 덮어쓴다).
-    so_col_index = [key for key, _label in LATHE_COLUMNS].index('SO')
-    commands.append(('ALIGN', (so_col_index, 2), (so_col_index, -1), 'CENTER'))
+    # v1.7.2: SO(옵셋 "40")는 짧은 숫자라 TOOL NO와 같이 가운데 정렬한다
+    # (뒤에 추가해 위 LEFT 지정을 이 열에서만 덮어쓴다). v1.7.7: SPINDL/FEED도
+    # 코드 형태의 짧은 값이라 같은 이유로 가운데 정렬에 포함한다.
+    column_keys = [key for key, _label in LATHE_COLUMNS]
+    for centered_key in ('SO', 'SPINDL', 'FEED'):
+        col_index = column_keys.index(centered_key)
+        commands.append(('ALIGN', (col_index, 2), (col_index, -1), 'CENTER'))
     table.setStyle(TableStyle(commands))
     return table
 

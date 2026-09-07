@@ -3992,9 +3992,88 @@ M1
         for row in rows:
             self.assertEqual(row.get('SO', ''), '')
 
-    def test_lathe_columns_schema_has_so_between_holder_and_remark(self):
+    def test_lathe_columns_schema_has_spindl_feed_between_so_and_remark(self):
         keys = [key for key, _label in app.LATHE_COLUMNS]
-        self.assertEqual(keys, ['NO', 'INSERT', 'HOLDER', 'SO', 'REMARK'])
+        self.assertEqual(
+            keys, ['NO', 'INSERT', 'HOLDER', 'SO', 'SPINDL', 'FEED', 'REMARK']
+        )
+
+    # ---- v1.7.7: 선반 SPINDL/FEED 열 — "so와 remark 사이에 Spindle Feed
+    # 2가지 자동 입력 추가. 만약 F.1~.35면 F.1~F0.35, F1000.~F5000 이런 형태로
+    # 기입"(사용자, 2026-09-07). G96/G97 모달 코드는 값에 그대로 유지한다
+    # ("G96Snnn / G97Snnn 형태로 표기", 사용자 확정, 2026-09-07). ----
+
+    def test_lathe_parse_program_spindl_feed_blank_when_absent(self):
+        """S/F 워드가 아예 없는 블록(T0100/T0101 계열)이나 빈 행은 빈칸."""
+        rows = app.parse_lathe_program(self.LATHE_TOOLLIST_SOURCE)
+        by_no = {row['NO']: row for row in rows}
+        self.assertEqual(by_no['T0111']['SPINDL'], '')
+        self.assertEqual(by_no['T0111']['FEED'], '')
+        for row in rows:
+            if row['NO'] == '':
+                self.assertEqual(row['SPINDL'], '')
+                self.assertEqual(row['FEED'], '')
+
+    def test_lathe_parse_program_spindl_keeps_g96_g97_modal_prefix(self):
+        """값이 하나뿐이어도 G96/G97 모달 코드를 접두어로 유지한다(결정 C)."""
+        rows = app.parse_lathe_program(self.LATHE_TOOLLIST_SOURCE)
+        by_no = {row['NO']: row for row in rows}
+        self.assertEqual(by_no['T0606']['SPINDL'], 'G97S800')
+        self.assertEqual(by_no['T0101']['SPINDL'], 'G96S225')
+
+    def test_lathe_parse_program_g50_clamp_excluded_from_spindl(self):
+        """G50 뒤에 붙는 S(주축 최고 회전수 클램프)는 SPINDL에 넣지 않는다
+        (결정 A) — T0101 블록엔 G50S1500 다음에 G96S225가 오는데, 클램프값
+        1500은 어디에도 나타나면 안 된다."""
+        rows = app.parse_lathe_program(self.LATHE_TOOLLIST_SOURCE)
+        by_no = {row['NO']: row for row in rows}
+        self.assertNotIn('1500', by_no['T0101']['SPINDL'])
+        self.assertEqual(by_no['T0101']['SPINDL'], 'G96S225')
+
+    LATHE_SPINDLE_FEED_RANGE_SOURCE = """N1
+( T03 - S07J SWUBR 06-D08 )
+( T03 - INSERT B [SO 40] )
+G0X400.Z200.
+T0300
+G50S1500
+G96S40M3P11
+G1Z2.F3.
+Z-5.F.24
+T0303
+G99X100.Z10.
+G0X400.Z200.T0300
+M1
+
+N2
+( T03 - S07J SWUBR 06-D08 )
+( T03 - INSERT B [SO 40] )
+G0X400.Z200.
+T0300
+G97S800M3P11
+G1Z1.F.1
+T0303
+G0X400.Z200.T0300
+M1
+"""
+
+    def test_lathe_parse_program_spindl_feed_range_ascending_with_original_literal(self):
+        """값이 여러 개면 숫자 크기 오름차순 최소~최대로 잇고, 원문 표기(과
+        SPINDL의 모달 접두어)는 그대로 보존한다 — 사용자 예시
+        "F.1~.35" -> "F.1~F0.35" 형태(등장 순서가 아니라 숫자 크기 기준).
+        같은 TOOL NO(T0303)가 N1(G96)/N2(G97) 두 블록에 걸쳐 쓰이면 모달이
+        다른 값끼리도 합쳐 범위로 보여준다."""
+        rows = app.parse_lathe_program(self.LATHE_SPINDLE_FEED_RANGE_SOURCE)
+        row = next(r for r in rows if r['NO'] == 'T0303')
+        self.assertEqual(row['SPINDL'], 'G96S40~G97S800')
+        self.assertEqual(row['FEED'], 'F.1~F3.')
+
+    def test_lathe_parse_program_ignores_s_words_inside_comments(self):
+        """주석 속 "S07J SWUBR"(홀더 문구)이 SPINDL로 잘못 잡히면 안 된다
+        (O4812.nc 실측 사례)."""
+        rows = app.parse_lathe_program(self.LATHE_SPINDLE_FEED_RANGE_SOURCE)
+        row = next(r for r in rows if r['NO'] == 'T0303')
+        self.assertNotIn('07', row['SPINDL'])
+        self.assertEqual(row['HOLDER'], 'S07J SWUBR 06-D08')
 
     def test_lathe_pdf_column_weights_and_info_row_match_column_count(self):
         """PDF 가중치 개수가 LATHE_COLUMNS 열 개수와 어긋나면 표가 깨진다."""
@@ -5506,10 +5585,11 @@ class ToolListModeComboTests(unittest.TestCase):
             window.tool_mode_combo.setCurrentText('선반')
             self.assertTrue(window.is_lathe_program())
             self.assertTrue(app.is_lathe_machine(window.machine_type_combo.currentText()))
-            # v1.7.2: SO 열이 추가돼 4열 -> 5열이 됐다.
-            self.assertEqual(len(window.active_columns()), 5)
+            # v1.7.2: SO 열이 추가돼 4열 -> 5열, v1.7.7: SPINDL/FEED 2열이
+            # 더 추가돼 5열 -> 7열이 됐다.
+            self.assertEqual(len(window.active_columns()), 7)
             # run()이 즉시 다시 불려 표 스키마도 실제로 갱신됐어야 한다.
-            self.assertEqual(window.table.columnCount(), 5)
+            self.assertEqual(window.table.columnCount(), 7)
             self.assertEqual(window.table.horizontalHeaderItem(0).text(), 'TOOL NO')
 
             window.tool_mode_combo.setCurrentText('밀링')
