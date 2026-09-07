@@ -3826,6 +3826,90 @@ M1
         info_row = app.make_lathe_pdf_info_row({}, 'Helvetica')
         self.assertEqual(len(info_row), len(app.LATHE_COLUMNS))
 
+    # ---- v1.7.5: 신규 포스트 "( Tnnnn )" 머리줄 대응 (사용자 확정,
+    # 2026-09-07) — N 아래 첫 통짜 주석이 공구번호뿐이면 건너뛰고 그다음
+    # 두 주석을 홀더/인서트로 읽는다. 실제 예제(test files/1111.nc,
+    # O4006.nc)로 재현한 양식. ----
+
+    LATHE_NEW_POST_SOURCE = """N1
+( T0404 )
+( T04- BMT STRAIGHT )
+( T04-10.0 R0.5 E/M / D-10. / R-0.5)
+( MAX : Z100. /  MIN : Z0. )
+M35
+G28U0.V0.
+G0T0400
+M8
+G97S2300M3P12
+G18G98Z-.456T0404
+X241.
+M1
+
+N2
+( T0707 )
+( T07- BMT STRAIGHT )
+( T07-4.0 R0.5 E/M / D-4. / R-0.5)
+( MAX : Z100. /  MIN : Z20.5 )
+G28U0.V0.
+G0T0700
+T0707
+G0X241.Z-.456
+M1
+"""
+
+    def test_lathe_parse_program_skips_tool_no_comment_line_new_post(self):
+        """신규 포스트: N 아래 "( T0404 )" 머리줄은 건너뛰고, 그다음 두
+        주석이 홀더/인서트가 돼야 한다."""
+        rows = app.parse_lathe_program(self.LATHE_NEW_POST_SOURCE)
+        by_no = {row['NO']: row for row in rows if row['NO']}
+        self.assertEqual(by_no['T0404']['HOLDER'], 'BMT STRAIGHT')
+        self.assertEqual(by_no['T0404']['INSERT'], '10.0 R0.5 E/M / D-10. / R-0.5')
+        self.assertEqual(by_no['T0707']['HOLDER'], 'BMT STRAIGHT')
+        self.assertEqual(by_no['T0707']['INSERT'], '4.0 R0.5 E/M / D-4. / R-0.5')
+
+    def test_lathe_parse_program_old_post_unaffected_by_new_rule(self):
+        """예전 포스트(O1699.nc 양식)는 홀더 주석이 항상 "T06 - SLEEVE"처럼
+        문구를 갖고 있어 새 건너뛰기 규칙에 걸리지 않아야 한다(회귀 방지)."""
+        rows = app.parse_lathe_program(self.LATHE_TOOLLIST_SOURCE)
+        by_no = {row['NO']: row for row in rows if row['NO']}
+        self.assertEqual(by_no['T0606']['HOLDER'], 'SLEEVE')
+        self.assertEqual(by_no['T0606']['INSERT'], 'D50.0 X H103 T-DRILL')
+
+    def test_lathe_parse_program_ignores_trailing_range_comment(self):
+        """"( MAX : Z100. / MIN : Z0. )" 같은 가공범위 주석이 홀더/인서트를
+        덮어쓰면 안 된다 — 두 주석을 채운 뒤에는 더 읽지 않는다."""
+        rows = app.parse_lathe_program(self.LATHE_NEW_POST_SOURCE)
+        by_no = {row['NO']: row for row in rows if row['NO']}
+        self.assertNotIn('MAX', by_no['T0404']['INSERT'])
+        self.assertNotIn('MIN', by_no['T0404']['HOLDER'])
+
+    def test_lathe_tool_name_map_uses_insert_on_new_post(self):
+        """필터 라벨(인서트 표기)도 신규 포스트에서 정상적으로 채워져야
+        한다."""
+        rows = app.parse_lathe_program(self.LATHE_NEW_POST_SOURCE)
+        mapping = app.lathe_tool_name_map_from_rows(rows)
+        self.assertEqual(mapping['T04'], '10.0 R0.5 E/M / D-10. / R-0.5')
+        self.assertEqual(mapping['T07'], '4.0 R0.5 E/M / D-4. / R-0.5')
+
+    LATHE_NEW_POST_NO_CODE_T_WORD_SOURCE = """N1
+( T0505 )
+( T05- BMT STRAIGHT )
+( T05-6.0 R0.5 E/M / D-6. / R-0.5)
+( MAX : Z100. /  MIN : Z0. )
+M35
+G28U0.V0.
+M1
+"""
+
+    def test_lathe_parse_program_falls_back_to_tool_no_comment(self):
+        """블록 코드 안에 T워드가 전혀 없을 때(요약/발췌 등)는 건너뛴
+        "( T0505 )" 주석의 4자리 값을 TOOL NO로 쓴다(승인된 규약) — 있는
+        경우엔 항상 코드 쪽 T워드가 우선(기존 동작 무변화)."""
+        rows = app.parse_lathe_program(self.LATHE_NEW_POST_NO_CODE_T_WORD_SOURCE)
+        by_no = {row['NO']: row for row in rows if row['NO']}
+        self.assertEqual(by_no['T0505']['HOLDER'], 'BMT STRAIGHT')
+        self.assertEqual(by_no['T0505']['INSERT'], '6.0 R0.5 E/M / D-6. / R-0.5')
+
     # ---- v1.6.9 항목 1: 선반 공정 경계를 N번호 ~ M0/M1/M30으로 ----
 
     def test_lathe_n_line_pattern_matches_tool_list_parser(self):
