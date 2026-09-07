@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-09-07 (v1.7.5)
+Last updated: 2026-09-07 (v1.7.6)
 
 ## About button requirements
 
@@ -34,7 +34,54 @@ Last updated: 2026-09-07 (v1.7.5)
 
 ## Version history
 
-### 2026-09-07 (latest, v1.7.5)
+### 2026-09-07 (latest, v1.7.6)
+
+- Version: 1.7.6
+- Release/build date: 2026-09-07
+- Summary: 사용자 요청(2026-09-07). 시뮬레이션(PG 매칭 재생 + 방향키)이
+  M98/M99 서브프로그램 호출을 실제 기계처럼 재생하도록 고쳤다
+  (`v1.7.6_PLAN.md` 참고, 플랜 승인 완료).
+  1. v1.7.4에서 경로 파싱은 이미 "실행 순서(seq)" 기준으로 돌고 있었지만,
+     재생기(`_playback_tick()`)와 방향키는 여전히 **문서 줄 번호**를
+     그대로 따라갔다 — 그래서 `M98 P..` 다음 줄에서 서브프로그램 전체가
+     한 틱에 나타나 버리고, M30 뒤에 붙는 `O<번호>` 서브프로그램 본문을
+     끝까지 다시 재생하는 것처럼 보였다.
+  2. 뷰어(`nc_viewer_widget.py`)에 seq 키 맵(`seq_to_tool_map` /
+     `seq_to_coord_map` / `seq_to_modal_state` / `seq_to_c_rot` /
+     `seq_to_line` / `process_first_seq`)을 추가하고, 재생/커서 갱신의
+     실체를 새 `set_cursor_seq()`로 옮겼다 — 반복 호출(`M98 P.. L<n>`)
+     구간에서도 회차별 값이 더 이상 섞이지 않는다.
+  3. 재생기(`NC_Tool_List.py`)의 `_playback_tick`/`playback_rewind`/
+     `_jump_relative_tool`/`toggle_pg_match_mode`를 전부 seq 기준
+     `_goto_seq()`로 전환했다. 이제 `M98 P0001`을 만나면 그 자리에서
+     `O0001` 본문이 재생되고, `M99`에서 `M98` 바로 다음 줄로 복귀하며
+     (중첩 호출도 동일), 재생은 시퀀스의 마지막 원소인 `M30` 줄에서
+     끝난다 — `M98`이 없는 파일은 seq == 문서 줄이라 기존 동작과 완전히
+     같다(회귀 없음).
+  4. 방향키(↓/↑)도 PG 매칭 모드에서는 같은 실행 순서로 한 걸음씩
+     움직인다(`ProgramTextEdit.stepRequested`) — PG 매칭이 꺼져 있으면
+     기존 문서 줄 이동 그대로다.
+- Open source software used: 변경 없음(PyQt5/pyqtgraph/numpy).
+- Tests: `tests/test_nc_tool_list.py` 226개 통과(v1.7.5의 221 + 신규 5,
+  서브프로그램 호출/복귀·중첩·반복(L) 회차 구분·방향키 실행 순서·PG
+  매칭 꺼졌을 때 방향키 폴백).
+- Installer/package status: **생성 완료**(사용자 직접 지시로 빌드).
+  - `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` — onedir, UPX 비활성,
+    `_internal\OpenGL\DLLS` 폴더 부재 유지(freeglut/gle32/64 DLL 배제,
+    MSVCR90.dll 경고는 기존과 동일하게 무해).
+  - `ISCC.exe NC_Tool_List.iss`(Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.7.6.exe`
+    (컴파일 54.8초, 46.5 MB).
+  - 포터블: `installer\NC_Tool_List_Portable_v1.7.6.zip` 64.0 MB, 315개 항목.
+  - 빌드 검증: 프리즈된 `NC_Tool_List.exe`의 파일 버전이 `1.7.6.0`로
+    찍히고, 실행하면 `startup.log`에 트레이스백 없이
+    `Starting Sum Path v1.7.6 frozen=True`가 남는 것을 확인했다(다른
+    인스턴스가 떠 있지 않음을 먼저 확인한 뒤 짧게 띄워 로그만 확인하고
+    바로 종료 — 사용자 환경에 영향 없음).
+  - Installer SHA-256: DE2ABD9217E51D3DE5A13AA170CB3FE1837F3B0C74BF19ADDBF4A5BDCA4EB1CD
+  - Portable ZIP SHA-256: 5A5C20E509A9FA8748BFD370273F650A3D748A0F26C40BDD3619CFA0DFD46D1E
+  - App SHA-256: 31FDAB420414DEE4FA08DB6AC6703AB783288BADEB5ECD73F73F8A148AE6C846
+
+### 2026-09-07 (v1.7.5)
 
 - Version: 1.7.5
 - Release/build date: 2026-09-07

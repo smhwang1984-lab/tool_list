@@ -26,7 +26,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
 
-APP_VERSION = '1.7.5'
+APP_VERSION = '1.7.6'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-09-07'
 APP_CREATOR = 'Hwang.seonmun'
@@ -1395,15 +1395,37 @@ else:
         # Ctrl 상태에서 zoomIn/zoomOut을 이미 처리하므로 그대로 두고, 여기서는
         # 그 뒤에 바뀐 폰트를 저장하라는 신호만 올린다.
         fontZoomed = pyqtSignal()
+        # v1.7.6: PG 매칭 모드에서 방향키(↓/↑)가 문서 줄이 아니라 시뮬레이션
+        # 실행 순서(seq)로 한 걸음 움직여야 한다는 요청 신호. +1(다음 실행)
+        # / -1(이전 실행). App._step_seq()가 받아서 처리한다.
+        stepRequested = pyqtSignal(int)
 
         def __init__(self, parent=None):
             super().__init__(parent)
             self.setAcceptDrops(True)
+            # v1.7.6: seq 스텝은 PG 매칭 모드에서만 켠다(플랜 결정 B) —
+            # 그 밖에서는 ↓/↑가 기존 문서 줄 이동 그대로다. App이 PG 매칭
+            # 토글에 맞춰 켜고 끈다.
+            self.seq_step_enabled = False
 
         def wheelEvent(self, event):
             super().wheelEvent(event)
             if event.modifiers() & Qt.ControlModifier:
                 self.fontZoomed.emit()
+
+        def keyPressEvent(self, event):
+            # v1.7.6: PG 매칭 모드에서는 ↓/↑(수정자 키 없이)가 서브프로그램
+            # 호출/복귀까지 포함한 "실행 순서"로 한 걸음씩 움직인다(요구 4) —
+            # 문서 줄 기준 기본 동작을 여기서 가로챈다. PgUp/PgDn/Home/End/
+            # 마우스 클릭 등 다른 이동 수단은 그대로 둔다.
+            if (
+                self.seq_step_enabled
+                and event.key() in (Qt.Key_Down, Qt.Key_Up)
+                and event.modifiers() == Qt.NoModifier
+            ):
+                self.stepRequested.emit(1 if event.key() == Qt.Key_Down else -1)
+                return
+            super().keyPressEvent(event)
 
         def focusInEvent(self, event):
             super().focusInEvent(event)
@@ -1575,6 +1597,13 @@ else:
             self.play_timer.timeout.connect(self._playback_tick)
             self.play_speed = self._load_playback_speed()
             self._play_carry = 0.0
+            # v1.7.6: 재생/방향키가 실제로 진행 중인 "실행 순서(seq)" 위치.
+            # M98/M99 서브프로그램 확장이 있으면 문서 줄번호와 더 이상
+            # 같지 않다(플랜 §3.2). _goto_seq()가 이 값과 에디터 커서를
+            # 함께 옮기고, source_cursor_changed()는 그 이동 중에는
+            # (_seq_driven=True) 재동기화를 건너뛴다.
+            self.playback_seq = 0
+            self._seq_driven = False
             self._search_status_error = False
 
             # 다크모드: _build_ui()가 위젯을 만들 때부터 올바른 색을 쓰도록
@@ -1909,6 +1938,7 @@ else:
             self.src.cursorPositionChanged.connect(self._highlight_current_line)
             self.src.focusGained.connect(lambda: self.set_machine_panel_expanded(False))
             self.src.fontZoomed.connect(self._save_program_font_size)
+            self.src.stepRequested.connect(self._step_seq)
             self._highlight_current_line()
             self.input_splitter.addWidget(self.src)
 
@@ -2657,25 +2687,46 @@ else:
                 self.viewer_update_timer.start(450)
 
         def source_cursor_changed(self):
-            if self.current_mode == 'viewer':
-                self.viewer.set_cursor_line(self.src.textCursor().blockNumber())
+            if self.current_mode != 'viewer':
+                return
+            if self._seq_driven:
+                # v1.7.6: _goto_seq()가 옮긴 커서다 — 이미 seq 기준으로
+                # 정확히 갱신했으므로 여기서 다시 줄 기준으로 해석하면
+                # 오히려 어긋난다(예: 반복 구간에서 마지막 실행으로
+                # 되돌아감). 그대로 무시한다.
+                return
+            # v1.7.6: 문서 줄을 seq로 해석할 때 "마지막 실행"이 아니라
+            # 지금 재생 위치(playback_seq)에 가장 가까운 실행 회차를
+            # 고른다(§3.5) — 반복 호출 구간에서 클릭 등으로 옮겨도 보고
+            # 있던 회차 맥락이 유지된다. 실제로 반영된 seq로
+            # playback_seq도 재동기화한다.
+            seq = self.viewer.set_cursor_line(
+                self.src.textCursor().blockNumber(), near_seq=self.playback_seq
+            )
+            if seq is not None:
+                self.playback_seq = seq
 
         def toggle_pg_match_mode(self, enabled):
             """PG 매칭 모드를 켜고 끈다.
 
             켤 때는 프로그램 입력창에 포커스를 줘서 방향키가 바로 먹게 하고, 커서가
             필터에서 선택되지 않은 공정 위에 있으면(= 아무것도 그려지지 않아 고장으로
-            오인할 상황) 선택된 공정 중 첫 번째의 시작 줄로 커서를 옮겨준다.
+            오인할 상황) 선택된 공정 중 첫 번째의 시작 지점으로 커서를 옮겨준다.
+
+            v1.7.6: 방향키를 실행 순서(seq) 기준으로 바꾸는 것도 이 모드에서만
+            켠다(플랜 결정 B) — 꺼지면 ProgramTextEdit이 기존 문서 줄 이동으로
+            돌아간다.
             """
             self.viewer.set_pg_match_mode(enabled)
+            self.src.seq_step_enabled = enabled
             if not enabled:
                 self.pause_playback()
                 return
             self.src.setFocus()
             selected = getattr(self.viewer, 'selected_tools', None)
-            first_line_map = getattr(self.viewer, 'process_first_line', None)
+            first_seq_map = getattr(self.viewer, 'process_first_seq', None)
             line_to_tool = getattr(self.viewer, 'line_to_tool_map', None)
-            if not callable(selected) or not first_line_map or line_to_tool is None:
+            if not callable(selected) or not first_seq_map or line_to_tool is None:
                 return
             selected_processes = selected()
             if not selected_processes:
@@ -2683,17 +2734,24 @@ else:
             current_process = line_to_tool.get(self.src.textCursor().blockNumber())
             if current_process in selected_processes:
                 return
-            for process_key in first_line_map:
+            for process_key in first_seq_map:
                 if process_key in selected_processes:
-                    self.jump_to_process_line(first_line_map[process_key])
+                    self._goto_seq(first_seq_map[process_key])
                     return
 
         def jump_to_process_line(self, line_index):
-            """공정별 필터 항목을 클릭하면 프로그램 입력창의 해당 위치로 이동한다.
+            """공정별 필터 항목을 클릭하거나(공정 시작 줄) 경로를 클릭하면
+            (도착 지점 줄) 프로그램 입력창의 해당 위치로 이동한다.
 
             텍스트를 선택(KeepAnchor)하지 않고 커서만 놓는다 — 행 강조는
             _highlight_current_line의 전체 폭 블럭이 담당하므로 파란 선택 영역과
             겹치지 않고, 방향키 첫 입력이 선택 해제로 소비되는 것도 막는다.
+
+            v1.7.6: 커서 이동 자체는 그대로 두고(문서 줄 기준 — 필터/경로
+            클릭은 언제나 원본 줄번호를 들고 있다), cursorPositionChanged ->
+            source_cursor_changed()가 그 줄을 seq로 해석해 시뮬레이션과
+            playback_seq를 맞춰 준다. 재생/방향키처럼 seq를 직접 아는
+            경우는 이 메서드가 아니라 _goto_seq()를 쓴다.
             """
             block = self.src.document().findBlockByNumber(max(0, int(line_index)))
             if not block.isValid():
@@ -2701,6 +2759,37 @@ else:
             self.src.setTextCursor(QTextCursor(block))
             self.src.ensureCursorVisible()
             self.src.setFocus()
+
+        def _goto_seq(self, seq):
+            """v1.7.6: 시뮬레이션 위치를 seq(실행 순서)로 정확히 맞춘다 —
+            재생 틱/방향키/되감기/F6·F8가 전부 이걸 거친다. 에디터 커서를
+            그 seq가 가리키는 원본 줄로 옮기되, 그 사이
+            cursorPositionChanged가 다시 줄 기준으로 재해석하지 않도록
+            `_seq_driven`으로 감싼다(그렇지 않으면 반복 구간에서 "마지막
+            실행"으로 되튕길 수 있다)."""
+            total = self.viewer.sequence_length()
+            seq = max(0, min(int(seq), total - 1)) if total else max(0, int(seq))
+            self.playback_seq = seq
+            line_index = self.viewer.line_at_seq(seq)
+            block = self.src.document().findBlockByNumber(max(0, int(line_index)))
+            if block.isValid():
+                self._seq_driven = True
+                try:
+                    self.src.setTextCursor(QTextCursor(block))
+                    self.src.ensureCursorVisible()
+                    self.src.setFocus()
+                finally:
+                    self._seq_driven = False
+            self.viewer.set_cursor_seq(seq)
+
+        def _step_seq(self, direction):
+            """ProgramTextEdit.stepRequested(↓/↑, PG 매칭 모드에서만 발생) —
+            현재 재생 위치에서 실행 순서로 한 칸 옮긴다(요구 4). 재생 중이면
+            재생 타이머는 그대로 두어(멈추지 않음) 진행 중에도 손으로 미세
+            조정할 수 있게 한다."""
+            if self.current_mode != 'viewer' or not getattr(self.viewer, 'pg_match_mode', False):
+                return
+            self._goto_seq(self.playback_seq + (1 if direction > 0 else -1))
 
         def _load_playback_speed(self):
             raw = self.layout_settings.value('playback_speed', 1)
@@ -2775,6 +2864,14 @@ else:
             if self.current_mode != 'viewer' or not getattr(self.viewer, 'pg_match_mode', False):
                 return
             self._play_carry = 0.0
+            # v1.7.6: 재생을 이어갈 seq 기준점을 지금 커서 위치로 맞춘다 —
+            # 정지 상태에서 사용자가 필터/방향키/클릭으로 다른 곳에 커서를
+            # 두고 다시 재생을 누르면 그 자리에서부터 이어져야 한다.
+            seq = self.viewer.resolve_seq_for_line(
+                self.src.textCursor().blockNumber(), self.playback_seq
+            )
+            if seq is not None:
+                self.playback_seq = seq
             self.play_timer.start()
             bar = getattr(self.viewer, 'playback_bar', None)
             if bar is not None:
@@ -2795,49 +2892,59 @@ else:
                 self.start_playback()
 
         def _playback_tick(self):
-            """50ms마다 호출된다. 배속에 맞는 줄 수만큼 커서를 전진시키고, 그 사이에
-            체크된 정지 옵션(텍스트 정지/정지/옵션정지)이나 문서 끝을 만나면 그
-            줄에서 멈춘다."""
+            """50ms마다 호출된다. 배속에 맞는 만큼 seq(실행 순서)를 전진시키고,
+            그 사이에 체크된 정지 옵션(텍스트 정지/M00/M01)이나 시퀀스 끝을
+            만나면 그 지점에서 멈춘다.
+
+            v1.7.6: 문서 줄이 아니라 seq를 전진시킨다(§3.2). M98/M99로
+            확장된 시퀀스는 이미 "M98 호출 -> 서브프로그램 본문 -> M99
+            복귀 -> 다음 줄" 순서로 짜여 있고 마지막 원소가 M30
+            줄이라(요구 1), 서브프로그램 진입/복귀/M30 종료가 이 전진
+            하나로 전부 해결된다. M98이 없는 파일은 seq == 문서 줄이라
+            동작이 예전과 완전히 같다(회귀 없음)."""
             if self.current_mode != 'viewer' or not getattr(self.viewer, 'pg_match_mode', False):
                 self.pause_playback()
                 return
-            document = self.src.document()
-            total_lines = document.blockCount()
-            current_line = self.src.textCursor().blockNumber()
+            total = self.viewer.sequence_length()
+            if not total:
+                self.pause_playback()
+                return
+            current_seq = self.playback_seq
             self._play_carry += self.play_speed * (self.play_timer.interval() / 1000.0)
             steps = int(self._play_carry)
             if steps <= 0:
                 return
             self._play_carry -= steps
-            target_line = min(current_line + steps, total_lines - 1)
+            target_seq = min(current_seq + steps, total - 1)
             needle = self.stop_text_input.text()
             stop_text = self.stop_text_check.isChecked()
             stop_m00 = self.stop_m00_check.isChecked()
             stop_m01 = self.stop_m01_check.isChecked()
-            stop_line = None
-            for line_index in range(current_line + 1, target_line + 1):
-                block = document.findBlockByNumber(line_index)
+            document = self.src.document()
+            stop_seq = None
+            for seq in range(current_seq + 1, target_seq + 1):
+                block = document.findBlockByNumber(self.viewer.line_at_seq(seq))
                 if block.isValid() and line_stops_playback(
                     block.text(), needle, stop_text, stop_m00, stop_m01
                 ):
-                    stop_line = line_index
+                    stop_seq = seq
                     break
-            destination = stop_line if stop_line is not None else target_line
-            if destination != current_line:
-                self.jump_to_process_line(destination)
-            if stop_line is not None or destination >= total_lines - 1:
+            destination = stop_seq if stop_seq is not None else target_seq
+            if destination != current_seq:
+                self._goto_seq(destination)
+            if stop_seq is not None or destination >= total - 1:
                 self.pause_playback()
 
         def playback_rewind(self):
-            """현재 커서가 속한 공정의 시작 줄로 되감고 정지한다."""
+            """현재 커서가 속한 공정의 시작 지점(seq)으로 되감고 정지한다."""
             self.pause_playback()
-            first_line_map = getattr(self.viewer, 'process_first_line', None)
+            first_seq_map = getattr(self.viewer, 'process_first_seq', None)
             line_to_tool = getattr(self.viewer, 'line_to_tool_map', None)
-            start_line = 0
-            if first_line_map and line_to_tool is not None:
+            start_seq = 0
+            if first_seq_map and line_to_tool is not None:
                 current_process = line_to_tool.get(self.src.textCursor().blockNumber())
-                start_line = first_line_map.get(current_process, 0)
-            self.jump_to_process_line(start_line)
+                start_seq = first_seq_map.get(current_process, 0)
+            self._goto_seq(start_seq)
 
         def playback_prev_tool(self):
             self._jump_relative_tool(-1)
@@ -2846,30 +2953,31 @@ else:
             self._jump_relative_tool(1)
 
         def _jump_relative_tool(self, direction):
-            """필터에서 선택된 공정들의 시작 줄 중, 현재 커서 기준 앞/뒤로 가장 가까운
-            곳으로 점프한다. 재생 중이었으면 재생 상태를 유지한다."""
+            """필터에서 선택된 공정들의 시작 지점(seq) 중, 현재 재생 위치
+            기준 앞/뒤로 가장 가까운 곳으로 점프한다. 재생 중이었으면 재생
+            상태를 유지한다."""
             # v1.6.1: F6/F8 단축키가 뷰어/PG 매칭 모드 밖에서도 커서를
             # 움직이지 않도록, start_playback()과 같은 조건으로 막는다.
             if self.current_mode != 'viewer' or not getattr(self.viewer, 'pg_match_mode', False):
                 return
-            first_line_map = getattr(self.viewer, 'process_first_line', None)
+            first_seq_map = getattr(self.viewer, 'process_first_seq', None)
             selected = getattr(self.viewer, 'selected_tools', None)
-            if not first_line_map or not callable(selected):
+            if not first_seq_map or not callable(selected):
                 return
             selected_processes = selected()
-            ordered_lines = sorted(
-                line for key, line in first_line_map.items() if key in selected_processes
+            ordered_seqs = sorted(
+                seq for key, seq in first_seq_map.items() if key in selected_processes
             )
-            if not ordered_lines:
+            if not ordered_seqs:
                 return
-            current_line = self.src.textCursor().blockNumber()
+            current_seq = self.playback_seq
             if direction > 0:
-                later = [line for line in ordered_lines if line > current_line]
-                target = later[0] if later else ordered_lines[-1]
+                later = [seq for seq in ordered_seqs if seq > current_seq]
+                target = later[0] if later else ordered_seqs[-1]
             else:
-                earlier = [line for line in ordered_lines if line < current_line]
-                target = earlier[-1] if earlier else ordered_lines[0]
-            self.jump_to_process_line(target)
+                earlier = [seq for seq in ordered_seqs if seq < current_seq]
+                target = earlier[-1] if earlier else ordered_seqs[0]
+            self._goto_seq(target)
 
         def _highlight_current_line(self):
             """읽기전용 프로그램 편집기에서 커서가 있는 행을 가로 전체 폭 블럭으로 칠한다."""
@@ -2975,7 +3083,11 @@ else:
                 return
             _metadata, rows = self.parsed_program_data(source_text)
             self.viewer.set_source_text(source_text, self.tool_name_map(rows or self.current_rows()))
-            self.viewer.set_cursor_line(self.src.textCursor().blockNumber())
+            # v1.7.6: 다시 파싱했으니 seq 테이블도 새로 만들어졌다 —
+            # playback_seq를 그 커서 위치에 맞는 seq로 재동기화한다
+            # (없으면 0으로, 기존 동작과 동일).
+            seq = self.viewer.set_cursor_line(self.src.textCursor().blockNumber())
+            self.playback_seq = seq if seq is not None else 0
 
         def update_count(self):
             self.count.setText('공구 %d개' % self.table.rowCount())

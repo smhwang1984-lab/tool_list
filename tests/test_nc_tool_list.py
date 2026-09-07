@@ -1722,6 +1722,182 @@ G02 X0 Y10 I-10 J0
         finally:
             settings_dir.cleanup()
 
+    # v1.7.6: 재생/방향키를 문서 줄이 아니라 실행 순서(seq)로 진행시킨다
+    # (플랜 v1.7.6_PLAN.md §3). M98로 서브프로그램을 호출하는 아래
+    # 샘플들은 모두 같은 실행 순서를 낸다 —
+    # M6T1(0) G43(1) G00(2) M98 P0001(3) -> O0001 본문(8) -> M99(9)
+    # -> M98 다음 줄(4) -> M30(5). 총 8스텝, M30 뒤 O0001 헤더 줄(7)과
+    # 빈 줄(6)은 실행되지 않는다.
+    _SUBPROGRAM_CALL_RETURN_NC = '\n'.join([
+        'M6T1', 'G43', 'G00 X0 Y0 Z0', 'M98 P0001',
+        'G01 X99 Y0 Z0', 'M30', '', 'O0001', 'G01 X50 Y0 Z0', 'M99',
+    ])
+    _SUBPROGRAM_CALL_RETURN_SEQ = [0, 1, 2, 3, 8, 9, 4, 5]
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_playback_enters_subprogram_and_returns_then_stops_at_m30(self):
+        """v1.7.6 요구 1·2: M98 P0001을 만나면 그 자리에서 O0001 본문을
+        재생하고 M99에서 M98 바로 다음 줄로 복귀하며, 재생은 M30에서
+        끝난다 — M30 뒤 O0001 헤더/본문으로는 더 진행하지 않는다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        try:
+            window = self._make_window_with_text(self._SUBPROGRAM_CALL_RETURN_NC, settings_dir.name)
+            try:
+                total = window.viewer.sequence_length()
+                self.assertEqual(total, len(self._SUBPROGRAM_CALL_RETURN_SEQ))
+                window.set_playback_speed(20)  # 50ms * 20 = 초당 20줄 -> 틱당 정확히 1 seq.
+                window.start_playback()
+                trajectory = [window.src.textCursor().blockNumber()]
+                guard = 0
+                while window.play_timer.isActive() and guard < total + 5:
+                    window._playback_tick()
+                    trajectory.append(window.src.textCursor().blockNumber())
+                    guard += 1
+                self.assertEqual(trajectory, self._SUBPROGRAM_CALL_RETURN_SEQ)
+                self.assertFalse(window.play_timer.isActive())
+                self.assertEqual(window.playback_seq, total - 1)
+
+                # M30에서 멈춘 뒤 틱을 더 돌려도 O0001 본문으로 다시 내려가지
+                # 않는다(요구 1) — 서브프로그램은 호출될 때만 재생된다.
+                window._playback_tick()
+                self.assertEqual(window.src.textCursor().blockNumber(), 5)
+            finally:
+                window.deleteLater()
+                qapp.processEvents()
+        finally:
+            settings_dir.cleanup()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_playback_handles_nested_subprogram_calls(self):
+        """v1.7.6 요구 3: O0001 안에서 다시 M98 P0002로 O0002를 부르는
+        2단 중첩도 호출/복귀 순서 그대로 재생된다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        try:
+            text = '\n'.join([
+                'M6T1', 'G43', 'M98 P0001', 'M30',
+                '', 'O0001', 'M98 P0002', 'M99',
+                '', 'O0002', 'G01 X77', 'M99',
+            ])
+            window = self._make_window_with_text(text, settings_dir.name)
+            try:
+                total = window.viewer.sequence_length()
+                self.assertEqual(total, 8)
+                window.set_playback_speed(20)
+                trajectory = [window.src.textCursor().blockNumber()]
+                for _ in range(total - 1):
+                    window._playback_tick()
+                    trajectory.append(window.src.textCursor().blockNumber())
+                # M6T1, G43, M98 P0001(O0001 호출), M98 P0002(O0002 호출),
+                # G01 X77(O0002 본문), M99(O0002 복귀), M99(O0001 복귀), M30.
+                self.assertEqual(trajectory, [0, 1, 2, 6, 10, 11, 7, 3])
+            finally:
+                window.deleteLater()
+                qapp.processEvents()
+        finally:
+            settings_dir.cleanup()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_playback_repeat_l_visits_each_iteration_with_distinct_seq(self):
+        """v1.7.6 §2.3 회귀 봉인: `M98 P.. L2` 반복 구간에서 재생 궤적이
+        같은 본문 줄을 두 번 방문하되, 각 방문이 서로 다른 seq(실행
+        순서)를 갖는다 — idx 키 맵(line_to_seq, 마지막 실행만 기억)으로
+        표시했다면 두 방문 모두 마지막 회차 값으로 보였을 것이다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        try:
+            text = '\n'.join([
+                'M6T1', 'G43', 'M98 P0001 L2', 'M30',
+                '', 'O0001', 'G01 X10 F100', 'M99',
+            ])
+            window = self._make_window_with_text(text, settings_dir.name)
+            try:
+                total = window.viewer.sequence_length()
+                self.assertEqual(total, 8)
+                window.set_playback_speed(20)
+                seqs_at_body = []
+                for _ in range(total - 1):
+                    window._playback_tick()
+                    if window.src.textCursor().blockNumber() == 6:
+                        seqs_at_body.append(window.playback_seq)
+                self.assertEqual(seqs_at_body, [3, 5], '반복 2회 모두 궤적에 나오고 seq가 달라야 한다')
+                # line_to_seq(idx 키)는 계약대로 마지막 실행(5)만 기억한다 —
+                # 그런데도 1회차 방문 시점의 playback_seq는 3이어야
+                # 한다(§2.3), 즉 재생이 idx 키 맵에 의존하지 않는다는 뜻이다.
+                self.assertEqual(window.viewer.line_to_seq.get(6), 5)
+                self.assertNotEqual(seqs_at_body[0], window.viewer.line_to_seq.get(6))
+                self.assertEqual(window.viewer.line_to_seq_all.get(6), [3, 5])
+            finally:
+                window.deleteLater()
+                qapp.processEvents()
+        finally:
+            settings_dir.cleanup()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_arrow_key_down_follows_execution_order_with_subprograms(self):
+        """v1.7.6 요구 4: PG 매칭 모드에서 ↓ 키가 문서 줄이 아니라 실행
+        순서(seq)로 한 걸음씩 움직인다 — M98 호출/복귀를 그대로 따라간다.
+        ↑는 역순으로 처음까지 되돌아간다."""
+        from PyQt5.QtTest import QTest
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        try:
+            window = self._make_window_with_text(self._SUBPROGRAM_CALL_RETURN_NC, settings_dir.name)
+            try:
+                total = window.viewer.sequence_length()
+                self.assertEqual(total, len(self._SUBPROGRAM_CALL_RETURN_SEQ))
+                window.src.setFocus()
+                trajectory = [window.src.textCursor().blockNumber()]
+                for _ in range(total - 1):
+                    QTest.keyClick(window.src, app.Qt.Key_Down)
+                    qapp.processEvents()
+                    trajectory.append(window.src.textCursor().blockNumber())
+                self.assertEqual(trajectory, self._SUBPROGRAM_CALL_RETURN_SEQ)
+
+                for _ in range(total - 1):
+                    QTest.keyClick(window.src, app.Qt.Key_Up)
+                    qapp.processEvents()
+                self.assertEqual(window.src.textCursor().blockNumber(), 0)
+                self.assertEqual(window.playback_seq, 0)
+            finally:
+                window.deleteLater()
+                qapp.processEvents()
+        finally:
+            settings_dir.cleanup()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_arrow_key_falls_back_to_document_order_without_pg_match(self):
+        """v1.7.6 플랜 결정 B 봉인: PG 매칭이 꺼져 있으면 ↓/↑는 기존 문서
+        줄 이동 그대로다 — 서브프로그램 실행 순서로 튀지 않는다."""
+        from PyQt5.QtTest import QTest
+
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        try:
+            window = app.App(_root=settings_dir.name)
+            try:
+                window.src.setPlainText(self._SUBPROGRAM_CALL_RETURN_NC)
+                window.set_mode('viewer')
+                window.jump_to_process_line(0)
+                # PG 매칭은 켜지 않는다 — window.pg_match_check가 그대로
+                # 꺼진 채라 ProgramTextEdit.seq_step_enabled도 False다.
+                window.src.setFocus()
+                for _ in range(4):
+                    QTest.keyClick(window.src, app.Qt.Key_Down)
+                qapp.processEvents()
+                # seq 기준이었다면 4번째 걸음은 M98 다음 seq인 O0001
+                # 본문(idx 8)으로 튀어야 한다(self._SUBPROGRAM_CALL_RETURN_SEQ[4]
+                # == 8). PG 매칭이 꺼져 있으니 기존 문서 줄 이동 그대로
+                # 4번째 줄(idx 4, "G01 X99 Y0 Z0")에 머물러야 한다.
+                self.assertEqual(window.src.textCursor().blockNumber(), 4)
+            finally:
+                window.deleteLater()
+                qapp.processEvents()
+        finally:
+            settings_dir.cleanup()
+
     @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
     def test_gl_view_and_playback_bar_never_take_keyboard_focus(self):
         from nc_viewer_widget import NCViewerWidget
