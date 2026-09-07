@@ -26,7 +26,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
 
-APP_VERSION = '1.7.4'
+APP_VERSION = '1.7.5'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-09-07'
 APP_CREATOR = 'Hwang.seonmun'
@@ -154,6 +154,11 @@ LATHE_TOOL_NO_SPLIT_RE = re.compile(r'^T(\d{2})(\d{2})$', re.I)
 # (사용자 확정, 2026-09-06) — 홀더/인서트 두 주석 줄 중 어느 쪽에 있어도
 # 찾는다. 값은 밀링과 같은 형식(숫자 문자열, 예 '40')으로 저장한다.
 LATHE_SO_RE = re.compile(r'\[\s*SO\s*([\d.]+)\s*\]', re.I)
+# v1.7.5: 신규 포스트는 N 시퀀스 바로 아래에 옵셋 포함 공구번호만 든
+# 주석 한 줄("( T0404 )")을 먼저 찍는다(사용자 확정, 2026-09-07). 이 줄은
+# 홀더/인서트가 아니므로 건너뛴다 — 예전 포스트(O1699.nc)의 홀더 주석은
+# 항상 "T06 - SLEEVE"처럼 "-" 뒤에 문구가 붙어 이 패턴에 걸리지 않는다.
+LATHE_TOOL_NO_COMMENT_RE = re.compile(r'^T\s*\d{2}(?:\d{2})?$', re.I)
 
 LATHE_COLUMNS = [
     ('NO', 'TOOL NO'), ('INSERT', 'INSERT'), ('HOLDER', '홀더'), ('SO', 'SO'),
@@ -183,7 +188,15 @@ def parse_lathe_program(text):
 
     v1.7.2: 두 주석 줄 중 어느 쪽이든 "[SO nn]"이 있으면 SO 열로 뽑아내고
     (먼저 나오는 줄의 값을 쓴다), INSERT/홀더 표시 문구에서는 그 표기를
-    걷어낸다(사용자 확정, 2026-09-06)."""
+    걷어낸다(사용자 확정, 2026-09-06).
+
+    v1.7.5: 신규 포스트는 홀더/인서트보다 앞에 옵셋 포함 공구번호만 든
+    통짜 주석("( T0404 )")을 한 줄 더 찍는다(사용자 확정, 2026-09-07).
+    아직 홀더/인서트를 하나도 못 모은 상태에서 이 꼴의 주석이 나오면
+    건너뛰고, 그다음 두 통짜 주석을 홀더/인서트로 읽는다 — 예전 포스트
+    (O1699.nc, 이 머리줄이 없음)는 그대로 동작한다. 블록 코드 안에 T워드가
+    하나도 없을 때에 한해, 건너뛴 이 주석의 4자리 값을 TOOL NO 폴백으로
+    쓴다(승인된 규약)."""
     lines = text.splitlines()
     n_indices = [i for i, line in enumerate(lines) if LATHE_N_RE.match(line)]
     tools = {}
@@ -194,13 +207,18 @@ def parse_lathe_program(text):
         block = lines[start + 1:end]
 
         comments = []
+        comment_tool_no = ''
         for line in block:
             if not line.strip():
                 continue
             comment_match = LATHE_FULL_COMMENT_LINE_RE.match(line)
             if comment_match is None:
                 break
-            comments.append(_strip_lathe_tool_prefix(comment_match.group(1)))
+            raw_comment = comment_match.group(1).strip()
+            if not comments and LATHE_TOOL_NO_COMMENT_RE.match(raw_comment):
+                comment_tool_no = raw_comment.replace(' ', '').upper()
+                continue
+            comments.append(_strip_lathe_tool_prefix(raw_comment))
             if len(comments) >= 2:
                 break
         so_value = ''
@@ -233,6 +251,11 @@ def parse_lathe_program(text):
                 break
         if not tool_no:
             tool_no = fallback_tool_no
+        # v1.7.5: 블록 코드에 T워드가 전혀 없을 때만, 건너뛴 "( T0404 )"
+        # 주석의 4자리 값을 TOOL NO로 쓴다(2자리 "( T04 )"는 옵셋을 알 수
+        # 없어 폴백에서 제외 — 승인된 규약).
+        if not tool_no and len(comment_tool_no) == 5:
+            tool_no = comment_tool_no
 
         key = tool_no or ('__N%d__' % start)
         entry = tools.setdefault(
