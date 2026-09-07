@@ -65,9 +65,21 @@ Last updated: 2026-09-07 (v1.7.6)
 - Tests: `tests/test_nc_tool_list.py` 226개 통과(v1.7.5의 221 + 신규 5,
   서브프로그램 호출/복귀·중첩·반복(L) 회차 구분·방향키 실행 순서·PG
   매칭 꺼졌을 때 방향키 폴백).
-- Installer/package status: 미생성 — 코드/테스트/문서만 반영. 사용자
-  요청 시 `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean`
-  + `ISCC.exe NC_Tool_List.iss`로 빌드.
+- Installer/package status: **생성 완료**(사용자 직접 지시로 빌드).
+  - `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` — onedir, UPX 비활성,
+    `_internal\OpenGL\DLLS` 폴더 부재 유지(freeglut/gle32/64 DLL 배제,
+    MSVCR90.dll 경고는 기존과 동일하게 무해).
+  - `ISCC.exe NC_Tool_List.iss`(Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.7.6.exe`
+    (컴파일 54.8초, 46.5 MB).
+  - 포터블: `installer\NC_Tool_List_Portable_v1.7.6.zip` 64.0 MB, 315개 항목.
+  - 빌드 검증: 프리즈된 `NC_Tool_List.exe`의 파일 버전이 `1.7.6.0`로
+    찍히고, 실행하면 `startup.log`에 트레이스백 없이
+    `Starting Sum Path v1.7.6 frozen=True`가 남는 것을 확인했다(다른
+    인스턴스가 떠 있지 않음을 먼저 확인한 뒤 짧게 띄워 로그만 확인하고
+    바로 종료 — 사용자 환경에 영향 없음).
+  - Installer SHA-256: DE2ABD9217E51D3DE5A13AA170CB3FE1837F3B0C74BF19ADDBF4A5BDCA4EB1CD
+  - Portable ZIP SHA-256: 5A5C20E509A9FA8748BFD370273F650A3D748A0F26C40BDD3619CFA0DFD46D1E
+  - App SHA-256: 31FDAB420414DEE4FA08DB6AC6703AB783288BADEB5ECD73F73F8A148AE6C846
 
 ### 2026-09-07 (v1.7.5)
 
