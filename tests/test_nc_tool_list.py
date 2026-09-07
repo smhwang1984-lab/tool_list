@@ -327,13 +327,32 @@ X60 Y10 Z0
             app.QSettings = original_qsettings
             qapp.processEvents()
 
-    def test_installer_closes_existing_application_before_install(self):
+    def test_startup_uses_software_opengl_and_logs(self):
+        self.assertEqual(os.environ.get('QT_OPENGL'), 'software')
+        self.assertTrue(callable(app.write_startup_log))
+        self.assertIn('NC_Tool_List', str(app.startup_log_path()))
+
+    def test_spec_limits_opengl_collection_for_security_compatibility(self):
+        spec = Path('NC_Tool_List.spec').read_text(encoding='utf-8-sig')
+        self.assertNotIn("collect_submodules('OpenGL')", spec)
+        self.assertIn("'OpenGL.GLUT'", spec)
+        self.assertIn('excluded_binary_fragments', spec)
+        self.assertIn('freeglut', spec)
+        self.assertIn('upx=False', spec)
+    def test_installer_uses_c_drive_onedir_package_without_direct_taskkill(self):
         iss = Path('NC_Tool_List.iss').read_text(encoding='utf-8-sig')
         self.assertIn('#define MyAppVersion "1.4.2"', iss)
+        self.assertIn('DefaultDirName=C:\\NC_Tool_List', iss)
+        self.assertIn('UsePreviousAppDir=no', iss)
+        self.assertIn('PrivilegesRequired=admin', iss)
+        self.assertIn('ChangesAssociations=no', iss)
         self.assertIn('CloseApplications=force', iss)
         self.assertIn('RestartApplications=no', iss)
-        self.assertIn('taskkill.exe', iss)
-        self.assertIn('/F /T /IM "{#MyAppExeName}"', iss)
+        self.assertIn('Source: "dist\\NC_Tool_List\\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs', iss)
+        self.assertNotIn('[Registry]', iss)
+        self.assertNotIn('HKLM', iss)
+        self.assertNotIn('taskkill.exe', iss)
+        self.assertNotIn('/F /T /IM "{#MyAppExeName}"', iss)
     @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
     def test_5axis_ac_and_bc_machine_settings_apply_different_g68_rotations(self):
         qapp = app.QApplication.instance() or app.QApplication([])
