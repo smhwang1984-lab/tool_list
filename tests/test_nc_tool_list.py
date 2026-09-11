@@ -88,6 +88,21 @@ M6T7
         self.assertEqual(app.find_next_tool_change_span('M06T01', 0), (0, 6, False))
         self.assertEqual(app.find_next_tool_change_span(source, len(source)), (0, 5, True))
 
+    def test_prev_tool_change_search_supports_spacing_and_wraps(self):
+        """v1.7.9 — '이전공구검색'은 다음공구검색의 거울상: 커서 앞에서
+        가장 가까운 매치를 찾고, 없으면 끝에서부터 다시(wrapped=True)."""
+        source = 'M6 T1\nG0 X0\nM06T12\nM6T3'
+        # 끝에서 찾으면 마지막(세 번째) 매치.
+        self.assertEqual(app.find_prev_tool_change_span(source, len(source)), (19, 23, False))
+        # 세 번째 매치의 시작 지점에서 찾으면 두 번째 매치.
+        self.assertEqual(app.find_prev_tool_change_span(source, 19), (12, 18, False))
+        # 두 번째 매치의 시작 지점에서 찾으면 첫 번째 매치.
+        self.assertEqual(app.find_prev_tool_change_span(source, 12), (0, 5, False))
+        # 첫 번째 매치보다 앞(0)에서 찾으면 매치가 없어 끝에서부터 다시.
+        self.assertEqual(app.find_prev_tool_change_span(source, 0), (19, 23, True))
+        self.assertEqual(app.find_prev_tool_change_span('M06T01', 6), (0, 6, False))
+        self.assertIsNone(app.find_prev_tool_change_span('G0 X0', 5))
+
     def test_literal_search_is_case_insensitive_and_wraps(self):
         source = 'FACE MILL\nflat em\nDRILL'
         self.assertEqual(app.find_next_literal_span(source, 'FLAT', 1), (10, 14, False))
@@ -3156,6 +3171,19 @@ M30
         # 밀링 기준으로는 이 원문에서 아무것도 못 찾는다.
         self.assertIsNone(app.find_next_tool_change_span(source, 0))
 
+    def test_lathe_prev_tool_change_search_skips_offset_blocks(self):
+        """v1.7.9 — '이전공구검색'도 선반에서는 Tnn00만 짚는다(다음공구검색의 거울상)."""
+        source = self.TWO_TOOL_LATHE_SOURCE
+        last = app.find_prev_tool_change_span(source, len(source), lathe=True)
+        self.assertIsNotNone(last)
+        self.assertEqual(source[last[0]:last[1]], 'T0300')
+        middle = app.find_prev_tool_change_span(source, last[0], lathe=True)
+        self.assertEqual(source[middle[0]:middle[1]], 'T0100')  # 공정 1 종료 블록
+        first = app.find_prev_tool_change_span(source, middle[0], lathe=True)
+        self.assertEqual(source[first[0]:first[1]], 'T0100')
+        # 밀링 기준으로는 이 원문에서 아무것도 못 찾는다.
+        self.assertIsNone(app.find_prev_tool_change_span(source, len(source)))
+
     def test_milling_tool_change_detection_is_untouched(self):
         """지침 0항: 선반 규칙 추가가 밀링의 M6 Tnn 인식을 건드리면 안 된다."""
         rows = app.parse_program(app.EXAMPLE)
@@ -6122,6 +6150,135 @@ M99
             by_no = {row['NO']: row for row in rows}
             self.assertEqual(by_no['T0404']['REMARK'], 'N1')
             self.assertEqual(by_no['T0707']['REMARK'], 'N2(G41)')
+
+
+class PrevToolSearchUiTests(unittest.TestCase):
+    """v1.7.9 — 검색줄의 '이전공구검색' 버튼과 왕복 동작."""
+
+    SOURCE = 'M6 T1\nG0 X0\nM06T12\nM6T3'
+
+    def _window(self, settings_dir):
+        window = app.App(_root=settings_dir)
+        window.src.setPlainText(self.SOURCE)
+        return window
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_prev_button_sits_immediately_before_next_button(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        try:
+            window = self._window(settings_dir.name)
+            try:
+                self.assertTrue(hasattr(window, 'btn_prev_tool_search'))
+                layout = window._search_bar_layout
+                index_prev = layout.indexOf(window.btn_prev_tool_search)
+                index_next = layout.indexOf(window.btn_next_tool_search)
+                self.assertEqual(index_next, index_prev + 1)
+            finally:
+                window.deleteLater()
+                qapp.processEvents()
+        finally:
+            settings_dir.cleanup()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_next_then_prev_returns_to_the_same_tool_change(self):
+        """다음공구검색 2회 -> 이전공구검색 1회로 왕복하면 같은 지점을 다시
+        잡지 않고 정확히 한 칸 앞(첫 번째 매치)으로 돌아온다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        try:
+            window = self._window(settings_dir.name)
+            try:
+                window.find_next_tool_change()  # 첫 번째 매치(M6 T1) 선택
+                window.find_next_tool_change()  # 두 번째 매치(M06T12) 선택
+                window.find_prev_tool_change()  # 첫 번째 매치로 복귀
+                cursor = window.src.textCursor()
+                self.assertEqual(
+                    self.SOURCE[cursor.selectionStart():cursor.selectionEnd()], 'M6 T1'
+                )
+                self.assertFalse(window._search_status_error)
+            finally:
+                window.deleteLater()
+                qapp.processEvents()
+        finally:
+            settings_dir.cleanup()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_prev_search_reports_no_match_for_milling_program_without_m6(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        try:
+            window = self._window(settings_dir.name)
+            window.src.setPlainText('G0 X0 Y0\nG1 X10')
+            try:
+                window.find_prev_tool_change()
+                self.assertTrue(window._search_status_error)
+                self.assertEqual(window.search_status.text(), 'M6T 항목 없음')
+            finally:
+                window.deleteLater()
+                qapp.processEvents()
+        finally:
+            settings_dir.cleanup()
+
+
+@unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+class BringWindowToFrontTests(unittest.TestCase):
+    """v1.7.9 — 파일을 넘겨받아 창을 앞으로 끌어낼 때 최대화 상태를 풀지 않는다."""
+
+    class _FakeWindow:
+        def __init__(self, state, restore_maximized=False):
+            self._state = state
+            self._restore_maximized = restore_maximized
+            self.calls = []
+
+        def windowState(self):
+            return self._state
+
+        def setWindowState(self, state):
+            self._state = state
+            self.calls.append('setWindowState')
+
+        def showMaximized(self):
+            self.calls.append('showMaximized')
+
+        def showNormal(self):
+            self.calls.append('showNormal')
+
+        def raise_(self):
+            self.calls.append('raise_')
+
+        def activateWindow(self):
+            self.calls.append('activateWindow')
+
+    def test_maximized_not_minimized_window_is_left_untouched(self):
+        window = self._FakeWindow(app.Qt.WindowMaximized)
+        app.bring_window_to_front(window)
+        self.assertEqual(window.calls, ['raise_', 'activateWindow'])
+
+    def test_minimized_maximized_window_restores_to_maximized(self):
+        window = self._FakeWindow(app.Qt.WindowMinimized | app.Qt.WindowMaximized)
+        app.bring_window_to_front(window)
+        self.assertIn('showMaximized', window.calls)
+        self.assertNotIn('showNormal', window.calls)
+
+    def test_minimized_window_uses_restore_flag_when_maximized_bit_is_lost(self):
+        window = self._FakeWindow(app.Qt.WindowMinimized, restore_maximized=True)
+        app.bring_window_to_front(window)
+        self.assertIn('showMaximized', window.calls)
+        self.assertNotIn('showNormal', window.calls)
+
+    def test_minimized_window_without_maximize_history_restores_normal(self):
+        window = self._FakeWindow(app.Qt.WindowMinimized, restore_maximized=False)
+        app.bring_window_to_front(window)
+        self.assertIn('showNormal', window.calls)
+        self.assertNotIn('showMaximized', window.calls)
+
+    def test_single_instance_server_delegates_to_bring_window_to_front(self):
+        """봉인 — read_path()가 직접 showNormal()을 부르면 최대화가 다시
+        풀린다(v1.7.9 회귀 원인). bring_window_to_front() 경유만 허용한다."""
+        source = inspect.getsource(app.start_single_instance_server)
+        self.assertIn('bring_window_to_front(window)', source)
+        self.assertNotIn('showNormal', source)
 
 
 if __name__ == '__main__':
