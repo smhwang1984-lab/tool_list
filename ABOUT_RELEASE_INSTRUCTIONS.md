@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-09-11 (v1.7.8)
+Last updated: 2026-09-11 (v1.7.9)
 
 ## About button requirements
 
@@ -34,7 +34,56 @@ Last updated: 2026-09-11 (v1.7.8)
 
 ## Version history
 
-### 2026-09-11 (latest, v1.7.8)
+### 2026-09-11 (latest, v1.7.9)
+
+- Version: 1.7.9
+- Release/build date: 2026-09-11
+- Summary: 사용자 요청(2026-09-11). 두 건 — 이전공구검색 버튼 추가, 파일을
+  넘겨받을 때 최대화 유지(`v1.7.9_PLAN.md` 참고, 결정 A·B 권장안대로 승인).
+  1. 검색줄의 '다음공구검색' 버튼 바로 앞에 '이전공구검색' 버튼을 추가했다.
+     `find_prev_regex_span()`/`find_prev_tool_change_span()` 신설 — 다음공구검색과
+     같은 정규식(밀링 `M6_SEARCH_RE`, 선반 `LATHE_T_SEARCH_RE`)을 그대로 재사용해
+     커서 앞에서 가장 가까운 공구 교체 지점을 찾고, 없으면 끝에서부터 다시 찾는다
+     (다음공구검색의 거울상). 이전/다음을 번갈아 눌러도(각각 selectionStart/
+     selectionEnd 기준) 같은 지점을 다시 잡지 않고 정확히 왕복한다.
+  2. 창이 떠 있는 상태에서 탐색기 더블클릭(연결 프로그램, v1.6.7 단일 실행)으로
+     다른 NC 파일을 열면 창 최대화가 풀리던 문제를 고쳤다. 원인은
+     `start_single_instance_server()`의 `read_path()`가 최소화 해제 목적으로
+     넣었던 `window.showNormal()` 호출이 최대화 상태의 창까지 일반 크기로
+     되돌리던 것(v1.7.3 "항상 최대화" 정책 도입 이후 생긴 회귀). `bring_window_to_front()`
+     를 신설해 최소화돼 있을 때만 창을 복원하고, 최대화 상태는 건드리지 않는다.
+     `App.changeEvent()`로 최소화 직전의 최대화 여부(`_restore_maximized`)를
+     기록해 두어, 최소화 → 복원 시에도 최대화 이력대로 돌아온다.
+  3. 문자 검색(`검색` 버튼)과 첫 실행 최대화 경로는 손대지 않았다(결정 B —
+     '이전' 기능은 공구 검색에만 적용). 파서/툴패스/3D 뷰어/PDF는 이번 변경
+     범위 밖이다.
+- Open source software used: 변경 없음(PyQt5/pyqtgraph/numpy/reportlab).
+- Tests: `tests/test_nc_tool_list.py` 275개(스킵 1개 제외 274개 실행) —
+  v1.7.8의 255개(스킵 1개 포함) + 신규 20개(`find_prev_tool_change_span`
+  밀링/선반 순수 함수 왕복·wrap, 검색줄 버튼 순서(`PrevToolSearchUiTests`),
+  다음→이전 왕복이 같은 지점을 다시 잡지 않는지, 밀링 원문에서 선반 기준
+  매치 없음, `bring_window_to_front()` 4종(최대화 유지/최소화+최대화 복원/
+  이력 기반 복원/이력 없을 때 일반 크기 복원), `start_single_instance_server`
+  소스 봉인(`showNormal` 직접 호출 금지)). 전체 스위트 재실행
+  254 passed, 1 skipped(리포지터리에 없는 `test files/` 실제 예제 스모크,
+  기존과 동일 — [[project_tests_share_real_qsettings]]와 무관, 회귀 없음.
+- Installer/package status: **생성 완료**(사용자 직접 지시로 빌드).
+  - `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` — onedir, UPX 비활성,
+    `_internal\OpenGL\DLLS` 폴더 부재 유지(freeglut/gle32/64 DLL 배제,
+    MSVCR90.dll 경고는 기존과 동일하게 무해).
+  - `ISCC.exe NC_Tool_List.iss`(Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.7.9.exe`
+    (컴파일 52.9초, 46.5 MB).
+  - 포터블: `installer\NC_Tool_List_Portable_v1.7.9.zip` 64.0 MB, 361개 항목.
+  - 빌드 검증: 프리즈된 `NC_Tool_List.exe`의 파일/제품 버전이 `1.7.9.0`로
+    찍히고, 실행하면 `startup.log`에 트레이스백 없이
+    `Starting Sum Path v1.7.9 frozen=True`가 남는 것을 확인했다(다른
+    인스턴스가 떠 있지 않음을 먼저 확인한 뒤 짧게 띄워 로그만 확인하고
+    바로 종료 — 사용자 환경에 영향 없음).
+  - Setup EXE SHA-256: 521610ED70DD85DFE7D2035834FD0885A1C4891216963B59222007E50BA11673
+  - Portable ZIP SHA-256: 510F580ECD1EE2B2370159A8595958A7F2FAA686DEC5053D8A68DB5A7DC2C88C
+  - App SHA-256: 5FD4E8455382EC60D0C68DE4D06EC6FD9852A26C319A7D7EBC650B87039FB13C
+
+### 2026-09-11 (v1.7.8)
 
 - Version: 1.7.8
 - Release/build date: 2026-09-11
