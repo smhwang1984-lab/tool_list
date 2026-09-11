@@ -26,9 +26,9 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
 
-APP_VERSION = '1.7.6'
+APP_VERSION = '1.7.8'
 APP_NAME = 'Sum Path'
-APP_BUILD_DATE = '2026-09-07'
+APP_BUILD_DATE = '2026-09-11'
 APP_CREATOR = 'Hwang.seonmun'
 APP_PURPOSE = 'NC 프로그램에서 공구 리스트를 산출하고 NC 경로를 Viewer로 확인하는 도구'
 OPEN_SOURCE_COMPONENTS = (
@@ -160,10 +160,75 @@ LATHE_SO_RE = re.compile(r'\[\s*SO\s*([\d.]+)\s*\]', re.I)
 # 항상 "T06 - SLEEVE"처럼 "-" 뒤에 문구가 붙어 이 패턴에 걸리지 않는다.
 LATHE_TOOL_NO_COMMENT_RE = re.compile(r'^T\s*\d{2}(?:\d{2})?$', re.I)
 
+# v1.7.7: SO와 REMARK 사이에 SPINDL/FEED 2열 추가(사용자 확정, 2026-09-07).
+# 코드부(주석 걷어낸 뒤)를 훑으며 G96/G97(주속 모달)/G50/G92(주축 클램프)/
+# S<숫자> 토큰을 등장 순서대로 잡는다 — 밀링 정규식(KV_RE 등)과는 완전히
+# 별개(지침 §0-2, 재사용 금지). 그룹 1은 G96/G97의 뒤 숫자('6'/'7'),
+# 그룹 2는 클램프가 아닌 단독 S 뒤 숫자값. G50/G92 뒤에 바로 붙는 S는
+# 통째로 그룹 없이 매칭시켜 건너뛴다(주축 최고 회전수 클램프이지 절삭
+# 회전수가 아니므로 — 결정 A). 대안(모달을 못 찾은 첫 S)도 안전하게
+# 처리하도록 아래 _lathe_collect_spindle_feed()가 모달 상태를 직접 추적한다.
+LATHE_SPINDLE_TOKEN_RE = re.compile(
+    r'G9([67])(?!\d)|G(?:50|92)\s*S\s*[\d.]+|S\s*([\d.]+)', re.I
+)
+# FEED는 모달 구분 없이 코드부의 F<숫자> 워드 전부를 모은다(결정 D — 접근/
+# 도피 이송, 나사 리드 F도 포함. G98/G99 단위 구분도 안 한다 — 결정 E).
+LATHE_FEED_RE = re.compile(r'F\s*([\d.]+)', re.I)
+
 LATHE_COLUMNS = [
     ('NO', 'TOOL NO'), ('INSERT', 'INSERT'), ('HOLDER', '홀더'), ('SO', 'SO'),
-    ('REMARK', 'REMARK'),
+    ('SPINDL', 'SPINDL'), ('FEED', 'FEED'), ('REMARK', 'REMARK'),
 ]
+
+
+def _lathe_collect_spindle_feed(code):
+    """코드부(주석 제외)에서 SPINDL 표시 문구 목록과 FEED 표시 문구 목록을
+    등장 순서대로 뽑는다(v1.7.7).
+
+    SPINDL: G96/G97을 만날 때마다 "현재 모달"로 기억해 두고, 그 뒤에 나오는
+    단독 S<숫자>에 그 모달을 접두어로 붙인다(예: "G97S800"). G50/G92 바로
+    뒤의 S(주축 클램프, 결정 A)는 건너뛰고 모달도 갱신하지 않는다 — 그
+    다음에 나오는 G96/G97이 새 모달이 된다. 아직 모달을 한 번도 못 만난
+    상태에서 단독 S가 나오면(실제 샘플엔 없는 경우) 모달 없이 "S<숫자>"만
+    쓴다.
+
+    FEED: 모달 구분 없이 F<숫자> 전부."""
+    mode = ''
+    spindle = []
+    for m in LATHE_SPINDLE_TOKEN_RE.finditer(code):
+        if m.group(1):
+            mode = 'G9' + m.group(1)
+            continue
+        if m.group(2):
+            spindle.append((mode + 'S' if mode else 'S') + m.group(2))
+    feed = ['F' + m.group(1) for m in LATHE_FEED_RE.finditer(code)]
+    return spindle, feed
+
+
+def _lathe_numeric_value(word):
+    """SPINDL/FEED 표시 문구에서 정렬용 숫자 크기만 뽑는다
+    ("G97S800" -> 800.0, "F.07" -> 0.07)."""
+    m = re.search(r'([\d.]+)$', word)
+    try:
+        return float(m.group(1)) if m else 0.0
+    except ValueError:
+        return 0.0
+
+
+def _lathe_value_range(words):
+    """SPINDL/FEED 표시 문구 목록을 3.3 표기 규칙(v1.7.7 플랜)으로 합친다.
+
+    숫자 크기 기준 오름차순으로 최솟값/최댓값을 고르고, 크기가 전부
+    같으면(값이 하나뿐이거나 반복만 됐으면) 단일 표기, 그렇지 않으면
+    "최소~최대"로 잇는다. 원문 표기(및 SPINDL의 모달 접두어)는 그대로
+    보존한다 — 정규화하지 않는다(결정 B)."""
+    if not words:
+        return ''
+    ordered = sorted(words, key=_lathe_numeric_value)
+    lo, hi = ordered[0], ordered[-1]
+    if _lathe_numeric_value(lo) == _lathe_numeric_value(hi):
+        return lo
+    return '%s~%s' % (lo, hi)
 
 
 def _strip_lathe_tool_prefix(text):
@@ -199,6 +264,8 @@ def parse_lathe_program(text):
     쓴다(승인된 규약)."""
     lines = text.splitlines()
     n_indices = [i for i, line in enumerate(lines) if LATHE_N_RE.match(line)]
+    # v1.7.8: REMARK에 붙일 경보정(G41/G42) 표기 — N번호 -> "(G41)" 등.
+    radius_comp = _radius_comp_by_n(lines, LATHE_N_RE)
     tools = {}
     order = []
     for pos, start in enumerate(n_indices):
@@ -257,9 +324,17 @@ def parse_lathe_program(text):
         if not tool_no and len(comment_tool_no) == 5:
             tool_no = comment_tool_no
 
+        # v1.7.7: SPINDL/FEED는 블록 전체 코드(여러 줄에 걸친 G96/G97 모달
+        # 추적이 필요하므로)를 한 번에 이어붙여 스캔한다.
+        block_code = '\n'.join(code_without_comments(line) for line in block)
+        block_spindle, block_feed = _lathe_collect_spindle_feed(block_code)
+
         key = tool_no or ('__N%d__' % start)
         entry = tools.setdefault(
-            key, {'tool_no': tool_no, 'holder': '', 'insert': '', 'so': '', 'remarks': []}
+            key, {
+                'tool_no': tool_no, 'holder': '', 'insert': '', 'so': '',
+                'remarks': [], 'spindle': [], 'feed': [],
+            }
         )
         if not entry['holder']:
             entry['holder'] = holder
@@ -267,6 +342,8 @@ def parse_lathe_program(text):
             entry['insert'] = insert
         if not entry['so']:
             entry['so'] = so_value
+        entry['spindle'].extend(block_spindle)
+        entry['feed'].extend(block_feed)
         if n_label not in entry['remarks']:
             entry['remarks'].append(n_label)
         if key not in order:
@@ -279,7 +356,9 @@ def parse_lathe_program(text):
             'INSERT': entry['insert'],
             'HOLDER': entry['holder'],
             'SO': entry['so'],
-            'REMARK': ', '.join(entry['remarks']),
+            'SPINDL': _lathe_value_range(entry['spindle']),
+            'FEED': _lathe_value_range(entry['feed']),
+            'REMARK': _format_remark(entry['remarks'], radius_comp),
         }
 
     # v1.6.6: MCT 툴리스트(공구번호 순 + 빠진 번호는 빈 행)와 같은 모양으로
@@ -339,6 +418,124 @@ def is_lathe_machine(machine_type):
 def code_without_comments(line):
     """괄호 주석을 걷어낸 코드 부분만 돌려준다(선반 T 워드 판정용)."""
     return NC_COMMENT_RE.sub(' ', line or '')
+
+
+# v1.7.8: REMARK 열에 "N1(G41)"처럼 경보정(G41/G42) 표기를 덧붙인다(사용자
+# 확정, 2026-09-11). 밀링(N_RE, "N1(#1: Tool Change)")/선반(LATHE_N_RE,
+# "N1" 단독 줄) REMARK 조립에 공용으로 쓰며, 밀링/선반 각자의 파서/정규식은
+# 건드리지 않는다 — REMARK 문자열을 최종 조립하는 지점만 바꾼다.
+# G41/G042처럼 앞자리 0이 있어도 잡되(뒤에 숫자나 '.'이 오면 G410/G41.1
+# 같은 다른 코드이므로 제외) G40(보정 취소)은 잡지 않는다.
+RADIUS_COMP_RE = re.compile(r'G0*4([12])(?![\d.])', re.I)
+# 화면/PDF에서 굵게 그릴 부분을 되짚어 찾을 때 쓰는, REMARK 표시 문구
+# 안의 "(G41)"/"(G42)"/"(G41/G42)" 패턴.
+RADIUS_COMP_DISPLAY_RE = re.compile(r'\(G4[12](?:/G4[12])*\)')
+# M98 P<n>로 부르는 서브프로그램(O<n> 헤더 ~ M99 또는 다음 O헤더) 안의
+# G41/G42도 호출한 N에 포함한다(결정 D) — 뷰어의 상태 추적형
+# _expand_subprograms()(nc_viewer_widget.py)는 재사용하지 않는다. 공구
+# 리스트는 뷰어 import가 실패해도(폴백 화면) 동작해야 하므로, 여기서는
+# "이 호출 사슬에 G41/G42가 있는가"만 보는 훨씬 단순한 헬퍼를 따로 둔다.
+SUBPROGRAM_O_HEADER_RE = re.compile(r'^\s*O\s*0*(\d+)\b', re.I)
+SUBPROGRAM_CALL_RE = re.compile(r'M98\s*P\s*0*(\d+)', re.I)
+SUBPROGRAM_RETURN_RE = re.compile(r'M0?99\b', re.I)
+
+
+def _subprogram_bodies(lines):
+    """O<번호> -> (본문 시작 줄, 끝 줄) 매핑. 본문은 O헤더 다음 줄부터
+    그 안의 첫 M99 줄까지(없으면 다음 O헤더 전까지)."""
+    headers = []
+    for i, line in enumerate(lines):
+        match = SUBPROGRAM_O_HEADER_RE.match(line)
+        if match:
+            headers.append((i, int(match.group(1))))
+    bodies = {}
+    for index, (start, num) in enumerate(headers):
+        next_start = headers[index + 1][0] if index + 1 < len(headers) else len(lines)
+        end = next_start
+        for j in range(start + 1, next_start):
+            if SUBPROGRAM_RETURN_RE.search(code_without_comments(lines[j])):
+                end = j + 1
+                break
+        bodies.setdefault(num, (start + 1, end))
+    return bodies
+
+
+def _collect_radius_comp_codes(code_text):
+    """코드부(주석 제외) 문자열에서 G41/G42를 등장 순서대로 뽑는다."""
+    return ['G4' + match.group(1) for match in RADIUS_COMP_RE.finditer(code_text)]
+
+
+def _radius_comp_codes_for_block(block_lines, bodies, lines, visited):
+    """블록(코드부) + 그 안에서 M98로 부르는 서브프로그램 본문(재귀, 순환
+    호출 방어)까지 훑어 G41/G42 목록을 등장 순서대로 돌려준다."""
+    code_text = '\n'.join(code_without_comments(line) for line in block_lines)
+    codes = _collect_radius_comp_codes(code_text)
+    for match in SUBPROGRAM_CALL_RE.finditer(code_text):
+        num = int(match.group(1))
+        if num in visited:
+            continue
+        visited.add(num)
+        body_range = bodies.get(num)
+        if not body_range:
+            continue
+        start, end = body_range
+        codes.extend(_radius_comp_codes_for_block(lines[start:end], bodies, lines, visited))
+    return codes
+
+
+def _format_comp_suffix(codes):
+    """G41/G42 목록을 "(G41)" / "(G41/G42)" 표시 문구로 합친다(등장 순서
+    유지, 중복 제거) — 없으면 빈 문자열."""
+    if not codes:
+        return ''
+    ordered = []
+    for code in codes:
+        if code not in ordered:
+            ordered.append(code)
+    return '(' + '/'.join(ordered) + ')'
+
+
+def _radius_comp_by_n(lines, n_re):
+    """N번호(예: "N8") -> 경보정 표시 문구("(G41)" 등, 없으면 "") 매핑.
+    블록 범위는 n_re가 매치하는 줄부터 다음 매치 줄 전까지(밀링/선반 각자의
+    N 헤더 규약 그대로 재사용, 지침 §0-2 — 새 정규식으로 다시 정의하지
+    않는다)."""
+    bodies = _subprogram_bodies(lines)
+    positions = []
+    for i, line in enumerate(lines):
+        match = n_re.match(line)
+        if match:
+            positions.append((i, 'N' + match.group(1)))
+    result = {}
+    for index, (start, label) in enumerate(positions):
+        end = positions[index + 1][0] if index + 1 < len(positions) else len(lines)
+        codes = _radius_comp_codes_for_block(lines[start + 1:end], bodies, lines, set())
+        result[label] = _format_comp_suffix(codes)
+    return result
+
+
+def _format_remark(labels, comp_map):
+    """REMARK 표시 문구를 만든다 — "N8(G41), N9, N10" 형태(v1.7.8).
+    comp_map에 없는 라벨은 접미어 없이 그대로 둔다."""
+    return ', '.join(label + comp_map.get(label, '') for label in labels)
+
+
+def _measure_remark_width(text, regular_metrics, bold_metrics):
+    """REMARK 텍스트 폭을 잰다 — "(G41)" 표기 부분은 굵은 글꼴 폭으로,
+    나머지는 보통 글꼴 폭으로 재서 합산한다(v1.7.8, 선반 표 동적 열 폭이
+    굵은 글씨 때문에 셀을 잘라먹지 않도록)."""
+    total = 0
+    pos = 0
+    for match in RADIUS_COMP_DISPLAY_RE.finditer(text):
+        if match.start() > pos:
+            total += regular_metrics.horizontalAdvance(text[pos:match.start()])
+        total += bold_metrics.horizontalAdvance(match.group(0))
+        pos = match.end()
+    if pos < len(text):
+        total += regular_metrics.horizontalAdvance(text[pos:])
+    return total
+
+
 M00_STOP_RE = re.compile(r'M0?0(?!\d)', re.I)
 M01_STOP_RE = re.compile(r'M0?1(?!\d)', re.I)
 MAX_PLAYBACK_SPEED = 5000
@@ -399,7 +596,12 @@ _COL_WIDTH_TOTAL = sum(COL_WIDTH.values())
 # 좁고, INSERT/홀더/REMARK는 실제 문구가 길어(예: "CNMG 120408 | R-0.8")
 # 여유를 넉넉히 둔다. 같은 스케일/패딩 규칙을 적용해 밀링 표와 크기 감이
 # 어긋나지 않게 한다.
-_LATHE_COL_WIDTH_BASE = {'NO': 88, 'INSERT': 220, 'HOLDER': 220, 'SO': 64, 'REMARK': 140}
+# v1.7.7: SPINDL은 모달 접두어(예 "G96S40~G97S800")까지 붙어 SO보다
+# 길어질 수 있어 FEED보다도 조금 더 넓게 잡는다.
+_LATHE_COL_WIDTH_BASE = {
+    'NO': 88, 'INSERT': 220, 'HOLDER': 220, 'SO': 64, 'SPINDL': 128,
+    'FEED': 104, 'REMARK': 140,
+}
 LATHE_COL_WIDTH = {
     key: round(width * COPY_TABLE_SCALE) + TABLE_CELL_PADDING_PX * 2
     for key, width in _LATHE_COL_WIDTH_BASE.items()
@@ -521,6 +723,38 @@ def pdf_column_widths(available_width):
     return [available_width * weight / total for weight in PDF_COLUMN_WEIGHTS]
 
 
+def _pdf_remark_cell(text, regular_font, bold_font):
+    """REMARK 셀에 경보정 표기("(G41)" 등)가 있으면 그 부분만 굵게 그리는
+    Paragraph로 바꾼다(v1.7.8) — PDF 본문은 이미 전체가 굵은 글꼴이라
+    "(G41)"만으로는 구분되지 않으므로, N번호는 보통 글꼴로 되돌리고
+    "(G41)"만 굵은 글꼴을 유지한다. 표기가 없으면 지금처럼 평문 문자열
+    그대로(None 포함) 돌려줘 회귀가 없다."""
+    if not text or not RADIUS_COMP_DISPLAY_RE.search(text):
+        return text
+    style = ParagraphStyle(
+        'PdfRemarkComp', fontName=regular_font, fontSize=6.5, leading=8,
+        textColor=PDF_FONT_BLUE, leftIndent=0, rightIndent=0,
+    )
+    pos = 0
+    chunks = []
+    for match in RADIUS_COMP_DISPLAY_RE.finditer(text):
+        chunks.append(escape(text[pos:match.start()]))
+        chunks.append('<font face="%s">%s</font>' % (bold_font, escape(match.group(0))))
+        pos = match.end()
+    chunks.append(escape(text[pos:]))
+    return Paragraph(''.join(chunks), style)
+
+
+def _pdf_row_cells(row, columns, regular_font, bold_font):
+    cells = []
+    for key, _label in columns:
+        value = row.get(key)
+        if key == 'REMARK':
+            value = _pdf_remark_cell(value, regular_font, bold_font)
+        cells.append(value)
+    return cells
+
+
 def make_pdf_table(rows, metadata, available_width, fonts):
     regular_font, bold_font = fonts
     page_rows = list(rows)
@@ -529,7 +763,7 @@ def make_pdf_table(rows, metadata, available_width, fonts):
         page_rows.append(blank_row)
     data = [make_pdf_metadata_row(metadata, regular_font)]
     data.append([label for _key, label in COLUMNS])
-    data.extend([[row.get(key) for key, _label in COLUMNS] for row in page_rows])
+    data.extend([_pdf_row_cells(row, COLUMNS, regular_font, bold_font) for row in page_rows])
     return style_pdf_table(data, available_width, regular_font, bold_font)
 
 
@@ -616,15 +850,17 @@ def make_pdf_story(rows, metadata, available_width, fonts):
 
 
 # ---------- 선반 전용 PDF(v1.6.5) ----------
-# 밀링 PDF(16열, [SO]/[HOLDER] 등 고정 병합 칸)와 선반(5열: TOOL NO/INSERT/
-# 홀더/SO/REMARK, v1.7.2)은 열 구성 자체가 다르므로 표/스타일을 따로
-# 만든다. 문서 골격(register_pdf_fonts/make_pdf_document/PDF_ROWS_PER_PAGE
-# 등)은 그대로 재사용한다.
+# 밀링 PDF(16열, [SO]/[HOLDER] 등 고정 병합 칸)와 선반(7열: TOOL NO/INSERT/
+# 홀더/SO/SPINDL/FEED/REMARK, v1.7.7)은 열 구성 자체가 다르므로 표/스타일을
+# 따로 만든다. 문서 골격(register_pdf_fonts/make_pdf_document/
+# PDF_ROWS_PER_PAGE 등)은 그대로 재사용한다.
 # v1.6.6: NO는 "T0101"처럼 항상 짧고 REMARK도 "N1, N5"처럼 짧은 편인 반면
 # INSERT/홀더 문구는 길어(예: "T10-D4 X R0.3 FILLET EN MILL, ANGLE / D-4.")
 # 화면 표와 마찬가지로 말줄임이 나던 문제 — 두 열의 비중을 넓힌다.
 # v1.7.2: SO(옵셋 번호 한두 자리, 예 "40")도 NO/REMARK처럼 짧으므로 좁게 둔다.
-LATHE_PDF_COLUMN_WEIGHTS = [55, 285, 285, 50, 100]
+# v1.7.7: SPINDL/FEED 2열 추가. SPINDL은 모달 접두어(예 "G96S40~G97S800")가
+# 붙어 SO보다 길어질 수 있어 FEED보다 조금 더 넓게 잡는다.
+LATHE_PDF_COLUMN_WEIGHTS = [50, 250, 250, 40, 95, 80, 90]
 
 
 def lathe_pdf_column_widths(available_width):
@@ -655,7 +891,7 @@ def make_lathe_pdf_table(rows, metadata, available_width, fonts):
         page_rows.append(blank_row)
     data = [make_lathe_pdf_info_row(metadata, regular_font)]
     data.append([label for _key, label in LATHE_COLUMNS])
-    data.extend([[row.get(key) for key, _label in LATHE_COLUMNS] for row in page_rows])
+    data.extend([_pdf_row_cells(row, LATHE_COLUMNS, regular_font, bold_font) for row in page_rows])
     return style_lathe_pdf_table(data, available_width, regular_font, bold_font)
 
 
@@ -667,10 +903,13 @@ def style_lathe_pdf_table(data, available_width, regular_font, bold_font):
     commands.extend(pdf_table_row_backgrounds())
     # INSERT/홀더/REMARK는 문구가 길어 왼쪽 정렬한다(TOOL NO만 가운데 유지).
     commands.append(('ALIGN', (1, 2), (-1, -1), 'LEFT'))
-    # v1.7.2: SO(인덱스 3)는 "40"처럼 짧은 숫자라 TOOL NO와 같이 가운데
-    # 정렬한다(뒤에 추가해 위 LEFT 지정을 이 열에서만 덮어쓴다).
-    so_col_index = [key for key, _label in LATHE_COLUMNS].index('SO')
-    commands.append(('ALIGN', (so_col_index, 2), (so_col_index, -1), 'CENTER'))
+    # v1.7.2: SO(옵셋 "40")는 짧은 숫자라 TOOL NO와 같이 가운데 정렬한다
+    # (뒤에 추가해 위 LEFT 지정을 이 열에서만 덮어쓴다). v1.7.7: SPINDL/FEED도
+    # 코드 형태의 짧은 값이라 같은 이유로 가운데 정렬에 포함한다.
+    column_keys = [key for key, _label in LATHE_COLUMNS]
+    for centered_key in ('SO', 'SPINDL', 'FEED'):
+        col_index = column_keys.index(centered_key)
+        commands.append(('ALIGN', (col_index, 2), (col_index, -1), 'CENTER'))
     table.setStyle(TableStyle(commands))
     return table
 
@@ -1119,7 +1358,8 @@ def parse_program(text, name_types=None, lathe=False):
         if cur_n[0] and cur_n[0] not in t['remarks']:
             t['remarks'].append(cur_n[0])
 
-    for line in text.splitlines():
+    lines = text.splitlines()
+    for line in lines:
         m = N_RE.match(line)
         if m:
             cur_n[0] = 'N' + m.group(1)
@@ -1146,6 +1386,8 @@ def parse_program(text, name_types=None, lathe=False):
     rows = []
     if not tools:
         return rows
+    # v1.7.8: REMARK에 붙일 경보정(G41/G42) 표기 — N번호 -> "(G41)" 등.
+    radius_comp = _radius_comp_by_n(lines, N_RE)
     # 번호 = 행 위치. 없는 공구번호는 그 행을 빈칸으로 비움
     # (T1 없으면 1행이 비고, T4 없으면 4행이 빔)
     for n in range(1, max(tools) + 1):
@@ -1179,7 +1421,7 @@ def parse_program(text, name_types=None, lathe=False):
             'HOLDER': f.get('HOLDER', ''),
             'SPINDL': f.get('SPINDL', ''),
             'FEED': f.get('FEED', ''),
-            'REMARK': ', '.join(tools[n]['remarks']),
+            'REMARK': _format_remark(tools[n]['remarks'], radius_comp),
         })
     return rows
 
@@ -1341,13 +1583,17 @@ VIEWER_IMPORT_ERROR = None
 NCViewerWidget = None
 try:
     from PyQt5.QtCore import Qt, QSettings, QSize, QTimer, QSignalBlocker, pyqtSignal
-    from PyQt5.QtGui import QColor, QFont, QFontMetrics, QIcon, QKeySequence, QTextCursor, QTextFormat
+    from PyQt5.QtGui import (
+        QAbstractTextDocumentLayout, QColor, QFont, QFontMetrics, QIcon, QKeySequence,
+        QPalette, QTextCursor, QTextDocument, QTextFormat,
+    )
     from PyQt5.QtWidgets import (
         QApplication, QAbstractItemView, QCheckBox, QComboBox, QDialog,
         QDialogButtonBox, QFileDialog, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout,
         QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
-        QPlainTextEdit, QPushButton, QShortcut, QSplitter, QStackedWidget, QTableWidget,
-        QTableWidgetItem, QTextEdit, QVBoxLayout, QWidget,
+        QPlainTextEdit, QPushButton, QShortcut, QSplitter, QStackedWidget, QStyle,
+        QStyledItemDelegate, QStyleOptionViewItem, QTableWidget, QTableWidgetItem, QTextEdit,
+        QVBoxLayout, QWidget,
     )
 except ImportError as error:
     QT_IMPORT_ERROR = error
@@ -1377,6 +1623,53 @@ else:
         def resizeEvent(self, event):
             super().resizeEvent(event)
             self.resized.emit()
+
+    class RemarkCompDelegate(QStyledItemDelegate):
+        """REMARK 열에서 "(G41)"/"(G42)" 같은 경보정 표기만 굵게 그린다
+        (v1.7.8, 사용자 확정). 표기가 없는 셀은 기본 그리기를 그대로
+        호출한다 — G41/G42가 없는 프로그램의 화면은 지금과 픽셀 단위로
+        같다."""
+
+        def paint(self, painter, option, index):
+            text = index.data(Qt.DisplayRole) or ''
+            if not RADIUS_COMP_DISPLAY_RE.search(text):
+                super().paint(painter, option, index)
+                return
+            opt = QStyleOptionViewItem(option)
+            self.initStyleOption(opt, index)
+            widget = opt.widget
+            style = widget.style() if widget else QApplication.style()
+            opt.text = ''
+            style.drawControl(QStyle.CE_ItemViewItem, opt, painter, widget)
+            text_rect = style.subElementRect(QStyle.SE_ItemViewItemText, opt, widget)
+
+            doc = QTextDocument()
+            doc.setDocumentMargin(0)
+            doc.setDefaultFont(opt.font)
+            selected = bool(opt.state & QStyle.State_Selected)
+            color = opt.palette.color(QPalette.HighlightedText if selected else QPalette.Text)
+            doc.setHtml('<span style="color:%s;">%s</span>' % (color.name(), self._to_html(text)))
+            doc.setTextWidth(-1)
+
+            painter.save()
+            painter.setClipRect(text_rect)
+            y_offset = max(0.0, (text_rect.height() - doc.size().height()) / 2)
+            painter.translate(text_rect.left(), text_rect.top() + y_offset)
+            context = QAbstractTextDocumentLayout.PaintContext()
+            context.palette = opt.palette
+            doc.documentLayout().draw(painter, context)
+            painter.restore()
+
+        @staticmethod
+        def _to_html(text):
+            pos = 0
+            chunks = []
+            for match in RADIUS_COMP_DISPLAY_RE.finditer(text):
+                chunks.append(escape(text[pos:match.start()]))
+                chunks.append('<b>%s</b>' % escape(match.group(0)))
+                pos = match.end()
+            chunks.append(escape(text[pos:]))
+            return ''.join(chunks)
 
     class ProgramTextEdit(QPlainTextEdit):
         # QTextEdit(리치 텍스트)이 아닌 QPlainTextEdit을 쓴다 — 3만 줄대의 NoWrap
@@ -2620,6 +2913,9 @@ else:
             # v1.6.3: 표 폭이 바뀔 때마다(스플리터 드래그 포함) 폰트/셀 폭을
             # 다시 맞춰 가로 스크롤바가 생기지 않게 한다.
             self.table.resized.connect(self._relayout_tool_table)
+            # v1.7.8: REMARK 열의 "(G41)" 표기만 굵게 그리는 델리게이트.
+            # 부모를 self.table로 둬 표와 수명을 같이한다.
+            self._remark_delegate = RemarkCompDelegate(self.table)
             # v1.5.9: 표기 폰트를 기존(미지정 기본 폰트, ~9pt)의 1.6배로 키운다
             # — 행 높이는 Qt가 이 폰트 크기에 맞춰 함께 자동으로 커진다.
             # v1.6.2: 요청대로 그 폰트/셀 폭을 다시 15% 줄인다(COPY_TABLE_SCALE).
@@ -3024,13 +3320,23 @@ else:
             font = QFont('맑은 고딕')
             font.setPointSizeF(TABLE_FONT_PT)
             metrics = QFontMetrics(font)
+            bold_font = QFont('맑은 고딕', weight=QFont.Bold)
+            bold_font.setPointSizeF(TABLE_FONT_PT)
+            bold_metrics = QFontMetrics(bold_font)
             widths = {}
             for key, label in LATHE_COLUMNS:
                 content_width = metrics.horizontalAdvance(str(label))
                 for row in rows:
                     text = str(row.get(key, ''))
-                    if text:
-                        content_width = max(content_width, metrics.horizontalAdvance(text))
+                    if not text:
+                        continue
+                    # v1.7.8: REMARK의 "(G41)" 부분은 굵은 글꼴로 그려지므로
+                    # 그만큼 더 넓게 재야 셀이 잘리지 않는다.
+                    if key == 'REMARK':
+                        width = _measure_remark_width(text, metrics, bold_metrics)
+                    else:
+                        width = metrics.horizontalAdvance(text)
+                    content_width = max(content_width, width)
                 measured = content_width + TABLE_CELL_PADDING_PX * 2 + 12
                 widths[key] = max(measured, LATHE_COL_WIDTH.get(key, 60))
             self._lathe_dynamic_col_width = widths
@@ -3051,6 +3357,8 @@ else:
             self.table.setHorizontalHeaderLabels([label for _key, label in columns])
             for index, (key, _label) in enumerate(columns):
                 self.table.setColumnWidth(index, self.active_col_width(key))
+                if key == 'REMARK':
+                    self.table.setItemDelegateForColumn(index, self._remark_delegate)
             self._table_columns_is_lathe = lathe
             self.update_count()
 
