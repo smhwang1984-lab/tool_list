@@ -26,7 +26,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
 
-APP_VERSION = '1.7.8'
+APP_VERSION = '1.7.9'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-09-11'
 APP_CREATOR = 'Hwang.seonmun'
@@ -993,9 +993,38 @@ def find_next_regex_span(text, pattern, start=0):
     return None
 
 
+def find_prev_regex_span(text, pattern, start=0):
+    """start보다 앞에서 시작하는 마지막 매치. 없으면 끝에서부터 다시(wrapped=True)."""
+    text = text or ''
+    if not text:
+        return None
+    try:
+        start = int(start)
+    except (TypeError, ValueError):
+        start = 0
+    start = max(0, min(start, len(text)))
+    before = last = None
+    for match in pattern.finditer(text):
+        if match.start() < start:
+            before = match
+        last = match
+    if before is not None:
+        return before.start(), before.end(), False
+    if last is not None:
+        return last.start(), last.end(), True
+    return None
+
+
 def find_next_tool_change_span(text, start=0, lathe=False):
     """'다음공구검색'이 찾을 다음 공구 교체 지점. 선반은 Tnn00 기준이다."""
     return find_next_regex_span(
+        text, LATHE_T_SEARCH_RE if lathe else M6_SEARCH_RE, start
+    )
+
+
+def find_prev_tool_change_span(text, start=0, lathe=False):
+    """'이전공구검색' — 다음공구검색과 같은 기준(밀링 M6T, 선반 Tnn00)으로 위쪽을 찾는다."""
+    return find_prev_regex_span(
         text, LATHE_T_SEARCH_RE if lathe else M6_SEARCH_RE, start
     )
 
@@ -1497,6 +1526,25 @@ def send_to_running_instance(file_path, timeout_ms=800):
         return False
 
 
+def bring_window_to_front(window):
+    """넘겨받은 파일을 열기 전에 창을 앞으로 끌어낸다(v1.7.9).
+    최소화돼 있을 때만 되살리고, 최대화 상태는 절대 풀지 않는다 — 이전에는
+    항상 showNormal()을 불러 떠 있던 창이 최대화 상태였어도 일반 크기로
+    풀려 버렸다."""
+    state = window.windowState()
+    if state & Qt.WindowMinimized:
+        maximized = bool(state & Qt.WindowMaximized) or getattr(
+            window, '_restore_maximized', False
+        )
+        window.setWindowState((state & ~Qt.WindowMinimized) | Qt.WindowActive)
+        if maximized:
+            window.showMaximized()
+        else:
+            window.showNormal()
+    window.raise_()
+    window.activateWindow()
+
+
 def start_single_instance_server(window):
     """이 프로세스를 "주인" 인스턴스로 등록하고, 뒤이어 실행된 프로세스가
     보내오는 파일 경로를 받아 창에 연다.
@@ -1521,14 +1569,10 @@ def start_single_instance_server(window):
             except Exception:
                 payload = ''
             socket.disconnectFromServer()
-            # 최소화되어 있거나 다른 창에 가려 있어도 앞으로 끌어낸다.
+            # 최소화되어 있거나 다른 창에 가려 있어도 앞으로 끌어낸다
+            # (최대화 상태는 유지 — v1.7.9).
             try:
-                window.setWindowState(
-                    (window.windowState() & ~Qt.WindowMinimized) | Qt.WindowActive
-                )
-                window.showNormal()
-                window.raise_()
-                window.activateWindow()
+                bring_window_to_front(window)
             except Exception:
                 pass
             if payload and Path(payload).is_file():
@@ -1582,7 +1626,7 @@ QT_IMPORT_ERROR = None
 VIEWER_IMPORT_ERROR = None
 NCViewerWidget = None
 try:
-    from PyQt5.QtCore import Qt, QSettings, QSize, QTimer, QSignalBlocker, pyqtSignal
+    from PyQt5.QtCore import Qt, QSettings, QSize, QTimer, QSignalBlocker, pyqtSignal, QEvent
     from PyQt5.QtGui import (
         QAbstractTextDocumentLayout, QColor, QFont, QFontMetrics, QIcon, QKeySequence,
         QPalette, QTextCursor, QTextDocument, QTextFormat,
@@ -1898,6 +1942,10 @@ else:
             self.playback_seq = 0
             self._seq_driven = False
             self._search_status_error = False
+            # v1.7.9: 최소화된 창을 되살릴 때 최대화 이력대로 복원하기 위한
+            # 기록(bring_window_to_front). 기본 실행이 항상 최대화(v1.7.3)라
+            # 초기값도 True — changeEvent()가 실제 상태 변화마다 갱신한다.
+            self._restore_maximized = True
 
             # 다크모드: _build_ui()가 위젯을 만들 때부터 올바른 색을 쓰도록
             # UI 생성 전에 테마를 먼저 정한다. 큐브 크기 슬라이더 옆 토글
@@ -2204,7 +2252,13 @@ else:
             left_layout.addWidget(self.machine_settings_panel)
 
             search_bar = QHBoxLayout()
-            self._add_button(search_bar, '다음공구검색', self.find_next_tool_change, kfont)
+            self._search_bar_layout = search_bar  # 테스트에서 버튼 순서를 확인하는 용도
+            self.btn_prev_tool_search = self._add_button(
+                search_bar, '이전공구검색', self.find_prev_tool_change, kfont
+            )
+            self.btn_next_tool_search = self._add_button(
+                search_bar, '다음공구검색', self.find_next_tool_change, kfont
+            )
             search_bar.addWidget(QLabel('문자 검색'))
             self.search_text = QLineEdit()
             self.search_text.setFont(kfont)
@@ -2393,7 +2447,8 @@ else:
             '  탐색기에서 연결된 확장자(.nc/.mpf/.tap) 파일을 더블클릭해도 바로 열립니다.\n'
             '\n'
             '■ 검색\n'
-            '  다음공구검색: 공구 교체 지점을 순서대로 찾습니다(밀링 M6T, 선반 Tnn00).\n'
+            '  이전공구검색 / 다음공구검색: 공구 교체 지점을 위/아래 방향으로 찾습니다(밀링 M6T, 선반\n'
+            '  Tnn00). 끝에 닿으면 반대쪽 끝에서 이어서 찾습니다.\n'
             '  문자 검색: 입력한 문자열이 있는 다음 줄을 찾습니다(끝까지 가면 처음부터 재검색).\n'
             '\n'
             '■ 장비 타입 및 스펙 설정\n'
@@ -3437,6 +3492,21 @@ else:
             self.select_source_span(start, end)
             self.set_search_status('처음부터 검색' if wrapped else '공구 위치 선택')
 
+        def find_prev_tool_change(self):
+            """'이전공구검색' — 다음공구검색과 왕복해도 같은 지점을 다시 잡지 않도록
+            선택 시작(selectionStart) 기준으로 위쪽을 찾는다(v1.7.9)."""
+            lathe = self.is_lathe_program()
+            result = find_prev_tool_change_span(
+                self.src.toPlainText(), self.src.textCursor().selectionStart(), lathe=lathe
+            )
+            if not result:
+                self.set_search_status('Tnn00 항목 없음' if lathe else 'M6T 항목 없음', True)
+                self.src.setFocus()
+                return
+            start, end, wrapped = result
+            self.select_source_span(start, end)
+            self.set_search_status('끝에서부터 검색' if wrapped else '공구 위치 선택')
+
         def find_next_text(self):
             needle = self.search_text.text()
             if not needle:
@@ -3620,6 +3690,17 @@ else:
         def resizeEvent(self, event):
             super().resizeEvent(event)
             self._relayout_tool_table()
+
+        def changeEvent(self, event):
+            super().changeEvent(event)
+            if event.type() == QEvent.WindowStateChange:
+                # 최소화가 아닐 때의 최대화 여부를 기억해 둔다 — 최소화된
+                # 창을 되살릴 때 최대화 이력대로 복원하기 위해서다
+                # (bring_window_to_front, v1.7.9). Qt5는 보통 최소화해도
+                # WindowMaximized 비트를 남기지만, 일부 경로에서 비트가
+                # 사라지는 경우를 대비한 이중 안전장치다.
+                if not (self.windowState() & Qt.WindowMinimized):
+                    self._restore_maximized = bool(self.windowState() & Qt.WindowMaximized)
 
         def open_file(self):
             path, _filter = QFileDialog.getOpenFileName(
