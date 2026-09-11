@@ -264,6 +264,8 @@ def parse_lathe_program(text):
     쓴다(승인된 규약)."""
     lines = text.splitlines()
     n_indices = [i for i, line in enumerate(lines) if LATHE_N_RE.match(line)]
+    # v1.7.8: REMARK에 붙일 경보정(G41/G42) 표기 — N번호 -> "(G41)" 등.
+    radius_comp = _radius_comp_by_n(lines, LATHE_N_RE)
     tools = {}
     order = []
     for pos, start in enumerate(n_indices):
@@ -356,7 +358,7 @@ def parse_lathe_program(text):
             'SO': entry['so'],
             'SPINDL': _lathe_value_range(entry['spindle']),
             'FEED': _lathe_value_range(entry['feed']),
-            'REMARK': ', '.join(entry['remarks']),
+            'REMARK': _format_remark(entry['remarks'], radius_comp),
         }
 
     # v1.6.6: MCT 툴리스트(공구번호 순 + 빠진 번호는 빈 행)와 같은 모양으로
@@ -416,6 +418,124 @@ def is_lathe_machine(machine_type):
 def code_without_comments(line):
     """괄호 주석을 걷어낸 코드 부분만 돌려준다(선반 T 워드 판정용)."""
     return NC_COMMENT_RE.sub(' ', line or '')
+
+
+# v1.7.8: REMARK 열에 "N1(G41)"처럼 경보정(G41/G42) 표기를 덧붙인다(사용자
+# 확정, 2026-09-11). 밀링(N_RE, "N1(#1: Tool Change)")/선반(LATHE_N_RE,
+# "N1" 단독 줄) REMARK 조립에 공용으로 쓰며, 밀링/선반 각자의 파서/정규식은
+# 건드리지 않는다 — REMARK 문자열을 최종 조립하는 지점만 바꾼다.
+# G41/G042처럼 앞자리 0이 있어도 잡되(뒤에 숫자나 '.'이 오면 G410/G41.1
+# 같은 다른 코드이므로 제외) G40(보정 취소)은 잡지 않는다.
+RADIUS_COMP_RE = re.compile(r'G0*4([12])(?![\d.])', re.I)
+# 화면/PDF에서 굵게 그릴 부분을 되짚어 찾을 때 쓰는, REMARK 표시 문구
+# 안의 "(G41)"/"(G42)"/"(G41/G42)" 패턴.
+RADIUS_COMP_DISPLAY_RE = re.compile(r'\(G4[12](?:/G4[12])*\)')
+# M98 P<n>로 부르는 서브프로그램(O<n> 헤더 ~ M99 또는 다음 O헤더) 안의
+# G41/G42도 호출한 N에 포함한다(결정 D) — 뷰어의 상태 추적형
+# _expand_subprograms()(nc_viewer_widget.py)는 재사용하지 않는다. 공구
+# 리스트는 뷰어 import가 실패해도(폴백 화면) 동작해야 하므로, 여기서는
+# "이 호출 사슬에 G41/G42가 있는가"만 보는 훨씬 단순한 헬퍼를 따로 둔다.
+SUBPROGRAM_O_HEADER_RE = re.compile(r'^\s*O\s*0*(\d+)\b', re.I)
+SUBPROGRAM_CALL_RE = re.compile(r'M98\s*P\s*0*(\d+)', re.I)
+SUBPROGRAM_RETURN_RE = re.compile(r'M0?99\b', re.I)
+
+
+def _subprogram_bodies(lines):
+    """O<번호> -> (본문 시작 줄, 끝 줄) 매핑. 본문은 O헤더 다음 줄부터
+    그 안의 첫 M99 줄까지(없으면 다음 O헤더 전까지)."""
+    headers = []
+    for i, line in enumerate(lines):
+        match = SUBPROGRAM_O_HEADER_RE.match(line)
+        if match:
+            headers.append((i, int(match.group(1))))
+    bodies = {}
+    for index, (start, num) in enumerate(headers):
+        next_start = headers[index + 1][0] if index + 1 < len(headers) else len(lines)
+        end = next_start
+        for j in range(start + 1, next_start):
+            if SUBPROGRAM_RETURN_RE.search(code_without_comments(lines[j])):
+                end = j + 1
+                break
+        bodies.setdefault(num, (start + 1, end))
+    return bodies
+
+
+def _collect_radius_comp_codes(code_text):
+    """코드부(주석 제외) 문자열에서 G41/G42를 등장 순서대로 뽑는다."""
+    return ['G4' + match.group(1) for match in RADIUS_COMP_RE.finditer(code_text)]
+
+
+def _radius_comp_codes_for_block(block_lines, bodies, lines, visited):
+    """블록(코드부) + 그 안에서 M98로 부르는 서브프로그램 본문(재귀, 순환
+    호출 방어)까지 훑어 G41/G42 목록을 등장 순서대로 돌려준다."""
+    code_text = '\n'.join(code_without_comments(line) for line in block_lines)
+    codes = _collect_radius_comp_codes(code_text)
+    for match in SUBPROGRAM_CALL_RE.finditer(code_text):
+        num = int(match.group(1))
+        if num in visited:
+            continue
+        visited.add(num)
+        body_range = bodies.get(num)
+        if not body_range:
+            continue
+        start, end = body_range
+        codes.extend(_radius_comp_codes_for_block(lines[start:end], bodies, lines, visited))
+    return codes
+
+
+def _format_comp_suffix(codes):
+    """G41/G42 목록을 "(G41)" / "(G41/G42)" 표시 문구로 합친다(등장 순서
+    유지, 중복 제거) — 없으면 빈 문자열."""
+    if not codes:
+        return ''
+    ordered = []
+    for code in codes:
+        if code not in ordered:
+            ordered.append(code)
+    return '(' + '/'.join(ordered) + ')'
+
+
+def _radius_comp_by_n(lines, n_re):
+    """N번호(예: "N8") -> 경보정 표시 문구("(G41)" 등, 없으면 "") 매핑.
+    블록 범위는 n_re가 매치하는 줄부터 다음 매치 줄 전까지(밀링/선반 각자의
+    N 헤더 규약 그대로 재사용, 지침 §0-2 — 새 정규식으로 다시 정의하지
+    않는다)."""
+    bodies = _subprogram_bodies(lines)
+    positions = []
+    for i, line in enumerate(lines):
+        match = n_re.match(line)
+        if match:
+            positions.append((i, 'N' + match.group(1)))
+    result = {}
+    for index, (start, label) in enumerate(positions):
+        end = positions[index + 1][0] if index + 1 < len(positions) else len(lines)
+        codes = _radius_comp_codes_for_block(lines[start + 1:end], bodies, lines, set())
+        result[label] = _format_comp_suffix(codes)
+    return result
+
+
+def _format_remark(labels, comp_map):
+    """REMARK 표시 문구를 만든다 — "N8(G41), N9, N10" 형태(v1.7.8).
+    comp_map에 없는 라벨은 접미어 없이 그대로 둔다."""
+    return ', '.join(label + comp_map.get(label, '') for label in labels)
+
+
+def _measure_remark_width(text, regular_metrics, bold_metrics):
+    """REMARK 텍스트 폭을 잰다 — "(G41)" 표기 부분은 굵은 글꼴 폭으로,
+    나머지는 보통 글꼴 폭으로 재서 합산한다(v1.7.8, 선반 표 동적 열 폭이
+    굵은 글씨 때문에 셀을 잘라먹지 않도록)."""
+    total = 0
+    pos = 0
+    for match in RADIUS_COMP_DISPLAY_RE.finditer(text):
+        if match.start() > pos:
+            total += regular_metrics.horizontalAdvance(text[pos:match.start()])
+        total += bold_metrics.horizontalAdvance(match.group(0))
+        pos = match.end()
+    if pos < len(text):
+        total += regular_metrics.horizontalAdvance(text[pos:])
+    return total
+
+
 M00_STOP_RE = re.compile(r'M0?0(?!\d)', re.I)
 M01_STOP_RE = re.compile(r'M0?1(?!\d)', re.I)
 MAX_PLAYBACK_SPEED = 5000
@@ -603,6 +723,38 @@ def pdf_column_widths(available_width):
     return [available_width * weight / total for weight in PDF_COLUMN_WEIGHTS]
 
 
+def _pdf_remark_cell(text, regular_font, bold_font):
+    """REMARK 셀에 경보정 표기("(G41)" 등)가 있으면 그 부분만 굵게 그리는
+    Paragraph로 바꾼다(v1.7.8) — PDF 본문은 이미 전체가 굵은 글꼴이라
+    "(G41)"만으로는 구분되지 않으므로, N번호는 보통 글꼴로 되돌리고
+    "(G41)"만 굵은 글꼴을 유지한다. 표기가 없으면 지금처럼 평문 문자열
+    그대로(None 포함) 돌려줘 회귀가 없다."""
+    if not text or not RADIUS_COMP_DISPLAY_RE.search(text):
+        return text
+    style = ParagraphStyle(
+        'PdfRemarkComp', fontName=regular_font, fontSize=6.5, leading=8,
+        textColor=PDF_FONT_BLUE, leftIndent=0, rightIndent=0,
+    )
+    pos = 0
+    chunks = []
+    for match in RADIUS_COMP_DISPLAY_RE.finditer(text):
+        chunks.append(escape(text[pos:match.start()]))
+        chunks.append('<font face="%s">%s</font>' % (bold_font, escape(match.group(0))))
+        pos = match.end()
+    chunks.append(escape(text[pos:]))
+    return Paragraph(''.join(chunks), style)
+
+
+def _pdf_row_cells(row, columns, regular_font, bold_font):
+    cells = []
+    for key, _label in columns:
+        value = row.get(key)
+        if key == 'REMARK':
+            value = _pdf_remark_cell(value, regular_font, bold_font)
+        cells.append(value)
+    return cells
+
+
 def make_pdf_table(rows, metadata, available_width, fonts):
     regular_font, bold_font = fonts
     page_rows = list(rows)
@@ -611,7 +763,7 @@ def make_pdf_table(rows, metadata, available_width, fonts):
         page_rows.append(blank_row)
     data = [make_pdf_metadata_row(metadata, regular_font)]
     data.append([label for _key, label in COLUMNS])
-    data.extend([[row.get(key) for key, _label in COLUMNS] for row in page_rows])
+    data.extend([_pdf_row_cells(row, COLUMNS, regular_font, bold_font) for row in page_rows])
     return style_pdf_table(data, available_width, regular_font, bold_font)
 
 
@@ -739,7 +891,7 @@ def make_lathe_pdf_table(rows, metadata, available_width, fonts):
         page_rows.append(blank_row)
     data = [make_lathe_pdf_info_row(metadata, regular_font)]
     data.append([label for _key, label in LATHE_COLUMNS])
-    data.extend([[row.get(key) for key, _label in LATHE_COLUMNS] for row in page_rows])
+    data.extend([_pdf_row_cells(row, LATHE_COLUMNS, regular_font, bold_font) for row in page_rows])
     return style_lathe_pdf_table(data, available_width, regular_font, bold_font)
 
 
@@ -1206,7 +1358,8 @@ def parse_program(text, name_types=None, lathe=False):
         if cur_n[0] and cur_n[0] not in t['remarks']:
             t['remarks'].append(cur_n[0])
 
-    for line in text.splitlines():
+    lines = text.splitlines()
+    for line in lines:
         m = N_RE.match(line)
         if m:
             cur_n[0] = 'N' + m.group(1)
@@ -1233,6 +1386,8 @@ def parse_program(text, name_types=None, lathe=False):
     rows = []
     if not tools:
         return rows
+    # v1.7.8: REMARK에 붙일 경보정(G41/G42) 표기 — N번호 -> "(G41)" 등.
+    radius_comp = _radius_comp_by_n(lines, N_RE)
     # 번호 = 행 위치. 없는 공구번호는 그 행을 빈칸으로 비움
     # (T1 없으면 1행이 비고, T4 없으면 4행이 빔)
     for n in range(1, max(tools) + 1):
@@ -1266,7 +1421,7 @@ def parse_program(text, name_types=None, lathe=False):
             'HOLDER': f.get('HOLDER', ''),
             'SPINDL': f.get('SPINDL', ''),
             'FEED': f.get('FEED', ''),
-            'REMARK': ', '.join(tools[n]['remarks']),
+            'REMARK': _format_remark(tools[n]['remarks'], radius_comp),
         })
     return rows
 
@@ -1428,13 +1583,17 @@ VIEWER_IMPORT_ERROR = None
 NCViewerWidget = None
 try:
     from PyQt5.QtCore import Qt, QSettings, QSize, QTimer, QSignalBlocker, pyqtSignal
-    from PyQt5.QtGui import QColor, QFont, QFontMetrics, QIcon, QKeySequence, QTextCursor, QTextFormat
+    from PyQt5.QtGui import (
+        QAbstractTextDocumentLayout, QColor, QFont, QFontMetrics, QIcon, QKeySequence,
+        QPalette, QTextCursor, QTextDocument, QTextFormat,
+    )
     from PyQt5.QtWidgets import (
         QApplication, QAbstractItemView, QCheckBox, QComboBox, QDialog,
         QDialogButtonBox, QFileDialog, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout,
         QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
-        QPlainTextEdit, QPushButton, QShortcut, QSplitter, QStackedWidget, QTableWidget,
-        QTableWidgetItem, QTextEdit, QVBoxLayout, QWidget,
+        QPlainTextEdit, QPushButton, QShortcut, QSplitter, QStackedWidget, QStyle,
+        QStyledItemDelegate, QStyleOptionViewItem, QTableWidget, QTableWidgetItem, QTextEdit,
+        QVBoxLayout, QWidget,
     )
 except ImportError as error:
     QT_IMPORT_ERROR = error
@@ -1464,6 +1623,53 @@ else:
         def resizeEvent(self, event):
             super().resizeEvent(event)
             self.resized.emit()
+
+    class RemarkCompDelegate(QStyledItemDelegate):
+        """REMARK 열에서 "(G41)"/"(G42)" 같은 경보정 표기만 굵게 그린다
+        (v1.7.8, 사용자 확정). 표기가 없는 셀은 기본 그리기를 그대로
+        호출한다 — G41/G42가 없는 프로그램의 화면은 지금과 픽셀 단위로
+        같다."""
+
+        def paint(self, painter, option, index):
+            text = index.data(Qt.DisplayRole) or ''
+            if not RADIUS_COMP_DISPLAY_RE.search(text):
+                super().paint(painter, option, index)
+                return
+            opt = QStyleOptionViewItem(option)
+            self.initStyleOption(opt, index)
+            widget = opt.widget
+            style = widget.style() if widget else QApplication.style()
+            opt.text = ''
+            style.drawControl(QStyle.CE_ItemViewItem, opt, painter, widget)
+            text_rect = style.subElementRect(QStyle.SE_ItemViewItemText, opt, widget)
+
+            doc = QTextDocument()
+            doc.setDocumentMargin(0)
+            doc.setDefaultFont(opt.font)
+            selected = bool(opt.state & QStyle.State_Selected)
+            color = opt.palette.color(QPalette.HighlightedText if selected else QPalette.Text)
+            doc.setHtml('<span style="color:%s;">%s</span>' % (color.name(), self._to_html(text)))
+            doc.setTextWidth(-1)
+
+            painter.save()
+            painter.setClipRect(text_rect)
+            y_offset = max(0.0, (text_rect.height() - doc.size().height()) / 2)
+            painter.translate(text_rect.left(), text_rect.top() + y_offset)
+            context = QAbstractTextDocumentLayout.PaintContext()
+            context.palette = opt.palette
+            doc.documentLayout().draw(painter, context)
+            painter.restore()
+
+        @staticmethod
+        def _to_html(text):
+            pos = 0
+            chunks = []
+            for match in RADIUS_COMP_DISPLAY_RE.finditer(text):
+                chunks.append(escape(text[pos:match.start()]))
+                chunks.append('<b>%s</b>' % escape(match.group(0)))
+                pos = match.end()
+            chunks.append(escape(text[pos:]))
+            return ''.join(chunks)
 
     class ProgramTextEdit(QPlainTextEdit):
         # QTextEdit(리치 텍스트)이 아닌 QPlainTextEdit을 쓴다 — 3만 줄대의 NoWrap
@@ -2707,6 +2913,9 @@ else:
             # v1.6.3: 표 폭이 바뀔 때마다(스플리터 드래그 포함) 폰트/셀 폭을
             # 다시 맞춰 가로 스크롤바가 생기지 않게 한다.
             self.table.resized.connect(self._relayout_tool_table)
+            # v1.7.8: REMARK 열의 "(G41)" 표기만 굵게 그리는 델리게이트.
+            # 부모를 self.table로 둬 표와 수명을 같이한다.
+            self._remark_delegate = RemarkCompDelegate(self.table)
             # v1.5.9: 표기 폰트를 기존(미지정 기본 폰트, ~9pt)의 1.6배로 키운다
             # — 행 높이는 Qt가 이 폰트 크기에 맞춰 함께 자동으로 커진다.
             # v1.6.2: 요청대로 그 폰트/셀 폭을 다시 15% 줄인다(COPY_TABLE_SCALE).
@@ -3111,13 +3320,23 @@ else:
             font = QFont('맑은 고딕')
             font.setPointSizeF(TABLE_FONT_PT)
             metrics = QFontMetrics(font)
+            bold_font = QFont('맑은 고딕', weight=QFont.Bold)
+            bold_font.setPointSizeF(TABLE_FONT_PT)
+            bold_metrics = QFontMetrics(bold_font)
             widths = {}
             for key, label in LATHE_COLUMNS:
                 content_width = metrics.horizontalAdvance(str(label))
                 for row in rows:
                     text = str(row.get(key, ''))
-                    if text:
-                        content_width = max(content_width, metrics.horizontalAdvance(text))
+                    if not text:
+                        continue
+                    # v1.7.8: REMARK의 "(G41)" 부분은 굵은 글꼴로 그려지므로
+                    # 그만큼 더 넓게 재야 셀이 잘리지 않는다.
+                    if key == 'REMARK':
+                        width = _measure_remark_width(text, metrics, bold_metrics)
+                    else:
+                        width = metrics.horizontalAdvance(text)
+                    content_width = max(content_width, width)
                 measured = content_width + TABLE_CELL_PADDING_PX * 2 + 12
                 widths[key] = max(measured, LATHE_COL_WIDTH.get(key, 60))
             self._lathe_dynamic_col_width = widths
@@ -3138,6 +3357,8 @@ else:
             self.table.setHorizontalHeaderLabels([label for _key, label in columns])
             for index, (key, _label) in enumerate(columns):
                 self.table.setColumnWidth(index, self.active_col_width(key))
+                if key == 'REMARK':
+                    self.table.setItemDelegateForColumn(index, self._remark_delegate)
             self._table_columns_is_lathe = lathe
             self.update_count()
 

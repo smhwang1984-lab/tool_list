@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-09-07 (v1.7.7)
+Last updated: 2026-09-11 (v1.7.8)
 
 ## About button requirements
 
@@ -34,7 +34,63 @@ Last updated: 2026-09-07 (v1.7.7)
 
 ## Version history
 
-### 2026-09-07 (latest, v1.7.7)
+### 2026-09-11 (latest, v1.7.8)
+
+- Version: 1.7.8
+- Release/build date: 2026-09-11
+- Summary: 사용자 요청(2026-09-11). 공구리스트 REMARK 열에 경보정(G41/G42)
+  표기를 추가했다(`v1.7.8_PLAN.md` 참고, 승인 완료: A 밀링+선반 둘 다,
+  B 권장안, C G42도 표기, D 권장안, E 권장안).
+  1. REMARK의 N번호 뒤에 그 N 공정 코드에 있는 경보정을 붙인다 —
+     `N8(G41), N9`. 밀링(`parse_program()`)/선반(`parse_lathe_program()`)
+     REMARK 조립에 공용으로 적용(밀링 전용 기능이 아니다).
+  2. G41뿐 아니라 G42도 표기하고, 한 블록에 둘 다 있으면 등장 순서대로
+     `N3(G41/G42)`로 잇는다. 검출은 코드부(주석 걷어낸 뒤)에서만 하고
+     (`RADIUS_COMP_RE`), `G40`/`G410`/`G41.1` 같은 다른 코드는 잡지 않는다.
+  3. `M98 P<n>`으로 부르는 서브프로그램(`O<n>` 헤더 ~ `M99`) 안의 G41/G42도
+     재귀로 따라가 그것을 부르는 N에 귀속시킨다(`_subprogram_bodies()`/
+     `_radius_comp_codes_for_block()`, 순환 호출 방문 표시로 방어) — 이
+     탐색은 REMARK 경보정 검출에만 쓰고 TOOL NO/홀더/인서트/SO/SPINDL/FEED
+     추출 규칙은 그대로 뒀다. 뷰어의 상태 추적형 `_expand_subprograms()`
+     (`nc_viewer_widget.py`, 툴패스 재생 전용)는 재사용하지 않았다 —
+     **툴패스 계산·3D 뷰어·가공시간 로직은 이번 변경으로 전혀 손대지
+     않았다.**
+  4. 화면 표는 REMARK 열에만 건 `RemarkCompDelegate`가 `(G41)` 부분만
+     굵게 그린다(표기가 없는 셀은 기본 그리기 그대로 — 회귀 없음). 선반
+     동적 열 폭 계산도 굵은 글씨 폭을 반영해 셀이 잘리지 않게 했다.
+  5. PDF는 REMARK 셀 전체가 이미 굵은 글꼴이라, `(G41)`이 있는 셀만
+     `Paragraph`로 바꿔 N번호는 보통 글꼴로 되돌리고 `(G41)`만 굵게
+     유지한다(`_pdf_remark_cell()`). 표기가 없는 셀은 지금처럼 평문
+     문자열 그대로다.
+  6. 클립보드 복사는 서식 없는 평문 그대로(변경 없음).
+- Open source software used: 변경 없음(PyQt5/pyqtgraph/numpy/reportlab).
+- Tests: `tests/test_nc_tool_list.py` 245개(스킵 1개 제외 244개 실행) —
+  v1.7.7의 231개 + 신규 `RadiusCompRemarkTests` 14개(밀링/선반 REMARK
+  경보정 표기, 주석 오검출 방지, G40/G41.1 등 다른 코드 제외, G42/결합
+  표기, 서브프로그램 귀속, 순환 호출 방어, `_format_remark()` 헬퍼,
+  화면 델리게이트 굵게 처리·열 배정, PDF 셀 굵게 처리·통과, 밀링/선반
+  PDF 빌드 스모크, 실제 예제 `O1699.nc`/`sub_pg test.nc` 스모크). 회귀
+  확인: 전체 스위트 재실행 243 passed(알려진 QSettings 잔존 상태 1건
+  제외 — [[project_tests_share_real_qsettings]], 이번 변경과 무관, 재실행
+  시 그대로 통과 확인). 툴패스 계산(`CannedCycleTests`/`MachiningTimeTests`/
+  `SubprogramTests`/`LatheModeTests`) 105개도 별도로 재확인해 전부 통과.
+- Installer/package status: **생성 완료**(사용자 직접 지시로 빌드).
+  - `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` — onedir, UPX 비활성,
+    `_internal\OpenGL\DLLS` 폴더 부재 유지(freeglut/gle32/64 DLL 배제,
+    MSVCR90.dll 경고는 기존과 동일하게 무해).
+  - `ISCC.exe NC_Tool_List.iss`(Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.7.8.exe`
+    (컴파일 56.3초, 46.5 MB).
+  - 포터블: `installer\NC_Tool_List_Portable_v1.7.8.zip` 64.0 MB, 315개 항목.
+  - 빌드 검증: 프리즈된 `NC_Tool_List.exe`의 파일/제품 버전이 `1.7.8.0`로
+    찍히고, 실행하면 `startup.log`에 트레이스백 없이
+    `Starting Sum Path v1.7.8 frozen=True`가 남는 것을 확인했다(다른
+    인스턴스가 떠 있지 않음을 먼저 확인한 뒤 짧게 띄워 로그만 확인하고
+    바로 종료 — 사용자 환경에 영향 없음).
+  - Setup EXE SHA-256: EAEA3D763E51A9CEF67981D0693838BF2B7A492B9B874C38B2ABD1EC17E33C7F
+  - Portable ZIP SHA-256: 339117E9A7B0AB992F63CEE9850871320E8CD499DE7CB29C2995CEF3447A467E
+  - App SHA-256: 133782D35601F1F124E03FBC5CBED7447B6281BBEC9201A32BD7CF341B37D191
+
+### 2026-09-07 (v1.7.7)
 
 - Version: 1.7.7
 - Release/build date: 2026-09-07

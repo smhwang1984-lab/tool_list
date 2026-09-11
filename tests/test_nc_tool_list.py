@@ -5849,5 +5849,280 @@ class CursorAnchoredZoomTests(unittest.TestCase):
             qapp.processEvents()
 
 
+class RadiusCompRemarkTests(unittest.TestCase):
+    """v1.7.8: REMARK 열에 경보정(G41/G42) 표기 — "N1(G41), N2" 형태로
+    N번호 뒤에 붙이고 "(G41)"만 굵게 그린다(사용자 확정, 2026-09-11).
+    밀링(N_RE)/선반(LATHE_N_RE) 둘 다 적용(결정 A)."""
+
+    MILLING_SOURCE = """N1(#1: Tool Change)
+ (T1 // FACE MILL [SO 200] // T1 BT50 FMH-60 )
+M6 T1
+N2(#2: Tool Change)
+ (T5 // D10 EM [SO 80] // T5 BT50 SLN10-90 )
+M6 T5
+G0G90G54X0Y0
+G41X10.Y10.F1500.
+G1X20.
+G40X0Y0
+M1
+N3(#3: Tool Change)
+ (T5 // D10 EM [SO 80] // T5 BT50 SLN10-90 )
+M6 T5
+G0X0Y0
+M1
+"""
+
+    LATHE_SOURCE = """N1
+( T01 - PCLNR 2525M 12 )
+( T01 - CNMG 120408 | R-0.8 )
+G0X400.Z200.T0100
+M1
+
+N2
+( T03 - SVJCR 2525 M16 )
+( T03 - VCMT 16 04 04 | R-0.4 )
+G0X400.Z200.
+T0300
+T0303
+G99X100.Z10.
+G41X50.Z0.F.1
+G1X40.
+G40X50.
+G0X400.Z200.T0300
+M1
+
+N3
+( T01 - PCLNR 2525M 12 )
+( T01 - CNMG 120408 | R-0.8 )
+G0X400.Z200.T0100
+M1
+"""
+
+    def test_milling_remark_marks_only_the_n_with_g41(self):
+        rows = app.parse_program(self.MILLING_SOURCE)
+        by_name_row = {row['NO']: row for row in rows}
+        # T5는 N2/N3 두 블록에 쓰이고, G41은 N2 블록 코드에만 있다.
+        self.assertEqual(by_name_row['T05']['REMARK'], 'N2(G41), N3')
+        self.assertEqual(by_name_row['T01']['REMARK'], 'N1')
+
+    def test_lathe_remark_marks_only_the_n_with_g41(self):
+        rows = app.parse_lathe_program(self.LATHE_SOURCE)
+        by_no = {row['NO']: row for row in rows}
+        self.assertEqual(by_no['T0303']['REMARK'], 'N2(G41)')
+        # 같은 공구번호(T01, 옵셋 00)가 N1/N3에 쓰이고 둘 다 G41이 없다.
+        self.assertEqual(by_no['T0100']['REMARK'], 'N1, N3')
+
+    def test_comment_text_mentioning_g41_is_ignored(self):
+        source = """N1
+( T01 - G41 COMPENSATION HOLDER )
+( T01 - CNMG 120408 | R-0.8 )
+G0X400.Z200.T0100
+M1
+"""
+        rows = app.parse_lathe_program(source)
+        row = next(r for r in rows if r['NO'] == 'T0100')
+        self.assertEqual(row['REMARK'], 'N1')
+
+    def test_g40_and_g41_point_variants_are_not_flagged(self):
+        """G40(취소)/G410/G41.1처럼 다른 코드는 경보정으로 잡지 않는다."""
+        source = """N1
+( T01 - PCLNR 2525M 12 )
+( T01 - CNMG 120408 | R-0.8 )
+G0X400.Z200.T0100
+G40X0.
+G410X0.
+G41.1X0.
+M1
+"""
+        rows = app.parse_lathe_program(source)
+        row = next(r for r in rows if r['NO'] == 'T0100')
+        self.assertEqual(row['REMARK'], 'N1')
+
+    def test_g42_is_also_marked_and_combined_with_g41_in_order(self):
+        """결정 C: G42도 표기하고, 한 블록에 둘 다 있으면 등장 순서대로
+        "(G41/G42)"로 잇는다."""
+        source_g42_only = """N1
+( T01 - PCLNR 2525M 12 )
+( T01 - CNMG 120408 | R-0.8 )
+G0X400.Z200.T0100
+G42X10.F.1
+G1X20.
+M1
+"""
+        row = next(r for r in app.parse_lathe_program(source_g42_only) if r['NO'] == 'T0100')
+        self.assertEqual(row['REMARK'], 'N1(G42)')
+
+        source_both = """N1
+( T01 - PCLNR 2525M 12 )
+( T01 - CNMG 120408 | R-0.8 )
+G0X400.Z200.T0100
+G41X10.F.1
+G1X20.
+G40X0.
+G42X-10.F.1
+G1X-20.
+M1
+"""
+        row = next(r for r in app.parse_lathe_program(source_both) if r['NO'] == 'T0100')
+        self.assertEqual(row['REMARK'], 'N1(G41/G42)')
+
+    SUBPROGRAM_SOURCE = """O1111
+N1
+( T01 - PCLNR 2525M 12 )
+( T01 - CNMG 120408 | R-0.8 )
+G0T0100
+M98P0001
+T0100
+M1
+N2
+( T03 - SVJCR 2525 M16 )
+( T03 - VCMT 16 04 04 | R-0.4 )
+G0T0300
+M98P0002
+T0300
+M1
+M30
+
+O0001
+G0X0Z0
+M99
+
+O0002
+G41X50.Z0.F.1
+G1X40.
+G40X50.
+M99
+"""
+
+    def test_subprogram_body_radius_comp_is_attributed_to_the_calling_n(self):
+        """결정 D: M30 뒤 서브프로그램(O0002) 안의 G41은 그것을 M98로
+        부르는 N2에 붙는다 — 파일 마지막 N(N2)에 우연히 맞아떨어지는
+        경우뿐 아니라, 그걸 부르지 않는 N1은 그대로 남아야 한다."""
+        rows = app.parse_lathe_program(self.SUBPROGRAM_SOURCE)
+        by_no = {row['NO']: row for row in rows}
+        self.assertEqual(by_no['T0100']['REMARK'], 'N1')
+        self.assertEqual(by_no['T0300']['REMARK'], 'N2(G41)')
+
+    def test_cyclic_subprogram_calls_do_not_hang(self):
+        """O0001 <-> O0002 순환 호출이 있어도 멈추지 않고 끝나야 한다."""
+        source = """O1111
+N1
+( T01 - PCLNR 2525M 12 )
+( T01 - CNMG 120408 | R-0.8 )
+G0T0100
+M98P0001
+T0100
+M1
+M30
+
+O0001
+G41X10.
+M98P0002
+M99
+
+O0002
+M98P0001
+M99
+"""
+        rows = app.parse_lathe_program(source)
+        row = next(r for r in rows if r['NO'] == 'T0100')
+        self.assertEqual(row['REMARK'], 'N1(G41)')
+
+    def test_format_remark_helper_appends_suffix_only_for_known_labels(self):
+        self.assertEqual(
+            app._format_remark(['N2', 'N5'], {'N2': '(G41)'}), 'N2(G41), N5'
+        )
+        self.assertEqual(app._format_remark(['N1'], {}), 'N1')
+
+    def test_remark_delegate_bolds_only_the_comp_suffix(self):
+        if app.QT_IMPORT_ERROR is not None:
+            self.skipTest('PyQt5가 없어 델리게이트 테스트를 건너뜀')
+        html = app.RemarkCompDelegate._to_html('N8(G41), N9, N10')
+        self.assertEqual(html, 'N8<b>(G41)</b>, N9, N10')
+        # 표기가 없는 텍스트는 굵은 태그가 전혀 없어야 한다.
+        self.assertNotIn('<b>', app.RemarkCompDelegate._to_html('N1, N2'))
+
+    def test_remark_delegate_assigned_to_remark_column_in_both_modes(self):
+        """_configure_table_columns()가 밀링/선반 어느 스키마에서도 REMARK
+        열에 델리게이트를 거는지 확인한다. machine_type/tool_mode_combo는
+        실전 전역 QSettings("NC Tool List"/"EmbeddedViewer")에 저장돼
+        다른 테스트・실제 앱 설정과 뒤섞이므로([[project_tests_share_real_qsettings]]),
+        콤보를 조작하는 대신 is_lathe_program()만 바꿔치기해 직접 부른다."""
+        if app.QT_IMPORT_ERROR is not None:
+            self.skipTest('PyQt5가 없어 델리게이트 테스트를 건너뜀')
+        settings_dir = tempfile.TemporaryDirectory()
+        qapp = app.QApplication.instance() or app.QApplication([])
+        window = app.App(_root=settings_dir.name)
+        try:
+            window.is_lathe_program = lambda: False
+            window._configure_table_columns()
+            remark_index = [key for key, _label in app.COLUMNS].index('REMARK')
+            self.assertIs(
+                window.table.itemDelegateForColumn(remark_index), window._remark_delegate
+            )
+
+            window.is_lathe_program = lambda: True
+            window._configure_table_columns()
+            remark_index = [key for key, _label in app.LATHE_COLUMNS].index('REMARK')
+            self.assertIs(
+                window.table.itemDelegateForColumn(remark_index), window._remark_delegate
+            )
+        finally:
+            window.deleteLater()
+            settings_dir.cleanup()
+            qapp.processEvents()
+
+    def test_pdf_remark_cell_wraps_only_comp_suffix_in_bold_font(self):
+        regular_font, bold_font = app.register_pdf_fonts()
+        text = app._pdf_remark_cell('N8(G41), N9', regular_font, bold_font)
+        self.assertIsInstance(text, app.Paragraph)
+        html = text.text
+        self.assertIn('<font face="%s">(G41)</font>' % bold_font, html)
+        self.assertNotIn('<font face="%s">N8' % bold_font, html)
+
+    def test_pdf_remark_cell_passthrough_when_no_comp_suffix(self):
+        regular_font, bold_font = app.register_pdf_fonts()
+        self.assertEqual(app._pdf_remark_cell('N1, N2', regular_font, bold_font), 'N1, N2')
+        self.assertIsNone(app._pdf_remark_cell(None, regular_font, bold_font))
+
+    def test_milling_and_lathe_pdf_build_with_comp_marked_remark(self):
+        """PDF 문서 생성 자체가 깨지지 않는지 스모크 테스트(밀링/선반 둘 다)."""
+        rows = app.parse_program(self.MILLING_SOURCE)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            out_path = Path(tmp_dir) / 'mill.pdf'
+            app.export_tool_list_pdf(out_path, rows, {})
+            self.assertTrue(out_path.exists())
+
+        lathe_rows = app.parse_lathe_program(self.LATHE_SOURCE)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            out_path = Path(tmp_dir) / 'lathe.pdf'
+            app.export_lathe_tool_list_pdf(out_path, lathe_rows, {})
+            self.assertTrue(out_path.exists())
+
+    def test_real_sample_smoke_o1699_and_subprogram_file(self):
+        """실제 예제(test files/O1699.nc, sub_pg test.nc)로 회귀 확인 —
+        리포지터리에 커밋되지 않으므로 파일이 있을 때만 돈다."""
+        base_candidates = [
+            Path(__file__).resolve().parent.parent / 'test files',
+            Path(r'C:\dev\NC_Tool_List\test files'),
+        ]
+        base = next((p for p in base_candidates if p.exists()), None)
+        if base is None:
+            self.skipTest('test files/가 없어 스킵 (리포지터리에 커밋되지 않는 예제 파일)')
+
+        o1699 = base / 'O1699.nc'
+        if o1699.exists():
+            rows = app.parse_lathe_program(o1699.read_text(encoding='utf-8', errors='replace'))
+            row = next(r for r in rows if r['NO'] == 'T0909')
+            self.assertEqual(row['REMARK'], 'N9(G41)')
+
+        sub_pg = base / 'sub_pg test.nc'
+        if sub_pg.exists():
+            rows = app.parse_lathe_program(sub_pg.read_text(encoding='utf-8', errors='replace'))
+            by_no = {row['NO']: row for row in rows}
+            self.assertEqual(by_no['T0404']['REMARK'], 'N1')
+            self.assertEqual(by_no['T0707']['REMARK'], 'N2(G41)')
+
+
 if __name__ == '__main__':
     unittest.main()
