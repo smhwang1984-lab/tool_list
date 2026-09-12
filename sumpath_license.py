@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Sum Path 라이선스 — 공용 모듈 (v1.8.0)
+Sum Path 라이선스 — 공용 모듈 (v1.8.1)
 
 NC_Tool_List.py(본 앱)와 SumPath_License_Maker.py(발급 프로그램)가 함께 쓴다.
 본 앱에는 이 모듈만 있으면 되고 `cryptography` 등 외부 서명 라이브러리가 필요
@@ -8,7 +8,7 @@ NC_Tool_List.py(본 앱)와 SumPath_License_Maker.py(발급 프로그램)가 함
 **생성**(발급)은 발급 프로그램에서만 `cryptography`로 한다(v1.8.0_PLAN.md 결정 F).
 
 라이선스 파일(.lic)은 UTF-8 JSON이다. 자세한 필드/기간 규칙은
-`v1.8.0_PLAN.md` §3.2~3.5 참고.
+`v1.8.0_PLAN.md` §3.2~3.5, 30일 체험판/영구 라이선스는 `v1.8.1_PLAN.md` §3.1~3.3 참고.
 """
 import base64
 import hashlib
@@ -25,13 +25,28 @@ from pathlib import Path
 PRODUCT_NAME = 'SumPath'
 LICENSE_FORMAT = 1
 
-# 발급 가능한 기간(일수, 표시 라벨). v1.8.0_PLAN.md 결정 D: 3년 = 365*3일(달력 기준 아님).
+# plan_days -> 표시 라벨. 7일/30일은 v1.8.0에서 이미 발급된 파일을 계속 인정하기
+# 위해 남겨 둔다(v1.8.1_PLAN.md 결정 F) — 새로 발급할 때는 ISSUABLE_PLANS만 쓴다.
+# v1.8.0_PLAN.md 결정 D: 3년 = 365*3일(달력 기준 아님). 0 = 영구(v1.8.1_PLAN.md 결정 C).
 LICENSE_PLANS = (
     (7, '7일'),
     (30, '30일'),
     (365, '1년 (365일)'),
     (1095, '3년'),
+    (0, '영구'),
 )
+
+# 발급 프로그램이 실제로 발급 가능한 기간(v1.8.1_PLAN.md §3.3).
+ISSUABLE_PLANS = (
+    (365, '1년 (365일)'),
+    (1095, '3년'),
+    (0, '영구'),
+)
+
+PERPETUAL_PLAN_DAYS = 0
+
+# 라이선스 없이 첫 실행부터 그대로 쓸 수 있는 체험 기간(v1.8.1_PLAN.md §3.1).
+TRIAL_DAYS = 30
 
 # Sum Path 라이선스 서명 검증용 Ed25519 공개키(32바이트). 개인키는 발급 PC의
 # %APPDATA%\SumPath License Maker\signing_key.pem 에만 있다 — 저장소에는 절대
@@ -57,7 +72,9 @@ EXPIRY_NOTICE_DAYS_SHORT_PLAN = 2
 EXPIRY_NOTICE_SHORT_PLAN_THRESHOLD = 7
 
 
-LicenseStatus = namedtuple('LicenseStatus', 'ok reason message license days_left')
+# trial 필드는 기본 False — v1.8.0 코드/테스트가 5개 인자로 만들어도 그대로 동작한다.
+LicenseStatus = namedtuple('LicenseStatus', 'ok reason message license days_left trial')
+LicenseStatus.__new__.__defaults__ = (False,)
 
 
 # ---------- 순수 파이썬 Ed25519 서명 검증 (RFC 8032) ----------
@@ -274,8 +291,24 @@ def verify_license(data, machine=None, today=None):
 
     try:
         starts = _parse_date(data['starts'])
-        valid_until = _parse_date(data['valid_until'])
         plan_days = int(data['plan_days'])
+    except (KeyError, ValueError, TypeError):
+        return LicenseStatus(False, 'invalid_format', '라이선스 파일 형식을 알 수 없습니다.', None, None)
+
+    # 영구 라이선스(v1.8.1_PLAN.md §3.2): plan_days=0 + valid_until=null 조합만 인정한다.
+    if plan_days == PERPETUAL_PLAN_DAYS:
+        if data.get('valid_until') is not None:
+            return LicenseStatus(False, 'invalid_format', '라이선스 파일 형식을 알 수 없습니다.', data, None)
+        if today < starts:
+            return LicenseStatus(
+                False, 'not_started',
+                '라이선스 시작일(%s)이 아직 되지 않았습니다.' % starts.isoformat(),
+                data, None,
+            )
+        return LicenseStatus(True, 'ok', '', data, None)
+
+    try:
+        valid_until = _parse_date(data['valid_until'])
     except (KeyError, ValueError, TypeError):
         return LicenseStatus(False, 'invalid_format', '라이선스 파일 형식을 알 수 없습니다.', None, None)
 
@@ -398,34 +431,158 @@ def clock_rollback_detected(now, state, license_data):
     return False
 
 
-def ensure_license(now=None):
-    """앱 시작 시 부르는 진입점. 파일을 찾아 읽고 내용/시계를 검증한 뒤,
-    통과하면 마지막 확인 시각을 기록한다."""
-    now = now or datetime.now()
+# ---------- 30일 체험판 (v1.8.1_PLAN.md §3.1) ----------
+def _registry_license_key_path():
+    return r'Software\NC Tool List\License'
+
+
+def read_registry_trial_started():
+    """HKCU에 적힌 체험 시작일. 읽을 수 없으면(레지스트리 접근 실패 등) None."""
+    try:
+        import winreg
+    except ImportError:
+        return None
+    try:
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, _registry_license_key_path(), 0, winreg.KEY_READ)
+    except OSError:
+        return None
+    try:
+        value, _value_type = winreg.QueryValueEx(key, 'TrialStarted')
+    except OSError:
+        return None
+    finally:
+        winreg.CloseKey(key)
+    try:
+        return _parse_date(value)
+    except (ValueError, TypeError):
+        return None
+
+
+def write_registry_trial_started(value_date):
+    """HKCU에 체험 시작일을 적는다. 실패해도(권한 등) 조용히 무시한다 —
+    공용 폴더 쪽 기록이 있으면 그것만으로도 동작한다."""
+    try:
+        import winreg
+    except ImportError:
+        return
+    try:
+        key = winreg.CreateKey(winreg.HKEY_CURRENT_USER, _registry_license_key_path())
+    except OSError:
+        return
+    try:
+        winreg.SetValueEx(key, 'TrialStarted', 0, winreg.REG_SZ, value_date.isoformat())
+    except OSError:
+        pass
+    finally:
+        winreg.CloseKey(key)
+
+
+def read_trial_started(state):
+    """공용 폴더(state['trial_started'])와 레지스트리 중 더 이른 날짜를 진짜
+    체험 시작일로 쓰고, 지워졌거나 어긋난 쪽을 그 값으로 복구한다(v1.8.1_PLAN.md
+    결정 B). 기록이 전혀 없으면 None. `state`는 호출자가 load_license_state()로
+    이미 읽어 둔 딕셔너리 — 필요하면 이 함수가 갱신해 저장한다."""
+    try:
+        shared = _parse_date(state.get('trial_started')) if state.get('trial_started') else None
+    except (ValueError, TypeError):
+        shared = None
+    registry = read_registry_trial_started()
+
+    if shared is None and registry is None:
+        return None
+
+    earliest = min(value for value in (shared, registry) if value is not None)
+
+    if shared != earliest:
+        state['trial_started'] = earliest.isoformat()
+        save_license_state(state)
+    if registry != earliest:
+        write_registry_trial_started(earliest)
+    return earliest
+
+
+def evaluate_trial(now):
+    """라이선스가 없거나 무효일 때의 30일 체험판 판정(v1.8.1_PLAN.md §3.1)."""
     today = now.date()
-    path = find_license_file()
-    if path is None:
-        return LicenseStatus(False, 'missing', '등록된 라이선스가 없습니다.', None, None)
-
-    data = load_license_file(path)
-    if data is None:
-        return LicenseStatus(False, 'invalid_format', '라이선스 파일을 읽을 수 없습니다.', None, None)
-
-    status = verify_license(data, machine=machine_code(), today=today)
-    if not status.ok:
-        return status
-
     state = load_license_state()
-    if clock_rollback_detected(now, state, data):
+    started = read_trial_started(state)
+
+    if started is None:
+        started = today
+        state = load_license_state()  # read_trial_started가 이미 저장했을 수 있음 — 최신값 다시 읽기
+        state['trial_started'] = started.isoformat()
+        state['last_seen'] = now.isoformat(timespec='seconds')
+        save_license_state(state)
+        write_registry_trial_started(started)
+        trial_until = started + timedelta(days=TRIAL_DAYS - 1)
+        return LicenseStatus(
+            True, 'trial_started',
+            '30일 체험판으로 시작합니다. (체험 종료일: %s)' % trial_until.isoformat(),
+            None, TRIAL_DAYS - 1, True,
+        )
+
+    if clock_rollback_detected(now, state, {'issued_at': started.isoformat()}):
         return LicenseStatus(
             False, 'clock_rollback',
             'PC 날짜가 올바르지 않습니다. 날짜/시간을 확인하세요.',
-            data, status.days_left,
+            None, None, True,
+        )
+
+    trial_until = started + timedelta(days=TRIAL_DAYS - 1)
+    days_left = (trial_until - today).days
+    if today > trial_until:
+        return LicenseStatus(
+            False, 'trial_expired',
+            '체험 기간이 끝났습니다. (체험 종료일: %s)' % trial_until.isoformat(),
+            None, days_left, True,
         )
 
     state['last_seen'] = now.isoformat(timespec='seconds')
     save_license_state(state)
-    return status
+    return LicenseStatus(
+        True, 'trial',
+        '체험판 — 남은 %d일 (체험 종료일: %s)' % (days_left, trial_until.isoformat()),
+        None, days_left, True,
+    )
+
+
+def ensure_license(now=None):
+    """앱 시작 시 부르는 진입점.
+
+    정식 라이선스가 있고 유효하면 그것으로 통과시킨다. 없거나 무효면 30일
+    체험판을 본다(v1.8.1_PLAN.md §3.1) — 체험 중이면 통과, 체험도 끝났으면
+    라이선스 파일이 있었던 경우 그 실패 사유를, 없었으면 체험 종료 사유를
+    돌려준다. 어느 경로든 통과하면 마지막 확인 시각을 기록한다.
+    """
+    now = now or datetime.now()
+    today = now.date()
+
+    path = find_license_file()
+    license_status = None
+    if path is not None:
+        data = load_license_file(path)
+        if data is None:
+            license_status = LicenseStatus(False, 'invalid_format', '라이선스 파일을 읽을 수 없습니다.', None, None)
+        else:
+            license_status = verify_license(data, machine=machine_code(), today=today)
+            if license_status.ok:
+                state = load_license_state()
+                if clock_rollback_detected(now, state, data):
+                    return LicenseStatus(
+                        False, 'clock_rollback',
+                        'PC 날짜가 올바르지 않습니다. 날짜/시간을 확인하세요.',
+                        data, license_status.days_left,
+                    )
+                state['last_seen'] = now.isoformat(timespec='seconds')
+                save_license_state(state)
+                return license_status
+
+    trial_status = evaluate_trial(now)
+    if trial_status.ok or trial_status.reason == 'clock_rollback':
+        return trial_status
+    if license_status is not None:
+        return license_status
+    return trial_status
 
 
 def register_license_file(source_path, now=None):

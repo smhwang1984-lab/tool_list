@@ -28,7 +28,7 @@ from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, T
 import sumpath_license
 
 
-APP_VERSION = '1.8.0'
+APP_VERSION = '1.8.1'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-09-12'
 APP_CREATOR = 'Hwang.seonmun'
@@ -1990,7 +1990,18 @@ else:
                 QMessageBox.critical(self, '라이선스 만료', status.message)
                 QApplication.instance().quit()
                 return
+            self.update_title_for_license(status)
             self._maybe_show_license_expiry_notice(status)
+
+        def update_title_for_license(self, status):
+            """v1.8.1: 체험판 사용 중에는 남은 일수를 제목 표시줄에 덧붙인다
+            (결정 D). main()과 1시간 주기 재확인에서만 부르고, __init__의
+            기본 제목은 그대로 둔다 — App()을 직접 만드는 기존 테스트는
+            main()을 거치지 않으므로 영향이 없다."""
+            if getattr(status, 'trial', False) and status.reason in ('trial', 'trial_started'):
+                self.setWindowTitle('%s v%s — 체험판 (남은 %d일)' % (APP_NAME, APP_VERSION, status.days_left))
+            else:
+                self.setWindowTitle('%s v%s' % (APP_NAME, APP_VERSION))
 
         def _maybe_show_license_expiry_notice(self, status):
             if not sumpath_license.is_expiry_notice_due(status.license, status.days_left):
@@ -2568,7 +2579,7 @@ else:
             viewer.setFixedHeight(int(viewer.document().size().height()) + 16)
             layout.addWidget(viewer)
 
-            # --- 라이선스 (v1.8.0) ---
+            # --- 라이선스 (v1.8.0, 체험판/영구는 v1.8.1) ---
             license_group = QGroupBox('라이선스')
             license_layout = QVBoxLayout(license_group)
             license_info_label = QLabel('')
@@ -2577,13 +2588,18 @@ else:
             def describe_license(status):
                 if status.ok and status.license:
                     lic_data = status.license
-                    days_left = status.days_left if status.days_left is not None else 0
-                    return '사용자: %s\n기간: %s\n사용 기한: %s (남은 %d일)' % (
+                    days_left_text = (
+                        '영구' if status.days_left is None else '남은 %d일' % status.days_left
+                    )
+                    valid_until_text = lic_data.get('valid_until') or '영구'
+                    return '사용자: %s\n기간: %s\n사용 기한: %s (%s)' % (
                         lic_data.get('licensee', ''),
                         sumpath_license.plan_label(lic_data.get('plan_days')),
-                        lic_data.get('valid_until', ''),
-                        days_left,
+                        valid_until_text,
+                        days_left_text,
                     )
+                # 체험판(ok=True, license=None)과 실패 사유 모두 미리 사람이
+                # 읽을 문구가 status.message에 들어 있다(§ evaluate_trial).
                 return status.message
 
             license_info_label.setText(describe_license(sumpath_license.ensure_license()))
@@ -2613,7 +2629,7 @@ else:
                     QMessageBox.information(dialog, '라이선스', '라이선스를 교체했습니다.')
 
             license_button_row = QHBoxLayout()
-            self._add_button(license_button_row, '라이선스 파일 교체...', replace_license_file)
+            self._add_button(license_button_row, '라이선스 파일 등록/교체...', replace_license_file)
             license_layout.addLayout(license_button_row)
             layout.addWidget(license_group)
 
@@ -4154,6 +4170,10 @@ def main():
         if initial_file:
             QTimer.singleShot(0, lambda path=initial_file: window.load_file(path))
         window.show()
+        window.update_title_for_license(license_status)
+        # v1.8.1: 30일 체험판이 이번 실행에서 막 시작됐으면 한 번만 안내한다(결정 E).
+        if license_status.reason == 'trial_started':
+            QMessageBox.information(window, '체험판 시작', license_status.message)
         window._maybe_show_license_expiry_notice(license_status)
         sys.exit(app.exec_())
     except Exception as error:
