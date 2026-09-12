@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-09-11 (v1.7.9)
+Last updated: 2026-09-12 (v1.8.0)
 
 ## About button requirements
 
@@ -34,7 +34,107 @@ Last updated: 2026-09-11 (v1.7.9)
 
 ## Version history
 
-### 2026-09-11 (latest, v1.7.9)
+### 2026-09-12 (latest, v1.8.0)
+
+- Version: 1.8.0
+- Release/build date: 2026-09-12
+- Summary: 사용자 요청(2026-09-12). Sum Path에 라이선스 제도를 도입했다
+  (`v1.8.0_PLAN.md` 참고, 결정 A~F 전부 권장안대로 승인).
+  1. **신규 공용 모듈 `sumpath_license.py`** — 라이선스 파일(.lic, UTF-8
+     JSON) 형식/기간(7일·30일·365일(1년)·1095일(3년))/PC 코드/Ed25519 서명
+     검증을 담당한다. 서명 검증은 순수 파이썬(RFC 8032 알고리즘, 내장 모듈
+     `pow()` 기반 모듈러 거듭제곱만 사용)으로 구현해 **앱에는 `cryptography`
+     등 서명 라이브러리를 넣지 않는다**(결정 F) — `cryptography`가 만든
+     서명 다수를 교차 검증해 정확성을 확인했다.
+  2. **신규 발급 프로그램 `SumPath_License_Maker.py`**(별도 exe, 1.0.0) —
+     사용자/PC 코드/기간/시작일을 입력하면 서명된 `.lic` 파일을 만든다.
+     발급마다 `%APPDATA%\SumPath License Maker\issued_licenses.csv`에
+     이력을 남기고, [확인] 탭에서 기존 라이선스 파일의 서명/기간을 볼 수
+     있다. 서명 개인키는 `%APPDATA%\SumPath License Maker\signing_key.pem`
+     에만 있다 — **저장소·설치본·포터블·업데이트 공유 폴더에는 절대
+     포함하지 않는다.** 이번에 실제 서명 키 쌍을 생성해 개인키는 이
+     PC의 위 경로에만 두었고, 공개키만 `sumpath_license.py`의
+     `LICENSE_PUBLIC_KEY` 상수로 커밋했다(`.gitignore`에 `*.pem`/`*.lic`
+     추가, 저장소에 개인키 문자열이 없음을 테스트로 봉인).
+  3. **PC 고정**(결정 A) — Windows `MachineGuid`를 SHA-256 해시한 뒤 사람이
+     옮겨 적기 쉬운 `XXXX-XXXX-XXXX-XXXX` 형식으로 바꾼 "PC 코드"에
+     라이선스를 묶는다. 원래 GUID는 라이선스 파일에 남지 않는다.
+  4. **앱 쪽 검사**(`main()`의 `run_license_gate()`, `send_to_running_instance`
+     핸드오프 뒤 · `App()` 생성 전) — 유효한 라이선스가 없으면 등록 창을
+     띄운다(이 PC 코드 표시 + 복사, `.lic` 파일 선택 시 즉시 검증 후 통과하면
+     `%PROGRAMDATA%\NC Tool List\license.lic`로 복사하고 실행 계속, 실패하면
+     이유를 보여주고 창 유지, [종료]로 나갈 수 있음). **유예 기간 없음**
+     (결정 B) — v1.8.0부터는 첫 실행부터 라이선스가 필요하다. 이미 떠 있는
+     창에 파일만 넘기는 v1.6.7 단일 실행 핸드오프 경로는 그 창이 이미
+     통과한 상태이므로 다시 검사하지 않는다.
+  5. **실행 중 재확인**(결정 C) — `App` 안에 1시간 간격 `QTimer`를 두어
+     만료/PC 불일치 등을 다시 확인하고, 유효하지 않게 되면 안내 후 앱을
+     닫는다. 이 타이머는 실제로 1시간이 지나야 발동하므로(즉시 실행되는
+     `QTimer.singleShot(0, ...)` 방식이 아님) 기존 테스트의
+     `processEvents()` 호출로 저절로 실행되는 일이 없다 — 처음에는
+     `App.__init__`에서 즉시 검사를 예약했다가, 기존 테스트 다수가 `App()`
+     생성 직후 `processEvents()`를 호출해 그 즉시-검사가 실제로 발동되며
+     "라이선스 없음" 모달이 떠 테스트가 멈추는 회귀를 발견하고 제거했다
+     (시작 시점의 만료 임박 안내는 `main()`이 `window.show()` 직후 한 번만
+     명시적으로 부르는 방식으로 옮겼다) — [[project_tests_share_real_qsettings]]
+     와 같은 종류의 "숨은 전역 부작용" 함정이라 여기 기록해 둔다.
+  6. **만료 임박 안내** — 남은 기간이 7일 이하(7일짜리 라이선스는 2일
+     이하)면 하루 한 번만 안내 창을 띄운다(`license_state.json`에 안내
+     날짜 기록). About 창에 라이선스 그룹을 추가해 사용자/기간/사용
+     기한/남은 일수/PC 코드(복사)/`[라이선스 파일 교체...]`를 보여준다.
+  7. **시계 되돌림 방지** — 마지막 확인 시각(`license_state.json`)이나
+     라이선스 발급 시각보다 PC 시계가 24시간 넘게 과거면 거부한다(표준시
+     변경/BIOS 오차 대비 24시간 여유, 결정 E와 별개로 발급 키 자체에는
+     비밀번호를 두지 않음).
+  8. **설치 스크립트** — `[Dirs]`에 `{commonappdata}\NC Tool List` 폴더를
+     `users-modify` 권한으로 만들어, 관리자 권한 없는 Windows 계정에서도
+     라이선스를 등록/교체할 수 있게 했다. 제거해도 이 폴더는 지우지
+     않아(재설치/업데이트해도 라이선스 유지) `MyAppVersion`만 1.8.0으로
+     올렸다.
+  9. 파서/툴패스/3D 뷰어/PDF/공구리스트 산출/검색/파일 연결/업데이트
+     기능은 이번 변경 범위 밖이며 손대지 않았다.
+- Open source software used: 변경 없음(PyQt5/pyqtgraph/numpy/reportlab) —
+  단, **발급 프로그램(SumPath_License_Maker)에 한해** `cryptography`를
+  새로 쓴다(본 앱 exe에는 포함되지 않음).
+- Tests: 신규 `tests/test_license.py` 51개 전부 통과(18.6초) — Ed25519
+  서명 검증 교차 검증(cryptography로 만든 서명 다수 + 변조/오류 입력),
+  7·30·365·1095일 기간 계산(윤년 포함), PC 코드 정규화, 서명·PC·기간
+  변조 전부 거부, 시계 되돌림 검출, 저장 위치(ProgramData 우선/exe 폴더
+  보조) 탐색, 등록 창 UI(모달 이벤트 루프를 `QTimer.singleShot`으로
+  구동해 PC 코드 표시/무효 파일 시 창 유지/유효 파일 시 수락·복사 확인),
+  발급 프로그램 왕복(발급→앱 검증기 통과, 기본 파일명, CSV 이력, 키
+  불일치 검출), 소스 봉인(main() 순서, 개인키 미포함, 설치 스크립트가
+  발급 프로그램을 담지 않음, 공용 폴더 권한). 기존 `tests/test_nc_tool_list.py`
+  전체 재실행(회귀 없음 확인) — 상세는 아래 실행 결과 참고.
+- Installer/package status: **생성 완료**(사용자 직접 지시로 빌드).
+  - `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` — onedir, UPX 비활성.
+  - `ISCC.exe NC_Tool_List.iss`(Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.8.0.exe`
+    (컴파일 56.985초).
+  - 포터블: `installer\NC_Tool_List_Portable_v1.8.0.zip` 64.1 MB.
+  - 빌드 검증: 프리즈된 `NC_Tool_List.exe`의 파일/제품 버전이 `1.8.0.0`로
+    찍히고, 실행하면 `startup.log`에 트레이스백 없이
+    `Starting Sum Path v1.8.0 frozen=True`가 남는 것을 확인했다(다른
+    인스턴스가 떠 있지 않음을 먼저 확인한 뒤 짧게 띄워 로그만 확인 —
+    라이선스가 등록되어 있지 않아 등록 창이 뜬 상태에서 바로 종료,
+    사용자 환경에 영향 없음).
+  - Setup EXE SHA-256: 3A71A9A7B4C4CE1FCC5BAD844CCBE30323F362A03FF01D20ED3D4137A571F160
+  - Portable ZIP SHA-256: 506E705C29F9B1EC2B565E29A40B0BD2BDADDB49FC47E7AB920047F32AB020B0
+  - App SHA-256: FB1A60D2F6B295F62632FD4D3E94AF11D85B1A7503100248AC46051CF5FA31C9
+  - **발급 프로그램(SumPath License Maker, 별도 배포물, v1.0.0)** — 같은
+    onedir 방식으로 `SumPath_License_Maker.spec` 빌드 후
+    `installer\SumPath_License_Maker_v1.0.0.zip`(41 MB)로 패키징.
+    발급자 PC(이 PC)에 이미 있는 서명 키(`%APPDATA%\SumPath License Maker\
+    signing_key.pem`)로 실행해 정상 기동을 확인했다(트레이스백 없음,
+    라이선스 발급 프로그램은 **NC_Tool_List 설치본/포터블/업데이트 공유
+    폴더에 포함하지 않는다** — 별도로만 전달).
+    - Maker ZIP SHA-256: 20B6C7DCD2128C4083BA791068F64128665AC93A54EF951F42CCD6ABB881B375
+    - Maker EXE SHA-256: 0C749DA7FDD0F7D3D59A44EBCFEEAA68CF772B1C1732F8E8997AB9979D746FD2
+  - **배포 전 필수 절차**(`v1.8.0_PLAN.md` §8): 발급 프로그램을 준비하고
+    개인키를 백업한 뒤, 각 PC에 v1.8.0을 설치 → 뜨는 등록 창의 PC 코드를
+    모아 라이선스를 발급·전달해야 한다 — 순서를 지키지 않으면 업데이트한
+    PC가 즉시 못 쓰게 된다.
+
+### 2026-09-11 (v1.7.9)
 
 - Version: 1.7.9
 - Release/build date: 2026-09-11
