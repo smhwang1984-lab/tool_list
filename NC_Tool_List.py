@@ -25,10 +25,12 @@ from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
+import sumpath_license
 
-APP_VERSION = '1.7.9'
+
+APP_VERSION = '1.8.0'
 APP_NAME = 'Sum Path'
-APP_BUILD_DATE = '2026-09-11'
+APP_BUILD_DATE = '2026-09-12'
 APP_CREATOR = 'Hwang.seonmun'
 APP_PURPOSE = 'NC 프로그램에서 공구 리스트를 산출하고 NC 경로를 Viewer로 확인하는 도구'
 OPEN_SOURCE_COMPONENTS = (
@@ -1967,6 +1969,45 @@ else:
             self.restore_layout_settings()
             QTimer.singleShot(0, self.showMaximized)
 
+            # v1.8.0: 라이선스 — 켜 둔 채로 사용 기한이 지나는지 1시간마다
+            # 확인한다(결정 C). 시작 시점 검증은 main()의 run_license_gate()가
+            # 이미 마쳤으므로(그 결과로 만료 임박 안내도 main()에서 한 번
+            # 띄운다), 여기서는 실행 "중" 재확인 타이머만 둔다. 이 타이머는
+            # 실제로 1시간이 지나야 발동하므로 테스트의 processEvents()로는
+            # 절대 저절로 실행되지 않는다 — QTimer.singleShot(0, ...)처럼
+            # 즉시 큐에 들어가는 방식은 기존 테스트(App() 생성 직후
+            # processEvents() 호출)에서 라이선스 없음 모달을 띄워 멈추게
+            # 만들므로 여기서는 쓰지 않는다.
+            self._license_check_timer = QTimer(self)
+            self._license_check_timer.setInterval(60 * 60 * 1000)
+            self._license_check_timer.timeout.connect(self._recheck_license)
+            self._license_check_timer.start()
+
+
+        def _recheck_license(self):
+            status = sumpath_license.ensure_license()
+            if not status.ok:
+                QMessageBox.critical(self, '라이선스 만료', status.message)
+                QApplication.instance().quit()
+                return
+            self._maybe_show_license_expiry_notice(status)
+
+        def _maybe_show_license_expiry_notice(self, status):
+            if not sumpath_license.is_expiry_notice_due(status.license, status.days_left):
+                return
+            state = sumpath_license.load_license_state()
+            today_str = date.today().isoformat()
+            if state.get('last_notice_date') == today_str:
+                return
+            QMessageBox.information(
+                self, '라이선스 만료 예정',
+                '라이선스 사용 기한이 %d일 남았습니다. (사용 기한: %s)' % (
+                    status.days_left, status.license.get('valid_until'),
+                ),
+            )
+            state['last_notice_date'] = today_str
+            sumpath_license.save_license_state(state)
+
 
         def _create_viewer(self):
             if NCViewerWidget is None:
@@ -2526,6 +2567,55 @@ else:
             viewer.document().setTextWidth(480)
             viewer.setFixedHeight(int(viewer.document().size().height()) + 16)
             layout.addWidget(viewer)
+
+            # --- 라이선스 (v1.8.0) ---
+            license_group = QGroupBox('라이선스')
+            license_layout = QVBoxLayout(license_group)
+            license_info_label = QLabel('')
+            license_info_label.setWordWrap(True)
+
+            def describe_license(status):
+                if status.ok and status.license:
+                    lic_data = status.license
+                    days_left = status.days_left if status.days_left is not None else 0
+                    return '사용자: %s\n기간: %s\n사용 기한: %s (남은 %d일)' % (
+                        lic_data.get('licensee', ''),
+                        sumpath_license.plan_label(lic_data.get('plan_days')),
+                        lic_data.get('valid_until', ''),
+                        days_left,
+                    )
+                return status.message
+
+            license_info_label.setText(describe_license(sumpath_license.ensure_license()))
+            license_layout.addWidget(license_info_label)
+
+            license_code_row = QHBoxLayout()
+            license_code_row.addWidget(QLabel('이 PC 코드'))
+            license_code = sumpath_license.machine_code()
+            license_code_edit = QLineEdit(license_code or '(확인 불가)')
+            license_code_edit.setReadOnly(True)
+            license_code_row.addWidget(license_code_edit, 1)
+            self._add_button(
+                license_code_row, '복사',
+                lambda: QApplication.clipboard().setText(license_code or ''),
+            )
+            license_layout.addLayout(license_code_row)
+
+            def replace_license_file():
+                path, _selected_filter = QFileDialog.getOpenFileName(
+                    dialog, '라이선스 파일 선택', '', 'License files (*.lic)',
+                )
+                if not path:
+                    return
+                outcome = sumpath_license.register_license_file(path)
+                license_info_label.setText(describe_license(outcome))
+                if outcome.ok:
+                    QMessageBox.information(dialog, '라이선스', '라이선스를 교체했습니다.')
+
+            license_button_row = QHBoxLayout()
+            self._add_button(license_button_row, '라이선스 파일 교체...', replace_license_file)
+            license_layout.addLayout(license_button_row)
+            layout.addWidget(license_group)
 
             # --- 업데이트 경로 및 수동 업데이트 ---
             update_group = QGroupBox('업데이트')
@@ -3957,6 +4047,79 @@ else:
             QTimer.singleShot(1800, self.update_count)
 
 
+def _add_dialog_button(layout, text, slot):
+    button = QPushButton(text)
+    button.clicked.connect(slot)
+    layout.addWidget(button)
+    return button
+
+
+def show_license_registration_dialog(status):
+    """라이선스가 없거나 무효일 때 뜨는 등록 창(v1.8.0). App 창을 만들기
+    전에 호출되므로 부모 없이 최상위 창으로 띄운다. 유효한 라이선스를
+    등록하면 True, 사용자가 [종료]를 누르면 False를 돌려준다."""
+    dialog = QDialog()
+    dialog.setWindowTitle('%s 라이선스' % APP_NAME)
+    dialog.setFixedWidth(460)
+    layout = QVBoxLayout(dialog)
+
+    message_label = QLabel(status.message)
+    message_label.setObjectName('license_message_label')
+    message_label.setWordWrap(True)
+    layout.addWidget(message_label)
+
+    code = sumpath_license.machine_code()
+    code_row = QHBoxLayout()
+    code_row.addWidget(QLabel('이 PC 코드'))
+    code_edit = QLineEdit(code or '(확인 불가)')
+    code_edit.setObjectName('license_code_edit')
+    code_edit.setReadOnly(True)
+    code_row.addWidget(code_edit, 1)
+    _add_dialog_button(code_row, '복사', lambda: QApplication.clipboard().setText(code or ''))
+    layout.addLayout(code_row)
+
+    hint_label = QLabel('위 PC 코드를 관리자에게 보내 라이선스 파일(.lic)을 받으세요.')
+    hint_label.setWordWrap(True)
+    hint_label.setStyleSheet('color: #5a6577;')
+    layout.addWidget(hint_label)
+
+    result = {'accepted': False}
+
+    def register():
+        path, _selected_filter = QFileDialog.getOpenFileName(
+            dialog, '라이선스 파일 선택', '', 'License files (*.lic)',
+        )
+        if not path:
+            return
+        outcome = sumpath_license.register_license_file(path)
+        if outcome.ok:
+            result['accepted'] = True
+            dialog.accept()
+        else:
+            message_label.setText(outcome.message)
+
+    button_row = QHBoxLayout()
+    _add_dialog_button(button_row, '라이선스 파일 등록...', register)
+    _add_dialog_button(button_row, '종료', dialog.reject)
+    layout.addLayout(button_row)
+
+    dialog.exec_()
+    return result['accepted']
+
+
+def run_license_gate():
+    """앱 시작 시 부른다(v1.8.0). 유효한 라이선스가 있으면 바로 그 상태를
+    돌려준다. 없거나 무효면 등록 창을 띄우고, 사용자가 유효한 라이선스를
+    등록하면 그 결과를, [종료]를 누르면 원래의 실패 상태를 돌려준다.
+    main()은 돌아온 status.ok로 계속 진행할지 결정한다."""
+    status = sumpath_license.ensure_license()
+    if status.ok:
+        return status
+    if show_license_registration_dialog(status):
+        return sumpath_license.ensure_license()
+    return status
+
+
 def main():
     def log_unhandled_exception(exc_type, exc_value, exc_tb):
         write_startup_log('Unhandled exception: %s\n%s' % (
@@ -3979,11 +4142,19 @@ def main():
         if send_to_running_instance(initial_file):
             write_startup_log('Handed off to running instance: %s' % initial_file)
             return
+        # v1.8.0: 라이선스가 없거나 무효면 등록 창만 띄우고 App 창은 만들지
+        # 않는다(§ run_license_gate). 이미 떠 있는 창에 파일만 넘기는 위
+        # 핸드오프 경로는 그 창이 이미 통과한 상태이므로 다시 검사하지 않는다.
+        license_status = run_license_gate()
+        if not license_status.ok:
+            write_startup_log('License not accepted: %s' % license_status.reason)
+            return
         window = App()
         start_single_instance_server(window)
         if initial_file:
             QTimer.singleShot(0, lambda path=initial_file: window.load_file(path))
         window.show()
+        window._maybe_show_license_expiry_notice(license_status)
         sys.exit(app.exec_())
     except Exception as error:
         write_startup_log('Fatal startup failure: %s\n%s' % (error, traceback.format_exc()))

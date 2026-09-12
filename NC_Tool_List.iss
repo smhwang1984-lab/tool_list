@@ -2,7 +2,7 @@
 ; C:\NC_Tool_List 폴더에 설치됩니다.
 
 #define MyAppName "NC Tool List"
-#define MyAppVersion "1.7.9"
+#define MyAppVersion "1.8.0"
 #define MyAppPublisher "S M.HWANG"
 #define MyAppExeName "NC_Tool_List.exe"
 
@@ -42,6 +42,13 @@ Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "바탕화면에 바로가기 만들기"; GroupDescription: "추가 아이콘:"
+
+[Dirs]
+; v1.8.0: 라이선스 파일(license.lic)을 PC 전체 공용으로 저장하는 폴더.
+; 관리자 권한 없는 Windows 계정에서도 라이선스를 등록/교체할 수 있도록
+; users-modify 권한을 준다. 제거 시 지우지 않는다(재설치/업데이트해도
+; 라이선스가 유지되도록 [UninstallDelete]에 넣지 않음).
+Name: "{commonappdata}\NC Tool List"; Permissions: users-modify
 
 [Files]
 Source: "dist\NC_Tool_List\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs

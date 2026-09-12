@@ -9,6 +9,8 @@ viewer_hiddenimports = [
     # QtNetwork는 v1.6.7 단일 실행(QLocalServer/QLocalSocket)에 필요하다.
     'PyQt5.QtCore', 'PyQt5.QtGui', 'PyQt5.QtWidgets', 'PyQt5.QtOpenGL', 'PyQt5.QtNetwork',
     'pyqtgraph', 'pyqtgraph.opengl',
+    # v1.8.0: 라이선스 검증 공용 모듈(순수 파이썬, 외부 의존성 없음).
+    'sumpath_license',
 ] + collect_submodules('pyqtgraph.opengl') + collect_submodules('OpenGL')
 
 a = Analysis(
