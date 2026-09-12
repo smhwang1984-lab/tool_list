@@ -85,7 +85,34 @@ Last updated: 2026-09-12 (v1.8.1)
   1년/3년/영구·기본 1년·영구 미리보기, 영구 발급 왕복·파일명, About/
   main() 소스 봉인) 전부 통과(27.55초). 기존 `tests/test_nc_tool_list.py`
   전체 재실행 결과는 아래 "빌드 검증"에 기록.
-- Installer/package status: (빌드 시 갱신)
+- Installer/package status: **생성 완료**(사용자 직접 지시로 빌드).
+  - `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` — onedir, UPX 비활성.
+  - `ISCC.exe NC_Tool_List.iss`(Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.8.1.exe`
+    (컴파일 56.672초).
+  - 포터블: `installer\NC_Tool_List_Portable_v1.8.1.zip` 64.1 MB.
+  - 빌드 검증: 프리즈된 `NC_Tool_List.exe`의 파일/제품 버전이 `1.8.1.0`로
+    찍히고, 실행하면 `startup.log`에 트레이스백 없이
+    `Starting Sum Path v1.8.1 frozen=True`가 남는 것을 확인했다. 이
+    개발 PC에는 이미 v1.8.0에서 발급했던 실제 유효 라이선스(7일,
+    사용 기한 2026-09-18)가 `C:\ProgramData\NC Tool List\license.lic`에
+    남아 있어, 체험판이 아니라 **그 정식 라이선스 경로로 메인 창까지
+    정상 진입**하는 것을 실제로 확인했다(체험판 로직 자체는
+    `tests/test_license.py`의 격리된 24개 신규 테스트로 별도 검증 완료).
+  - Setup EXE SHA-256: C8820AA1B5E277C08C276609307CEA8405840CF9A18CC206F240412E6ECA2832
+  - Portable ZIP SHA-256: 61EEB62FF59A4548A2BC66EBF40251907BF1609FA6D50952D3A611B5F5BF74AF
+  - App SHA-256: 13057EA7F779B08628DA971402D764BD669CC22C9251EA740EC81E379B6DB0F1
+  - **발급 프로그램(SumPath License Maker, 별도 배포물, v1.1.0)** —
+    `SumPath_License_Maker.spec` 빌드 후
+    `installer\SumPath_License_Maker_v1.1.0.zip`(41 MB)로 패키징. 정상
+    기동 확인(트레이스백 없음). 이 프로그램은 **NC_Tool_List
+    설치본/포터블/업데이트 공유 폴더에 포함하지 않는다.**
+    - Maker ZIP SHA-256: 98105B739C55BA84071C6C07ABAA8D3BB3E7EF3551CF9D876488756B009A00AE
+    - Maker EXE SHA-256: A0BC8648B08566A5223CBA3DEA7462575135F4A317050BFB00F3D6E1BEA2D57D
+  - **배포 절차**(`v1.8.1_PLAN.md` §8, v1.8.0의 "배포 전 발급 필수" 제약을
+    대체): 체험판이 있으므로 v1.8.1을 업데이트 공유 폴더에 먼저 올려도
+    된다. 30일 안에 각 PC의 About에서 PC 코드를 받아 1년/3년/영구
+    라이선스를 발급·등록하면 된다. v1.8.0 설치본/포터블은 배포하지
+    않는다(체험판이 없어 즉시 등록을 요구함).
 
 ### 2026-09-12 (v1.8.0)
 
