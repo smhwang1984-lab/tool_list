@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-v1.8.0 라이선스 기능 테스트 — sumpath_license.py(공용 모듈), NC_Tool_List.py의
-main() 진입점/등록 창/About 연동, SumPath_License_Maker.py(발급 프로그램).
+v1.8.0/v1.8.1 라이선스 기능 테스트 — sumpath_license.py(공용 모듈),
+NC_Tool_List.py의 main() 진입점/등록 창/About 연동, SumPath_License_Maker.py
+(발급 프로그램). v1.8.1: 30일 체험판(§ evaluate_trial) + 영구 라이선스.
 
 기존 tests/test_nc_tool_list.py와 마찬가지로 offscreen QPA를 쓴다. 어떤
-테스트도 실제 %PROGRAMDATA%\\NC Tool List 나 이 PC의 실제 서명 키를 건드리지
-않는다 — 저장 위치와 공개키는 매 테스트마다 임시 값으로 바꿔치기한다.
+테스트도 실제 %PROGRAMDATA%\\NC Tool List, 이 PC의 실제 서명 키, 실제
+HKCU\\Software\\NC Tool List\\License 레지스트리 값을 건드리지 않는다 —
+저장 위치·공개키·레지스트리 읽기/쓰기는 매 테스트마다 임시 값으로 바꿔치기한다.
 """
 import base64
 import inspect
@@ -274,6 +276,207 @@ class LicenseVerifyTamperTests(unittest.TestCase):
         self.assertEqual(status.reason, 'invalid_format')
 
 
+@unittest.skipIf(CRYPTO_IMPORT_ERROR is not None, 'cryptography가 설치되어 있지 않음')
+class PerpetualLicenseTests(unittest.TestCase):
+    """영구 라이선스(plan_days=0, valid_until=null). v1.8.1_PLAN.md §3.2 결정 C."""
+
+    def setUp(self):
+        self.private_key = Ed25519PrivateKey.generate()
+        self._orig_pubkey = lic.LICENSE_PUBLIC_KEY
+        lic.LICENSE_PUBLIC_KEY = _raw_public_key(self.private_key)
+        self.addCleanup(self._restore)
+
+    def _restore(self):
+        lic.LICENSE_PUBLIC_KEY = self._orig_pubkey
+
+    def _perpetual(self, **overrides):
+        data = _license_data(plan_days=0, valid_until=None, **overrides)
+        return _sign(data, self.private_key)
+
+    def test_perpetual_passes_far_into_the_future_with_no_days_left(self):
+        data = self._perpetual()
+        status = lic.verify_license(data, machine='AAAA-BBBB-CCCC-DDDD', today=date(2099, 1, 1))
+        self.assertTrue(status.ok)
+        self.assertEqual(status.reason, 'ok')
+        self.assertIsNone(status.days_left)
+
+    def test_perpetual_still_honors_not_started(self):
+        data = self._perpetual(starts='2099-01-01')
+        status = lic.verify_license(data, today=date(2026, 9, 12))
+        self.assertFalse(status.ok)
+        self.assertEqual(status.reason, 'not_started')
+
+    def test_perpetual_with_valid_until_set_is_invalid_format(self):
+        data = _sign(_license_data(plan_days=0, valid_until='2030-01-01'), self.private_key)
+        status = lic.verify_license(data, today=date(2026, 9, 12))
+        self.assertFalse(status.ok)
+        self.assertEqual(status.reason, 'invalid_format')
+
+    def test_perpetual_still_rejects_wrong_machine_and_tampering(self):
+        data = self._perpetual()
+        wrong_pc = lic.verify_license(data, machine='ZZZZ-ZZZZ-ZZZZ-ZZZZ', today=date(2026, 9, 12))
+        self.assertFalse(wrong_pc.ok)
+        self.assertEqual(wrong_pc.reason, 'wrong_machine')
+
+        tampered = dict(data)
+        tampered['licensee'] = '변조됨'
+        tampered_status = lic.verify_license(tampered, today=date(2026, 9, 12))
+        self.assertFalse(tampered_status.ok)
+        self.assertEqual(tampered_status.reason, 'tampered')
+
+    def test_is_expiry_notice_due_never_fires_for_perpetual(self):
+        self.assertFalse(lic.is_expiry_notice_due({'plan_days': 0}, None))
+
+    def test_plan_label_perpetual_and_legacy_plans_recognized(self):
+        # v1.8.1_PLAN.md 결정 F: 7일/30일은 새로 발급하지 않지만 계속 인식한다.
+        self.assertEqual(lic.plan_label(0), '영구')
+        self.assertEqual(lic.plan_label(7), '7일')
+        self.assertEqual(lic.plan_label(30), '30일')
+
+    def test_issuable_plans_only_offers_year_three_year_perpetual(self):
+        self.assertEqual(lic.ISSUABLE_PLANS, ((365, '1년 (365일)'), (1095, '3년'), (0, '영구')))
+
+
+class LicenseStatusCompatTests(unittest.TestCase):
+    def test_trial_field_defaults_to_false_for_five_positional_args(self):
+        status = lic.LicenseStatus(True, 'ok', '', None, None)
+        self.assertFalse(status.trial)
+
+
+@unittest.skipIf(CRYPTO_IMPORT_ERROR is not None, 'cryptography가 설치되어 있지 않음')
+class TrialTests(unittest.TestCase):
+    """30일 체험판(v1.8.1_PLAN.md §3.1). 실제 ProgramData/HKCU를 절대 건드리지
+    않도록 저장 위치와 레지스트리 읽기/쓰기를 임시 값으로 바꿔치기한다."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.program_data = Path(self.tmp.name) / 'programdata' / 'NC Tool List'
+
+        self._orig_license_dir = lic.license_dir
+        self._orig_bundled = lic.bundled_license_path
+        self._orig_pubkey = lic.LICENSE_PUBLIC_KEY
+        self._orig_machine_code = lic.machine_code
+        self._orig_read_registry = lic.read_registry_trial_started
+        self._orig_write_registry = lic.write_registry_trial_started
+
+        lic.license_dir = lambda: self.program_data
+        lic.bundled_license_path = lambda: Path(self.tmp.name) / 'no_such_dir' / 'license.lic'
+        lic.machine_code = lambda guid=None: 'AAAA-BBBB-CCCC-DDDD'
+        self.registry_store = {}
+        lic.read_registry_trial_started = lambda: self.registry_store.get('TrialStarted')
+        lic.write_registry_trial_started = lambda d: self.registry_store.__setitem__('TrialStarted', d)
+
+        self.private_key = Ed25519PrivateKey.generate()
+        lic.LICENSE_PUBLIC_KEY = _raw_public_key(self.private_key)
+
+        self.addCleanup(self._restore)
+
+    def _restore(self):
+        lic.license_dir = self._orig_license_dir
+        lic.bundled_license_path = self._orig_bundled
+        lic.LICENSE_PUBLIC_KEY = self._orig_pubkey
+        lic.machine_code = self._orig_machine_code
+        lic.read_registry_trial_started = self._orig_read_registry
+        lic.write_registry_trial_started = self._orig_write_registry
+
+    def _write_license(self, path, **overrides):
+        data = _sign(_license_data(**overrides), self.private_key)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8')
+        return data
+
+    def test_trial_starts_on_first_run_and_records_both_storages(self):
+        started = lic.ensure_license(now=datetime(2026, 9, 12, 9, 0, 0))
+        self.assertTrue(started.ok)
+        self.assertEqual(started.reason, 'trial_started')
+        self.assertEqual(started.days_left, 29)
+        self.assertIn('2026-10-11', started.message)
+
+        state = lic.load_license_state()
+        self.assertEqual(state.get('trial_started'), '2026-09-12')
+        self.assertEqual(self.registry_store.get('TrialStarted'), date(2026, 9, 12))
+
+    def test_trial_continues_and_ends_after_thirty_days(self):
+        lic.ensure_license(now=datetime(2026, 9, 12, 9, 0, 0))
+
+        ongoing = lic.ensure_license(now=datetime(2026, 9, 13, 9, 0, 0))
+        self.assertTrue(ongoing.ok)
+        self.assertEqual(ongoing.reason, 'trial')
+        self.assertEqual(ongoing.days_left, 28)
+
+        last_day = lic.ensure_license(now=datetime(2026, 10, 11, 9, 0, 0))
+        self.assertTrue(last_day.ok)
+        self.assertEqual(last_day.days_left, 0)
+
+        expired = lic.ensure_license(now=datetime(2026, 10, 12, 9, 0, 0))
+        self.assertFalse(expired.ok)
+        self.assertEqual(expired.reason, 'trial_expired')
+        self.assertIn('2026-10-11', expired.message)
+
+    def test_registry_cleared_is_restored_from_shared_folder(self):
+        lic.ensure_license(now=datetime(2026, 9, 12, 9, 0, 0))
+        self.registry_store.clear()
+        status = lic.ensure_license(now=datetime(2026, 9, 13, 9, 0, 0))
+        self.assertTrue(status.ok)
+        self.assertEqual(status.days_left, 28)
+        self.assertEqual(self.registry_store.get('TrialStarted'), date(2026, 9, 12))
+
+    def test_shared_folder_cleared_is_restored_from_registry(self):
+        lic.ensure_license(now=datetime(2026, 9, 12, 9, 0, 0))
+        state_path = lic.license_state_path()
+        data = json.loads(state_path.read_text(encoding='utf-8'))
+        del data['trial_started']
+        state_path.write_text(json.dumps(data), encoding='utf-8')
+
+        status = lic.ensure_license(now=datetime(2026, 9, 13, 9, 0, 0))
+        self.assertTrue(status.ok)
+        self.assertEqual(status.days_left, 28)
+        state = lic.load_license_state()
+        self.assertEqual(state.get('trial_started'), '2026-09-12')
+
+    def test_mismatched_values_use_the_earlier_date(self):
+        lic.ensure_license(now=datetime(2026, 9, 12, 9, 0, 0))  # started=09-12
+        self.registry_store['TrialStarted'] = date(2026, 9, 1)  # 더 이른 값
+        status = lic.ensure_license(now=datetime(2026, 9, 13, 9, 0, 0))
+        # started=09-01 기준: until=09-30, 09-13 남은 17일.
+        self.assertEqual(status.days_left, 17)
+        state = lic.load_license_state()
+        self.assertEqual(state.get('trial_started'), '2026-09-01')
+
+    def test_clock_rollback_detected_during_trial(self):
+        lic.ensure_license(now=datetime(2026, 9, 12, 9, 0, 0))
+        lic.ensure_license(now=datetime(2026, 9, 13, 9, 0, 0))
+        rolled_back = lic.ensure_license(now=datetime(2026, 9, 11, 0, 0, 0))
+        self.assertFalse(rolled_back.ok)
+        self.assertEqual(rolled_back.reason, 'clock_rollback')
+        self.assertTrue(rolled_back.trial)
+
+    def test_valid_license_takes_priority_over_trial(self):
+        self._write_license(self.program_data / 'license.lic')
+        status = lic.ensure_license(now=datetime(2026, 9, 12, 9, 0, 0))
+        self.assertTrue(status.ok)
+        self.assertEqual(status.reason, 'ok')
+        self.assertFalse(status.trial)
+        # 정식 라이선스를 통과시키느라 체험 기록은 아예 시작되지 않았어야 한다.
+        self.assertIsNone(lic.load_license_state().get('trial_started'))
+
+    def test_invalid_license_falls_back_to_trial_while_trial_is_active(self):
+        self._write_license(self.program_data / 'license.lic', machine='ZZZZ-ZZZZ-ZZZZ-ZZZZ')
+        status = lic.ensure_license(now=datetime(2026, 9, 12, 9, 0, 0))
+        # 다른 PC용 라이선스라 무효지만, 체험 기간 안이므로 체험판으로 통과한다.
+        self.assertTrue(status.ok)
+        self.assertTrue(status.trial)
+
+    def test_invalid_license_reason_wins_once_trial_also_expired(self):
+        self._write_license(self.program_data / 'license.lic', machine='ZZZZ-ZZZZ-ZZZZ-ZZZZ')
+        lic.save_license_state({'trial_started': '2026-01-01'})
+        status = lic.ensure_license(now=datetime(2026, 9, 12, 9, 0, 0))
+        self.assertFalse(status.ok)
+        # 라이선스 자체의 실패 사유(다른 PC)를 보여 준다 — 체험 종료 문구가 아니다.
+        self.assertEqual(status.reason, 'wrong_machine')
+
+
 class ExpiryNoticeTests(unittest.TestCase):
     def test_notice_due_within_seven_days_for_normal_plan(self):
         data = {'plan_days': 30}
@@ -329,6 +532,8 @@ class LicenseStorageTests(unittest.TestCase):
         self._orig_bundled = lic.bundled_license_path
         self._orig_pubkey = lic.LICENSE_PUBLIC_KEY
         self._orig_machine_code = lic.machine_code
+        self._orig_read_registry = lic.read_registry_trial_started
+        self._orig_write_registry = lic.write_registry_trial_started
 
         lic.license_dir = lambda: self.program_data
         lic.bundled_license_path = lambda: self.bundled_path
@@ -336,6 +541,10 @@ class LicenseStorageTests(unittest.TestCase):
         # 필드('AAAA-BBBB-CCCC-DDDD')와 항상 일치하도록 고정한다 — 그렇지
         # 않으면 이 개발 PC에서 wrong_machine으로 엉뚱하게 실패한다.
         lic.machine_code = lambda guid=None: 'AAAA-BBBB-CCCC-DDDD'
+        # v1.8.1: 체험판 기록은 실제 HKCU 레지스트리 대신 메모리 딕셔너리에 둔다.
+        self.registry_store = {}
+        lic.read_registry_trial_started = lambda: self.registry_store.get('TrialStarted')
+        lic.write_registry_trial_started = lambda d: self.registry_store.__setitem__('TrialStarted', d)
 
         self.private_key = Ed25519PrivateKey.generate()
         lic.LICENSE_PUBLIC_KEY = _raw_public_key(self.private_key)
@@ -347,6 +556,8 @@ class LicenseStorageTests(unittest.TestCase):
         lic.bundled_license_path = self._orig_bundled
         lic.LICENSE_PUBLIC_KEY = self._orig_pubkey
         lic.machine_code = self._orig_machine_code
+        lic.read_registry_trial_started = self._orig_read_registry
+        lic.write_registry_trial_started = self._orig_write_registry
 
     def _write_license(self, path, **overrides):
         data = _sign(_license_data(**overrides), self.private_key)
@@ -354,11 +565,15 @@ class LicenseStorageTests(unittest.TestCase):
         path.write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8')
         return data
 
-    def test_find_license_file_returns_none_when_absent(self):
+    def test_find_license_file_returns_none_when_absent_starts_trial(self):
+        # v1.8.1: 라이선스가 없으면 즉시 거부하지 않고 30일 체험판이 시작된다
+        # (v1.8.0의 '유예 없음' 결정을 뒤집는 변경 — v1.8.1_PLAN.md 결정 B/E).
         self.assertIsNone(lic.find_license_file())
         status = lic.ensure_license()
-        self.assertFalse(status.ok)
-        self.assertEqual(status.reason, 'missing')
+        self.assertTrue(status.ok)
+        self.assertEqual(status.reason, 'trial_started')
+        self.assertTrue(status.trial)
+        self.assertEqual(status.days_left, lic.TRIAL_DAYS - 1)
 
     def test_find_license_file_falls_back_to_bundled_path(self):
         self._write_license(self.bundled_path)
@@ -503,6 +718,27 @@ class LicenseRegistrationDialogUiTests(unittest.TestCase):
         self.assertTrue(accepted)
         self.assertTrue(lic.license_file_path().is_file())
 
+    def test_dialog_shows_trial_expired_message(self):
+        # v1.8.1: 체험판이 끝났을 때도 등록 창이 같은 방식으로 뜬다 — 문구만
+        # '체험 기간이 끝났습니다'로 바뀐다(evaluate_trial()이 만든 그대로).
+        qapp = app.QApplication.instance() or app.QApplication([])
+        status = lic.LicenseStatus(
+            False, 'trial_expired',
+            '체험 기간이 끝났습니다. (체험 종료일: 2026-10-11)',
+            None, -1, True,
+        )
+        captured = {}
+
+        def inspect_and_close():
+            dialog = qapp.activeModalWidget()
+            message_label = dialog.findChild(app.QLabel, 'license_message_label')
+            captured['message'] = message_label.text()
+            dialog.reject()
+
+        app.QTimer.singleShot(0, inspect_and_close)
+        app.show_license_registration_dialog(status)
+        self.assertIn('체험 기간이 끝났습니다', captured['message'])
+
 
 @unittest.skipIf(MAKER_IMPORT_ERROR is not None, 'SumPath_License_Maker를 불러올 수 없음: %r' % MAKER_IMPORT_ERROR)
 class LicenseMakerRoundTripTests(unittest.TestCase):
@@ -552,6 +788,52 @@ class LicenseMakerRoundTripTests(unittest.TestCase):
         self.assertFalse(maker.public_key_matches_app(other_key))
         self.assertTrue(maker.public_key_matches_app(self.private_key))
 
+    def test_perpetual_issue_and_verify_roundtrip(self):
+        starts = date(2026, 9, 12)
+        data = maker.build_license('생산부 1공장', 'AAAA-BBBB-CCCC-DDDD', 0, starts)
+        self.assertIsNone(data['valid_until'])
+        signed = maker.sign_license(data, self.private_key)
+        status = lic.verify_license(signed, machine='AAAA-BBBB-CCCC-DDDD', today=date(2099, 1, 1))
+        self.assertTrue(status.ok)
+        self.assertIsNone(status.days_left)
+
+    def test_perpetual_default_filename_uses_perpetual_label(self):
+        data = maker.build_license('생산 1공장', 'AAAA-BBBB-CCCC-DDDD', 0, date(2026, 9, 12))
+        name = maker.default_license_filename(data)
+        self.assertTrue(name.endswith('_영구.lic'))
+
+
+@unittest.skipIf(MAKER_IMPORT_ERROR is not None, 'SumPath_License_Maker를 불러올 수 없음: %r' % MAKER_IMPORT_ERROR)
+class LicenseMakerIssuablePlansUiTests(unittest.TestCase):
+    """발급 프로그램 라디오 버튼이 1년/3년/영구만 제공하고 기본값은 1년인지
+    (v1.8.1_PLAN.md §3.3)."""
+
+    def test_radio_buttons_match_issuable_plans_with_one_year_default(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        window = maker.LicenseMakerWindow()
+        try:
+            plan_days_set = {button.property('plan_days') for button in window.plan_group.buttons()}
+            self.assertEqual(plan_days_set, {days for days, _label in lic.ISSUABLE_PLANS})
+            checked = window.plan_group.checkedButton()
+            self.assertEqual(checked.property('plan_days'), 365)
+        finally:
+            window.deleteLater()
+            qapp.processEvents()
+
+    def test_perpetual_selection_previews_perpetual_label(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        window = maker.LicenseMakerWindow()
+        try:
+            for button in window.plan_group.buttons():
+                if button.property('plan_days') == 0:
+                    button.setChecked(True)
+                    button.click()
+                    break
+            self.assertIn('영구', window.valid_until_label.text())
+        finally:
+            window.deleteLater()
+            qapp.processEvents()
+
 
 class LicenseSealTests(unittest.TestCase):
     def test_main_checks_license_between_handoff_and_window_creation(self):
@@ -594,6 +876,19 @@ class LicenseSealTests(unittest.TestCase):
     def test_about_dialog_source_has_license_group(self):
         source = inspect.getsource(app.App.show_about)
         self.assertIn("QGroupBox('라이선스')", source)
+
+    def test_about_dialog_button_renamed_for_trial_registration(self):
+        # v1.8.1: 체험 중에도 이 버튼으로 등록하므로 이름이 바뀌었다.
+        source = inspect.getsource(app.App.show_about)
+        self.assertIn('라이선스 파일 등록/교체...', source)
+
+    def test_main_shows_trial_notice_and_updates_title_after_window_shown(self):
+        source = inspect.getsource(app.main)
+        show_index = source.index('window.show()')
+        title_index = source.index('update_title_for_license(license_status)')
+        trial_index = source.index("license_status.reason == 'trial_started'")
+        self.assertLess(show_index, title_index)
+        self.assertLess(show_index, trial_index)
 
 
 if __name__ == '__main__':

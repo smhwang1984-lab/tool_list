@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-SumPath License Maker (v1.8.0)
+SumPath License Maker (v1.1.0)
 
 Sum Path 라이선스 파일(.lic) 발급 프로그램. **발급자(관리자) PC에만** 두고,
 Sum Path 설치본/포터블/업데이트 공유 폴더에는 절대 포함하지 않는다
@@ -34,7 +34,7 @@ import sumpath_license as lic
 
 
 MAKER_APP_NAME = 'SumPath License Maker'
-MAKER_VERSION = '1.0.0'
+MAKER_VERSION = '1.1.0'
 ISSUED_LOG_FIELDS = (
     'license_id', 'licensee', 'machine', 'plan_days', 'starts',
     'valid_until', 'issued_at', 'memo',
@@ -95,16 +95,20 @@ def public_key_matches_app(key):
 
 # ---------- 라이선스 발급 ----------
 def build_license(licensee, machine, plan_days, starts, memo=''):
-    valid_until = lic.compute_valid_until(starts, plan_days)
+    plan_days = int(plan_days)
+    if plan_days == lic.PERPETUAL_PLAN_DAYS:
+        valid_until = None
+    else:
+        valid_until = lic.compute_valid_until(starts, plan_days).isoformat()
     return {
         'format': lic.LICENSE_FORMAT,
         'product': lic.PRODUCT_NAME,
         'license_id': str(uuid.uuid4()),
         'licensee': licensee,
         'machine': lic.normalize_machine_code(machine),
-        'plan_days': int(plan_days),
+        'plan_days': plan_days,
         'starts': starts.isoformat(),
-        'valid_until': valid_until.isoformat(),
+        'valid_until': valid_until,
         'issued_at': datetime.now().isoformat(timespec='seconds'),
         'memo': memo or '',
     }
@@ -126,7 +130,7 @@ def default_license_filename(data):
     return 'SumPath_%s_%s_%s.lic' % (
         clean(data.get('licensee')),
         machine[:4] if machine else 'XXXX',
-        data.get('valid_until', ''),
+        clean(data.get('valid_until') or '영구'),
     )
 
 
@@ -187,10 +191,10 @@ class LicenseMakerWindow(QMainWindow):
         plan_row = QHBoxLayout()
         plan_row.addWidget(QLabel('기간'))
         self.plan_group = QButtonGroup(self)
-        for index, (days, label) in enumerate(lic.LICENSE_PLANS):
+        for days, label in lic.ISSUABLE_PLANS:
             radio = QRadioButton(label)
             radio.setProperty('plan_days', days)
-            if index == 1:  # 30일을 기본 선택으로 둔다.
+            if days == 365:  # 1년을 기본 선택으로 둔다.
                 radio.setChecked(True)
             self.plan_group.addButton(radio, days)
             plan_row.addWidget(radio)
@@ -232,13 +236,16 @@ class LicenseMakerWindow(QMainWindow):
 
     def _selected_plan_days(self):
         button = self.plan_group.checkedButton()
-        return button.property('plan_days') if button else lic.LICENSE_PLANS[0][0]
+        return button.property('plan_days') if button else lic.ISSUABLE_PLANS[0][0]
 
     def _update_valid_until_preview(self, *_args):
         starts = self.start_date_edit.date().toPyDate()
         plan_days = self._selected_plan_days()
-        valid_until = lic.compute_valid_until(starts, plan_days)
-        self.valid_until_label.setText('사용 기한: %s' % valid_until.isoformat())
+        if plan_days == lic.PERPETUAL_PLAN_DAYS:
+            self.valid_until_label.setText('사용 기한: 영구')
+        else:
+            valid_until = lic.compute_valid_until(starts, plan_days)
+            self.valid_until_label.setText('사용 기한: %s' % valid_until.isoformat())
 
     def _refresh_key_status(self):
         self.signing_key = load_signing_key()
@@ -333,10 +340,10 @@ class LicenseMakerWindow(QMainWindow):
             QMessageBox.critical(self, '발급 실패', '파일을 저장하지 못했습니다.\n%s' % error)
             return
 
+        valid_until_text = signed.get('valid_until') or '영구'
+        days_left_text = '영구' if check.days_left is None else '남은 %d일' % check.days_left
         self.issue_status_label.setText(
-            '발급 완료: %s\n사용 기한: %s (남은 %d일)' % (
-                path, signed['valid_until'], check.days_left,
-            )
+            '발급 완료: %s\n사용 기한: %s (%s)' % (path, valid_until_text, days_left_text)
         )
 
     # ----- 확인 탭 -----
@@ -369,14 +376,19 @@ class LicenseMakerWindow(QMainWindow):
         status = lic.verify_license(data)
         lines = ['파일: %s' % path, '']
         for key in ('license_id', 'licensee', 'machine', 'plan_days', 'starts', 'valid_until', 'issued_at', 'memo'):
-            lines.append('%s: %s' % (key, data.get(key, '')))
+            value = data.get(key, '')
+            if key == 'valid_until' and value is None:
+                value = '영구'
+            lines.append('%s: %s' % (key, value))
         lines.append('')
         lines.append(
             '서명/형식/기간 검증: %s' % (
                 '통과' if status.ok else '실패(%s) - %s' % (status.reason, status.message)
             )
         )
-        if status.days_left is not None:
+        if status.ok and status.days_left is None:
+            lines.append('남은 일수(오늘 기준): 영구')
+        elif status.days_left is not None:
             lines.append('남은 일수(오늘 기준): %d일' % status.days_left)
         self.verify_output.setPlainText('\n'.join(lines))
 

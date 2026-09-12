@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-09-12 (v1.8.0)
+Last updated: 2026-09-12 (v1.8.1)
 
 ## About button requirements
 
@@ -34,7 +34,87 @@ Last updated: 2026-09-12 (v1.8.0)
 
 ## Version history
 
-### 2026-09-12 (latest, v1.8.0)
+### 2026-09-12 (latest, v1.8.1)
+
+- Version: 1.8.1
+- Release/build date: 2026-09-12
+- Summary: 사용자 요청(2026-09-12). v1.8.0의 라이선스 제도에 두 가지를
+  더했다(`v1.8.1_PLAN.md` 참고, 결정 A~F 전부 권장안대로 승인) — v1.8.0
+  결정 B("유예 없음")를 뒤집는 변경이다.
+  1. **30일 체험판** — 라이선스가 없거나 무효여도 설치 후 첫 실행부터 30일
+     동안은 그대로 쓸 수 있다(`evaluate_trial()`). 체험 시작일은 공용 폴더
+     (`license_state.json`)와 레지스트리(`HKCU\Software\NC Tool List\License`
+     `TrialStarted`) 두 곳에 적고, 둘 중 더 이른 날짜를 진짜 시작일로 쓰며
+     지워지거나 어긋난 쪽을 그 값으로 복구한다(`read_trial_started()`) — 한
+     쪽만 지워서는 체험이 늘어나지 않는다. 시계 되돌림 방지(24시간 여유)도
+     체험에 그대로 적용된다. 라이선스 파일이 있었지만 무효한 경우(다른
+     PC·만료 등), 체험이 끝난 뒤에는 라이선스 쪽 실패 사유를 보여 준다 —
+     체험 종료 문구로 뭉뚱그리지 않는다.
+  2. **영구 라이선스** — `plan_days: 0` + `valid_until: null` 조합으로
+     표현한다(형식 번호는 그대로 1). 서명·PC 고정·시작일 검사는 기간제와
+     같고, 만료 검사만 건너뛴다(`days_left`는 `None`). 만료 임박 안내도
+     뜨지 않는다.
+  3. **발급 프로그램 기간 변경** — 라디오 버튼을 7일/30일/1년/3년에서
+     **1년/3년/영구**로 바꾸고(`ISSUABLE_PLANS`) 기본 선택을 1년으로
+     했다. `plan_label()`은 7일/30일도 계속 인식해 v1.8.0에서 이미 발급된
+     파일은 그대로 표시된다(재발급만 막힘). 발급 프로그램 버전
+     1.0.0 → 1.1.0.
+  4. **화면** — 체험 중에는 제목 표시줄에 "— 체험판 (남은 N일)"이 붙는다
+     (`App.update_title_for_license()`, `main()`과 1시간 재확인에서만
+     갱신 — `App.__init__`의 기본 제목은 그대로 둬 `App()`을 직접 만드는
+     기존 테스트에 영향 없음). 체험이 이번 실행에서 막 시작됐으면
+     `main()`이 `window.show()` 뒤에 안내 창을 한 번 띄운다. About의
+     라이선스 그룹은 체험판/영구 문구를 같이 보여주고, 버튼 이름을
+     "라이선스 파일 등록/교체..."로 바꿨다(체험 중 최초 등록에도 쓰므로).
+  5. **회귀 방지** — 처음에는 `App.__init__`에서 `QTimer.singleShot(0, ...)`
+     로 시작 시점 체험 안내를 예약했으나, 기존 테스트 다수가 `App()` 생성
+     직후 `qapp.processEvents()`를 호출해(v1.7.9 `showMaximized` 예약과
+     같은 이유) 그 즉시-검사가 실제로 발동돼 "라이선스" 모달이 뜨며 테스트가
+     멈추는 것을 발견하고 제거했다. 체험 안내/제목 갱신은 `main()`에서
+     `window.show()` 뒤에 명시적으로만 부른다 — [[project_tests_share_real_qsettings]]
+     와 같은 종류의 "숨은 전역 부작용" 함정이라 v1.8.0 기록에 이어 다시
+     남겨 둔다.
+- Open source software used: 변경 없음(PyQt5/pyqtgraph/numpy/reportlab,
+  발급 프로그램만 `cryptography`).
+- Tests: `tests/test_license.py` 75개(v1.8.0의 51개 + 신규 24개 — 체험
+  시작/진행/30일째/31일째, 공용 폴더·레지스트리 상호 복구, 값이 어긋날 때
+  더 이른 쪽 채택, 체험 중 시계 되돌림, 유효 라이선스가 체험보다 우선,
+  무효 라이선스+체험 중엔 체험으로 통과, 무효 라이선스+체험 종료 시
+  라이선스 사유 노출, 영구 라이선스 검증(먼 미래·시작 전·형식 오류·PC
+  고정·변조), `LicenseStatus` 5-인자 호환, 발급 프로그램 라디오 버튼
+  1년/3년/영구·기본 1년·영구 미리보기, 영구 발급 왕복·파일명, About/
+  main() 소스 봉인) 전부 통과(27.55초). 기존 `tests/test_nc_tool_list.py`
+  전체 재실행 결과는 아래 "빌드 검증"에 기록.
+- Installer/package status: **생성 완료**(사용자 직접 지시로 빌드).
+  - `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` — onedir, UPX 비활성.
+  - `ISCC.exe NC_Tool_List.iss`(Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.8.1.exe`
+    (컴파일 56.672초).
+  - 포터블: `installer\NC_Tool_List_Portable_v1.8.1.zip` 64.1 MB.
+  - 빌드 검증: 프리즈된 `NC_Tool_List.exe`의 파일/제품 버전이 `1.8.1.0`로
+    찍히고, 실행하면 `startup.log`에 트레이스백 없이
+    `Starting Sum Path v1.8.1 frozen=True`가 남는 것을 확인했다. 이
+    개발 PC에는 이미 v1.8.0에서 발급했던 실제 유효 라이선스(7일,
+    사용 기한 2026-09-18)가 `C:\ProgramData\NC Tool List\license.lic`에
+    남아 있어, 체험판이 아니라 **그 정식 라이선스 경로로 메인 창까지
+    정상 진입**하는 것을 실제로 확인했다(체험판 로직 자체는
+    `tests/test_license.py`의 격리된 24개 신규 테스트로 별도 검증 완료).
+  - Setup EXE SHA-256: C8820AA1B5E277C08C276609307CEA8405840CF9A18CC206F240412E6ECA2832
+  - Portable ZIP SHA-256: 61EEB62FF59A4548A2BC66EBF40251907BF1609FA6D50952D3A611B5F5BF74AF
+  - App SHA-256: 13057EA7F779B08628DA971402D764BD669CC22C9251EA740EC81E379B6DB0F1
+  - **발급 프로그램(SumPath License Maker, 별도 배포물, v1.1.0)** —
+    `SumPath_License_Maker.spec` 빌드 후
+    `installer\SumPath_License_Maker_v1.1.0.zip`(41 MB)로 패키징. 정상
+    기동 확인(트레이스백 없음). 이 프로그램은 **NC_Tool_List
+    설치본/포터블/업데이트 공유 폴더에 포함하지 않는다.**
+    - Maker ZIP SHA-256: 98105B739C55BA84071C6C07ABAA8D3BB3E7EF3551CF9D876488756B009A00AE
+    - Maker EXE SHA-256: A0BC8648B08566A5223CBA3DEA7462575135F4A317050BFB00F3D6E1BEA2D57D
+  - **배포 절차**(`v1.8.1_PLAN.md` §8, v1.8.0의 "배포 전 발급 필수" 제약을
+    대체): 체험판이 있으므로 v1.8.1을 업데이트 공유 폴더에 먼저 올려도
+    된다. 30일 안에 각 PC의 About에서 PC 코드를 받아 1년/3년/영구
+    라이선스를 발급·등록하면 된다. v1.8.0 설치본/포터블은 배포하지
+    않는다(체험판이 없어 즉시 등록을 요구함).
+
+### 2026-09-12 (v1.8.0)
 
 - Version: 1.8.0
 - Release/build date: 2026-09-12
