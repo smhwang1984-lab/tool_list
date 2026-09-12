@@ -106,11 +106,33 @@ Last updated: 2026-09-12 (v1.8.0)
   불일치 검출), 소스 봉인(main() 순서, 개인키 미포함, 설치 스크립트가
   발급 프로그램을 담지 않음, 공용 폴더 권한). 기존 `tests/test_nc_tool_list.py`
   전체 재실행(회귀 없음 확인) — 상세는 아래 실행 결과 참고.
-- Installer/package status: **대기** — 이번 세션은 코드/테스트만 진행하고
-  빌드는 사용자 지시가 있을 때 진행한다. **배포 전 필수 절차**
-  (`v1.8.0_PLAN.md` §8): 발급 프로그램을 준비하고 개인키를 백업한 뒤,
-  각 PC에 설치 → 뜨는 등록 창의 PC 코드를 모아 라이선스를 발급·전달해야
-  한다 — 순서를 지키지 않으면 업데이트한 PC가 즉시 못 쓰게 된다.
+- Installer/package status: **생성 완료**(사용자 직접 지시로 빌드).
+  - `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` — onedir, UPX 비활성.
+  - `ISCC.exe NC_Tool_List.iss`(Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.8.0.exe`
+    (컴파일 56.985초).
+  - 포터블: `installer\NC_Tool_List_Portable_v1.8.0.zip` 64.1 MB.
+  - 빌드 검증: 프리즈된 `NC_Tool_List.exe`의 파일/제품 버전이 `1.8.0.0`로
+    찍히고, 실행하면 `startup.log`에 트레이스백 없이
+    `Starting Sum Path v1.8.0 frozen=True`가 남는 것을 확인했다(다른
+    인스턴스가 떠 있지 않음을 먼저 확인한 뒤 짧게 띄워 로그만 확인 —
+    라이선스가 등록되어 있지 않아 등록 창이 뜬 상태에서 바로 종료,
+    사용자 환경에 영향 없음).
+  - Setup EXE SHA-256: 3A71A9A7B4C4CE1FCC5BAD844CCBE30323F362A03FF01D20ED3D4137A571F160
+  - Portable ZIP SHA-256: 506E705C29F9B1EC2B565E29A40B0BD2BDADDB49FC47E7AB920047F32AB020B0
+  - App SHA-256: FB1A60D2F6B295F62632FD4D3E94AF11D85B1A7503100248AC46051CF5FA31C9
+  - **발급 프로그램(SumPath License Maker, 별도 배포물, v1.0.0)** — 같은
+    onedir 방식으로 `SumPath_License_Maker.spec` 빌드 후
+    `installer\SumPath_License_Maker_v1.0.0.zip`(41 MB)로 패키징.
+    발급자 PC(이 PC)에 이미 있는 서명 키(`%APPDATA%\SumPath License Maker\
+    signing_key.pem`)로 실행해 정상 기동을 확인했다(트레이스백 없음,
+    라이선스 발급 프로그램은 **NC_Tool_List 설치본/포터블/업데이트 공유
+    폴더에 포함하지 않는다** — 별도로만 전달).
+    - Maker ZIP SHA-256: 20B6C7DCD2128C4083BA791068F64128665AC93A54EF951F42CCD6ABB881B375
+    - Maker EXE SHA-256: 0C749DA7FDD0F7D3D59A44EBCFEEAA68CF772B1C1732F8E8997AB9979D746FD2
+  - **배포 전 필수 절차**(`v1.8.0_PLAN.md` §8): 발급 프로그램을 준비하고
+    개인키를 백업한 뒤, 각 PC에 v1.8.0을 설치 → 뜨는 등록 창의 PC 코드를
+    모아 라이선스를 발급·전달해야 한다 — 순서를 지키지 않으면 업데이트한
+    PC가 즉시 못 쓰게 된다.
 
 ### 2026-09-11 (v1.7.9)
 
