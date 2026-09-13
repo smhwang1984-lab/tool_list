@@ -1,12 +1,20 @@
 # -*- coding: utf-8 -*-
 """
-SumPath License Maker (v1.1.0)
+SumPath License Maker (v1.3.0)
 
 Sum Path 라이선스 파일(.lic) 발급 프로그램. **발급자(관리자) PC에만** 두고,
 Sum Path 설치본/포터블/업데이트 공유 폴더에는 절대 포함하지 않는다
-(v1.8.0_PLAN.md §3.6). 서명 개인키는 이 프로그램을 실행하는 PC의
-`%APPDATA%\\SumPath License Maker\\signing_key.pem`에만 있다 — 저장소에는
-절대 넣지 않는다.
+(v1.8.0_PLAN.md §3.6). 서명 개인키는 기본적으로 이 프로그램을 실행하는
+PC의 `%APPDATA%\\SumPath License Maker\\signing_key.pem`에 있다 —
+저장소에는 절대 넣지 않는다.
+
+v1.3.0: **포터블(USB) 모드** — 이 exe와 같은 폴더에 `signing_key.pem`을
+같이 두면(예: USB에 exe와 키를 함께 보관) `%APPDATA%`를 전혀 거치지 않고
+그 폴더의 키를 자동으로 쓴다(`maker_dir()`). 그러면 USB를 아무 PC에
+꽂아 실행해도 설치나 설정 없이 즉시 발급할 수 있다. 발급된 `.lic`도
+매번 저장 위치를 묻지 않고 exe와 같은 폴더의 `발급된 라이선스\\`
+하위에 자동으로 쌓인다(`issued_license_dir()`) — 폴더째 USB에 있으니
+발급 결과도 그 자리에 남는다.
 
 형식/기간 규칙은 `sumpath_license.py`(본 앱과 공유)를 그대로 쓴다.
 """
@@ -34,17 +42,44 @@ import sumpath_license as lic
 
 
 MAKER_APP_NAME = 'SumPath License Maker'
-MAKER_VERSION = '1.1.0'
+MAKER_VERSION = '1.3.0'
 ISSUED_LOG_FIELDS = (
     'license_id', 'licensee', 'machine', 'plan_days', 'starts',
     'valid_until', 'issued_at', 'memo',
 )
+ISSUED_LICENSE_SUBDIR = '발급된 라이선스'
 
 
 # ---------- 서명 키 관리 ----------
-def maker_dir():
+def portable_dir():
+    """이 프로그램이 실행되는 폴더(exe 자체가 있는 폴더 — USB에 놓고
+    실행하면 USB의 그 폴더). `sumpath_license.py`의 `bundled_license_path()`
+    와 같은 방식."""
+    if getattr(sys, 'frozen', False):
+        base = Path(sys.executable).resolve().parent
+    else:
+        base = Path(__file__).resolve().parent
+    return base
+
+
+def appdata_dir():
+    """기존 방식(비포터블) 저장 위치 — 이 PC의 %APPDATA%."""
     base = os.environ.get('APPDATA') or str(Path.home())
     return Path(base) / MAKER_APP_NAME
+
+
+def maker_dir():
+    """서명 키/발급 이력/발급 결과 저장 위치를 정한다.
+
+    exe와 같은 폴더(`portable_dir()`)에 이미 `signing_key.pem`이 있으면
+    그 폴더를 그대로 쓴다(포터블/USB 모드) — USB를 다른 PC에 꽂아도
+    항상 자기 키를 쓰고, %APPDATA%는 전혀 건드리지 않는다. 없으면
+    기존처럼 `%APPDATA%\\SumPath License Maker\\`를 쓴다(v1.2.0까지의
+    동작과 동일 — 이미 그렇게 설치돼 있는 PC는 아무 변화가 없다)."""
+    portable = portable_dir()
+    if (portable / 'signing_key.pem').is_file():
+        return portable
+    return appdata_dir()
 
 
 def signing_key_path():
@@ -53,6 +88,14 @@ def signing_key_path():
 
 def issued_log_path():
     return maker_dir() / 'issued_licenses.csv'
+
+
+def issued_license_dir():
+    """발급된 .lic 파일이 자동으로 쌓이는 폴더 — 항상 exe와 같은 폴더
+    (`portable_dir()`) 밑의 하위 폴더다. 포터블 모드 여부와 무관하게
+    항상 프로그램이 있는 위치를 기준으로 한다 — "발급하면 프로그램
+    폴더로 이동"이라는 사용자 요구를 그대로 따른 것."""
+    return portable_dir() / ISSUED_LICENSE_SUBDIR
 
 
 def load_signing_key():
@@ -87,9 +130,14 @@ def public_key_hex(key):
 
 
 def public_key_matches_app(key):
-    raw = key.public_key().public_bytes(
-        encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw,
-    )
+    try:
+        raw = key.public_key().public_bytes(
+            encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw,
+        )
+    except (ValueError, TypeError):
+        # USB 등에서 실수로 엉뚱한 키(RSA/EC 등 Raw 인코딩을 지원하지 않는
+        # 타입)를 불러온 경우. 이 앱은 Ed25519만 쓰므로 그냥 불일치로 본다.
+        return False
     return raw == lic.LICENSE_PUBLIC_KEY
 
 
@@ -172,6 +220,14 @@ class LicenseMakerWindow(QMainWindow):
         self.generate_key_button.clicked.connect(self._generate_key)
         layout.addWidget(self.generate_key_button)
 
+        # USB 등 외부 매체에 보관해 둔 개인키를 그때그때 불러와 쓸 수 있게
+        # 한다 — PC 디스크(signing_key_path())에는 저장하지 않고 이 창이
+        # 떠 있는 동안만 메모리에 둔다. 평소 발급 PC에 개인키를 남겨두고
+        # 싶지 않은 경우를 위한 것.
+        self.load_external_key_button = QPushButton('USB 등 외부 파일에서 키 불러오기...')
+        self.load_external_key_button.clicked.connect(self._load_external_key)
+        layout.addWidget(self.load_external_key_button)
+
         form_group = QGroupBox('라이선스 정보')
         form_layout = QVBoxLayout(form_group)
 
@@ -249,27 +305,75 @@ class LicenseMakerWindow(QMainWindow):
 
     def _refresh_key_status(self):
         self.signing_key = load_signing_key()
+        note = None
+        if self.signing_key is not None:
+            if maker_dir() == portable_dir():
+                note = '포터블 모드 — 이 프로그램과 같은 폴더의 키를 자동으로 사용 중\n%s' % signing_key_path()
+            else:
+                note = '위치: %s' % signing_key_path()
+        self._apply_key_state(note)
+
+    def _apply_key_state(self, note=None):
+        """self.signing_key(디스크에서 읽었든, USB 등 외부에서 방금
+        불러왔든)에 맞춰 상태 표시/버튼을 갱신한다. `note`는 키 출처 등
+        추가로 보여줄 한 줄(또는 여러 줄)."""
         if self.signing_key is None:
             self.key_status_label.setText(
-                '서명 키가 없습니다. 라이선스를 발급하려면 먼저 키를 생성하거나\n'
-                '기존 키 파일을 이 PC의 %s 에 놓으세요.' % signing_key_path()
+                '서명 키가 없습니다. 라이선스를 발급하려면 먼저 키를 생성하거나,\n'
+                '기존 키 파일을 이 PC의 %s 에 놓거나,\n'
+                '이 프로그램(exe)과 같은 폴더에 signing_key.pem을 두거나(USB 등,\n'
+                '포터블 모드 — %s 폴더에 놓으면 이 PC/저 PC 상관없이 자동 인식),\n'
+                '"USB 등 외부 파일에서 키 불러오기..."로 불러오세요.'
+                % (appdata_dir(), portable_dir())
             )
             self.generate_key_button.setEnabled(True)
             self.generate_key_button.setText('새 서명 키 생성...')
             self.issue_button.setEnabled(False)
             return
         if public_key_matches_app(self.signing_key):
-            self.key_status_label.setText('서명 키 준비됨(현재 앱의 공개키와 일치).')
+            text = '서명 키 준비됨(현재 앱의 공개키와 일치).'
+            if note:
+                text += '\n' + note
+            self.key_status_label.setText(text)
             self.issue_button.setEnabled(True)
         else:
-            self.key_status_label.setText(
+            text = (
                 '⚠ 이 서명 키는 현재 앱(sumpath_license.py)에 내장된 공개키와\n'
                 '일치하지 않습니다. 이 키로 발급한 라이선스는 그 앱에서 통과되지\n'
                 '않습니다 — 앱을 이 키의 공개키로 다시 빌드하기 전에는 발급하지 마세요.'
             )
+            if note:
+                text += '\n' + note
+            self.key_status_label.setText(text)
             self.issue_button.setEnabled(False)
         self.generate_key_button.setEnabled(False)
         self.generate_key_button.setText('서명 키 있음')
+
+    def _load_external_key(self):
+        """USB 등 임의 위치의 .pem 키 파일을 선택해 그 자리에서 서명에
+        쓴다. signing_key_path()(PC 디스크)에는 절대 복사/저장하지
+        않는다 — 이 창을 닫으면(또는 다른 키를 불러오면) 사라진다."""
+        path, _selected_filter = QFileDialog.getOpenFileName(
+            self, '서명 키 파일 선택 (USB 등)', '', 'PEM files (*.pem);;All files (*.*)',
+        )
+        if not path:
+            return
+        try:
+            with open(path, 'rb') as fp:
+                key = serialization.load_pem_private_key(fp.read(), password=None)
+        except (ValueError, TypeError, OSError) as error:
+            QMessageBox.critical(
+                self, '키 불러오기 실패',
+                '키 파일을 읽을 수 없습니다.\n%s' % error,
+            )
+            return
+        self.signing_key = key
+        self._apply_key_state(
+            '출처: 외부 파일 %s\n'
+            '(PC 디스크에 저장하지 않았습니다 — 이 프로그램을 닫거나 다른\n'
+            '키를 불러오면 사라지며, 다시 쓰려면 이 버튼으로 다시 불러와야 합니다.)'
+            % path
+        )
 
     def _generate_key(self):
         if signing_key_path().is_file():
@@ -326,14 +430,21 @@ class LicenseMakerWindow(QMainWindow):
             )
             return
 
-        default_name = default_license_filename(signed)
-        path, _selected_filter = QFileDialog.getSaveFileName(
-            self, '라이선스 파일 저장', default_name, 'License files (*.lic)',
-        )
-        if not path:
-            return
+        # v1.3.0: 저장 대화상자로 매번 위치를 묻지 않고, 이 프로그램(exe)과
+        # 같은 폴더 밑 ISSUED_LICENSE_SUBDIR에 자동으로 저장한다 — USB에
+        # 프로그램을 놓고 쓰면 발급 결과도 그 USB에 그대로 남는다. 같은
+        # 파일명이 이미 있으면(예: 같은 PC 코드로 같은 조건을 다시
+        # 발급) 시각을 붙여 덮어쓰지 않는다.
         try:
-            with open(path, 'w', encoding='utf-8') as fp:
+            dest_dir = issued_license_dir()
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            dest_path = dest_dir / default_license_filename(signed)
+            if dest_path.exists():
+                # license_id(uuid)는 발급마다 항상 새로 생성되므로, 시각
+                # 기반보다 확실하게 겹치지 않는다.
+                short_id = signed.get('license_id', '')[:8] or datetime.now().strftime('%H%M%S')
+                dest_path = dest_dir / ('%s_%s%s' % (dest_path.stem, short_id, dest_path.suffix))
+            with dest_path.open('w', encoding='utf-8') as fp:
                 json.dump(signed, fp, ensure_ascii=False, indent=2)
             append_issued_log(signed)
         except OSError as error:
@@ -343,7 +454,7 @@ class LicenseMakerWindow(QMainWindow):
         valid_until_text = signed.get('valid_until') or '영구'
         days_left_text = '영구' if check.days_left is None else '남은 %d일' % check.days_left
         self.issue_status_label.setText(
-            '발급 완료: %s\n사용 기한: %s (%s)' % (path, valid_until_text, days_left_text)
+            '발급 완료(자동 저장): %s\n사용 기한: %s (%s)' % (dest_path, valid_until_text, days_left_text)
         )
 
     # ----- 확인 탭 -----

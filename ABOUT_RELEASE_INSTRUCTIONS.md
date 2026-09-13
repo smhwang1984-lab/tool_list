@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-09-13 (v1.8.2)
+Last updated: 2026-09-13 (SumPath License Maker v1.3.0, NC_Tool_List는 v1.8.2 그대로)
 
 ## About button requirements
 
@@ -34,7 +34,110 @@ Last updated: 2026-09-13 (v1.8.2)
 
 ## Version history
 
-### 2026-09-13 (latest, v1.8.2)
+### 2026-09-13 (latest, SumPath License Maker v1.3.0 — NC_Tool_List는 변경 없음, v1.8.2 그대로)
+
+- Version: SumPath License Maker 1.2.0 → 1.3.0 (NC_Tool_List, `sumpath_license.py` 변경 없음)
+- Release/build date: 2026-09-13
+- Summary: 사용자가 v1.2.0의 "USB 등 외부 파일에서 키 불러오기..."
+  버튼으로는 부족하다고 정정했다 — 실제로 원한 것은 "발급 프로그램
+  자체를 USB에서 실행하고, 서명 키도 USB에 저장돼 있어서 다른
+  컴퓨터에 꽂아도 클릭 한 번 없이 즉시 발급되는" 완전 포터블
+  방식이었다. 이어서 "발급되면 자동으로 프로그램 폴더로 이동"까지
+  요청해, 발급 결과 저장 방식도 함께 바꿨다.
+  1. **포터블(USB) 키 자동 인식** — `maker_dir()`이 이제 exe와 같은
+     폴더(`portable_dir()`)에 `signing_key.pem`이 있으면 그 폴더를
+     그대로 쓴다. `%APPDATA%`는 전혀 거치지 않는다. USB에
+     `SumPath_License_Maker.exe`와 `signing_key.pem`을 나란히
+     넣어 두면, 어느 PC에 꽂아 실행하든 창을 열자마자(`_refresh_key_status()`
+     는 `__init__`에서 자동 호출됨) 키가 자동으로 인식되고 발급
+     버튼이 바로 활성화된다 — 클릭 한 번도 필요 없다. `signing_key.pem`
+     이 그 폴더에 없으면 기존처럼 `%APPDATA%\SumPath License
+     Maker\`를 쓴다(v1.2.0까지의 동작과 동일 — 이미 그렇게 설치된
+     PC는 변화 없음). v1.2.0의 "USB 등 외부 파일에서 키 불러오기..."
+     버튼은 그대로 남겨 뒀다(파일명이 다르거나 다른 위치에 둔
+     경우를 위한 수동 대안).
+  2. **발급 결과 자동 저장** — "라이선스 발급"을 누르면 더는 저장
+     대화상자로 위치를 묻지 않는다. exe와 같은 폴더 밑
+     `발급된 라이선스\` 폴더(`issued_license_dir()`, 포터블 키
+     사용 여부와 무관하게 항상 exe 위치 기준)에 자동으로 저장된다 —
+     USB에 프로그램을 두고 쓰면 발급 결과도 그 USB에 그대로 남아
+     바로 배포할 수 있다. 같은 조건(사용자/PC 코드/기간/시작일)으로
+     다시 발급해 파일명이 겹치면 `license_id`(uuid) 일부를 붙여
+     기존 파일을 덮어쓰지 않는다.
+  3. **상태 표시 개선** — 서명 키가 준비되면 상태 줄에 포터블
+     모드인지("이 프로그램과 같은 폴더의 키를 자동으로 사용 중")
+     아니면 `%APPDATA%` 경로를 쓰는지 표시한다. 발급 완료 메시지도
+     "발급 완료(자동 저장): <경로>"로 바뀌었다.
+- Open source software used: 변경 없음.
+- Tests: `tests/test_license.py`에 `LicenseMakerPortableModeTests`
+  3개(포터블 폴더 우선 인식, 키 없으면 %APPDATA% 폴백, 발급 결과
+  폴더는 항상 exe 위치 기준) + `LicenseMakerAutoSaveIssuedFileUiTests`
+  2개(발급 시 자동 저장 확인, 같은 조건 재발급 시 덮어쓰지 않음)
+  추가 — 전체 85개 전부 통과(25.93초, 서브테스트 10개 포함).
+- Installer/package status: **생성 완료**. SumPath License Maker만
+  `python -m PyInstaller SumPath_License_Maker.spec --noconfirm
+  --clean`로 재빌드해 `installer\SumPath_License_Maker_v1.3.0.zip`으로
+  재배포(v1.1.0/v1.2.0 zip은 그대로 유지). 실행해 5초간 트레이스백
+  없이 유지되는 것을 확인(정상 기동). NC_Tool_List 앱 설치본/포터블은
+  변경이 없어 다시 만들지 않았다(v1.8.2 그대로 유효).
+  - Maker v1.3.0 ZIP SHA-256: C39AA5CE508E013D32EBD50C045E3105CE4A709311AB5EFDB3EA2FF57D3D1BFB
+  - Maker v1.3.0 EXE SHA-256: C657BED91289585DC25077785CC40C442A085356FC3F504DE292414B0999B2E7
+  - 포터블/자동 인식 로직(`maker_dir()`이 exe와 같은 폴더의
+    `signing_key.pem`을 우선하는 것, `issued_license_dir()`이 항상
+    exe 위치를 기준으로 하는 것)은 `sumpath_license.py`의
+    `bundled_license_path()`와 같은 `sys.frozen`/`sys.executable`
+    패턴을 그대로 따른 것이라 프리즈된 exe에서도 동일하게 동작한다 —
+    다만 실제 USB에 꽂아 다른 PC에서 발급까지 해 보는 손 테스트는
+    사용자가 직접 확인해 주는 게 좋다(자동화 테스트는 소스 레벨
+    함수 단위로 커버했다).
+
+### 2026-09-13 (SumPath License Maker v1.2.0)
+
+- Version: SumPath License Maker 1.1.0 → 1.2.0 (NC_Tool_List, `sumpath_license.py` 변경 없음)
+- Release/build date: 2026-09-13
+- Summary: 사용자 요청(2026-09-13) — "라이센스 작성 파일 인증서를 USB에서
+  보관하고 읽을 수 있나?"에 답한 뒤, 발급 프로그램(SumPath License
+  Maker)에 **"USB 등 외부 파일에서 키 불러오기..."** 버튼을 추가했다.
+  1. **기존 방식의 한계** — 발급 프로그램은 서명 개인키를 항상
+     `%APPDATA%\SumPath License Maker\signing_key.pem`(고정 경로)에서만
+     읽었다. USB에 개인키를 보관하고 발급할 때만 꽂아 쓰려면, 매번 그
+     경로로 복사했다가 끝나면 지우는 수작업이 필요했다.
+  2. **새 버튼** — `_load_external_key()`가 파일 선택 대화상자로 임의
+     경로(USB 포함)의 `.pem` 파일을 읽어 `self.signing_key`에 바로
+     쓴다. **PC 디스크(`signing_key_path()`)에는 전혀 쓰지 않는다** —
+     프로그램을 닫거나 다른 키를 불러오면 메모리에서 사라지고, 다시
+     쓰려면 그 버튼으로 다시 불러와야 한다. 상태 표시 줄에 불러온
+     파일 경로와 "디스크에 저장하지 않았다"는 안내를 같이 보여준다.
+  3. **리팩터링** — 기존 `_refresh_key_status()`(디스크에서 읽어 상태
+     갱신)와 새 경로가 상태 표시/버튼 활성화 로직을 공유하도록
+     `_apply_key_state(note=None)`로 뽑아냈다. `note`에 키 출처를
+     넣어 두 경로("디스크에서 읽음" vs "외부 파일에서 불러옴")를 같은
+     화면에서 구분해 보여준다.
+  4. **방어적 수정** — `public_key_matches_app()`이 Raw 인코딩을
+     지원하지 않는 키 타입(RSA/EC 등, 사용자가 실수로 엉뚱한 키 파일을
+     골랐을 때)을 만나면 예외 대신 `False`(불일치)를 돌려주도록
+     고쳤다 — 이전에는 그런 파일을 발급 프로그램에서 열면(표준 위치든
+     이번 새 버튼이든) 처리되지 않은 예외로 죽을 수 있었다.
+  5. **기존 라이선스 파일 형식/검증 로직은 전혀 건드리지 않았다** —
+     `sumpath_license.py`, `NC_Tool_List.py` 변경 없음. 이미 발급된
+     라이선스나 설치된 앱(v1.8.2)에는 영향이 없다.
+- Open source software used: 변경 없음(`cryptography`는 이미 발급
+  프로그램에만 있었음).
+- Tests: `tests/test_license.py`에 `LicenseMakerExternalKeyUiTests` 3개
+  추가(외부 키 로드 후 발급 가능·표준 경로 무변경 확인, 잘못된 파일
+  선택 시 크래시 없이 거부, 대화상자 취소 시 기존 상태 유지) — 전체
+  80개 전부 통과(23.11초, 서브테스트 10개 포함). `test_no_private_key_material_embedded_in_source`
+  등 기존 봉인 테스트도 그대로 통과.
+- Installer/package status: **생성 완료**. NC_Tool_List용 설치본/포터블은
+  변경이 없어 다시 만들지 않았다(v1.8.2 그대로 유효). SumPath License
+  Maker만 `python -m PyInstaller SumPath_License_Maker.spec --noconfirm
+  --clean`로 재빌드해 `installer\SumPath_License_Maker_v1.2.0.zip`(새
+  파일명 — v1.1.0 zip은 그대로 남겨 둠)으로 재패키징했다. 실행해 5초간
+  트레이스백 없이 유지되는 것을 확인(정상 기동).
+  - Maker v1.2.0 ZIP SHA-256: 839477164E0654DB4037E20F53AE14BB330891D33AF80571FE422A81F50A5C22
+  - Maker v1.2.0 EXE SHA-256: 40F05F3E67D42C120DBEB6AA7E5C0462CAF968AB4502C5972F27DCFDE8EFD5AF
+
+### 2026-09-13 (v1.8.2)
 
 - Version: 1.8.2
 - Release/build date: 2026-09-13
