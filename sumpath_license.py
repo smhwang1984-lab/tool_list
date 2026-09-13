@@ -601,5 +601,14 @@ def register_license_file(source_path, now=None):
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(str(source_path), str(dest))
     # 새로 등록한 라이선스는 이전 라이선스의 last_seen 이력과 무관하게 취급한다.
-    save_license_state({'last_seen': now.isoformat(timespec='seconds')})
+    # 다만 trial_started는 이 라이선스와 무관하게 "이 PC가 체험판을 이미
+    # 써봤는지"를 기록하는 값이라 지우면 안 된다 — 지우면 유료 라이선스를
+    # 등록/교체할 때마다(예: 만료된 라이선스를 새 걸로 교체) 체험판 30일이
+    # 초기화되어, 라이선스를 지우고 다시 등록하는 식으로 체험판을 무한
+    # 연장할 수 있는 구멍이 생긴다.
+    old_state = load_license_state()
+    new_state = {'last_seen': now.isoformat(timespec='seconds')}
+    if 'trial_started' in old_state:
+        new_state['trial_started'] = old_state['trial_started']
+    save_license_state(new_state)
     return status

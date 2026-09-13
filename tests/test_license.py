@@ -613,6 +613,34 @@ class LicenseStorageTests(unittest.TestCase):
         self.assertFalse(bad_outcome.ok)
         self.assertEqual(bad_outcome.reason, 'invalid_format')
 
+    def test_register_license_file_preserves_trial_started(self):
+        # 체험판을 쓰다가 정식 라이선스를 등록해도 trial_started 기록은
+        # 지워지면 안 된다 — 지워지면 라이선스를 지우고 다시 등록하는 식으로
+        # 30일 체험판을 무한 연장할 수 있게 된다.
+        lic.save_license_state({
+            'trial_started': '2026-08-01',
+            'last_seen': '2026-08-01T00:00:00',
+        })
+        source = Path(self.tmp.name) / 'incoming.lic'
+        self._write_license(source)
+        outcome = lic.register_license_file(source, now=datetime(2026, 9, 12, 10, 0, 0))
+        self.assertTrue(outcome.ok)
+        state = lic.load_license_state()
+        self.assertEqual(state.get('trial_started'), '2026-08-01')
+        self.assertEqual(state.get('last_seen'), '2026-09-12T10:00:00')
+
+    def test_register_license_file_without_prior_trial_state(self):
+        # 이전에 trial_started 기록이 아예 없던 경우(체험판을 거치지 않고
+        # 바로 라이선스를 받은 PC)에는 새 상태에도 trial_started 키가
+        # 생기면 안 된다.
+        source = Path(self.tmp.name) / 'incoming.lic'
+        self._write_license(source)
+        outcome = lic.register_license_file(source, now=datetime(2026, 9, 12, 10, 0, 0))
+        self.assertTrue(outcome.ok)
+        state = lic.load_license_state()
+        self.assertNotIn('trial_started', state)
+        self.assertEqual(state.get('last_seen'), '2026-09-12T10:00:00')
+
 
 @unittest.skipIf(CRYPTO_IMPORT_ERROR is not None, 'cryptography가 설치되어 있지 않음')
 class LicenseRegistrationDialogUiTests(unittest.TestCase):
