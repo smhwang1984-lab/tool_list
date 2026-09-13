@@ -34,7 +34,7 @@ import sumpath_license as lic
 
 
 MAKER_APP_NAME = 'SumPath License Maker'
-MAKER_VERSION = '1.1.0'
+MAKER_VERSION = '1.2.0'
 ISSUED_LOG_FIELDS = (
     'license_id', 'licensee', 'machine', 'plan_days', 'starts',
     'valid_until', 'issued_at', 'memo',
@@ -87,9 +87,14 @@ def public_key_hex(key):
 
 
 def public_key_matches_app(key):
-    raw = key.public_key().public_bytes(
-        encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw,
-    )
+    try:
+        raw = key.public_key().public_bytes(
+            encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw,
+        )
+    except (ValueError, TypeError):
+        # USB 등에서 실수로 엉뚱한 키(RSA/EC 등 Raw 인코딩을 지원하지 않는
+        # 타입)를 불러온 경우. 이 앱은 Ed25519만 쓰므로 그냥 불일치로 본다.
+        return False
     return raw == lic.LICENSE_PUBLIC_KEY
 
 
@@ -172,6 +177,14 @@ class LicenseMakerWindow(QMainWindow):
         self.generate_key_button.clicked.connect(self._generate_key)
         layout.addWidget(self.generate_key_button)
 
+        # USB 등 외부 매체에 보관해 둔 개인키를 그때그때 불러와 쓸 수 있게
+        # 한다 — PC 디스크(signing_key_path())에는 저장하지 않고 이 창이
+        # 떠 있는 동안만 메모리에 둔다. 평소 발급 PC에 개인키를 남겨두고
+        # 싶지 않은 경우를 위한 것.
+        self.load_external_key_button = QPushButton('USB 등 외부 파일에서 키 불러오기...')
+        self.load_external_key_button.clicked.connect(self._load_external_key)
+        layout.addWidget(self.load_external_key_button)
+
         form_group = QGroupBox('라이선스 정보')
         form_layout = QVBoxLayout(form_group)
 
@@ -249,27 +262,66 @@ class LicenseMakerWindow(QMainWindow):
 
     def _refresh_key_status(self):
         self.signing_key = load_signing_key()
+        self._apply_key_state()
+
+    def _apply_key_state(self, note=None):
+        """self.signing_key(디스크에서 읽었든, USB 등 외부에서 방금
+        불러왔든)에 맞춰 상태 표시/버튼을 갱신한다. `note`는 키 출처 등
+        추가로 보여줄 한 줄(또는 여러 줄)."""
         if self.signing_key is None:
             self.key_status_label.setText(
                 '서명 키가 없습니다. 라이선스를 발급하려면 먼저 키를 생성하거나\n'
-                '기존 키 파일을 이 PC의 %s 에 놓으세요.' % signing_key_path()
+                '기존 키 파일을 이 PC의 %s 에 놓거나,\n'
+                '"USB 등 외부 파일에서 키 불러오기..."로 불러오세요.' % signing_key_path()
             )
             self.generate_key_button.setEnabled(True)
             self.generate_key_button.setText('새 서명 키 생성...')
             self.issue_button.setEnabled(False)
             return
         if public_key_matches_app(self.signing_key):
-            self.key_status_label.setText('서명 키 준비됨(현재 앱의 공개키와 일치).')
+            text = '서명 키 준비됨(현재 앱의 공개키와 일치).'
+            if note:
+                text += '\n' + note
+            self.key_status_label.setText(text)
             self.issue_button.setEnabled(True)
         else:
-            self.key_status_label.setText(
+            text = (
                 '⚠ 이 서명 키는 현재 앱(sumpath_license.py)에 내장된 공개키와\n'
                 '일치하지 않습니다. 이 키로 발급한 라이선스는 그 앱에서 통과되지\n'
                 '않습니다 — 앱을 이 키의 공개키로 다시 빌드하기 전에는 발급하지 마세요.'
             )
+            if note:
+                text += '\n' + note
+            self.key_status_label.setText(text)
             self.issue_button.setEnabled(False)
         self.generate_key_button.setEnabled(False)
         self.generate_key_button.setText('서명 키 있음')
+
+    def _load_external_key(self):
+        """USB 등 임의 위치의 .pem 키 파일을 선택해 그 자리에서 서명에
+        쓴다. signing_key_path()(PC 디스크)에는 절대 복사/저장하지
+        않는다 — 이 창을 닫으면(또는 다른 키를 불러오면) 사라진다."""
+        path, _selected_filter = QFileDialog.getOpenFileName(
+            self, '서명 키 파일 선택 (USB 등)', '', 'PEM files (*.pem);;All files (*.*)',
+        )
+        if not path:
+            return
+        try:
+            with open(path, 'rb') as fp:
+                key = serialization.load_pem_private_key(fp.read(), password=None)
+        except (ValueError, TypeError, OSError) as error:
+            QMessageBox.critical(
+                self, '키 불러오기 실패',
+                '키 파일을 읽을 수 없습니다.\n%s' % error,
+            )
+            return
+        self.signing_key = key
+        self._apply_key_state(
+            '출처: 외부 파일 %s\n'
+            '(PC 디스크에 저장하지 않았습니다 — 이 프로그램을 닫거나 다른\n'
+            '키를 불러오면 사라지며, 다시 쓰려면 이 버튼으로 다시 불러와야 합니다.)'
+            % path
+        )
 
     def _generate_key(self):
         if signing_key_path().is_file():

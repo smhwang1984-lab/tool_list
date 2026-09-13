@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-09-13 (v1.8.2)
+Last updated: 2026-09-13 (SumPath License Maker v1.2.0, NC_Tool_List는 v1.8.2 그대로)
 
 ## About button requirements
 
@@ -34,7 +34,53 @@ Last updated: 2026-09-13 (v1.8.2)
 
 ## Version history
 
-### 2026-09-13 (latest, v1.8.2)
+### 2026-09-13 (latest, SumPath License Maker v1.2.0 — NC_Tool_List는 변경 없음, v1.8.2 그대로)
+
+- Version: SumPath License Maker 1.1.0 → 1.2.0 (NC_Tool_List, `sumpath_license.py` 변경 없음)
+- Release/build date: 2026-09-13
+- Summary: 사용자 요청(2026-09-13) — "라이센스 작성 파일 인증서를 USB에서
+  보관하고 읽을 수 있나?"에 답한 뒤, 발급 프로그램(SumPath License
+  Maker)에 **"USB 등 외부 파일에서 키 불러오기..."** 버튼을 추가했다.
+  1. **기존 방식의 한계** — 발급 프로그램은 서명 개인키를 항상
+     `%APPDATA%\SumPath License Maker\signing_key.pem`(고정 경로)에서만
+     읽었다. USB에 개인키를 보관하고 발급할 때만 꽂아 쓰려면, 매번 그
+     경로로 복사했다가 끝나면 지우는 수작업이 필요했다.
+  2. **새 버튼** — `_load_external_key()`가 파일 선택 대화상자로 임의
+     경로(USB 포함)의 `.pem` 파일을 읽어 `self.signing_key`에 바로
+     쓴다. **PC 디스크(`signing_key_path()`)에는 전혀 쓰지 않는다** —
+     프로그램을 닫거나 다른 키를 불러오면 메모리에서 사라지고, 다시
+     쓰려면 그 버튼으로 다시 불러와야 한다. 상태 표시 줄에 불러온
+     파일 경로와 "디스크에 저장하지 않았다"는 안내를 같이 보여준다.
+  3. **리팩터링** — 기존 `_refresh_key_status()`(디스크에서 읽어 상태
+     갱신)와 새 경로가 상태 표시/버튼 활성화 로직을 공유하도록
+     `_apply_key_state(note=None)`로 뽑아냈다. `note`에 키 출처를
+     넣어 두 경로("디스크에서 읽음" vs "외부 파일에서 불러옴")를 같은
+     화면에서 구분해 보여준다.
+  4. **방어적 수정** — `public_key_matches_app()`이 Raw 인코딩을
+     지원하지 않는 키 타입(RSA/EC 등, 사용자가 실수로 엉뚱한 키 파일을
+     골랐을 때)을 만나면 예외 대신 `False`(불일치)를 돌려주도록
+     고쳤다 — 이전에는 그런 파일을 발급 프로그램에서 열면(표준 위치든
+     이번 새 버튼이든) 처리되지 않은 예외로 죽을 수 있었다.
+  5. **기존 라이선스 파일 형식/검증 로직은 전혀 건드리지 않았다** —
+     `sumpath_license.py`, `NC_Tool_List.py` 변경 없음. 이미 발급된
+     라이선스나 설치된 앱(v1.8.2)에는 영향이 없다.
+- Open source software used: 변경 없음(`cryptography`는 이미 발급
+  프로그램에만 있었음).
+- Tests: `tests/test_license.py`에 `LicenseMakerExternalKeyUiTests` 3개
+  추가(외부 키 로드 후 발급 가능·표준 경로 무변경 확인, 잘못된 파일
+  선택 시 크래시 없이 거부, 대화상자 취소 시 기존 상태 유지) — 전체
+  80개 전부 통과(23.11초, 서브테스트 10개 포함). `test_no_private_key_material_embedded_in_source`
+  등 기존 봉인 테스트도 그대로 통과.
+- Installer/package status: **생성 완료**. NC_Tool_List용 설치본/포터블은
+  변경이 없어 다시 만들지 않았다(v1.8.2 그대로 유효). SumPath License
+  Maker만 `python -m PyInstaller SumPath_License_Maker.spec --noconfirm
+  --clean`로 재빌드해 `installer\SumPath_License_Maker_v1.2.0.zip`(새
+  파일명 — v1.1.0 zip은 그대로 남겨 둠)으로 재패키징했다. 실행해 5초간
+  트레이스백 없이 유지되는 것을 확인(정상 기동).
+  - Maker v1.2.0 ZIP SHA-256: 839477164E0654DB4037E20F53AE14BB330891D33AF80571FE422A81F50A5C22
+  - Maker v1.2.0 EXE SHA-256: 40F05F3E67D42C120DBEB6AA7E5C0462CAF968AB4502C5972F27DCFDE8EFD5AF
+
+### 2026-09-13 (v1.8.2)
 
 - Version: 1.8.2
 - Release/build date: 2026-09-13

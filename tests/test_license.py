@@ -832,6 +832,94 @@ class LicenseMakerRoundTripTests(unittest.TestCase):
 
 
 @unittest.skipIf(MAKER_IMPORT_ERROR is not None, 'SumPath_License_Maker를 불러올 수 없음: %r' % MAKER_IMPORT_ERROR)
+class LicenseMakerExternalKeyUiTests(unittest.TestCase):
+    """v1.2.0: "USB 등 외부 파일에서 키 불러오기..." — signing_key_path()
+    (PC 디스크)에는 절대 쓰지 않고 그 자리에서만 서명에 쓴다."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self._orig_pubkey = lic.LICENSE_PUBLIC_KEY
+        self._orig_open_dialog = maker.QFileDialog.getOpenFileName
+        self._orig_critical = maker.QMessageBox.critical
+        self.private_key = Ed25519PrivateKey.generate()
+        lic.LICENSE_PUBLIC_KEY = _raw_public_key(self.private_key)
+        self.addCleanup(self._restore)
+
+    def _restore(self):
+        lic.LICENSE_PUBLIC_KEY = self._orig_pubkey
+        maker.QFileDialog.getOpenFileName = self._orig_open_dialog
+        maker.QMessageBox.critical = self._orig_critical
+
+    def _write_external_key(self, key):
+        path = Path(self.tmp.name) / 'usb_signing_key.pem'
+        pem = key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+        path.write_bytes(pem)
+        return path
+
+    def test_load_external_key_enables_issue_without_touching_disk_path(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        external_path = self._write_external_key(self.private_key)
+        maker.QFileDialog.getOpenFileName = staticmethod(
+            lambda *a, **k: (str(external_path), '')
+        )
+        # 이 개발 PC의 실제 signing_key_path()가 어떤 상태든(존재/부재 무관)
+        # _load_external_key()가 절대 거기 쓰지 않는다는 것만 확인하면 되므로,
+        # 쓰기 여부만 감시하고 실제 표준 경로는 건드리지 않는다.
+        disk_path = maker.signing_key_path()
+        existed_before = disk_path.is_file()
+        mtime_before = disk_path.stat().st_mtime if existed_before else None
+        window = maker.LicenseMakerWindow()
+        try:
+            window._load_external_key()
+            self.assertIsNotNone(window.signing_key)
+            self.assertTrue(maker.public_key_matches_app(window.signing_key))
+            self.assertTrue(window.issue_button.isEnabled())
+            self.assertIn(str(external_path), window.key_status_label.text())
+            # 표준 경로는 손대지 않았어야 한다.
+            self.assertEqual(disk_path.is_file(), existed_before)
+            if existed_before:
+                self.assertEqual(disk_path.stat().st_mtime, mtime_before)
+        finally:
+            window.deleteLater()
+            qapp.processEvents()
+
+    def test_load_external_key_rejects_invalid_file_without_crashing(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        bad_path = Path(self.tmp.name) / 'not_a_key.pem'
+        bad_path.write_text('not a pem file', encoding='utf-8')
+        maker.QFileDialog.getOpenFileName = staticmethod(lambda *a, **k: (str(bad_path), ''))
+        maker.QMessageBox.critical = staticmethod(lambda *a, **k: None)
+        window = maker.LicenseMakerWindow()
+        try:
+            window.signing_key = None
+            window._load_external_key()
+            self.assertIsNone(window.signing_key)
+            self.assertFalse(window.issue_button.isEnabled())
+        finally:
+            window.deleteLater()
+            qapp.processEvents()
+
+    def test_load_external_key_cancelled_dialog_keeps_previous_state(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        maker.QFileDialog.getOpenFileName = staticmethod(lambda *a, **k: ('', ''))
+        window = maker.LicenseMakerWindow()
+        try:
+            window.signing_key = self.private_key
+            window._apply_key_state()
+            window._load_external_key()  # 취소 — 아무것도 바뀌면 안 됨
+            self.assertIs(window.signing_key, self.private_key)
+            self.assertTrue(window.issue_button.isEnabled())
+        finally:
+            window.deleteLater()
+            qapp.processEvents()
+
+
+@unittest.skipIf(MAKER_IMPORT_ERROR is not None, 'SumPath_License_Maker를 불러올 수 없음: %r' % MAKER_IMPORT_ERROR)
 class LicenseMakerIssuablePlansUiTests(unittest.TestCase):
     """발급 프로그램 라디오 버튼이 1년/3년/영구만 제공하고 기본값은 1년인지
     (v1.8.1_PLAN.md §3.3)."""
