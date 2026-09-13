@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-09-12 (v1.8.1)
+Last updated: 2026-09-13 (v1.8.2)
 
 ## About button requirements
 
@@ -34,7 +34,71 @@ Last updated: 2026-09-12 (v1.8.1)
 
 ## Version history
 
-### 2026-09-12 (latest, v1.8.1)
+### 2026-09-13 (latest, v1.8.2)
+
+- Version: 1.8.2
+- Release/build date: 2026-09-13
+- Summary: 사용자 보고(2026-09-13) — v1.8.1로 영구 라이선스를 발급/등록해
+  보다가 두 가지를 확인했다: (1) 발급 프로그램은 발급 직후 파일 저장
+  대화상자에서 고른 위치에만 `.lic`을 만든다(자동 위치 없음) — 실제
+  코드에는 문제가 없었고, 이는 zip을 풀지 않고 실행했거나 저장 경로를
+  놓친 사용 습관 문제로 판단했다(코드 변경 없음). (2) 이미 유효한
+  라이선스/체험판이 있는 PC에서는 시작 시 등록 창이 뜨지 않는 것이
+  의도된 동작임을 확인했다(설정 → 라이선스 → "라이선스 파일
+  등록/교체..."로 언제든 교체 가능, 코드 변경 없음). 이 과정에서 실제
+  버그 하나를 찾아 고쳤다:
+  1. **`register_license_file()`의 `trial_started` 소실 버그** —
+     라이선스 파일을 새로 등록/교체할 때 `license_state.json`을
+     `{'last_seen': ...}`로 통째로 덮어써, 체험판을 쓰다가 정식
+     라이선스를 등록하면 `trial_started` 기록이 사라졌다. 이 상태에서
+     나중에 그 라이선스가 만료되거나 다른 계정에서 실행하면 30일
+     체험판이 다시 시작될 수 있는 구멍이었다(라이선스를 지우고 다시
+     등록하는 식으로 반복하면 체험판을 계속 연장 가능). 이제
+     `register_license_file()`은 기존 상태에 `trial_started`가 있으면
+     그대로 보존하고 `last_seen`만 새로 기록한다(`sumpath_license.py`).
+     `read_trial_started()`가 공용 폴더/레지스트리 중 더 이른 날짜를
+     쓰는 기존 로직(v1.8.1 결정 B)과 합쳐, 라이선스를 몇 번을 교체해도
+     맨 처음 체험 시작일만 유효하게 됐다.
+- Open source software used: 변경 없음.
+- Tests: `tests/test_license.py`에 회귀 테스트 2개 추가
+  (`test_register_license_file_preserves_trial_started`,
+  `test_register_license_file_without_prior_trial_state`) — 총 77개
+  전부 통과(60.37초). `tests/test_nc_tool_list.py` 포함 전체 스위트
+  (331개 + 서브테스트 10개)도 재실행해 330 passed, 1 skipped을 확인 —
+  `ToolListModeComboTests::test_switching_to_lathe_changes_table_schema_and_machine`
+  1개가 이 개발 PC의 실제 QSettings(`HKCU\Software\NC Tool List\EmbeddedViewer`)에
+  남아 있던 이전 수동 테스트의 장비 선택 값 때문에 실패했다(라이선스 변경과
+  무관한 파일 — `sumpath_license.py`/`tests/test_license.py`만 건드렸음 —
+  이고, 단독 실행해도 같은 값으로 실패해 테스트 순서 문제가 아니라 이 PC의
+  QSettings 오염임을 확인함; 격리된 CI/클린 PC에서는 재현되지 않을
+  환경 문제로, 사용자 실제 설정을 건드리지 않기 위해 이번 릴리스에서는
+  건드리지 않음).
+- Installer/package status: **생성 완료**(사용자 직접 지시로 빌드).
+  - `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` — onedir, UPX 비활성.
+  - `ISCC.exe NC_Tool_List.iss`(Inno Setup 6.5.2) — `installer\NC_Tool_List_Setup_v1.8.2.exe`
+    (컴파일 117.343초).
+  - 포터블: `installer\NC_Tool_List_Portable_v1.8.2.zip`.
+  - 빌드 검증: 프리즈된 `NC_Tool_List.exe`의 파일/제품 버전이 `1.8.2.0`로
+    찍히고, 실행하면(6초 대기 후 정상 종료) `startup.log`에 트레이스백
+    없이 `Starting Sum Path v1.8.2 frozen=True`가 남는 것을 확인했다.
+  - Setup EXE SHA-256: DE965301479688D11240FFD581484465D6CC08B3137D5C3E7F342E6C5AC6AB61
+  - Portable ZIP SHA-256: 7186FA127D72AB9B9F0B6C852B1B956C1533ADCA275424DFAEA66633BBB2939A
+  - App EXE SHA-256: 8F442B70CE8D7436245B2EDDCD514A35ABA2E4937BCEADD07945FF305172B4D9
+  - **발급 프로그램(SumPath License Maker, 별도 배포물)** — 버전은
+    1.1.0 그대로다(발급 프로그램 자체의 동작은 바뀌지 않았고, 함께
+    번들되는 공용 모듈 `sumpath_license.py`만 고쳐졌다). 그래도 고친
+    모듈을 반영하기 위해 `SumPath_License_Maker.spec`으로 다시 빌드하고
+    `installer\SumPath_License_Maker_v1.1.0.zip`을 새로 패키징했다(같은
+    파일명, 이전 v1.8.1용 빌드를 덮어씀). 정상 기동 확인(5초간 트레이스백
+    없이 실행 유지).
+    - Maker ZIP SHA-256: FCFA32340A62AC395B03182E37493AEB57DE6EB93D2D12802EA2BCF959DEFD2C
+    - Maker EXE SHA-256: 1980259F62991D2BA31AE7B5CDA32A5D5BA1EA39DDD1F3869E06C52F09753584
+  - 이 개발 PC에는 여전히 v1.8.0에서 발급했던 실제 유효 라이선스(7일,
+    사용 기한 2026-09-18)가 `C:\ProgramData\NC Tool List\license.lic`에
+    남아 있다 — v1.8.1과 마찬가지로 그 정식 라이선스 경로로 메인 창까지
+    정상 진입하는 것을 확인했다.
+
+### 2026-09-12 (v1.8.1)
 
 - Version: 1.8.1
 - Release/build date: 2026-09-12
