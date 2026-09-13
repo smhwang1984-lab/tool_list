@@ -920,6 +920,108 @@ class LicenseMakerExternalKeyUiTests(unittest.TestCase):
 
 
 @unittest.skipIf(MAKER_IMPORT_ERROR is not None, 'SumPath_License_Maker를 불러올 수 없음: %r' % MAKER_IMPORT_ERROR)
+class LicenseMakerPortableModeTests(unittest.TestCase):
+    """v1.3.0: exe와 같은 폴더(portable_dir())에 signing_key.pem이 있으면
+    %APPDATA%를 거치지 않고 그 폴더를 그대로 쓴다(USB 등에서 실행)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self._orig_portable = maker.portable_dir
+        self._orig_appdata = maker.appdata_dir
+        self.addCleanup(self._restore)
+
+    def _restore(self):
+        maker.portable_dir = self._orig_portable
+        maker.appdata_dir = self._orig_appdata
+
+    def test_maker_dir_prefers_portable_folder_when_key_present_there(self):
+        portable = Path(self.tmp.name) / 'usb'
+        portable.mkdir()
+        (portable / 'signing_key.pem').write_text('dummy', encoding='utf-8')
+        appdata = Path(self.tmp.name) / 'appdata'
+        maker.portable_dir = lambda: portable
+        maker.appdata_dir = lambda: appdata
+        self.assertEqual(maker.maker_dir(), portable)
+        self.assertEqual(maker.signing_key_path(), portable / 'signing_key.pem')
+        self.assertEqual(maker.issued_log_path(), portable / 'issued_licenses.csv')
+
+    def test_maker_dir_falls_back_to_appdata_without_portable_key(self):
+        portable = Path(self.tmp.name) / 'usb'
+        portable.mkdir()  # 폴더는 있지만 signing_key.pem은 없음
+        appdata = Path(self.tmp.name) / 'appdata'
+        maker.portable_dir = lambda: portable
+        maker.appdata_dir = lambda: appdata
+        self.assertEqual(maker.maker_dir(), appdata)
+
+    def test_issued_license_dir_always_follows_program_location(self):
+        # 포터블 키 유무와 무관하게, 발급 결과는 항상 exe와 같은 폴더 밑에 쌓인다.
+        portable = Path(self.tmp.name) / 'program'
+        maker.portable_dir = lambda: portable
+        self.assertEqual(maker.issued_license_dir(), portable / maker.ISSUED_LICENSE_SUBDIR)
+
+
+@unittest.skipIf(MAKER_IMPORT_ERROR is not None, 'SumPath_License_Maker를 불러올 수 없음: %r' % MAKER_IMPORT_ERROR)
+class LicenseMakerAutoSaveIssuedFileUiTests(unittest.TestCase):
+    """v1.3.0: 발급 버튼을 누르면 저장 대화상자 없이 exe와 같은 폴더 밑
+    ISSUED_LICENSE_SUBDIR에 자동으로 저장된다."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self._orig_pubkey = lic.LICENSE_PUBLIC_KEY
+        self._orig_portable_dir = maker.portable_dir
+        self.private_key = Ed25519PrivateKey.generate()
+        lic.LICENSE_PUBLIC_KEY = _raw_public_key(self.private_key)
+        self.portable_root = Path(self.tmp.name) / 'program'
+        self.portable_root.mkdir()
+        maker.portable_dir = lambda: self.portable_root
+        self.addCleanup(self._restore)
+
+    def _restore(self):
+        lic.LICENSE_PUBLIC_KEY = self._orig_pubkey
+        maker.portable_dir = self._orig_portable_dir
+
+    def _window_ready_to_issue(self):
+        window = maker.LicenseMakerWindow()
+        window.signing_key = self.private_key
+        window._apply_key_state()
+        window.licensee_edit.setText('생산부 1공장')
+        window.machine_edit.setText('AAAA-BBBB-CCCC-DDDD')
+        return window
+
+    def test_issue_saves_automatically_under_program_folder(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        window = self._window_ready_to_issue()
+        try:
+            window._issue_license()
+            dest_dir = self.portable_root / maker.ISSUED_LICENSE_SUBDIR
+            files = list(dest_dir.glob('*.lic'))
+            self.assertEqual(len(files), 1)
+            saved = json.loads(files[0].read_text(encoding='utf-8'))
+            status = lic.verify_license(saved, machine='AAAABBBBCCCCDDDD')
+            self.assertTrue(status.ok)
+            self.assertIn(str(files[0]), window.issue_status_label.text())
+        finally:
+            window.deleteLater()
+            qapp.processEvents()
+
+    def test_reissuing_same_conditions_does_not_overwrite_previous_file(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        window = self._window_ready_to_issue()
+        try:
+            window._issue_license()
+            window._issue_license()
+            dest_dir = self.portable_root / maker.ISSUED_LICENSE_SUBDIR
+            files = list(dest_dir.glob('*.lic'))
+            self.assertEqual(len(files), 2)
+            self.assertEqual(len(set(files)), 2)
+        finally:
+            window.deleteLater()
+            qapp.processEvents()
+
+
+@unittest.skipIf(MAKER_IMPORT_ERROR is not None, 'SumPath_License_Maker를 불러올 수 없음: %r' % MAKER_IMPORT_ERROR)
 class LicenseMakerIssuablePlansUiTests(unittest.TestCase):
     """발급 프로그램 라디오 버튼이 1년/3년/영구만 제공하고 기본값은 1년인지
     (v1.8.1_PLAN.md §3.3)."""
