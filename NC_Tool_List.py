@@ -1692,6 +1692,12 @@ def viewer_safe_mode_active():
 
 def mark_viewer_gl_pending():
     """GL을 건드리기 직전에 호출 — 여기서부터 crash 감시 구간이다."""
+    if not gl_safe_mode_enabled():
+        # 장치를 껐으면 세지도 않는다. 세기만 하면 테스트가 App을 만들 때마다
+        # 사용자의 실제 카운터 파일이 올라가고(이벤트 루프가 없어 확인은 영영
+        # 오지 않는다), 나중에 진짜로 실행한 앱이 멀쩡한 PC에서 안전 모드로
+        # 떨어진다. 실제로 그렇게 한 번 당했다.
+        return False
     try:
         path = viewer_safe_mode_flag_path()
         path.parent.mkdir(parents=True, exist_ok=True)

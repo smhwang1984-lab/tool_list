@@ -558,6 +558,20 @@ X60 Y10 Z0
         os.environ[app.GL_SAFE_MODE_ENV_FLAG] = '0'
         self.assertFalse(app.viewer_safe_mode_active())
 
+    def test_disabled_safe_mode_does_not_touch_the_counter_file(self):
+        """opt-out은 '장치 전체가 꺼짐'이어야 한다.
+
+        세기만 하고 안 읽으면, 테스트가 App을 만들 때마다 사용자의 실제
+        카운터 파일이 올라가고(이벤트 루프가 없어 확인은 영영 오지 않는다)
+        나중에 진짜로 실행한 앱이 멀쩡한 PC에서 안전 모드로 떨어진다.
+        v1.8.3 빌드 검증 중 실제로 이렇게 20회가 쌓인 적이 있다.
+        """
+        self._isolated_gl_flag()
+        os.environ[app.GL_SAFE_MODE_ENV_FLAG] = '0'
+        self.assertFalse(app.mark_viewer_gl_pending())
+        self.assertFalse(app.viewer_safe_mode_flag_path().exists())
+        self.assertEqual(app.viewer_gl_strike_count(), 0)
+
     def test_safe_mode_run_keeps_flag_until_user_retries(self):
         # 안전 모드로 뜬 실행은 GL을 건드리지 않았으므로 "GL이 멀쩡하다"는
         # 근거가 없다. 여기서 플래그를 지우면 다음 실행이 또 죽고 그 다음이

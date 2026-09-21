@@ -85,10 +85,54 @@ Last updated: 2026-09-21 (NC_Tool_List v1.8.3 — 그래픽 안전 모드 및 GP
   돌리지 않아 GL 확인이 영영 오지 않는다. 그래서 `tests/test_nc_tool_list.py`
   상단이 `NC_TOOL_LIST_GL_SAFE_MODE=0`으로 이 장치를 끈다. 장치 자체는 전용
   테스트가 함수를 직접 불러 검증한다.
-- 남은 항목: 설치본이 아닌 **포터블 ZIP**에는 GPU 선호도 레지스트리 항목이
-  들어가지 않는다(설치 과정이 없으므로). 포터블 사용자는 그래픽 안전 모드와
-  수동 그래픽 설정으로 대응한다. 설치본/포터블 빌드와 SHA-256은 아직 생성하지
-  않았다.
+- **빌드 검증 중 잡은 실제 결함(중요):** 첫 빌드의 프리즈된 exe를 실행했더니
+  멀쩡한 개발 PC가 안전 모드로 떴다 — `viewer_gl_unsafe.flag`에 20회가
+  쌓여 있었다. 원인은 그래픽이 아니라 코드였다. `mark_viewer_gl_pending()`이
+  `NC_TOOL_LIST_GL_SAFE_MODE=0` opt-out을 무시해, 테스트가 App을 만들 때마다
+  **사용자의 실제 카운터 파일**을 올렸고(이벤트 루프가 없어 확인은 영영 오지
+  않는다) 그게 그대로 남아 있었던 것이다. opt-out이 "세지도 않는다"가 되도록
+  고치고 전용 회귀 테스트를 추가했다. **교훈: 프로세스 밖 상태를 쓰는 장치는
+  opt-out이 읽기뿐 아니라 쓰기까지 막아야 한다.** 안 그러면 테스트가 사용자
+  상태를 오염시킨다(같은 계열의 함정: QSettings 공유).
+- Installer/package status: **생성 완료**(사용자 직접 지시로 빌드).
+  - `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` — onedir, UPX 비활성.
+  - `ISCC.exe NC_Tool_List.iss`(Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.8.3.exe`
+    (컴파일 58.671초).
+  - 포터블: `installer\NC_Tool_List_Portable_v1.8.3.zip` (315 엔트리, 기존
+    릴리스와 같은 구조 — `NC_Tool_List.exe`와 `_internal\`이 ZIP 루트에 온다).
+  - 빌드 검증: 프리즈된 exe의 파일/제품 버전이 `1.8.3.0`으로 찍히고,
+    **세 경로(dist 직접 실행 / 포터블 ZIP 압축 해제 후 실행 / `C:\NC_Tool_List`
+    설치본 실행) 모두** 트레이스백 없이 기동하며 `startup.log`에
+    `Starting Sum Path v1.8.3 frozen=True`와 새 OpenGL 줄이 남는 것을 확인했다.
+  - **새 기능의 실기 확인**: 이 PC의 실제 GPU에서
+    `OpenGL vendor=Intel renderer=Intel(R) Iris(R) Plus Graphics version=4.6.0 - Build 31.0.101.2130`이
+    매 실행 기록됐고(Viewer 모드에 들어가지 않아도), 실행 후 안전 모드 플래그가
+    정상 해제됐다.
+  - **레지스트리 확인**: 무인 설치(`/VERYSILENT`) 후
+    `HKCU\Software\Microsoft\DirectX\UserGpuPreferences`에
+    `C:\NC_Tool_List\NC_Tool_List.exe = GpuPreference=2;`가 실제로 기록된 것을
+    확인했다(설치 전에는 키 자체가 없었다).
+  - Setup EXE SHA-256: 4A5AC178F2858F38B4D6765B65956E31E295DF06FE3784B4D3C1ECD09C75C974
+  - Portable ZIP SHA-256: FFB3002167B042495C5222BEA9545AB9834D85B7C400F399AC9FF6ACBCCF2F12
+  - App EXE SHA-256: 2F9A12681D7544CBF2586319D2092717A5CE5A9016FFE3146FF23955379C5028
+  - Setup 46.5 MB / Portable 64.1 MB.
+- **ISCC 경고 — 후속 조치 필요:** 컴파일 시 Inno Setup이 경고를 냈다.
+  `PrivilegesRequired=admin`인데 스크립트가 per-user 영역(HKCU)을 쓴다는 것이다.
+  기존 HKCR 파일 연결은 관리자 설치에서 `HKLM\Software\Classes`로 매핑돼
+  문제가 없지만, 새로 넣은 `UserGpuPreferences`는 **HKCU 전용**이다(Windows가
+  HKLM에서는 읽지 않는다). 설치를 시작한 작업자가 관리자가 아니라 UAC에서
+  *다른* 관리자 계정으로 승격하면, 값이 그 관리자 하이브에 들어가고 정작 앱을
+  쓰는 계정에는 적용되지 않는다. 이 개발 PC에서는 같은 계정이 승격해 정상
+  기록됐으므로 이 경로로는 재현되지 않는다.
+  - 권장 후속: 안전 모드 화면의 안내 옆에 "이 프로그램을 고성능 그래픽으로
+    지정" 버튼을 넣어 **실행 중인 계정의** HKCU에 직접 쓰게 한다. 사용자가
+    누를 때만 동작하므로 멀쩡한 PC의 GPU 선택을 임의로 바꾸지 않고(외장 GPU
+    드라이버가 고장난 PC를 오히려 망가뜨릴 위험이 없다), 설치 과정이 없는
+    포터블 ZIP의 공백도 같이 메운다.
+- 남은 항목: **포터블 ZIP**에는 GPU 선호도 레지스트리 항목이 들어가지 않는다
+  (설치 과정이 없으므로). 포터블 사용자는 현재로서는 그래픽 안전 모드와 수동
+  그래픽 설정으로 대응한다 — 위 후속 조치가 이 공백도 함께 메운다.
+- 서명 상태: 설치본과 앱 실행 파일 모두 미서명이다(이전 버전과 동일).
 
 ### 2026-09-13 (SumPath License Maker v1.3.0 — NC_Tool_List는 변경 없음, v1.8.2 그대로)
 
