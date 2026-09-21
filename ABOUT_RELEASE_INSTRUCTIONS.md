@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-09-13 (SumPath License Maker v1.3.0, NC_Tool_List는 v1.8.2 그대로)
+Last updated: 2026-09-21 (NC_Tool_List v1.8.3 — 그래픽 안전 모드 및 GPU 선호도 고정)
 
 ## About button requirements
 
@@ -34,7 +34,63 @@ Last updated: 2026-09-13 (SumPath License Maker v1.3.0, NC_Tool_List는 v1.8.2 �
 
 ## Version history
 
-### 2026-09-13 (latest, SumPath License Maker v1.3.0 — NC_Tool_List는 변경 없음, v1.8.2 그대로)
+### 2026-09-21 (latest, v1.8.3)
+
+- Version: 1.8.2 → 1.8.3
+- Release/build date: 2026-09-21
+- Summary: 특정 현장 PC에서 설치 후 창만 깜박이고 즉시 종료되던 문제의
+  원인이 **보안 프로그램이 아니라 그래픽(OpenGL)**으로 확인됐다. 사용자가
+  Windows 설정 → 시스템 → 디스플레이 → 그래픽에서 이 프로그램의 어댑터를
+  직접 지정하자 정상 실행됐다. 즉 그 PC의 기본 어댑터 OpenGL 드라이버가
+  3D Viewer의 GL 컨텍스트를 만드는 도중 프로세스를 죽인 것이다. v1.4.3
+  조사에서 AhnLab을 배제했던 결론과도 일치한다(해당 기록은 아래 2026-09-04
+  항목).
+- 왜 잡히지 않았나: 드라이버 안에서 나는 네이티브 크래시(ntdll,
+  0xC0000409)이므로 Python 예외가 아니다. `try/except`로 못 잡고
+  `startup.log`에도 흔적이 남지 않으며, 화면에는 "창이 깜박이고 종료"로만
+  보인다.
+- 조치 1 — 설치본 GPU 선호도 고정 (`NC_Tool_List.iss`):
+  `HKCU\Software\Microsoft\DirectX\UserGpuPreferences`에 설치된 exe 경로를
+  값 이름으로 `GpuPreference=2;`(고성능)를 기록한다. 이 키가 바로 위의
+  Windows 그래픽 설정 화면이 값을 저장하는 곳이라, 사용자가 손으로 한 조치를
+  설치 시점에 미리 넣어 두는 것과 같다. GPU가 하나뿐인 PC에서는 Windows가
+  이 값을 무시하므로 부작용이 없다. `uninsdeletevalue`로 제거 시 함께 지운다.
+- 조치 2 — 그래픽 안전 모드 (`NC_Tool_List.py`): 네이티브 크래시는 프로세스
+  안에서 못 잡으므로 프로세스 밖에 흔적을 남긴다. GL을 건드리기 직전에
+  `%LOCALAPPDATA%\NC_Tool_List\viewer_gl_unsafe.flag`에 카운터를 올리고,
+  창이 뜬 뒤 `confirm_gl_healthy()`까지 살아서 도달하면 지운다. 확인 없이
+  끝난 실행이 연속 `GL_SAFE_MODE_STRIKE_LIMIT`(=2)회 쌓이면 다음 실행은
+  3D Viewer를 아예 만들지 않고 `ViewerFallbackWidget`으로 뜬다. 공구 리스트
+  생성/복사/PDF 출력은 그대로 쓸 수 있다.
+- 1회가 아니라 2회인 이유: 사용자가 기동 직후 창을 강제로 닫거나 작업
+  관리자로 죽이면 드라이버가 멀쩡해도 흔적이 남는다. 진짜 드라이버 크래시는
+  매번 재현되므로 금방 한계에 도달하고, 한 번의 강제 종료는 다음 정상 실행이
+  카운터를 0으로 되돌린다.
+- 안전 모드 화면에는 드라이버 업데이트/그래픽 어댑터 재지정 안내와
+  "3D Viewer 다시 사용 (재시작 필요)" 버튼이 있다. 이 버튼만이 플래그를
+  해제한다 — 안전 모드로 뜬 실행은 GL을 건드리지 않았으므로 "GL이 멀쩡하다"는
+  근거가 없고, 여기서 자동 해제하면 크래시 → 안전 모드 → 크래시 무한 반복이
+  된다.
+- 덤: `confirm_gl_healthy()`가 시작 직후 컨텍스트를 확정하므로, 이제
+  `OpenGL vendor/renderer/version` 줄이 (Viewer 모드에 한 번도 안 들어간
+  실행에서도) 항상 `startup.log`에 남는다. 앞으로 뷰어 관련 신고가 오면 이
+  줄부터 볼 것.
+- 다시 강조 — **소프트웨어 OpenGL 강제는 해법이 아니다.** v1.4.4에서 검은
+  화면 회귀를 냈고 회귀 테스트가 걸려 있다. 이번 작업도 그 규칙을 지켰다.
+- Verification: `python -m pytest tests/test_nc_tool_list.py` → 258 passed,
+  1 skipped, 0 failed. 안전 모드 생애주기는 별도 스모크 실행으로 확인
+  (정상 실행 → `NCViewerWidget` + 카운터 0, 강제로 2회 누적 → 
+  `ViewerFallbackWidget(safe_mode=True)` + 카운터 유지).
+- 주의(테스트): 테스트는 한 프로세스에서 App을 수십 번 만들며 이벤트 루프를
+  돌리지 않아 GL 확인이 영영 오지 않는다. 그래서 `tests/test_nc_tool_list.py`
+  상단이 `NC_TOOL_LIST_GL_SAFE_MODE=0`으로 이 장치를 끈다. 장치 자체는 전용
+  테스트가 함수를 직접 불러 검증한다.
+- 남은 항목: 설치본이 아닌 **포터블 ZIP**에는 GPU 선호도 레지스트리 항목이
+  들어가지 않는다(설치 과정이 없으므로). 포터블 사용자는 그래픽 안전 모드와
+  수동 그래픽 설정으로 대응한다. 설치본/포터블 빌드와 SHA-256은 아직 생성하지
+  않았다.
+
+### 2026-09-13 (SumPath License Maker v1.3.0 — NC_Tool_List는 변경 없음, v1.8.2 그대로)
 
 - Version: SumPath License Maker 1.2.0 → 1.3.0 (NC_Tool_List, `sumpath_license.py` 변경 없음)
 - Release/build date: 2026-09-13

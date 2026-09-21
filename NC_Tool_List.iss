@@ -2,7 +2,7 @@
 ; C:\NC_Tool_List 폴더에 설치됩니다.
 
 #define MyAppName "NC Tool List"
-#define MyAppVersion "1.8.2"
+#define MyAppVersion "1.8.3"
 #define MyAppPublisher "S M.HWANG"
 #define MyAppExeName "NC_Tool_List.exe"
 
@@ -54,6 +54,19 @@ Name: "{commonappdata}\NC Tool List"; Permissions: users-modify
 Source: "dist\NC_Tool_List\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Registry]
+; v1.8.3: 이 앱이 쓸 그래픽 어댑터를 "고성능"으로 못박는다.
+;
+; 현장 PC 한 대가 설치 후 창만 깜박이고 즉시 종료됐는데(ntdll / 0xC0000409),
+; Windows 설정 → 시스템 → 디스플레이 → 그래픽에서 어댑터를 직접 지정하니
+; 정상 실행됐다. 기본 어댑터의 OpenGL 드라이버가 3D Viewer의 GL 컨텍스트
+; 생성 중 프로세스를 죽인 것이다. 아래 키가 바로 그 화면이 값을 저장하는
+; 곳이므로, 설치 시점에 같은 설정을 미리 넣어 둔다.
+;   GpuPreference=1 절전(내장), =2 고성능(외장)
+; GPU가 하나뿐인 PC에서는 Windows가 이 값을 무시하므로 부작용이 없다.
+; 이 설정으로도 해결되지 않으면 앱 자체의 그래픽 안전 모드가 받아 낸다
+; (NC_Tool_List.py의 viewer_safe_mode_* 참고).
+Root: HKCU; Subkey: "Software\Microsoft\DirectX\UserGpuPreferences"; ValueType: string; ValueName: "{app}\{#MyAppExeName}"; ValueData: "GpuPreference=2;"; Flags: uninsdeletevalue
+
 ; .nc/.mpf/.tap 확장자를 이 앱의 기본 프로그램으로 등록 (요청 사항 2). 제거 시 함께 삭제됨.
 Root: HKCR; Subkey: "NCToolList.NCProgram"; ValueType: string; ValueName: ""; ValueData: "NC 프로그램"; Flags: uninsdeletekey
 Root: HKCR; Subkey: "NCToolList.NCProgram\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#MyAppExeName},0"

@@ -9,6 +9,12 @@ import unittest
 from pathlib import Path
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+# 그래픽 안전 모드는 "GL을 건드리기 시작했는데 살아 있다는 확인을 못 받은"
+# 실행을 센다. 테스트는 한 프로세스에서 App을 수십 번 만들면서 이벤트 루프를
+# 돌리지 않으므로 그 확인이 영영 오지 않고, 카운터만 쌓여 뒤따르는 테스트가
+# 전부 ViewerFallbackWidget을 받게 된다. 장치 자체는 아래 전용 테스트들이
+# 직접 함수를 호출해 검증한다.
+os.environ['NC_TOOL_LIST_GL_SAFE_MODE'] = '0'
 
 import NC_Tool_List as app
 
@@ -496,6 +502,83 @@ X60 Y10 Z0
         self.assertNotEqual(os.environ.get('QT_OPENGL'), 'software')
         self.assertTrue(callable(app.write_startup_log))
         self.assertIn('NC_Tool_List', str(app.startup_log_path()))
+
+    def _isolated_gl_flag(self):
+        """안전 모드 플래그를 임시 폴더로 돌려, 개발 PC의 실제 상태를
+        건드리지 않고(또 그 상태에 영향받지 않고) 검사한다."""
+        directory = tempfile.mkdtemp()
+        original_path = app.startup_log_path
+        original_env = os.environ.get(app.GL_SAFE_MODE_ENV_FLAG)
+        app.startup_log_path = lambda: Path(directory) / 'startup.log'
+        os.environ[app.GL_SAFE_MODE_ENV_FLAG] = '1'
+
+        def restore():
+            app.startup_log_path = original_path
+            if original_env is None:
+                os.environ.pop(app.GL_SAFE_MODE_ENV_FLAG, None)
+            else:
+                os.environ[app.GL_SAFE_MODE_ENV_FLAG] = original_env
+
+        self.addCleanup(restore)
+
+    def test_viewer_safe_mode_needs_repeated_strikes_not_one(self):
+        # 네이티브 GL 크래시는 try/except로 못 잡으므로, 프로세스 밖 플래그
+        # 파일이 "지난 실행이 GL 초기화 중 죽었다"를 전달하는 유일한 통로다.
+        # 다만 한 번 못 지운 것(사용자의 강제 종료 등)만으로 뷰어를 끄면 안 된다.
+        self._isolated_gl_flag()
+        self.assertEqual(app.viewer_gl_strike_count(), 0)
+        self.assertFalse(app.viewer_safe_mode_active())
+
+        self.assertTrue(app.mark_viewer_gl_pending())
+        self.assertEqual(app.viewer_gl_strike_count(), 1)
+        self.assertFalse(app.viewer_safe_mode_active())  # 1회로는 안 내려간다
+
+        self.assertTrue(app.mark_viewer_gl_pending())
+        self.assertEqual(app.viewer_gl_strike_count(), app.GL_SAFE_MODE_STRIKE_LIMIT)
+        self.assertTrue(app.viewer_safe_mode_active())
+
+        # 정상 실행 한 번이면 카운터가 완전히 0으로 돌아간다.
+        self.assertTrue(app.clear_viewer_safe_mode_flag())
+        self.assertEqual(app.viewer_gl_strike_count(), 0)
+        self.assertFalse(app.viewer_safe_mode_active())
+        # 없는 파일을 지우는 것도 성공으로 쳐야 재시도 버튼이 멈추지 않는다.
+        self.assertTrue(app.clear_viewer_safe_mode_flag())
+
+    def test_viewer_safe_mode_tolerates_corrupt_flag_and_env_opt_out(self):
+        self._isolated_gl_flag()
+        flag = app.viewer_safe_mode_flag_path()
+        flag.parent.mkdir(parents=True, exist_ok=True)
+        # 예전 형식(타임스탬프만)이나 깨진 내용은 1회로 세어 안전한 쪽으로 기운다.
+        flag.write_text('2026-09-21T10:00:00', encoding='utf-8')
+        self.assertEqual(app.viewer_gl_strike_count(), 1)
+        self.assertFalse(app.viewer_safe_mode_active())
+
+        flag.write_text('%d x' % app.GL_SAFE_MODE_STRIKE_LIMIT, encoding='utf-8')
+        self.assertTrue(app.viewer_safe_mode_active())
+        os.environ[app.GL_SAFE_MODE_ENV_FLAG] = '0'
+        self.assertFalse(app.viewer_safe_mode_active())
+
+    def test_safe_mode_run_keeps_flag_until_user_retries(self):
+        # 안전 모드로 뜬 실행은 GL을 건드리지 않았으므로 "GL이 멀쩡하다"는
+        # 근거가 없다. 여기서 플래그를 지우면 다음 실행이 또 죽고 그 다음이
+        # 안전 모드가 되는 무한 반복이 된다.
+        source = Path('NC_Tool_List.py').read_text(encoding='utf-8-sig')
+        confirm = source.split('def confirm_gl_healthy')[1].split('def log_gl_info')[0]
+        guard = confirm.index("safe_mode")
+        self.assertLess(guard, confirm.index('clear_viewer_safe_mode_flag()'))
+        self.assertIn("return", confirm[guard:confirm.index('self.log_gl_info()')])
+        # 안전 모드 진입 시에는 NCViewerWidget을 아예 만들지 않아야 한다.
+        create = source.split('def _create_viewer')[1].split('def confirm_gl_healthy')[0]
+        self.assertLess(create.index('viewer_safe_mode_active()'), create.index('NCViewerWidget(self)'))
+        self.assertLess(create.index('mark_viewer_gl_pending()'), create.index('NCViewerWidget(self)'))
+
+    def test_installer_pins_gpu_preference_for_the_app_exe(self):
+        # 현장 PC에서 Windows 그래픽 설정으로 어댑터를 직접 고르니 실행됐다.
+        # 그 화면이 값을 저장하는 키에 설치 시점에 같은 설정을 넣어 둔다.
+        iss = Path('NC_Tool_List.iss').read_text(encoding='utf-8-sig')
+        self.assertIn(r'Software\Microsoft\DirectX\UserGpuPreferences', iss)
+        self.assertIn('ValueData: "GpuPreference=2;"', iss)
+        self.assertIn('ValueName: "{app}\\{#MyAppExeName}"', iss)
 
     def test_spec_keeps_opengl_collection_and_security_hardening(self):
         spec = Path('NC_Tool_List.spec').read_text(encoding='utf-8-sig')

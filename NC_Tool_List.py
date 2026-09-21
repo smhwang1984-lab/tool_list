@@ -28,9 +28,9 @@ from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, T
 import sumpath_license
 
 
-APP_VERSION = '1.8.2'
+APP_VERSION = '1.8.3'
 APP_NAME = 'Sum Path'
-APP_BUILD_DATE = '2026-09-12'
+APP_BUILD_DATE = '2026-09-21'
 APP_CREATOR = 'Hwang.seonmun'
 APP_PURPOSE = 'NC 프로그램에서 공구 리스트를 산출하고 NC 경로를 Viewer로 확인하는 도구'
 OPEN_SOURCE_COMPONENTS = (
@@ -59,6 +59,11 @@ MAIN_SPLITTER_INITIAL_SIZES = [PROGRAM_PANE_MIN_WIDTH, VIEWER_PANE_INITIAL_WIDTH
 
 # v1.6.2: 상단 바 맨 끝(다크모드 버튼)과 창 오른쪽 가장자리 사이의 여백.
 TOP_BAR_EDGE_GAP_PX = 8
+
+# v1.8.3: 창이 뜬 뒤 OpenGL 컨텍스트가 살아 있는지 확인하기까지의 지연.
+# 창이 실제로 화면에 올라온 다음에 재야 의미가 있고, 이 시간이 그대로
+# 그래픽 안전 모드의 crash 감시 구간 길이가 되므로 짧게 잡는다.
+GL_HEALTH_CHECK_DELAY_MS = 400
 
 # v1.6.2: 1920x1080에서 필터 영역(텍스트 정지~PG 매칭 전체/해제) 레이아웃과
 # 폰트를 15% 키운다.
@@ -1617,6 +1622,100 @@ def write_startup_log(message):
             handle.write('[%s] %s\n' % (datetime.now().isoformat(timespec='seconds'), message))
     except Exception:
         pass
+
+
+# --------------------------------------------------------------------------
+# 그래픽(OpenGL) 안전 모드 — v1.8.3
+#
+# 3D 뷰어의 GL 컨텍스트는 그래픽 드라이버 안에서 만들어진다. 드라이버가
+# 그 과정에서 죽으면 Python 예외가 아니라 네이티브 크래시(ntdll,
+# 0xC0000409)가 나므로 try/except로 잡을 수 없고 startup.log에도 흔적이
+# 남지 않는다. 화면에는 "창이 깜박이고 그대로 종료"로만 보인다 — 현장에서
+# 한 PC가 정확히 이 증상이었고, Windows 그래픽 설정에서 다른 어댑터를
+# 지정하니(= 다른 OpenGL ICD를 로드하니) 정상 실행됐다.
+#
+# 프로세스 안에서 못 잡으므로 프로세스 밖에 흔적을 남긴다: GL을 건드리기
+# 직전에 플래그 파일을 만들고, GL이 살아 있다는 것이 확인되면 지운다.
+# 다음 실행에서 플래그가 남아 있으면 지난 실행이 GL 초기화 도중 죽었다는
+# 뜻이므로 뷰어 없이(ViewerFallbackWidget) 시작한다. 최소한 "아예 켜지지
+# 않는" 상태는 사라지고, 공구 리스트 기능은 그대로 쓸 수 있다.
+#
+# 한 번 못 지운 것만으로 뷰어를 끄지는 않는다. 사용자가 기동 직후 창을
+# 강제로 닫거나 작업 관리자로 죽이면 드라이버가 멀쩡해도 흔적이 남기
+# 때문이다. 연속 GL_SAFE_MODE_STRIKE_LIMIT회 "GL을 건드리기 시작했는데
+# 살아 있다는 확인을 못 받은" 실행이 쌓였을 때만 안전 모드로 내려간다.
+# 진짜 드라이버 크래시는 매번 재현되므로 금방 한계에 도달하고, 한 번의
+# 강제 종료는 다음 정상 실행이 카운터를 0으로 되돌린다.
+#
+# 주의: 여기서 소프트웨어 OpenGL 강제(QT_OPENGL 환경변수나 Qt의 해당
+# 속성)로 우회하면 안 된다. v1.4.4에서 검은 화면 회귀를 냈다 — Qt는
+# opengl32sw.dll을, pyqtgraph의 PyOpenGL은 시스템 opengl32.dll을 쓰게 되어
+# 모든 GL 호출이 GLError 1282로 실패한다. tests/test_nc_tool_list.py에
+# 회귀 테스트가 있으니 그 쪽을 먼저 읽을 것.
+# --------------------------------------------------------------------------
+
+GL_SAFE_MODE_STRIKE_LIMIT = 2
+
+# 테스트에서 이 장치를 끄는 통로. 테스트는 한 프로세스 안에서 App을 수십 번
+# 만들며 이벤트 루프를 돌리지 않으므로, 카운터만 쌓이고 확인은 영영 오지
+# 않는다. 패키징된 앱은 이 값을 건드리지 않는다.
+GL_SAFE_MODE_ENV_FLAG = 'NC_TOOL_LIST_GL_SAFE_MODE'
+
+
+def gl_safe_mode_enabled():
+    return os.environ.get(GL_SAFE_MODE_ENV_FLAG, '1').strip() != '0'
+
+
+def viewer_safe_mode_flag_path():
+    return startup_log_path().parent / 'viewer_gl_unsafe.flag'
+
+
+def viewer_gl_strike_count():
+    """GL 확인을 못 받고 끝난 실행이 연속 몇 번이나 쌓였는가."""
+    try:
+        raw = viewer_safe_mode_flag_path().read_text(encoding='utf-8').strip()
+    except Exception:
+        return 0
+    try:
+        return int(raw.split(None, 1)[0])
+    except (ValueError, IndexError):
+        # 손상됐거나 예전 형식이면 1회로 셈한다(안전한 쪽으로 기운다).
+        return 1
+
+
+def viewer_safe_mode_active():
+    """지난 실행들이 GL 초기화 도중 비정상 종료했는가?"""
+    if not gl_safe_mode_enabled():
+        return False
+    return viewer_gl_strike_count() >= GL_SAFE_MODE_STRIKE_LIMIT
+
+
+def mark_viewer_gl_pending():
+    """GL을 건드리기 직전에 호출 — 여기서부터 crash 감시 구간이다."""
+    try:
+        path = viewer_safe_mode_flag_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            '%d %s' % (viewer_gl_strike_count() + 1,
+                       datetime.now().isoformat(timespec='seconds')),
+            encoding='utf-8',
+        )
+        return True
+    except Exception:
+        return False
+
+
+def clear_viewer_safe_mode_flag():
+    """GL이 살아 있음을 확인했거나, 사용자가 뷰어 재시도를 누를 때 호출."""
+    try:
+        viewer_safe_mode_flag_path().unlink()
+        return True
+    except FileNotFoundError:
+        return True
+    except Exception:
+        return False
+
+
 def missing_viewer_dependencies():
     if getattr(sys, 'frozen', False):
         return []
@@ -1827,9 +1926,10 @@ else:
 
 
     class ViewerFallbackWidget(QWidget):
-        def __init__(self, error=None, parent=None):
+        def __init__(self, error=None, parent=None, safe_mode=False):
             super().__init__(parent)
             self.error = error
+            self.safe_mode = safe_mode
             self.settings = QSettings("NC Tool List", "EmbeddedViewer")
             self.machine_specs = json.loads(json.dumps(FALLBACK_MACHINE_SPECS, ensure_ascii=False))
             self.current_machine_type = self.settings.value(
@@ -1840,19 +1940,62 @@ else:
             self.tool_filter_list = None
             layout = QVBoxLayout(self)
             layout.setContentsMargins(12, 12, 12, 12)
-            message = QLabel(
-                "3D Viewer를 이 PC에서 시작하지 못했습니다.\n"
-                "공구 리스트 생성, 복사, PDF 출력은 계속 사용할 수 있습니다.\n"
-                "로그: %s" % startup_log_path()
-            )
+            if safe_mode:
+                headline = (
+                    "그래픽 안전 모드로 시작했습니다 — 3D Viewer를 끄고 열었습니다.\n"
+                    "지난 실행에서 이 PC의 그래픽 드라이버가 3D Viewer를 준비하는 도중\n"
+                    "프로그램을 종료시켰습니다. 공구 리스트 생성, 복사, PDF 출력은\n"
+                    "그대로 사용할 수 있습니다."
+                )
+                body = (
+                    "3D Viewer를 되살리려면 다음 중 하나를 먼저 해 보세요.\n"
+                    "  1) 그래픽 드라이버를 최신 버전으로 업데이트\n"
+                    "  2) Windows 설정 → 시스템 → 디스플레이 → 그래픽에서\n"
+                    "     이 프로그램의 GPU를 '고성능' 또는 '절전'으로 바꿔 지정\n"
+                    "그 다음 아래 버튼을 누르고 프로그램을 다시 시작하십시오.\n"
+                    "로그: %s" % startup_log_path()
+                )
+            else:
+                headline = (
+                    "3D Viewer를 이 PC에서 시작하지 못했습니다.\n"
+                    "공구 리스트 생성, 복사, PDF 출력은 계속 사용할 수 있습니다.\n"
+                    "로그: %s" % startup_log_path()
+                )
+                body = str(error or VIEWER_IMPORT_ERROR or "OpenGL viewer unavailable")
+
+            message = QLabel(headline)
             message.setWordWrap(True)
             message.setStyleSheet("color: #8a3b00; font-weight: bold;")
             layout.addWidget(message)
-            detail = QLabel(str(error or VIEWER_IMPORT_ERROR or "OpenGL viewer unavailable"))
+            detail = QLabel(body)
             detail.setWordWrap(True)
             detail.setStyleSheet("color: #5a6577;")
             layout.addWidget(detail)
+
+            if safe_mode:
+                self.btn_retry = QPushButton("3D Viewer 다시 사용 (재시작 필요)")
+                self.btn_retry.clicked.connect(self._retry_viewer)
+                layout.addWidget(self.btn_retry, 0, Qt.AlignLeft)
             layout.addStretch()
+
+        def _retry_viewer(self):
+            """안전 모드 해제 — 플래그만 지운다. 다음 실행에서 3D Viewer를
+            다시 만들어 보고, 또 죽으면 그 다음 실행이 다시 안전 모드가 된다."""
+            cleared = clear_viewer_safe_mode_flag()
+            write_startup_log('Viewer safe mode cleared by user (ok=%s)' % cleared)
+            if cleared:
+                self.btn_retry.setEnabled(False)
+                self.btn_retry.setText("다음 실행부터 3D Viewer를 다시 시도합니다")
+                QMessageBox.information(
+                    self, "3D Viewer 다시 사용",
+                    "프로그램을 종료한 뒤 다시 실행하면 3D Viewer를 한 번 더 시도합니다."
+                )
+            else:
+                QMessageBox.warning(
+                    self, "3D Viewer 다시 사용",
+                    "안전 모드 표시 파일을 지우지 못했습니다.\n다음 파일을 직접 삭제해 주세요:\n%s"
+                    % viewer_safe_mode_flag_path()
+                )
 
         def attach_tool_filter(self, list_widget):
             self.tool_filter_list = list_widget
@@ -1968,6 +2111,9 @@ else:
             # 뒤이어 예약한다.
             self.restore_layout_settings()
             QTimer.singleShot(0, self.showMaximized)
+            # 창이 실제로 화면에 올라온 뒤 GL 컨텍스트를 확정한다. 이 호출이
+            # 돌아오면 그래픽 안전 모드 감시 구간이 닫힌다(confirm_gl_healthy).
+            QTimer.singleShot(GL_HEALTH_CHECK_DELAY_MS, self.confirm_gl_healthy)
 
             # v1.8.0: 라이선스 — 켜 둔 채로 사용 기한이 지나는지 1시간마다
             # 확인한다(결정 C). 시작 시점 검증은 main()의 run_license_gate()가
@@ -2023,11 +2169,42 @@ else:
         def _create_viewer(self):
             if NCViewerWidget is None:
                 return ViewerFallbackWidget(VIEWER_IMPORT_ERROR, self)
+            if viewer_safe_mode_active():
+                # 지난 실행이 GL 초기화 구간에서 죽었다. 같은 일을 반복하면
+                # 이번에도 창이 뜨기 전에 죽으므로, 뷰어를 아예 만들지 않는다.
+                write_startup_log(
+                    'Viewer safe mode: %d consecutive runs died during GL init (flag: %s)'
+                    % (viewer_gl_strike_count(), viewer_safe_mode_flag_path())
+                )
+                return ViewerFallbackWidget(None, self, safe_mode=True)
+            mark_viewer_gl_pending()
             try:
                 return NCViewerWidget(self)
             except Exception as error:
                 write_startup_log('Viewer startup failed: %s\n%s' % (error, traceback.format_exc()))
+                # 파이썬 예외로 잡혔다는 것은 드라이버가 프로세스를 죽이지
+                # 않았다는 뜻이다. 안전 모드로 넘길 사안이 아니므로 플래그를
+                # 지우고, 평소처럼 대체 위젯을 보여 준다.
+                clear_viewer_safe_mode_flag()
                 return ViewerFallbackWidget(error, self)
+
+        def confirm_gl_healthy(self):
+            """창이 뜬 직후 GL 컨텍스트를 실제로 한 번 만들어 본다(v1.8.3).
+
+            뷰어 모드에 들어가야만 GL이 초기화되면 감시 구간이 프로그램
+            수명 내내 열려 있게 되고, 뷰어와 무관한 크래시까지 안전 모드로
+            오인하게 된다. 시작 직후 여기서 컨텍스트를 확정해 두면 감시
+            구간이 기동 몇 백 ms로 좁아지고, 덤으로 vendor/renderer 줄이
+            (뷰어 모드에 한 번도 안 들어간 실행에서도) 항상 로그에 남는다.
+            """
+            if getattr(self.viewer, 'safe_mode', False):
+                # 안전 모드로 뜬 실행이다. 이번엔 GL을 아예 건드리지 않았으므로
+                # "GL이 멀쩡하다"는 근거가 없다. 여기서 플래그를 지우면 다음
+                # 실행이 또 죽고 그 다음이 안전 모드가 되는 무한 반복이 된다.
+                # 해제는 사용자가 재시도 버튼을 누를 때만 한다.
+                return
+            self.log_gl_info()
+            clear_viewer_safe_mode_flag()
 
         def log_gl_info(self):
             """Record the live GL context once; the packaged app has no console."""
