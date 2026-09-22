@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-09-21 (NC_Tool_List v1.8.3 — 그래픽 안전 모드 및 GPU 선호도 고정)
+Last updated: 2026-09-22 (NC_Tool_List v1.8.4 — 밀링 고정 사이클 모달 반복 수정, 안전 모드 그래픽 어댑터 버튼)
 
 ## About button requirements
 
@@ -34,7 +34,77 @@ Last updated: 2026-09-21 (NC_Tool_List v1.8.3 — 그래픽 안전 모드 및 GP
 
 ## Version history
 
-### 2026-09-21 (latest, v1.8.3)
+### 2026-09-22 (latest, v1.8.4)
+
+- Version: 1.8.3 → 1.8.4
+- Release/build date: 2026-09-22
+- Summary: (1) 밀링 고정 사이클이 G80까지 모달로 반복되도록 고쳤고,
+  (2) 그래픽 안전 모드 화면에서 실행 중인 계정에 GPU 선호도를 직접 쓰는
+  버튼을 넣었다(v1.8.3에서 남긴 후속 조치).
+
+**(1) 밀링/MCT 고정 사이클 모달 반복 — 사용자 리포트**
+
+- 증상: "g98 g81 등 사이클 동작시 다음 좌표가 나오면 g80을 만날 때까지는
+  동일한 동작인데 지금은 g0 라인으로만 표기됨".
+- 원인: 사이클 줄 끝에서 `cz`를 **가공 깊이**로 남겨 뒀다. 다음 줄이 그
+  깊이를 출발 높이로 물려받고, R은 "현재 Z"를 깊이는 "직전 `cz`"를 폴백으로
+  써서 접근/R점/깊이/복귀 네 점이 전부 같은 Z에 겹쳤다. 그래서 화면에는
+  구멍 사이를 잇는 급속 직선 하나만 보였다. 재현 결과 후속 구멍의 네 점이
+  전부 `Z=-5`(깊이)로 찍히는 것을 확인했다.
+- 수정: R 평면과 가공 깊이를 모달 상태(`mill_cycle_r`, `mill_cycle_depth`)로
+  들고, 사이클 진입 시점의 Z를 초기점 높이(`mill_cycle_initial_z`)로 기억한다.
+  구멍마다 복귀 높이(G98=초기점, G99=R점)까지 그린 뒤 `cz`를 그 높이로
+  되돌린다.
+- **동작 변경(의도적):** `g98_active`의 초기값을 False → True로 바꿨다.
+  Fanuc 전원 투입 기본값이 G98(초기점 복귀)이다. 예전에는 G98이 없으면
+  복귀를 아예 안 그렸는데, 실제 기계에서 복귀하지 않는 경우는 없고 그
+  모델이 위 버그의 뿌리였다. 이 때문에 G98 없는 사이클의 전개가 3점 →
+  4점으로 늘어난다. 기존 테스트 3건(`test_mct_g87_g88_g89_g74_g76_...`,
+  `test_mct_g73_is_still_recognized_...`, `test_mct_g80_cancels_cycle`)의
+  기대값을 근거와 함께 갱신했다.
+- G80 취소 줄의 모션 타입이 `"G80"`으로 남아 그 줄의 이동이 CUT(절삭)으로
+  분류돼 절삭선으로 그려지던 것도 급속(G00)으로 바로잡았다.
+- 검증한 시나리오: 여러 구멍 반복(G98), G99 R점 복귀, 도중 Z 변경의 모달
+  승계, 사이클 도중 G99→G98 전환, G83 + 여러 구멍, G80 이후 복귀.
+- 선반 경로는 건드리지 않았다(가이드라인 0항) — 선반 사이클은 별도
+  `lathe_cycle_*` 상태를 쓰고 이번 변경은 밀링 분기에만 있다.
+
+**(2) 안전 모드의 그래픽 어댑터 버튼**
+
+- v1.8.3에서 남긴 후속 조치를 구현했다. 안전 모드 화면에 "① 고성능
+  그래픽(외장)으로 지정 / ① 절전 그래픽(내장)으로 지정 / Windows 자동
+  선택으로 되돌리기" 버튼과 현재 설정 표시를 넣고, 그 아래에 기존
+  "② 3D Viewer 다시 사용" 버튼을 둔다.
+- 앱이 **실행 중인 계정의** HKCU에 직접 쓴다(`winreg`). 설치본의 HKCU
+  기록만으로 부족한 이유는 두 가지다: 관리자 승격 계정이 다르면 값이 그
+  관리자 하이브로 가고(ISCC가 매 컴파일마다 경고한다), 포터블 ZIP에는
+  설치 과정 자체가 없다.
+- **사용자가 누를 때만 쓴다.** 앱이 자동으로 고성능을 강제하면, 외장 GPU
+  드라이버가 고장난 PC를 오히려 망가뜨릴 수 있다.
+- 빌드 검증 중 또 하나: 카운터 파일을 `utf-8`로만 읽고 있어 BOM이 붙으면
+  파싱이 깨져 안전 모드가 영영 안 걸렸다. 사람이 메모장으로 열어 저장하면
+  붙는다. `utf-8-sig`로 읽도록 고치고 회귀 테스트를 넣었다.
+- Verification: `python -m pytest tests/test_nc_tool_list.py` → 263 passed,
+  1 skipped, 0 failed(사이클 회귀 테스트 2건, GPU 선호도 테스트 2건 신규).
+  프리즈된 exe로 **정상 기동 / 강제 안전 모드(BOM 유·무 양쪽)** 를 확인했고,
+  안전 모드에서는 플래그가 자동 해제되지 않는 것도 확인했다.
+- Installer/package status: **생성 완료**.
+  - `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` — onedir, UPX 비활성.
+  - `ISCC.exe NC_Tool_List.iss`(Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.8.4.exe`
+    (컴파일 54.141초).
+  - 포터블: `installer\NC_Tool_List_Portable_v1.8.4.zip`.
+  - 세 경로(dist / 포터블 압축 해제 / `C:\NC_Tool_List` 설치본) 모두 기동
+    확인, 설치 후 레지스트리에
+    `C:\NC_Tool_List\NC_Tool_List.exe = GpuPreference=2;` 기록 확인.
+  - Setup EXE SHA-256: 5D8376A1C317EFEDFA84C88AEFE62A6CFF2E08556B1DF0D6160A2CA3B38E37F1
+  - Portable ZIP SHA-256: 78DD35C81FE1D939D0A850A06FEC2BFD0246BB46EA5BA696D8EC01D888CE49AA
+  - App EXE SHA-256: B7DE67D9DFE49C571A355CCA40CE57FE5E6CDF1B306B3E1D82156435C43021AA
+  - Setup 46.5 MB / Portable 64.1 MB.
+- ISCC의 HKCU/admin 경고는 그대로 남아 있다(설치본 항목에 한함). 이제는
+  위 (2)의 앱 내 버튼이 그 경로를 보완하므로 실사용상 공백은 없다.
+- 서명 상태: 설치본과 앱 실행 파일 모두 미서명이다.
+
+### 2026-09-21 (v1.8.3)
 
 - Version: 1.8.2 → 1.8.3
 - Release/build date: 2026-09-21

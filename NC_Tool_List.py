@@ -1745,7 +1745,10 @@ def viewer_safe_mode_flag_path():
 def viewer_gl_strike_count():
     """GL 확인을 못 받고 끝난 실행이 연속 몇 번이나 쌓였는가."""
     try:
-        raw = viewer_safe_mode_flag_path().read_text(encoding='utf-8').strip()
+        # utf-8-sig: 이 파일을 사람이 메모장 등으로 열어 저장하면 BOM이
+        # 붙는데, 그걸 못 읽으면 카운터가 조용히 리셋돼 안전 모드가 영영
+        # 안 걸린다(v1.8.4 빌드 검증 중 BOM 붙은 파일로 실제로 겪음).
+        raw = viewer_safe_mode_flag_path().read_text(encoding='utf-8-sig').strip()
     except Exception:
         return 0
     try:

@@ -555,6 +555,12 @@ X60 Y10 Z0
 
         flag.write_text('%d x' % app.GL_SAFE_MODE_STRIKE_LIMIT, encoding='utf-8')
         self.assertTrue(app.viewer_safe_mode_active())
+
+        # BOM이 붙어도 읽혀야 한다 — 사람이 메모장으로 열어 저장하면 붙는다.
+        flag.write_text('%d x' % app.GL_SAFE_MODE_STRIKE_LIMIT, encoding='utf-8-sig')
+        self.assertEqual(app.viewer_gl_strike_count(), app.GL_SAFE_MODE_STRIKE_LIMIT)
+        self.assertTrue(app.viewer_safe_mode_active())
+
         os.environ[app.GL_SAFE_MODE_ENV_FLAG] = '0'
         self.assertFalse(app.viewer_safe_mode_active())
 
