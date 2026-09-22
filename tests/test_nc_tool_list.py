@@ -9,6 +9,12 @@ import unittest
 from pathlib import Path
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+# 그래픽 안전 모드는 "GL을 건드리기 시작했는데 살아 있다는 확인을 못 받은"
+# 실행을 센다. 테스트는 한 프로세스에서 App을 수십 번 만들면서 이벤트 루프를
+# 돌리지 않으므로 그 확인이 영영 오지 않고, 카운터만 쌓여 뒤따르는 테스트가
+# 전부 ViewerFallbackWidget을 받게 된다. 장치 자체는 아래 전용 테스트들이
+# 직접 함수를 호출해 검증한다.
+os.environ['NC_TOOL_LIST_GL_SAFE_MODE'] = '0'
 
 import NC_Tool_List as app
 
@@ -496,6 +502,129 @@ X60 Y10 Z0
         self.assertNotEqual(os.environ.get('QT_OPENGL'), 'software')
         self.assertTrue(callable(app.write_startup_log))
         self.assertIn('NC_Tool_List', str(app.startup_log_path()))
+
+    def _isolated_gl_flag(self):
+        """안전 모드 플래그를 임시 폴더로 돌려, 개발 PC의 실제 상태를
+        건드리지 않고(또 그 상태에 영향받지 않고) 검사한다."""
+        directory = tempfile.mkdtemp()
+        original_path = app.startup_log_path
+        original_env = os.environ.get(app.GL_SAFE_MODE_ENV_FLAG)
+        app.startup_log_path = lambda: Path(directory) / 'startup.log'
+        os.environ[app.GL_SAFE_MODE_ENV_FLAG] = '1'
+
+        def restore():
+            app.startup_log_path = original_path
+            if original_env is None:
+                os.environ.pop(app.GL_SAFE_MODE_ENV_FLAG, None)
+            else:
+                os.environ[app.GL_SAFE_MODE_ENV_FLAG] = original_env
+
+        self.addCleanup(restore)
+
+    def test_viewer_safe_mode_needs_repeated_strikes_not_one(self):
+        # 네이티브 GL 크래시는 try/except로 못 잡으므로, 프로세스 밖 플래그
+        # 파일이 "지난 실행이 GL 초기화 중 죽었다"를 전달하는 유일한 통로다.
+        # 다만 한 번 못 지운 것(사용자의 강제 종료 등)만으로 뷰어를 끄면 안 된다.
+        self._isolated_gl_flag()
+        self.assertEqual(app.viewer_gl_strike_count(), 0)
+        self.assertFalse(app.viewer_safe_mode_active())
+
+        self.assertTrue(app.mark_viewer_gl_pending())
+        self.assertEqual(app.viewer_gl_strike_count(), 1)
+        self.assertFalse(app.viewer_safe_mode_active())  # 1회로는 안 내려간다
+
+        self.assertTrue(app.mark_viewer_gl_pending())
+        self.assertEqual(app.viewer_gl_strike_count(), app.GL_SAFE_MODE_STRIKE_LIMIT)
+        self.assertTrue(app.viewer_safe_mode_active())
+
+        # 정상 실행 한 번이면 카운터가 완전히 0으로 돌아간다.
+        self.assertTrue(app.clear_viewer_safe_mode_flag())
+        self.assertEqual(app.viewer_gl_strike_count(), 0)
+        self.assertFalse(app.viewer_safe_mode_active())
+        # 없는 파일을 지우는 것도 성공으로 쳐야 재시도 버튼이 멈추지 않는다.
+        self.assertTrue(app.clear_viewer_safe_mode_flag())
+
+    def test_viewer_safe_mode_tolerates_corrupt_flag_and_env_opt_out(self):
+        self._isolated_gl_flag()
+        flag = app.viewer_safe_mode_flag_path()
+        flag.parent.mkdir(parents=True, exist_ok=True)
+        # 예전 형식(타임스탬프만)이나 깨진 내용은 1회로 세어 안전한 쪽으로 기운다.
+        flag.write_text('2026-09-21T10:00:00', encoding='utf-8')
+        self.assertEqual(app.viewer_gl_strike_count(), 1)
+        self.assertFalse(app.viewer_safe_mode_active())
+
+        flag.write_text('%d x' % app.GL_SAFE_MODE_STRIKE_LIMIT, encoding='utf-8')
+        self.assertTrue(app.viewer_safe_mode_active())
+
+        # BOM이 붙어도 읽혀야 한다 — 사람이 메모장으로 열어 저장하면 붙는다.
+        flag.write_text('%d x' % app.GL_SAFE_MODE_STRIKE_LIMIT, encoding='utf-8-sig')
+        self.assertEqual(app.viewer_gl_strike_count(), app.GL_SAFE_MODE_STRIKE_LIMIT)
+        self.assertTrue(app.viewer_safe_mode_active())
+
+        os.environ[app.GL_SAFE_MODE_ENV_FLAG] = '0'
+        self.assertFalse(app.viewer_safe_mode_active())
+
+    def test_disabled_safe_mode_does_not_touch_the_counter_file(self):
+        """opt-out은 '장치 전체가 꺼짐'이어야 한다.
+
+        세기만 하고 안 읽으면, 테스트가 App을 만들 때마다 사용자의 실제
+        카운터 파일이 올라가고(이벤트 루프가 없어 확인은 영영 오지 않는다)
+        나중에 진짜로 실행한 앱이 멀쩡한 PC에서 안전 모드로 떨어진다.
+        v1.8.3 빌드 검증 중 실제로 이렇게 20회가 쌓인 적이 있다.
+        """
+        self._isolated_gl_flag()
+        os.environ[app.GL_SAFE_MODE_ENV_FLAG] = '0'
+        self.assertFalse(app.mark_viewer_gl_pending())
+        self.assertFalse(app.viewer_safe_mode_flag_path().exists())
+        self.assertEqual(app.viewer_gl_strike_count(), 0)
+
+    def test_safe_mode_run_keeps_flag_until_user_retries(self):
+        # 안전 모드로 뜬 실행은 GL을 건드리지 않았으므로 "GL이 멀쩡하다"는
+        # 근거가 없다. 여기서 플래그를 지우면 다음 실행이 또 죽고 그 다음이
+        # 안전 모드가 되는 무한 반복이 된다.
+        source = Path('NC_Tool_List.py').read_text(encoding='utf-8-sig')
+        confirm = source.split('def confirm_gl_healthy')[1].split('def log_gl_info')[0]
+        guard = confirm.index("safe_mode")
+        self.assertLess(guard, confirm.index('clear_viewer_safe_mode_flag()'))
+        self.assertIn("return", confirm[guard:confirm.index('self.log_gl_info()')])
+        # 안전 모드 진입 시에는 NCViewerWidget을 아예 만들지 않아야 한다.
+        create = source.split('def _create_viewer')[1].split('def confirm_gl_healthy')[0]
+        self.assertLess(create.index('viewer_safe_mode_active()'), create.index('NCViewerWidget(self)'))
+        self.assertLess(create.index('mark_viewer_gl_pending()'), create.index('NCViewerWidget(self)'))
+
+    def test_gpu_preference_round_trip_in_current_user_hive(self):
+        """v1.8.4: 안전 모드 화면의 버튼이 쓰는 경로. 설치 프로그램의 HKCU
+        기록은 관리자 승격 계정이 다르면 엉뚱한 하이브로 가고 포터블에는
+        아예 없으므로, 앱이 **실행 중인 계정으로** 직접 쓸 수 있어야 한다."""
+        probe = r'C:\__nc_tool_list_test__\NC_Tool_List.exe'
+        self.addCleanup(app.write_gpu_preference, None, probe)
+
+        self.assertTrue(app.write_gpu_preference(app.GPU_PREFERENCE_HIGH_PERFORMANCE, probe))
+        self.assertEqual(app.read_gpu_preference(probe), app.GPU_PREFERENCE_HIGH_PERFORMANCE)
+
+        self.assertTrue(app.write_gpu_preference(app.GPU_PREFERENCE_POWER_SAVING, probe))
+        self.assertEqual(app.read_gpu_preference(probe), app.GPU_PREFERENCE_POWER_SAVING)
+
+        # None이면 값을 지워 Windows 자동 선택으로 되돌린다.
+        self.assertTrue(app.write_gpu_preference(None, probe))
+        self.assertIsNone(app.read_gpu_preference(probe))
+        # 없는 값을 다시 지워도 성공이어야 버튼이 멈추지 않는다.
+        self.assertTrue(app.write_gpu_preference(None, probe))
+
+    def test_gpu_preference_value_format_matches_the_installer(self):
+        """앱이 쓰는 값과 설치 스크립트가 쓰는 값의 형식이 같아야 한다 —
+        한쪽만 바꾸면 조용히 어긋난다."""
+        iss = Path('NC_Tool_List.iss').read_text(encoding='utf-8-sig')
+        self.assertIn('GpuPreference=%d;' % app.GPU_PREFERENCE_HIGH_PERFORMANCE, iss)
+        self.assertIn(app.GPU_PREFERENCE_KEY, iss)
+
+    def test_installer_pins_gpu_preference_for_the_app_exe(self):
+        # 현장 PC에서 Windows 그래픽 설정으로 어댑터를 직접 고르니 실행됐다.
+        # 그 화면이 값을 저장하는 키에 설치 시점에 같은 설정을 넣어 둔다.
+        iss = Path('NC_Tool_List.iss').read_text(encoding='utf-8-sig')
+        self.assertIn(r'Software\Microsoft\DirectX\UserGpuPreferences', iss)
+        self.assertIn('ValueData: "GpuPreference=2;"', iss)
+        self.assertIn('ValueName: "{app}\\{#MyAppExeName}"', iss)
 
     def test_spec_keeps_opengl_collection_and_security_hardening(self):
         spec = Path('NC_Tool_List.spec').read_text(encoding='utf-8-sig')
@@ -2729,9 +2858,15 @@ G82 X10 Y0 Z-5 R2 F100
     @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
     def test_mct_g87_g88_g89_g74_g76_are_recognized(self):
         """확장 전에는 이 코드들이 cycle_pattern에 안 걸려 조용히 직선으로
-        이어지던 것이 회귀했었다 — 이제는 전부 급속/급속/절삭 3점(G98
-        없어 복귀 없음)으로 전개된다. 세그먼트 타입은 사이클 코드가 아니라
-        모션 종류("G00"/"G01") 그대로다(기존 MCT 설계와 동일)."""
+        이어지던 것이 회귀했었다 — 이제는 전부 접근/R점/절삭/복귀 4점으로
+        전개된다. 세그먼트 타입은 사이클 코드가 아니라 모션 종류
+        ("G00"/"G01") 그대로다(기존 MCT 설계와 동일).
+
+        v1.8.4 전에는 G98이 없으면 복귀를 아예 안 그려 3점이었다. 실제
+        기계에서 복귀를 안 하는 경우는 없고(G98=초기점, G99=R점) Fanuc
+        전원 투입 기본값이 G98이므로, 지금은 초기점 복귀까지 4점이다.
+        복귀를 빼면 공구가 구멍 바닥에 남은 것으로 계산돼 뒤따르는 구멍이
+        전부 깊이에 붙는다 — 그게 이번에 고친 버그다."""
         qapp = app.QApplication.instance() or app.QApplication([])
         from nc_viewer_widget import NCViewerWidget
 
@@ -2748,21 +2883,101 @@ G00 X0 Y0 Z50
                 points = viewer.tool_paths['P001_T01']
                 cycle_pts = points[2:]
                 self.assertEqual(
-                    [p['type'] for p in cycle_pts], ['G00', 'G00', 'G01'],
+                    [p['type'] for p in cycle_pts], ['G00', 'G00', 'G01', 'G00'],
                     '%s가 사이클로 인식되지 않았다(직선으로 새는 회귀)' % code,
                 )
-                final_pt = [round(v, 6) for v in cycle_pts[-1]['pt']]
-                self.assertEqual(final_pt, [10.0, 0.0, -5.0])
+                # 절삭 끝점은 가공 깊이, 마지막 점은 초기점(Z50) 복귀.
+                self.assertEqual([round(v, 6) for v in cycle_pts[2]['pt']], [10.0, 0.0, -5.0])
+                self.assertEqual([round(v, 6) for v in cycle_pts[-1]['pt']], [10.0, 0.0, 50.0])
             finally:
                 viewer.deleteLater()
                 qapp.processEvents()
 
     @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_mct_cycle_repeats_at_every_following_coordinate_until_g80(self):
+        """사용자 리포트(v1.8.4): "g98 g81 등 사이클 동작시 다음 좌표가
+        나오면 g80을 만날 때까지는 동일한 동작인데 지금은 g0 라인으로만
+        표기됨".
+
+        원인은 사이클 줄 끝에서 cz를 **가공 깊이**로 남겨 둔 것이었다.
+        다음 줄은 그 깊이를 출발 높이로 물려받고, R/깊이 폴백도 현재 Z를
+        보고 있어서 접근/R점/깊이/복귀 네 점이 전부 같은 Z에 겹쳤다.
+        그래서 화면에는 구멍 사이를 잇는 급속 직선 하나만 보였다.
+        """
+        qapp = app.QApplication.instance() or app.QApplication([])
+        from nc_viewer_widget import NCViewerWidget
+
+        source = """M6T1
+G43 H1
+G00 X0 Y0 Z50
+G98 G81 X10. Y0. Z-5. R2. F100
+X20.
+X30. Y10.
+G80
+"""
+        viewer = NCViewerWidget()
+        try:
+            viewer.set_machine_type('3축 MCT (X Y Z)', init_camera=True)
+            self.assertTrue(viewer.set_source_text(source, {'T01': 'DRILL'}))
+            points = viewer.tool_paths['P001_T01']
+            holes = [(10.0, 0.0), (20.0, 0.0), (30.0, 10.0)]
+            self.assertEqual(len(points[2:]), 4 * len(holes))
+            for n, (hx, hy) in enumerate(holes):
+                block = [(p['type'], [round(v, 6) for v in p['pt']])
+                         for p in points[2 + 4 * n:2 + 4 * (n + 1)]]
+                self.assertEqual(block, [
+                    ('G00', [hx, hy, 50.0]),   # 초기점 높이에서 XY 급속
+                    ('G00', [hx, hy, 2.0]),    # 모달 R 평면까지 급속 하강
+                    ('G01', [hx, hy, -5.0]),   # 모달 깊이까지 절삭
+                    ('G00', [hx, hy, 50.0]),   # G98 초기점 복귀
+                ], '%d번째 구멍이 사이클로 전개되지 않았다' % (n + 1))
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_mct_cycle_g99_returns_to_r_plane_and_modal_depth_updates(self):
+        """G99는 R점 복귀이고, 도중에 Z가 다시 적히면 그 깊이가 모달로
+        이어진다. G80 취소 줄의 이동은 절삭이 아니라 급속이어야 한다 —
+        "G80"을 모션 타입으로 남기면 CUT으로 분류돼 절삭선으로 그려진다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        from nc_viewer_widget import NCViewerWidget
+
+        source = """M6T1
+G43 H1
+G00 X0 Y0 Z50
+G99 G81 X10. Y0. Z-5. R2. F100
+X20. Z-12.
+G80 X40. Y40.
+"""
+        viewer = NCViewerWidget()
+        try:
+            viewer.set_machine_type('3축 MCT (X Y Z)', init_camera=True)
+            self.assertTrue(viewer.set_source_text(source, {'T01': 'DRILL'}))
+            cycle_pts = [(p['type'], [round(v, 6) for v in p['pt']])
+                         for p in viewer.tool_paths['P001_T01'][2:]]
+            self.assertEqual(cycle_pts, [
+                ('G00', [10.0, 0.0, 50.0]),
+                ('G00', [10.0, 0.0, 2.0]),
+                ('G01', [10.0, 0.0, -5.0]),
+                ('G00', [10.0, 0.0, 2.0]),    # G99 = R점 복귀
+                ('G00', [20.0, 0.0, 2.0]),    # 다음 구멍은 R점에서 출발
+                ('G00', [20.0, 0.0, 2.0]),
+                ('G01', [20.0, 0.0, -12.0]),  # 새 Z가 모달 깊이가 된다
+                ('G00', [20.0, 0.0, 2.0]),
+                ('G00', [40.0, 40.0, 2.0]),   # G80 취소 — 급속 1점
+            ])
+        finally:
+            viewer.deleteLater()
+            qapp.processEvents()
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
     def test_mct_g80_cancels_cycle(self):
         """G80 뒤에는 더 이상 사이클 전개가 일어나지 않고 보통의 모달
-        이동(점 하나)이다. 사이클(G98 없어 3점: 접근/R/깊이) + 취소 뒤
-        일반 이동 1점 = 사이클 블록 총 4점이어야 한다(5점이면 취소가
-        안 먹혀 또 한 번 전개된 회귀)."""
+        이동(점 하나)이다. 사이클 4점(접근/R/깊이/초기점 복귀) + 취소 뒤
+        일반 이동 1점 = 총 5점이어야 한다(8점이면 취소가 안 먹혀 또 한 번
+        전개된 회귀). v1.8.4 전에는 복귀를 안 그려 4점이었다 — 위
+        test_mct_g87_... 주석 참고."""
         qapp = app.QApplication.instance() or app.QApplication([])
         from nc_viewer_widget import NCViewerWidget
 
@@ -2779,7 +2994,7 @@ G01 X20 Y0 Z-5
             self.assertTrue(viewer.set_source_text(source, {'T01': 'DRILL'}))
             points = viewer.tool_paths['P001_T01']
             after_ordinary_move = points[2:]
-            self.assertEqual(len(after_ordinary_move), 4)
+            self.assertEqual(len(after_ordinary_move), 5)
             last_pt = [round(v, 6) for v in points[-1]['pt']]
             self.assertEqual(last_pt, [20.0, 0.0, -5.0])
             self.assertEqual(points[-1]['type'], 'G01')
@@ -4811,8 +5026,9 @@ G73 X10 Y0 Z-5 R2 F100
             viewer.set_machine_type('3축 MCT (X Y Z)', init_camera=True)
             self.assertTrue(viewer.set_source_text(source, {'T01': 'DRILL'}))
             points = viewer.tool_paths['P001_T01']
+            # v1.8.4부터 초기점 복귀까지 4점이다(G98이 Fanuc 기본값).
             self.assertEqual(
-                [p['type'] for p in points[2:]], ['G00', 'G00', 'G01'],
+                [p['type'] for p in points[2:]], ['G00', 'G00', 'G01', 'G00'],
                 'MCT의 G73이 선반 분리 이후에도 사이클로 인식돼야 한다',
             )
         finally:

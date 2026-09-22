@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-09-13 (SumPath License Maker v1.3.0, NC_Tool_List는 v1.8.2 그대로)
+Last updated: 2026-09-22 (NC_Tool_List v1.8.4 — 밀링 고정 사이클 모달 반복 수정, 안전 모드 그래픽 어댑터 버튼)
 
 ## About button requirements
 
@@ -34,7 +34,177 @@ Last updated: 2026-09-13 (SumPath License Maker v1.3.0, NC_Tool_List는 v1.8.2 �
 
 ## Version history
 
-### 2026-09-13 (latest, SumPath License Maker v1.3.0 — NC_Tool_List는 변경 없음, v1.8.2 그대로)
+### 2026-09-22 (latest, v1.8.4)
+
+- Version: 1.8.3 → 1.8.4
+- Release/build date: 2026-09-22
+- Summary: (1) 밀링 고정 사이클이 G80까지 모달로 반복되도록 고쳤고,
+  (2) 그래픽 안전 모드 화면에서 실행 중인 계정에 GPU 선호도를 직접 쓰는
+  버튼을 넣었다(v1.8.3에서 남긴 후속 조치).
+
+**(1) 밀링/MCT 고정 사이클 모달 반복 — 사용자 리포트**
+
+- 증상: "g98 g81 등 사이클 동작시 다음 좌표가 나오면 g80을 만날 때까지는
+  동일한 동작인데 지금은 g0 라인으로만 표기됨".
+- 원인: 사이클 줄 끝에서 `cz`를 **가공 깊이**로 남겨 뒀다. 다음 줄이 그
+  깊이를 출발 높이로 물려받고, R은 "현재 Z"를 깊이는 "직전 `cz`"를 폴백으로
+  써서 접근/R점/깊이/복귀 네 점이 전부 같은 Z에 겹쳤다. 그래서 화면에는
+  구멍 사이를 잇는 급속 직선 하나만 보였다. 재현 결과 후속 구멍의 네 점이
+  전부 `Z=-5`(깊이)로 찍히는 것을 확인했다.
+- 수정: R 평면과 가공 깊이를 모달 상태(`mill_cycle_r`, `mill_cycle_depth`)로
+  들고, 사이클 진입 시점의 Z를 초기점 높이(`mill_cycle_initial_z`)로 기억한다.
+  구멍마다 복귀 높이(G98=초기점, G99=R점)까지 그린 뒤 `cz`를 그 높이로
+  되돌린다.
+- **동작 변경(의도적):** `g98_active`의 초기값을 False → True로 바꿨다.
+  Fanuc 전원 투입 기본값이 G98(초기점 복귀)이다. 예전에는 G98이 없으면
+  복귀를 아예 안 그렸는데, 실제 기계에서 복귀하지 않는 경우는 없고 그
+  모델이 위 버그의 뿌리였다. 이 때문에 G98 없는 사이클의 전개가 3점 →
+  4점으로 늘어난다. 기존 테스트 3건(`test_mct_g87_g88_g89_g74_g76_...`,
+  `test_mct_g73_is_still_recognized_...`, `test_mct_g80_cancels_cycle`)의
+  기대값을 근거와 함께 갱신했다.
+- G80 취소 줄의 모션 타입이 `"G80"`으로 남아 그 줄의 이동이 CUT(절삭)으로
+  분류돼 절삭선으로 그려지던 것도 급속(G00)으로 바로잡았다.
+- 검증한 시나리오: 여러 구멍 반복(G98), G99 R점 복귀, 도중 Z 변경의 모달
+  승계, 사이클 도중 G99→G98 전환, G83 + 여러 구멍, G80 이후 복귀.
+- 선반 경로는 건드리지 않았다(가이드라인 0항) — 선반 사이클은 별도
+  `lathe_cycle_*` 상태를 쓰고 이번 변경은 밀링 분기에만 있다.
+
+**(2) 안전 모드의 그래픽 어댑터 버튼**
+
+- v1.8.3에서 남긴 후속 조치를 구현했다. 안전 모드 화면에 "① 고성능
+  그래픽(외장)으로 지정 / ① 절전 그래픽(내장)으로 지정 / Windows 자동
+  선택으로 되돌리기" 버튼과 현재 설정 표시를 넣고, 그 아래에 기존
+  "② 3D Viewer 다시 사용" 버튼을 둔다.
+- 앱이 **실행 중인 계정의** HKCU에 직접 쓴다(`winreg`). 설치본의 HKCU
+  기록만으로 부족한 이유는 두 가지다: 관리자 승격 계정이 다르면 값이 그
+  관리자 하이브로 가고(ISCC가 매 컴파일마다 경고한다), 포터블 ZIP에는
+  설치 과정 자체가 없다.
+- **사용자가 누를 때만 쓴다.** 앱이 자동으로 고성능을 강제하면, 외장 GPU
+  드라이버가 고장난 PC를 오히려 망가뜨릴 수 있다.
+- 빌드 검증 중 또 하나: 카운터 파일을 `utf-8`로만 읽고 있어 BOM이 붙으면
+  파싱이 깨져 안전 모드가 영영 안 걸렸다. 사람이 메모장으로 열어 저장하면
+  붙는다. `utf-8-sig`로 읽도록 고치고 회귀 테스트를 넣었다.
+- Verification: `python -m pytest tests/test_nc_tool_list.py` → 263 passed,
+  1 skipped, 0 failed(사이클 회귀 테스트 2건, GPU 선호도 테스트 2건 신규).
+  프리즈된 exe로 **정상 기동 / 강제 안전 모드(BOM 유·무 양쪽)** 를 확인했고,
+  안전 모드에서는 플래그가 자동 해제되지 않는 것도 확인했다.
+- Installer/package status: **생성 완료**.
+  - `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` — onedir, UPX 비활성.
+  - `ISCC.exe NC_Tool_List.iss`(Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.8.4.exe`
+    (컴파일 54.141초).
+  - 포터블: `installer\NC_Tool_List_Portable_v1.8.4.zip`.
+  - 세 경로(dist / 포터블 압축 해제 / `C:\NC_Tool_List` 설치본) 모두 기동
+    확인, 설치 후 레지스트리에
+    `C:\NC_Tool_List\NC_Tool_List.exe = GpuPreference=2;` 기록 확인.
+  - Setup EXE SHA-256: 5D8376A1C317EFEDFA84C88AEFE62A6CFF2E08556B1DF0D6160A2CA3B38E37F1
+  - Portable ZIP SHA-256: 78DD35C81FE1D939D0A850A06FEC2BFD0246BB46EA5BA696D8EC01D888CE49AA
+  - App EXE SHA-256: B7DE67D9DFE49C571A355CCA40CE57FE5E6CDF1B306B3E1D82156435C43021AA
+  - Setup 46.5 MB / Portable 64.1 MB.
+- ISCC의 HKCU/admin 경고는 그대로 남아 있다(설치본 항목에 한함). 이제는
+  위 (2)의 앱 내 버튼이 그 경로를 보완하므로 실사용상 공백은 없다.
+- 서명 상태: 설치본과 앱 실행 파일 모두 미서명이다.
+
+### 2026-09-21 (v1.8.3)
+
+- Version: 1.8.2 → 1.8.3
+- Release/build date: 2026-09-21
+- Summary: 특정 현장 PC에서 설치 후 창만 깜박이고 즉시 종료되던 문제의
+  원인이 **보안 프로그램이 아니라 그래픽(OpenGL)**으로 확인됐다. 사용자가
+  Windows 설정 → 시스템 → 디스플레이 → 그래픽에서 이 프로그램의 어댑터를
+  직접 지정하자 정상 실행됐다. 즉 그 PC의 기본 어댑터 OpenGL 드라이버가
+  3D Viewer의 GL 컨텍스트를 만드는 도중 프로세스를 죽인 것이다. v1.4.3
+  조사에서 AhnLab을 배제했던 결론과도 일치한다(해당 기록은 아래 2026-09-04
+  항목).
+- 왜 잡히지 않았나: 드라이버 안에서 나는 네이티브 크래시(ntdll,
+  0xC0000409)이므로 Python 예외가 아니다. `try/except`로 못 잡고
+  `startup.log`에도 흔적이 남지 않으며, 화면에는 "창이 깜박이고 종료"로만
+  보인다.
+- 조치 1 — 설치본 GPU 선호도 고정 (`NC_Tool_List.iss`):
+  `HKCU\Software\Microsoft\DirectX\UserGpuPreferences`에 설치된 exe 경로를
+  값 이름으로 `GpuPreference=2;`(고성능)를 기록한다. 이 키가 바로 위의
+  Windows 그래픽 설정 화면이 값을 저장하는 곳이라, 사용자가 손으로 한 조치를
+  설치 시점에 미리 넣어 두는 것과 같다. GPU가 하나뿐인 PC에서는 Windows가
+  이 값을 무시하므로 부작용이 없다. `uninsdeletevalue`로 제거 시 함께 지운다.
+- 조치 2 — 그래픽 안전 모드 (`NC_Tool_List.py`): 네이티브 크래시는 프로세스
+  안에서 못 잡으므로 프로세스 밖에 흔적을 남긴다. GL을 건드리기 직전에
+  `%LOCALAPPDATA%\NC_Tool_List\viewer_gl_unsafe.flag`에 카운터를 올리고,
+  창이 뜬 뒤 `confirm_gl_healthy()`까지 살아서 도달하면 지운다. 확인 없이
+  끝난 실행이 연속 `GL_SAFE_MODE_STRIKE_LIMIT`(=2)회 쌓이면 다음 실행은
+  3D Viewer를 아예 만들지 않고 `ViewerFallbackWidget`으로 뜬다. 공구 리스트
+  생성/복사/PDF 출력은 그대로 쓸 수 있다.
+- 1회가 아니라 2회인 이유: 사용자가 기동 직후 창을 강제로 닫거나 작업
+  관리자로 죽이면 드라이버가 멀쩡해도 흔적이 남는다. 진짜 드라이버 크래시는
+  매번 재현되므로 금방 한계에 도달하고, 한 번의 강제 종료는 다음 정상 실행이
+  카운터를 0으로 되돌린다.
+- 안전 모드 화면에는 드라이버 업데이트/그래픽 어댑터 재지정 안내와
+  "3D Viewer 다시 사용 (재시작 필요)" 버튼이 있다. 이 버튼만이 플래그를
+  해제한다 — 안전 모드로 뜬 실행은 GL을 건드리지 않았으므로 "GL이 멀쩡하다"는
+  근거가 없고, 여기서 자동 해제하면 크래시 → 안전 모드 → 크래시 무한 반복이
+  된다.
+- 덤: `confirm_gl_healthy()`가 시작 직후 컨텍스트를 확정하므로, 이제
+  `OpenGL vendor/renderer/version` 줄이 (Viewer 모드에 한 번도 안 들어간
+  실행에서도) 항상 `startup.log`에 남는다. 앞으로 뷰어 관련 신고가 오면 이
+  줄부터 볼 것.
+- 다시 강조 — **소프트웨어 OpenGL 강제는 해법이 아니다.** v1.4.4에서 검은
+  화면 회귀를 냈고 회귀 테스트가 걸려 있다. 이번 작업도 그 규칙을 지켰다.
+- Verification: `python -m pytest tests/test_nc_tool_list.py` → 258 passed,
+  1 skipped, 0 failed. 안전 모드 생애주기는 별도 스모크 실행으로 확인
+  (정상 실행 → `NCViewerWidget` + 카운터 0, 강제로 2회 누적 → 
+  `ViewerFallbackWidget(safe_mode=True)` + 카운터 유지).
+- 주의(테스트): 테스트는 한 프로세스에서 App을 수십 번 만들며 이벤트 루프를
+  돌리지 않아 GL 확인이 영영 오지 않는다. 그래서 `tests/test_nc_tool_list.py`
+  상단이 `NC_TOOL_LIST_GL_SAFE_MODE=0`으로 이 장치를 끈다. 장치 자체는 전용
+  테스트가 함수를 직접 불러 검증한다.
+- **빌드 검증 중 잡은 실제 결함(중요):** 첫 빌드의 프리즈된 exe를 실행했더니
+  멀쩡한 개발 PC가 안전 모드로 떴다 — `viewer_gl_unsafe.flag`에 20회가
+  쌓여 있었다. 원인은 그래픽이 아니라 코드였다. `mark_viewer_gl_pending()`이
+  `NC_TOOL_LIST_GL_SAFE_MODE=0` opt-out을 무시해, 테스트가 App을 만들 때마다
+  **사용자의 실제 카운터 파일**을 올렸고(이벤트 루프가 없어 확인은 영영 오지
+  않는다) 그게 그대로 남아 있었던 것이다. opt-out이 "세지도 않는다"가 되도록
+  고치고 전용 회귀 테스트를 추가했다. **교훈: 프로세스 밖 상태를 쓰는 장치는
+  opt-out이 읽기뿐 아니라 쓰기까지 막아야 한다.** 안 그러면 테스트가 사용자
+  상태를 오염시킨다(같은 계열의 함정: QSettings 공유).
+- Installer/package status: **생성 완료**(사용자 직접 지시로 빌드).
+  - `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` — onedir, UPX 비활성.
+  - `ISCC.exe NC_Tool_List.iss`(Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.8.3.exe`
+    (컴파일 58.671초).
+  - 포터블: `installer\NC_Tool_List_Portable_v1.8.3.zip` (315 엔트리, 기존
+    릴리스와 같은 구조 — `NC_Tool_List.exe`와 `_internal\`이 ZIP 루트에 온다).
+  - 빌드 검증: 프리즈된 exe의 파일/제품 버전이 `1.8.3.0`으로 찍히고,
+    **세 경로(dist 직접 실행 / 포터블 ZIP 압축 해제 후 실행 / `C:\NC_Tool_List`
+    설치본 실행) 모두** 트레이스백 없이 기동하며 `startup.log`에
+    `Starting Sum Path v1.8.3 frozen=True`와 새 OpenGL 줄이 남는 것을 확인했다.
+  - **새 기능의 실기 확인**: 이 PC의 실제 GPU에서
+    `OpenGL vendor=Intel renderer=Intel(R) Iris(R) Plus Graphics version=4.6.0 - Build 31.0.101.2130`이
+    매 실행 기록됐고(Viewer 모드에 들어가지 않아도), 실행 후 안전 모드 플래그가
+    정상 해제됐다.
+  - **레지스트리 확인**: 무인 설치(`/VERYSILENT`) 후
+    `HKCU\Software\Microsoft\DirectX\UserGpuPreferences`에
+    `C:\NC_Tool_List\NC_Tool_List.exe = GpuPreference=2;`가 실제로 기록된 것을
+    확인했다(설치 전에는 키 자체가 없었다).
+  - Setup EXE SHA-256: 4A5AC178F2858F38B4D6765B65956E31E295DF06FE3784B4D3C1ECD09C75C974
+  - Portable ZIP SHA-256: FFB3002167B042495C5222BEA9545AB9834D85B7C400F399AC9FF6ACBCCF2F12
+  - App EXE SHA-256: 2F9A12681D7544CBF2586319D2092717A5CE5A9016FFE3146FF23955379C5028
+  - Setup 46.5 MB / Portable 64.1 MB.
+- **ISCC 경고 — 후속 조치 필요:** 컴파일 시 Inno Setup이 경고를 냈다.
+  `PrivilegesRequired=admin`인데 스크립트가 per-user 영역(HKCU)을 쓴다는 것이다.
+  기존 HKCR 파일 연결은 관리자 설치에서 `HKLM\Software\Classes`로 매핑돼
+  문제가 없지만, 새로 넣은 `UserGpuPreferences`는 **HKCU 전용**이다(Windows가
+  HKLM에서는 읽지 않는다). 설치를 시작한 작업자가 관리자가 아니라 UAC에서
+  *다른* 관리자 계정으로 승격하면, 값이 그 관리자 하이브에 들어가고 정작 앱을
+  쓰는 계정에는 적용되지 않는다. 이 개발 PC에서는 같은 계정이 승격해 정상
+  기록됐으므로 이 경로로는 재현되지 않는다.
+  - 권장 후속: 안전 모드 화면의 안내 옆에 "이 프로그램을 고성능 그래픽으로
+    지정" 버튼을 넣어 **실행 중인 계정의** HKCU에 직접 쓰게 한다. 사용자가
+    누를 때만 동작하므로 멀쩡한 PC의 GPU 선택을 임의로 바꾸지 않고(외장 GPU
+    드라이버가 고장난 PC를 오히려 망가뜨릴 위험이 없다), 설치 과정이 없는
+    포터블 ZIP의 공백도 같이 메운다.
+- 남은 항목: **포터블 ZIP**에는 GPU 선호도 레지스트리 항목이 들어가지 않는다
+  (설치 과정이 없으므로). 포터블 사용자는 현재로서는 그래픽 안전 모드와 수동
+  그래픽 설정으로 대응한다 — 위 후속 조치가 이 공백도 함께 메운다.
+- 서명 상태: 설치본과 앱 실행 파일 모두 미서명이다(이전 버전과 동일).
+
+### 2026-09-13 (SumPath License Maker v1.3.0 — NC_Tool_List는 변경 없음, v1.8.2 그대로)
 
 - Version: SumPath License Maker 1.2.0 → 1.3.0 (NC_Tool_List, `sumpath_license.py` 변경 없음)
 - Release/build date: 2026-09-13
