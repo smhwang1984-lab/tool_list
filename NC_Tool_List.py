@@ -28,9 +28,9 @@ from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, T
 import sumpath_license
 
 
-APP_VERSION = '1.8.3'
+APP_VERSION = '1.8.4'
 APP_NAME = 'Sum Path'
-APP_BUILD_DATE = '2026-09-21'
+APP_BUILD_DATE = '2026-09-22'
 APP_CREATOR = 'Hwang.seonmun'
 APP_PURPOSE = 'NC 프로그램에서 공구 리스트를 산출하고 NC 경로를 Viewer로 확인하는 도구'
 OPEN_SOURCE_COMPONENTS = (
@@ -1666,6 +1666,78 @@ def gl_safe_mode_enabled():
     return os.environ.get(GL_SAFE_MODE_ENV_FLAG, '1').strip() != '0'
 
 
+# v1.8.4: Windows 설정 → 시스템 → 디스플레이 → 그래픽 화면이 앱별 GPU
+# 선택을 저장하는 키. 값 이름은 실행 파일의 전체 경로, 값은 "GpuPreference=N;"
+# (1=절전/내장, 2=고성능/외장)이다.
+#
+# 설치 프로그램도 같은 값을 쓰지만(v1.8.3) 그것만으로는 부족하다:
+#   - 설치본은 관리자 권한으로 도는데 이 키는 HKCU 전용이다. 작업자가
+#     관리자가 아니라 UAC에서 다른 관리자 계정으로 승격하면 값이 그
+#     관리자 하이브에 들어가고, 정작 앱을 쓰는 계정에는 적용되지 않는다
+#     (Inno Setup이 컴파일 때 이 점을 경고한다).
+#   - 포터블 ZIP은 설치 과정 자체가 없다.
+# 그래서 안전 모드 화면에서 **실행 중인 계정으로** 직접 쓸 수 있게 한다.
+# 사용자가 버튼을 누를 때만 쓴다 — 멀쩡한 PC의 GPU 선택을 앱이 마음대로
+# 바꾸면, 외장 GPU 드라이버가 고장난 PC를 오히려 망가뜨릴 수 있다.
+GPU_PREFERENCE_KEY = r'Software\Microsoft\DirectX\UserGpuPreferences'
+GPU_PREFERENCE_HIGH_PERFORMANCE = 2
+GPU_PREFERENCE_POWER_SAVING = 1
+
+
+def current_executable_path():
+    """GPU 선호도 값 이름으로 쓸 실행 파일 경로.
+
+    패키징된 앱은 sys.executable이 곧 NC_Tool_List.exe다. 소스로 돌릴
+    때는 python.exe가 되는데, 그때 이 기능을 쓸 일은 없지만 경로 자체는
+    유효하므로 그대로 둔다.
+    """
+    return str(Path(sys.executable).resolve())
+
+
+def read_gpu_preference(exe_path=None):
+    """이 실행 파일에 지정된 GPU 선호도. 없으면 None(= Windows 자동)."""
+    try:
+        import winreg
+    except ImportError:
+        return None
+    name = exe_path or current_executable_path()
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, GPU_PREFERENCE_KEY) as key:
+            value, _ = winreg.QueryValueEx(key, name)
+    except OSError:
+        return None
+    match = re.search(r'GpuPreference=(\d+)', str(value))
+    return int(match.group(1)) if match else None
+
+
+def write_gpu_preference(preference, exe_path=None):
+    """실행 중인 계정의 HKCU에 GPU 선호도를 쓴다.
+
+    preference가 None이면 값을 지워 Windows 자동 선택으로 되돌린다.
+    성공 여부를 bool로 돌려준다 — 실패해도 앱이 죽지는 않아야 한다.
+    """
+    try:
+        import winreg
+    except ImportError:
+        return False
+    name = exe_path or current_executable_path()
+    try:
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, GPU_PREFERENCE_KEY) as key:
+            if preference is None:
+                try:
+                    winreg.DeleteValue(key, name)
+                except FileNotFoundError:
+                    pass
+            else:
+                winreg.SetValueEx(key, name, 0, winreg.REG_SZ,
+                                  'GpuPreference=%d;' % preference)
+        write_startup_log('GPU preference set to %r for %s' % (preference, name))
+        return True
+    except OSError as error:
+        write_startup_log('GPU preference write failed for %s: %r' % (name, error))
+        return False
+
+
 def viewer_safe_mode_flag_path():
     return startup_log_path().parent / 'viewer_gl_unsafe.flag'
 
@@ -1954,11 +2026,9 @@ else:
                     "그대로 사용할 수 있습니다."
                 )
                 body = (
-                    "3D Viewer를 되살리려면 다음 중 하나를 먼저 해 보세요.\n"
-                    "  1) 그래픽 드라이버를 최신 버전으로 업데이트\n"
-                    "  2) Windows 설정 → 시스템 → 디스플레이 → 그래픽에서\n"
-                    "     이 프로그램의 GPU를 '고성능' 또는 '절전'으로 바꿔 지정\n"
-                    "그 다음 아래 버튼을 누르고 프로그램을 다시 시작하십시오.\n"
+                    "아래 ①에서 그래픽 어댑터를 바꿔 지정한 다음 ②를 누르고\n"
+                    "프로그램을 다시 시작하십시오. 그래도 안 되면 그래픽\n"
+                    "드라이버를 최신 버전으로 업데이트해 보십시오.\n"
                     "로그: %s" % startup_log_path()
                 )
             else:
@@ -1979,10 +2049,65 @@ else:
             layout.addWidget(detail)
 
             if safe_mode:
-                self.btn_retry = QPushButton("3D Viewer 다시 사용 (재시작 필요)")
+                self.gpu_label = QLabel()
+                self.gpu_label.setWordWrap(True)
+                layout.addWidget(self.gpu_label)
+
+                gpu_row = QHBoxLayout()
+                gpu_row.setContentsMargins(0, 0, 0, 0)
+                self.btn_gpu_high = QPushButton("① 고성능 그래픽(외장)으로 지정")
+                self.btn_gpu_high.clicked.connect(
+                    lambda: self._set_gpu_preference(GPU_PREFERENCE_HIGH_PERFORMANCE))
+                gpu_row.addWidget(self.btn_gpu_high)
+                self.btn_gpu_power = QPushButton("① 절전 그래픽(내장)으로 지정")
+                self.btn_gpu_power.clicked.connect(
+                    lambda: self._set_gpu_preference(GPU_PREFERENCE_POWER_SAVING))
+                gpu_row.addWidget(self.btn_gpu_power)
+                self.btn_gpu_auto = QPushButton("Windows 자동 선택으로 되돌리기")
+                self.btn_gpu_auto.clicked.connect(lambda: self._set_gpu_preference(None))
+                gpu_row.addWidget(self.btn_gpu_auto)
+                gpu_row.addStretch()
+                layout.addLayout(gpu_row)
+
+                self.btn_retry = QPushButton("② 3D Viewer 다시 사용 (재시작 필요)")
                 self.btn_retry.clicked.connect(self._retry_viewer)
                 layout.addWidget(self.btn_retry, 0, Qt.AlignLeft)
+                self._refresh_gpu_label()
             layout.addStretch()
+
+        # ---------- 안전 모드: 그래픽 어댑터 지정 ----------
+        GPU_PREFERENCE_NAMES = {
+            GPU_PREFERENCE_HIGH_PERFORMANCE: "고성능(외장 GPU)",
+            GPU_PREFERENCE_POWER_SAVING: "절전(내장 그래픽)",
+        }
+
+        def _refresh_gpu_label(self):
+            current = read_gpu_preference()
+            name = self.GPU_PREFERENCE_NAMES.get(current, "Windows 자동 선택")
+            self.gpu_label.setText(
+                "① 현재 이 프로그램의 그래픽 어댑터: %s\n"
+                "    (Windows 설정 → 시스템 → 디스플레이 → 그래픽과 같은 설정입니다.\n"
+                "     지금 로그인한 계정에 바로 적용됩니다.)" % name
+            )
+
+        def _set_gpu_preference(self, preference):
+            if write_gpu_preference(preference):
+                self._refresh_gpu_label()
+                QMessageBox.information(
+                    self, "그래픽 어댑터 지정",
+                    "그래픽 어댑터를 '%s'(으)로 지정했습니다.\n\n"
+                    "이어서 아래 ② 버튼을 누른 뒤 프로그램을 다시 시작하면\n"
+                    "3D Viewer를 새 설정으로 시도합니다."
+                    % self.GPU_PREFERENCE_NAMES.get(preference, "Windows 자동 선택")
+                )
+            else:
+                QMessageBox.warning(
+                    self, "그래픽 어댑터 지정",
+                    "설정을 저장하지 못했습니다.\n"
+                    "Windows 설정 → 시스템 → 디스플레이 → 그래픽에서\n"
+                    "이 프로그램을 직접 추가해 지정해 주십시오.\n\n"
+                    "프로그램 경로: %s" % current_executable_path()
+                )
 
         def _retry_viewer(self):
             """안전 모드 해제 — 플래그만 지운다. 다음 실행에서 3D Viewer를

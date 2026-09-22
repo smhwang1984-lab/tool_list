@@ -2894,10 +2894,28 @@ class NCViewerWidget(QWidget):
         g68_pending = False
         pending_i, pending_j, pending_k = 0.0, 0.0, 0.0
         active_matrix = np.eye(3)
-        g98_active = False
+        # v1.8.4: Fanuc 전원 투입 기본값은 G98(초기점 복귀)이다. 예전에는
+        # False로 두고 "G98이 없으면 복귀 자체를 그리지 않는" 모델이었는데,
+        # 실제 기계에서 복귀를 안 하는 경우는 없다(G98=초기점, G99=R점).
+        # 복귀를 안 그리면 공구가 구멍 바닥에 남은 것으로 계산돼, 뒤따르는
+        # 구멍이 전부 깊이에 붙어버린다(아래 mill_cycle_* 주석 참고).
+        g98_active = True
         cycle_active = False
         detected_t = ""
         process_no = 0
+
+        # v1.8.4: 밀링/MCT 고정 사이클 모달 상태. G81 등이 한 번 켜지면
+        # G80까지 유지되고, 좌표만 적힌 뒤 줄들은 **같은 사이클 동작을 그
+        # 위치에서 반복**한다(사용자 리포트: "g80을 만날 때까지는 동일한
+        # 동작"). 예전에는 이 세 값이 없어서, 사이클 줄 끝에서 cz를 가공
+        # 깊이로 남겨 둔 채 다음 줄이 그 깊이를 그대로 물려받았다. 그래서
+        # 접근/R점/깊이/복귀 네 점이 전부 같은 Z에 겹쳤고, 화면에는 구멍
+        # 사이를 잇는 급속 직선 하나로만 보였다.
+        # 선반은 이 변수들을 전혀 읽지 않는다(가이드라인 0항) — 선반 전용
+        # 상태는 아래 lathe_cycle_* 쪽이다.
+        mill_cycle_initial_z = 0.0   # 사이클 진입 시점의 Z(= G98 복귀 높이)
+        mill_cycle_r = 0.0           # 모달 R 평면(밀링은 절대 Z)
+        mill_cycle_depth = 0.0       # 모달 가공 깊이(절대 Z)
 
         # v1.6.8: 선반 고정 사이클 전용 모달 상태. G81~G89(v1.7.1부터 —
         # G73/G74/G76은 선반에서 별개의 복합형 사이클이라 제외, 아래
@@ -3208,8 +3226,24 @@ class NCViewerWidget(QWidget):
             cycle_match = (lathe_cycle_pattern if is_lathe else cycle_pattern).search(line_upper)
             if cycle_match:
                 cycle_code = cycle_match.group(1)
+                was_cycle_active = cycle_active
                 cycle_active = cycle_code != "G80"
                 current_motion = cycle_code
+                if not is_lathe:
+                    if cycle_active and not was_cycle_active:
+                        # 사이클을 **새로 여는** 줄에서만 초기점을 잡는다.
+                        # 사이클 도중 다시 G81이 적히는(깊이/R만 바꾸는)
+                        # 줄에서는 초기점이 그대로 유지돼야 한다.
+                        mill_cycle_initial_z = cz
+                    elif not cycle_active:
+                        # G80 취소 — 다음 사이클에 이전 값이 새지 않게 비운다.
+                        mill_cycle_r = 0.0
+                        mill_cycle_depth = 0.0
+                        # v1.8.4: 취소 줄의 모션 타입을 "G80"으로 남기면 그
+                        # 줄의 이동이 절삭(CUT)으로 분류돼 빨간 선으로
+                        # 그려진다. G80은 이동 지령이 아니므로 급속으로
+                        # 되돌린다.
+                        current_motion = "G00"
                 if is_lathe and cycle_code == "G80":
                     # v1.6.8: 취소 시 사이클 모달 상태를 전부 비운다 — 다음
                     # 사이클이 R/깊이를 빠뜨린 기형 프로그램이어도 이전
@@ -3555,13 +3589,24 @@ class NCViewerWidget(QWidget):
                 if cycle_active and g43_active:
                     target_x = cx
                     target_y = cy
-                    target_z = float(z_match.group(1)) if z_match else cz
-                    r_val = float(r_cycle_match.group(1)) if r_cycle_match else start_pt[2]
+                    # R과 깊이는 모달이다 — 좌표만 적힌 뒤 줄들은 사이클을 연
+                    # 줄의 값을 그대로 물려받는다. 예전에는 R을 "현재 Z"로,
+                    # 깊이를 "직전 줄의 cz"로 폴백해서, 한 번 깊이에 내려가면
+                    # 그 뒤 모든 구멍이 깊이에 눌러앉았다.
+                    if z_match:
+                        mill_cycle_depth = float(z_match.group(1))
+                    if r_cycle_match:
+                        mill_cycle_r = float(r_cycle_match.group(1))
+                    target_z = mill_cycle_depth
+                    r_val = mill_cycle_r
+                    # 복귀 높이: G98=초기점, G99=R점. 이 값이 다음 구멍의
+                    # 출발 높이(접근 급속을 그리는 Z)가 된다.
+                    return_z = mill_cycle_initial_z if g98_active else r_val
                     raw_points = (
                         np.array([target_x, target_y, start_pt[2]]),
                         np.array([target_x, target_y, r_val]),
                         np.array([target_x, target_y, target_z]),
-                        np.array([target_x, target_y, start_pt[2]]),
+                        np.array([target_x, target_y, return_z]),
                     )
                     if is_5axis_ac or is_5axis_bc:
                         xy_approach_pt, r_point_pt, final_z_pt, return_pt = [
@@ -3574,9 +3619,10 @@ class NCViewerWidget(QWidget):
                     self.tool_paths[current_tool].append({"pt": xy_approach_pt, "type": "G00", "valid": True, "src_line": idx, "seq": seq_pos})
                     self.tool_paths[current_tool].append({"pt": r_point_pt, "type": "G00", "valid": True, "src_line": idx, "seq": seq_pos})
                     self.tool_paths[current_tool].append({"pt": final_z_pt, "type": "G01", "valid": True, "src_line": idx, "seq": seq_pos})
-                    if g98_active:
-                        self.tool_paths[current_tool].append({"pt": return_pt, "type": "G00", "valid": True, "src_line": idx, "seq": seq_pos})
-                    cz = target_z
+                    self.tool_paths[current_tool].append({"pt": return_pt, "type": "G00", "valid": True, "src_line": idx, "seq": seq_pos})
+                    # 공구는 구멍 바닥이 아니라 복귀 높이에 있다. 이 한 줄이
+                    # 빠져 있어서 뒤따르는 구멍들이 전부 깊이에 붙었다.
+                    cz = return_z
                     self.line_to_coord_map[idx] = self.seq_to_coord_map[seq_pos] = final_z_pt
                     continue
 
