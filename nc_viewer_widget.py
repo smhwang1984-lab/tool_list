@@ -2614,11 +2614,16 @@ class NCViewerWidget(QWidget):
     def _compute_tilt_lines(self):
         """G68.2(경사면)~G69 구간의 원본 줄 인덱스 집합을 돌려준다. Z-map은
         공구 축이 항상 월드 +Z라고 가정하므로, 이 구간의 절삭은 정확하지
-        않아 시뮬레이션에서 제외한다(3+2/동시 5축은 다음 단계 범위)."""
+        않아 시뮬레이션에서 제외한다(3+2/동시 5축은 다음 단계 범위).
+
+        v1.9.0 버그 수정: "(G68.2 INDEX CHG.)" 같은 괄호 주석 문구까지
+        그대로 매칭하면 실제 명령보다 몇 줄 앞서 경사면이 켜진 것으로
+        잘못 인식돼, 프로그램 전체가 제외되는 문제가 있었다(ncdata.nc로
+        확인) — 주석을 걷어낸 코드 부분만 본다."""
         tilt_lines = set()
         active = False
         for idx, line in enumerate(self.raw_lines):
-            upper = (line or "").upper()
+            upper = self._code_without_comments(line).upper()
             if self._SIM_G69_RE.search(upper):
                 active = False
             if self._SIM_G68_RE.search(upper):
