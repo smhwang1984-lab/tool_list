@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-09-22 (NC_Tool_List v1.8.4 — 밀링 고정 사이클 모달 반복 수정, 안전 모드 그래픽 어댑터 버튼)
+Last updated: 2026-09-23 (NC_Tool_List v1.9.0 — 밀링 3축 형상 가공 시뮬레이션: 공구 형상·소재 설정 팝업·Z-map 절삭·STL 내보내기)
 
 ## About button requirements
 
@@ -34,7 +34,57 @@ Last updated: 2026-09-22 (NC_Tool_List v1.8.4 — 밀링 고정 사이클 모달
 
 ## Version history
 
-### 2026-09-22 (latest, v1.8.4)
+### 2026-09-23 (latest, v1.9.0)
+
+- Version: 1.8.4 → 1.9.0
+- Release/build date: 2026-09-23
+- Summary: 밀링 3축 형상 가공 시뮬레이션(신규 기능) — 사용자 확정(2026-09-23,
+  결정 A~H 승인)에 따라 구현.
+  - 새 모듈 `nc_sim.py`(순수 numpy, Qt 비의존): 공구 형상(ToolShape) —
+    FLAT/DYNAMIC E/M은 평바닥, FILLET E/M·CUTTER·FACE MILL은 바닥 R,
+    BALL E/M은 반구, DRILL은 SIG 각도(기본 118도) 원뿔, PL 값이 있는 그
+    외 공구는 45도 챔퍼(각진 U자), 나머지는 평바닥 원기둥으로 대체.
+    StockSpec(T/W/L 축 배정·기준 위치·추가 이동 -> bounds),
+    ZMapStock(Z-map 절삭·스냅샷·삼각형 더미 메쉬),
+    write_stl_binary(바이너리 STL, 외부 의존성 없음).
+  - `NC_Tool_List.py`: `tool_shape_map_from_rows()`로 툴리스트 값을
+    뷰어에 전달, 필터 바에 `[소재]` 버튼 추가(선반 모드에서는 숨김).
+  - `nc_viewer_widget.py`: `StockDialog` 팝업(T/W/L·축 배정 스왑·기준
+    위치·추가 이동·해상도·툴패스 범위 맞추기·STL 내보내기), 재생
+    위치(seq)와 연동한 증분 절삭/공정 경계 스냅샷 되돌리기, G68.2~G69
+    구간 자동 제외, 가공 경로 선 표시/숨기기 토글, 메쉬 표시.
+  - 소재를 설정한 적이 없으면 툴패스 범위 + 여유 2mm로 자동 채움, 설정은
+    전역 하나만 기억, 공구 필터와 무관하게 전체 공정을 절삭.
+  - **3축 전용** — 3+2(G68.2)/동시 5축 실제 절삭, 선반 모드 형상 표시는
+    범위 밖(LATHE_MODE_GUIDELINES.md 그대로 유지). 다음 단계에서 확장
+    검토.
+  - 버그 수정: `(G68.2 INDEX CHG.)` 같은 괄호 주석 문구까지 그대로
+    매칭해 실제 명령보다 앞서 경사면 구간으로 잘못 켜지던 문제 —
+    `_code_without_comments()`로 주석을 걷어낸 코드 부분만 보도록 수정.
+  - 실행 화면(3D 뷰어 + 소재 설정 팝업)을 스크린샷으로 확인해 STOCK
+    절삭 결과가 올바르게 표시됨을 검증(간단한 3축 데모 프로그램 사용 —
+    제공된 실 샘플 `ncdata.nc`는 처음부터 끝까지 G68.2 3+2 가공이라
+    전량 제외 대상이었음).
+- Open source software: 추가 없음(신규 모듈 `nc_sim.py`는 numpy만 사용,
+  이미 쓰고 있던 의존성).
+- Verification: `python -m pytest` → 375 passed, 1 skipped, 10 subtests
+  passed(신규 `tests/test_nc_sim.py` 27건 포함). 실제 샘플(ncdata.nc)로
+  형상 생성 -> 소재 적용 -> 재생 -> 되감기 -> STL 내보내기까지 수동
+  스모크 테스트 확인.
+- Installer/package status: **생성 완료**.
+  - `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` — onedir, UPX 비활성.
+  - `ISCC.exe NC_Tool_List.iss`(Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.9.0.exe`.
+  - 포터블: `installer\NC_Tool_List_Portable_v1.9.0.zip`.
+  - dist 폴더의 exe를 직접 기동해 정상 실행 확인(2회 빌드 모두).
+  - Setup EXE SHA-256: 592F0AA5F5D21E044DEFC468D0ED4E65F7A7BB7B16413D2A5A041DB0453A354C
+  - Portable ZIP SHA-256: DD0F56FD2E02B4FA7CE3147D3E231C0C2A1CBF2075F3E22B0AC38C8BD8D453DA
+  - App EXE SHA-256: 35AED497A6F83E3E8D0377744D43C2CCB09B3287BD0BFBF4B2B46AFDF09FD733
+  - Setup 46.5 MB / Portable 64.1 MB.
+- 서명 상태: 설치본과 앱 실행 파일 모두 미서명이다(기존과 동일).
+- 참고: 이 빌드는 작업 worktree(`worktree-v190-sim-plan`)에서 만들었다.
+  메인 브랜치에 병합한 뒤 배포용으로 다시 빌드하는 것을 권장한다.
+
+### 2026-09-22 (v1.8.4)
 
 - Version: 1.8.3 → 1.8.4
 - Release/build date: 2026-09-22
