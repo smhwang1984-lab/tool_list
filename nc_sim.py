@@ -218,6 +218,9 @@ class ZMapStock:
         self.zlo = float(zlo)
         self.ztop = float(zhi)
         self.heights = np.full((self.ny, self.nx), self.ztop, dtype=np.float64)
+        # 그 칸을 마지막으로 깎은 공구의 색 id(공구 툴패스와 같은 색 매김,
+        # v1.9.1) — -1이면 아직 안 깎인 원래 소재 표면.
+        self.color_ids = np.full((self.ny, self.nx), -1, dtype=np.int32)
         # G00(급속) 이동이 소재를 깎으면 (src_line, seq)를 여기에 남긴다.
         self.rapid_cut_warnings = []
 
@@ -232,8 +235,11 @@ class ZMapStock:
         return self.nx * self.ny
 
     # -- 절삭 ---------------------------------------------------------------
-    def cut_point(self, pt, tool):
-        """Tool tip이 정지해 있는 한 점(pt=[x,y,z])에서 소재를 깎는다."""
+    def cut_point(self, pt, tool, color_id=None):
+        """Tool tip이 정지해 있는 한 점(pt=[x,y,z])에서 소재를 깎는다.
+
+        color_id를 주면, 실제로 더 깎인(높이가 낮아진) 칸에 한해 그
+        색 id를 남긴다 — 절삭면을 공구별 색으로 표시하는 데 쓴다."""
         cx, cy, cz = float(pt[0]), float(pt[1]), float(pt[2])
         r = tool.radius
         ix0 = int(np.floor((cx - r - self.x0) / self.resolution))
@@ -254,15 +260,21 @@ class ZMapStock:
         surface_z = cz + h
         sub = self.heights[iy0:iy1 + 1, ix0:ix1 + 1]
         valid = ~np.isnan(surface_z)
-        np.minimum(sub, np.where(valid, surface_z, sub), out=sub)
+        new_vals = np.where(valid, surface_z, sub)
+        if color_id is not None:
+            lowered = valid & (new_vals < sub - 1e-9)
+        np.minimum(sub, new_vals, out=sub)
         np.maximum(sub, self.zlo, out=sub)
+        if color_id is not None and np.any(lowered):
+            self.color_ids[iy0:iy1 + 1, ix0:ix1 + 1][lowered] = color_id
 
-    def cut_segment(self, p0, p1, tool, rapid=False, src_line=None, seq=None):
+    def cut_segment(self, p0, p1, tool, rapid=False, src_line=None, seq=None, color_id=None):
         """Tool tip이 p0에서 p1로 이동하는 동안 소재를 깎는다.
 
         rapid=True(G00)인데 실제로 깎이는 셀이 있으면 rapid_cut_warnings에
         (src_line, seq)를 남긴다 — 계산 자체는 그대로 반영한다(사용자가
-        급속에서 충돌한 것을 그대로 형상으로 확인할 수 있어야 한다)."""
+        급속에서 충돌한 것을 그대로 형상으로 확인할 수 있어야 한다).
+        color_id는 to_mesh()의 color_map 키와 짝지어 절삭면 색을 정한다."""
         p0 = np.asarray(p0, dtype=np.float64)
         p1 = np.asarray(p1, dtype=np.float64)
         dist_xy = float(np.hypot(p1[0] - p0[0], p1[1] - p0[1]))
@@ -279,7 +291,7 @@ class ZMapStock:
         for i in range(steps + 1):
             t = i / steps
             pt = p0 + (p1 - p0) * t
-            self.cut_point(pt, tool)
+            self.cut_point(pt, tool, color_id=color_id)
 
         if rapid and before is not None:
             after = self.heights[iy0:iy1 + 1, ix0:ix1 + 1]
@@ -303,51 +315,85 @@ class ZMapStock:
 
     # -- 스냅샷 ---------------------------------------------------------------
     def snapshot(self):
-        return self.heights.copy()
+        """(heights, color_ids) 사본 튜플. restore()에 그대로 넘긴다."""
+        return self.heights.copy(), self.color_ids.copy()
 
     def restore(self, snap):
-        self.heights = np.array(snap, dtype=np.float64, copy=True)
+        heights, color_ids = snap
+        self.heights = np.array(heights, dtype=np.float64, copy=True)
+        self.color_ids = np.array(color_ids, dtype=np.int32, copy=True)
 
     def reset(self):
         self.heights = np.full((self.ny, self.nx), self.ztop, dtype=np.float64)
+        self.color_ids = np.full((self.ny, self.nx), -1, dtype=np.int32)
         self.rapid_cut_warnings = []
 
+    # -- 색 ---------------------------------------------------------------
+    def _color_grid(self, color_map, default_color):
+        """color_ids(ny, nx) -> RGBA(ny, nx, 4) 격자. color_map은
+        {color_id(int): (r,g,b,a)} — v1.9.1, 절삭면에 공구 툴패스 색을
+        입히는 데 쓴다."""
+        default_rgba = np.array(default_color, dtype=np.float32)
+        if not color_map:
+            return np.tile(default_rgba, (self.ny, self.nx, 1))
+        max_id = max(color_map)
+        palette = np.tile(default_rgba, (max_id + 2, 1))  # index 0 = -1(미절삭)
+        for cid, rgba in color_map.items():
+            if 0 <= cid <= max_id:
+                palette[cid + 1] = np.asarray(rgba, dtype=np.float32)
+        idx = np.clip(self.color_ids, -1, max_id) + 1
+        return palette[idx]
+
     # -- 메쉬 ---------------------------------------------------------------
-    def to_mesh(self):
-        """돌려줌: (verts Nx3 float32, faces Mx3 int32).
+    def to_mesh(self, color_map=None, default_color=(0.55, 0.58, 0.64, 1.0)):
+        """돌려줌: (verts Nx3 float32, faces Mx3 int32, colors Nx4 float32).
 
         정점을 공유하지 않는 '삼각형 더미(soup)' 방식이라 인덱스 계산이
-        단순하다 — GLMeshItem과 STL 내보내기 양쪽에 그대로 쓸 수 있다."""
+        단순하다 — GLMeshItem과 STL 내보내기 양쪽에 그대로 쓸 수 있다.
+        color_map을 주면 윗면은 그 칸을 마지막으로 깎은 공구의 색으로,
+        옆벽/바닥과 아직 안 깎인 칸은 default_color로 칠한다(v1.9.1)."""
         gx, gy = np.meshgrid(self.grid_x(), self.grid_y())
         z = self.heights
+        cell_rgba = self._color_grid(color_map, default_color)
+        default_rgba = np.array(default_color, dtype=np.float32)
         tris = []
+        cols = []
 
-        def add_quad(pa, pb, pc, pd):
-            """pa-pb-pc-pd 순서로 둘러싼 사각형(각 (...,3) 배열)을 두 삼각형으로."""
+        def add_quad(pa, pb, pc, pd, ca, cb, cc, cd):
+            """pa-pb-pc-pd 순서로 둘러싼 사각형(각 (...,3) 배열)을 두
+            삼각형으로. ca~cd는 같은 순서의 정점 색(각 (...,4) 배열)."""
             tris.append(np.stack([pa, pb, pc], axis=-2).reshape(-1, 3, 3))
             tris.append(np.stack([pa, pc, pd], axis=-2).reshape(-1, 3, 3))
+            cols.append(np.stack([ca, cb, cc], axis=-2).reshape(-1, 3, 4))
+            cols.append(np.stack([ca, cc, cd], axis=-2).reshape(-1, 3, 4))
 
         top_a = np.stack([gx[:-1, :-1], gy[:-1, :-1], z[:-1, :-1]], axis=-1)
         top_b = np.stack([gx[:-1, 1:], gy[:-1, 1:], z[:-1, 1:]], axis=-1)
         top_c = np.stack([gx[1:, 1:], gy[1:, 1:], z[1:, 1:]], axis=-1)
         top_d = np.stack([gx[1:, :-1], gy[1:, :-1], z[1:, :-1]], axis=-1)
-        add_quad(top_a, top_b, top_c, top_d)
+        add_quad(
+            top_a, top_b, top_c, top_d,
+            cell_rgba[:-1, :-1], cell_rgba[:-1, 1:], cell_rgba[1:, 1:], cell_rgba[1:, :-1],
+        )
 
         zlo = self.zlo
 
-        def wall(edge_top):
+        def wall(edge_top, edge_color):
             bottom = edge_top.copy()
             bottom[..., 2] = zlo
             a = edge_top[:-1]
             b = edge_top[1:]
             c = bottom[1:]
             d = bottom[:-1]
-            add_quad(a, b, c, d)
+            ca = edge_color[:-1]
+            cb = edge_color[1:]
+            wall_rgba = np.tile(default_rgba, (ca.shape[0], 1))
+            add_quad(a, b, c, d, ca, cb, wall_rgba, wall_rgba)
 
-        wall(np.stack([gx[0, :], gy[0, :], z[0, :]], axis=-1))
-        wall(np.stack([gx[-1, ::-1], gy[-1, ::-1], z[-1, ::-1]], axis=-1))
-        wall(np.stack([gx[::-1, 0], gy[::-1, 0], z[::-1, 0]], axis=-1))
-        wall(np.stack([gx[:, -1], gy[:, -1], z[:, -1]], axis=-1))
+        wall(np.stack([gx[0, :], gy[0, :], z[0, :]], axis=-1), cell_rgba[0, :])
+        wall(np.stack([gx[-1, ::-1], gy[-1, ::-1], z[-1, ::-1]], axis=-1), cell_rgba[-1, ::-1])
+        wall(np.stack([gx[::-1, 0], gy[::-1, 0], z[::-1, 0]], axis=-1), cell_rgba[::-1, 0])
+        wall(np.stack([gx[:, -1], gy[:, -1], z[:, -1]], axis=-1), cell_rgba[:, -1])
 
         corners_top = np.array([
             [gx[0, 0], gy[0, 0], z[0, 0]],
@@ -359,11 +405,14 @@ class ZMapStock:
         corners_bottom[:, 2] = zlo
         b0, b1, b2, b3 = corners_bottom
         tris.append(np.array([[b0, b2, b1], [b0, b3, b2]]))
+        cols.append(np.tile(default_rgba, (2, 3, 1)))
 
         triangles = np.concatenate([t.reshape(-1, 3, 3) for t in tris], axis=0)
+        colors_tri = np.concatenate([c.reshape(-1, 3, 4) for c in cols], axis=0)
         verts = triangles.reshape(-1, 3).astype(np.float32)
+        colors = colors_tri.reshape(-1, 4).astype(np.float32)
         faces = np.arange(verts.shape[0], dtype=np.int64).reshape(-1, 3)
-        return verts, faces
+        return verts, faces, colors
 
 
 # --------------------------------------------------------------------------

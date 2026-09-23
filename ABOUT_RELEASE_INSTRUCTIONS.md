@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-09-23 (NC_Tool_List v1.9.0 — 밀링 3축 형상 가공 시뮬레이션: 공구 형상·소재 설정 팝업·Z-map 절삭·STL 내보내기)
+Last updated: 2026-09-24 (NC_Tool_List v1.9.1 — 형상 시뮬레이션 계산을 공정 선택 시로 가볍게, 절삭면에 공구 색 입히기)
 
 ## About button requirements
 
@@ -34,7 +34,54 @@ Last updated: 2026-09-23 (NC_Tool_List v1.9.0 — 밀링 3축 형상 가공 시�
 
 ## Version history
 
-### 2026-09-23 (latest, v1.9.0)
+### 2026-09-24 (latest, v1.9.1)
+
+- Version: 1.9.0 → 1.9.1
+- Release/build date: 2026-09-24
+- Summary: v1.9.0 형상 시뮬레이션에 대한 사용자 피드백 2건 반영.
+  1. **계산을 가볍게** — "계산 후 공정 선택 시 산출되는 모양만 보이면
+     될 것 같아 실시간 시물레이션은 너무 무겁네." 재생/커서 이동
+     프레임마다(`set_cursor_seq`) STOCK을 다시 깎던 것을 없애고,
+     **공정 필터에서 선택이 바뀔 때만**(`update_visible_paths` ->
+     `_sim_recompute_for_selection`) 계산하도록 바꿨다. 선택된 공정
+     중 가장 뒤(seq가 큰) 공정 끝까지 누적 절삭 결과 하나만 계산해
+     보여준다 — 전체 공정 기준 누적은 그대로(결정 G), 계산 자체(Z-map
+     엔진·스냅샷·되돌리기)는 손대지 않고 "언제 부르는가"만 바꿨다.
+     `apply_stock_spec()`([적용] 버튼)도 같은 기준으로 맞췄다.
+  2. **절삭면에 공구 색 입히기** — "추가로 공구툴패스 색을 가공
+     모델에 입혀줘." `nc_sim.ZMapStock`이 XY 칸마다 "마지막으로 깎은
+     공구 색 id"(`color_ids`)를 함께 들고 있다가, `to_mesh(color_map=...)`
+     로 윗면 정점마다 그 공구의 RGBA를 입힌다(옆벽/바닥/미절삭 칸은
+     회색 기본색). 색 id는 공정 순번이라 툴패스 선 색(`tool_color_for_
+     index`)과 그대로 맞아떨어진다. 스냅샷/되돌리기에도 색이 함께
+     저장·복원된다.
+  - `nc_sim.ZMapStock.snapshot()`/`.restore()`가 이제 `(heights,
+    color_ids)` 튜플을 주고받는다(내부 API, 호출부 전부 갱신).
+  - `to_mesh()`가 `(verts, faces, colors)` 3-튜플을 돌려준다(기존
+    2-튜플에서 변경, 내부 API).
+- Open source software: 추가 없음(기존 numpy만 사용).
+- Verification: `python -m pytest` → 377 passed, 1 skipped, 10 subtests
+  passed(`tests/test_nc_sim.py` 30건 — 색 관련 신규 3건 포함). 2공구
+  데모 프로그램으로 스크린샷 확인 — 서로 다른 공정이 절삭면에 각자
+  다른 색(주황/청록)으로 표시됨을 확인. 재생 커서만 움직였을 때는
+  절삭이 다시 계산되지 않고(무겁던 부분 제거), 공정 필터 선택을 바꿀
+  때만 계산됨을 별도 검증.
+- Installer/package status: **생성 완료**.
+  - `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` — onedir, UPX 비활성.
+  - `ISCC.exe NC_Tool_List.iss`(Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.9.1.exe`.
+  - 포터블: `installer\NC_Tool_List_Portable_v1.9.1.zip`(구 v1.9.0 패키지는 삭제).
+  - dist 폴더의 exe를 직접 기동해 정상 실행 확인.
+  - Setup EXE SHA-256: FF1E7B2A045359C0BCC3B588885647E970B501A6F31E8FE53D1A9BD3C86AE98D
+  - Portable ZIP SHA-256: 3B832D6B836DC59A7221D7CB89950EB6C6070D1FB4188163141FCC487DFD34D7
+  - App EXE SHA-256: 58D881BEC6D3CB3E034AF6DD198B9C7C274D388B504367E96C7BF2DC353EC94B
+  - Setup 46.5 MB / Portable 64.1 MB.
+- 서명 상태: 설치본과 앱 실행 파일 모두 미서명이다(기존과 동일).
+- 참고: 이전 빌드 검증 중 강제 종료되지 않은 exe 프로세스가 남아
+  `SingleInstanceTests` 테스트 1건을 일시적으로 실패시킨 적이 있다
+  (코드 문제 아님) — 패키징 검증 후에는 launched exe를 확실히 종료
+  했는지 확인할 것.
+
+### 2026-09-23 (v1.9.0)
 
 - Version: 1.8.4 → 1.9.0
 - Release/build date: 2026-09-23

@@ -28,9 +28,9 @@ from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, T
 import sumpath_license
 
 
-APP_VERSION = '1.9.0'
+APP_VERSION = '1.9.1'
 APP_NAME = 'Sum Path'
-APP_BUILD_DATE = '2026-09-23'
+APP_BUILD_DATE = '2026-09-24'
 APP_CREATOR = 'Hwang.seonmun'
 APP_PURPOSE = 'NC 프로그램에서 공구 리스트를 산출하고 NC 경로를 Viewer로 확인하는 도구'
 OPEN_SOURCE_COMPONENTS = (

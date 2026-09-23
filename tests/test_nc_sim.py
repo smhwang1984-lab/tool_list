@@ -181,11 +181,13 @@ class ZMapStockTests(unittest.TestCase):
     def test_snapshot_restore_roundtrip(self):
         stock = self._make_stock(resolution=0.5)
         tool = sim.tool_shape_from_values('FLAT E/M', d=6.0)
-        snap = stock.snapshot()
-        stock.cut_point([0.0, 0.0, -5.0], tool)
-        self.assertFalse(np.all(stock.heights == snap))
-        stock.restore(snap)
-        self.assertTrue(np.all(stock.heights == snap))
+        snap_heights, snap_colors = stock.snapshot()
+        stock.cut_point([0.0, 0.0, -5.0], tool, color_id=2)
+        self.assertFalse(np.all(stock.heights == snap_heights))
+        self.assertFalse(np.all(stock.color_ids == snap_colors))
+        stock.restore((snap_heights, snap_colors))
+        self.assertTrue(np.all(stock.heights == snap_heights))
+        self.assertTrue(np.all(stock.color_ids == snap_colors))
 
     def test_incremental_cut_matches_single_pass(self):
         tool = sim.tool_shape_from_values('FLAT E/M', d=8.0)
@@ -205,13 +207,47 @@ class ZMapStockTests(unittest.TestCase):
 
     def test_to_mesh_produces_closed_triangle_soup(self):
         stock = self._make_stock(resolution=2.0)
-        verts, faces = stock.to_mesh()
+        verts, faces, colors = stock.to_mesh()
         self.assertEqual(verts.shape[1], 3)
         self.assertEqual(faces.shape[1], 3)
         self.assertEqual(verts.shape[0], faces.shape[0] * 3)
+        self.assertEqual(colors.shape, (verts.shape[0], 4))
         # 모든 정점이 소재 bounds 안에 있어야 한다
         self.assertTrue(np.all(verts[:, 2] <= stock.ztop + 1e-6))
         self.assertTrue(np.all(verts[:, 2] >= stock.zlo - 1e-6))
+
+    def test_to_mesh_without_color_map_is_uniform_default_color(self):
+        stock = self._make_stock(resolution=2.0)
+        tool = sim.tool_shape_from_values('FLAT E/M', d=6.0)
+        stock.cut_point([0.0, 0.0, -5.0], tool, color_id=3)
+        default_color = (0.5, 0.5, 0.5, 1.0)
+        _verts, _faces, colors = stock.to_mesh(default_color=default_color)
+        self.assertTrue(np.allclose(colors, np.array(default_color)))
+
+    def test_to_mesh_colors_cut_area_by_tool_color_map(self):
+        stock = self._make_stock(resolution=0.5)
+        tool = sim.tool_shape_from_values('FLAT E/M', d=6.0)
+        stock.cut_point([0.0, 0.0, -5.0], tool, color_id=1)
+        color_map = {0: (1.0, 0.0, 0.0, 1.0), 1: (0.0, 1.0, 0.0, 1.0)}
+        default_color = (0.5, 0.5, 0.5, 1.0)
+        verts, _faces, colors = stock.to_mesh(color_map=color_map, default_color=default_color)
+        # 팁 바로 위 정점(잘려나간 지점)은 초록(공구 색 1), 멀리 떨어진
+        # 안 깎인 지점은 회색(기본색)이어야 한다.
+        near = np.argmin(np.linalg.norm(verts[:, :2], axis=1))
+        self.assertTrue(np.allclose(colors[near], (0.0, 1.0, 0.0, 1.0), atol=1e-5))
+        far_mask = np.linalg.norm(verts[:, :2], axis=1) > 15.0
+        self.assertTrue(np.all(np.isclose(colors[far_mask], default_color).all(axis=1)))
+
+    def test_color_ids_survive_snapshot_and_restore(self):
+        stock = self._make_stock(resolution=0.5)
+        tool = sim.tool_shape_from_values('FLAT E/M', d=6.0)
+        stock.cut_point([0.0, 0.0, -5.0], tool, color_id=1)
+        snap = stock.snapshot()
+        stock.cut_point([5.0, 5.0, -5.0], tool, color_id=2)
+        self.assertTrue(np.any(stock.color_ids == 2))
+        stock.restore(snap)
+        self.assertFalse(np.any(stock.color_ids == 2))
+        self.assertTrue(np.any(stock.color_ids == 1))
 
 
 class AutoResolutionTests(unittest.TestCase):
@@ -231,7 +267,7 @@ class AutoResolutionTests(unittest.TestCase):
 class StlExportTests(unittest.TestCase):
     def test_binary_stl_header_and_triangle_count(self):
         stock = sim.ZMapStock({'X': (-5.0, 5.0), 'Y': (-5.0, 5.0), 'Z': (-10.0, 0.0)}, 2.0)
-        verts, faces = stock.to_mesh()
+        verts, faces, _colors = stock.to_mesh()
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, 'out.stl')
             sim.write_stl_binary(path, verts, faces)

@@ -2643,7 +2643,7 @@ class NCViewerWidget(QWidget):
         segments = []
         if self.is_sim_available():
             tilt_lines = self._compute_tilt_lines()
-            for process_key, path_data in self.tool_paths.items():
+            for color_idx, (process_key, path_data) in enumerate(self.tool_paths.items()):
                 tool_no = self.process_tool_map.get(process_key)
                 if tool_no not in self._sim_tool_shapes:
                     values = self.tool_shape_map.get(tool_no)
@@ -2675,6 +2675,9 @@ class NCViewerWidget(QWidget):
                             'rapid': node.get('type') == 'G00',
                             'tilt': (src0 in tilt_lines) or (src1 in tilt_lines),
                             'tool_no': tool_no,
+                            # v1.9.1: 절삭면 색 — 공정 색(tool_color_for_index)과
+                            # 같은 인덱스라 툴패스 선 색과 그대로 맞아떨어진다.
+                            'color_idx': color_idx,
                         })
                     previous = node
         segments.sort(key=lambda seg: seg['seq1'])
@@ -2708,7 +2711,9 @@ class NCViewerWidget(QWidget):
         if self.sim_mesh_item is not None:
             self.gl_view.removeItem(self.sim_mesh_item)
             self.sim_mesh_item = None
-        seq = self.line_to_seq.get(self.current_cursor_line, self.current_cursor_line)
+        seq = self._sim_target_seq_for_selection()
+        if seq is None:
+            seq = self.line_to_seq.get(self.current_cursor_line, self.current_cursor_line)
         self._sim_advance_to_seq(seq)
         self._sim_request_mesh_refresh(force=True)
 
@@ -2732,12 +2737,37 @@ class NCViewerWidget(QWidget):
         self._toolpath_visible = bool(visible)
         self.update_visible_paths()
 
-    # -- 절삭/재생 연동 -----------------------------------------------------
+    # -- 절삭/공정 선택 연동 --------------------------------------------------
     def _reset_sim_stock_progress(self):
         self.sim_last_seq = -1
         self._sim_snapshots = {}
         if self.sim_stock is not None:
             self.sim_stock.reset()
+
+    def _process_end_seq(self, process_key):
+        """그 공정(process_key)의 마지막 유효 노드 seq. 없으면 None."""
+        nodes = self.tool_paths.get(process_key) or []
+        seqs = [node.get('seq', 0) for node in nodes if node.get('valid')]
+        return max(seqs) if seqs else None
+
+    def _sim_target_seq_for_selection(self):
+        """공정 필터에서 선택된 공정들 중 가장 뒤(seq가 큰) 공정의 끝
+        seq. 선택이 없으면 None."""
+        ends = [self._process_end_seq(key) for key in self.selected_tools()]
+        ends = [end for end in ends if end is not None]
+        return max(ends) if ends else None
+
+    def _sim_recompute_for_selection(self):
+        """v1.9.1: 공정 필터 선택이 바뀔 때(update_visible_paths, 사용자
+        조작)만 계산한다 — 재생 중 매 프레임(seq) 갱신은 너무 무겁다는
+        사용자 피드백(2026-09-24)으로 뺐다. 선택된 공정 중 가장 뒤까지
+        누적 절삭 결과 하나만 계산해 보여준다(전체 공정 기준은 그대로,
+        결정 G)."""
+        if not self.sim_enabled or self.sim_stock is None:
+            return
+        seq = self._sim_target_seq_for_selection()
+        if seq is not None:
+            self._sim_advance_to_seq(seq)
 
     def _sim_advance_to_seq(self, seq):
         if not self.sim_enabled or self.sim_stock is None:
@@ -2774,6 +2804,7 @@ class NCViewerWidget(QWidget):
             self.sim_stock.cut_segment(
                 segment['p0'], segment['p1'], shape, rapid=segment['rapid'],
                 src_line=segment['src_line'], seq=segment['seq1'],
+                color_id=segment['color_idx'],
             )
 
     def _sim_rewind_to(self, seq):
@@ -2809,16 +2840,24 @@ class NCViewerWidget(QWidget):
         self._sim_mesh_refresh_pending = True
         QTimer.singleShot(0, self._sim_do_mesh_refresh)
 
+    def _sim_color_map(self):
+        """color_idx(공정 순번) -> RGBA(0~1) — 툴패스 선과 같은
+        tool_color_for_index() 팔레트를 그대로 쓴다(v1.9.1)."""
+        return {
+            idx: tuple(tool_color_for_index(idx)) + (1.0,)
+            for idx in range(len(self.tool_paths))
+        }
+
     def _sim_do_mesh_refresh(self):
         self._sim_mesh_refresh_pending = False
         if self.sim_stock is None or not self.sim_enabled:
             return
-        verts, faces = self.sim_stock.to_mesh()
-        meshdata = gl.MeshData(vertexes=verts, faces=faces)
+        verts, faces, colors = self.sim_stock.to_mesh(color_map=self._sim_color_map())
+        meshdata = gl.MeshData(vertexes=verts, faces=faces, vertexColors=colors)
         if self.sim_mesh_item is None:
             self.sim_mesh_item = gl.GLMeshItem(
                 meshdata=meshdata, smooth=False, shader='shaded',
-                color=(0.55, 0.58, 0.64, 1.0), drawEdges=False, glOptions='opaque',
+                drawEdges=False, glOptions='opaque',
             )
             self.gl_view.addItem(self.sim_mesh_item)
         else:
@@ -2836,7 +2875,7 @@ class NCViewerWidget(QWidget):
     def export_stock_stl(self, path):
         if self.sim_stock is None:
             raise ValueError('먼저 소재를 설정해야 합니다.')
-        verts, faces = self.sim_stock.to_mesh()
+        verts, faces, _colors = self.sim_stock.to_mesh()
         nc_sim.write_stl_binary(path, verts, faces)
 
     # -- 팝업 -----------------------------------------------------------------
@@ -4588,6 +4627,9 @@ class NCViewerWidget(QWidget):
             for item in plot_item_list:
                 item.setVisible(visible)
         self.set_cursor_line(self.current_cursor_line)
+        # v1.9.1: 공정 필터 선택이 바뀔 때만 STOCK 절삭을 다시 계산한다
+        # (재생 프레임마다 계산하던 것보다 훨씬 가볍다).
+        self._sim_recompute_for_selection()
 
     def update_trace_item(self, index, pts_list, motion_type, base_color):
         if len(pts_list) < 2:
@@ -4705,7 +4747,9 @@ class NCViewerWidget(QWidget):
         if modal_values:
             self._set_coordinate_labels(modal_values)
         self._update_time_overlay_seq(seq)
-        self._sim_advance_to_seq(seq)
+        # v1.9.1: STOCK 절삭 계산은 여기(재생/커서 이동 프레임마다)서 더는
+        # 하지 않는다 — 너무 무겁다는 피드백으로, 공정 필터 선택이 바뀔 때만
+        # 계산하도록 옮겼다(update_visible_paths -> _sim_recompute_for_selection).
 
         # v1.6.6: 선반 C축 회전 시뮬레이션. 밀링에서는 항상 0(변화 없음) —
         # is_lathe_mode()가 아니면 seq_to_c_rot 자체가 채워지지 않는다.
