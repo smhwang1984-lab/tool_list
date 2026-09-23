@@ -18,10 +18,17 @@ from PyQt5.QtGui import (
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDoubleSpinBox,
+    QFileDialog,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QListWidgetItem,
+    QMessageBox,
     QPushButton,
     QRubberBand,
     QShortcut,
@@ -29,6 +36,8 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+import nc_sim
 
 
 # 96 DPI(윈도우 100% 배율) 기준 1cm의 픽셀 근사값. 오버레이 여백을 "몇 cm"
@@ -1396,6 +1405,326 @@ class PlaybackBarWidget(QWidget):
         self.speed_value_label.setText("%dx" % self.speed_slider.value())
 
 
+# ------------------------------------------------------------------------ v1.9.0
+# 소재(STOCK) 설정 팝업 — 밀링 모드 전용. T/W/L 치수, 축 배정(T=Y, W=Z, L=X
+# 처럼 서로 바꿀 수 있음), 기준 위치(중심/한쪽 끝/윗면), 추가 이동, 해상도를
+# 정하고 [적용]으로 뷰어에 반영한다. [STL 내보내기]도 여기서 한다.
+class StockDialog(QDialog):
+    _DIM_KEYS = ('T', 'W', 'L')
+    _AXES = ('X', 'Y', 'Z')
+    _XY_REF_ITEMS = [('center', '중심'), ('neg', '-쪽 끝 = 0'), ('pos', '+쪽 끝 = 0')]
+    _Z_REF_ITEMS = [('top', '윗면 = 0'), ('bottom', '바닥 = 0'), ('center', '중심')]
+    _RESOLUTION_ITEMS = ['자동', '0.05', '0.1', '0.2', '0.5']
+
+    def __init__(self, viewer, parent=None):
+        super().__init__(parent)
+        self.viewer = viewer
+        self.setWindowTitle('소재 설정')
+        # v1.9.0: 아래에서 콤보를 채우는 동안(addItems 등)에도
+        # currentIndexChanged가 곧바로 울리는데, 그 시점엔 ref_combos 등이
+        # 아직 없어 _on_axis_changed가 죽는다 — 생성이 끝날 때까지 막아둔다.
+        self._updating = True
+
+        layout = QVBoxLayout(self)
+        self.enable_check = QCheckBox('소재 / 가공 시뮬레이션 표시')
+        layout.addWidget(self.enable_check)
+
+        grid = QGridLayout()
+        grid.addWidget(QLabel(''), 0, 0)
+        grid.addWidget(QLabel('치수(mm)'), 0, 1)
+        grid.addWidget(QLabel('축 배정'), 0, 2)
+        grid.addWidget(QLabel('기준 위치'), 0, 3)
+        grid.addWidget(QLabel('추가 이동(mm)'), 0, 4)
+
+        self.dim_spins = {}
+        self.axis_combos = {}
+        for row, key in enumerate(self._DIM_KEYS, start=1):
+            grid.addWidget(QLabel(key), row, 0)
+            spin = QDoubleSpinBox()
+            spin.setRange(0.1, 5000.0)
+            spin.setDecimals(2)
+            spin.setValue(100.0)
+            grid.addWidget(spin, row, 1)
+            self.dim_spins[key] = spin
+
+            axis_combo = QComboBox()
+            axis_combo.addItems(self._AXES)
+            axis_combo.currentIndexChanged.connect(
+                lambda _idx, k=key: self._on_axis_changed(k)
+            )
+            grid.addWidget(axis_combo, row, 2)
+            self.axis_combos[key] = axis_combo
+        default_axis = {'T': 'Z', 'W': 'Y', 'L': 'X'}
+        for key, axis in default_axis.items():
+            self.axis_combos[key].setCurrentText(axis)
+
+        self.ref_combos = {}
+        self.offset_spins = {}
+        for row, axis in enumerate(self._AXES, start=len(self._DIM_KEYS) + 2):
+            grid.addWidget(QLabel(axis + ' 기준'), row, 0)
+            ref_combo = QComboBox()
+            grid.addWidget(ref_combo, row, 1, 1, 2)
+            self.ref_combos[axis] = ref_combo
+            offset_spin = QDoubleSpinBox()
+            offset_spin.setRange(-5000.0, 5000.0)
+            offset_spin.setDecimals(2)
+            grid.addWidget(QLabel('이동'), row, 3)
+            grid.addWidget(offset_spin, row, 4)
+            self.offset_spins[axis] = offset_spin
+        layout.addLayout(grid)
+
+        self._rebuild_ref_items()
+
+        self.bounds_label = QLabel('')
+        layout.addWidget(self.bounds_label)
+
+        fit_bar = QHBoxLayout()
+        self.fit_button = QPushButton('툴패스 범위에 맞추기')
+        self.fit_button.clicked.connect(self._fit_to_toolpath)
+        fit_bar.addWidget(self.fit_button)
+        fit_bar.addWidget(QLabel('여유(mm)'))
+        self.margin_spin = QDoubleSpinBox()
+        self.margin_spin.setRange(0.0, 200.0)
+        self.margin_spin.setValue(2.0)
+        fit_bar.addWidget(self.margin_spin)
+        fit_bar.addStretch()
+        layout.addLayout(fit_bar)
+
+        res_bar = QHBoxLayout()
+        res_bar.addWidget(QLabel('해상도'))
+        self.resolution_combo = QComboBox()
+        self.resolution_combo.addItems(self._RESOLUTION_ITEMS)
+        res_bar.addWidget(self.resolution_combo)
+        res_bar.addStretch()
+        layout.addLayout(res_bar)
+
+        self.toolpath_check = QCheckBox('가공 경로 선 표시')
+        self.toolpath_check.setChecked(True)
+        layout.addWidget(self.toolpath_check)
+
+        self.status_label = QLabel('')
+        self.status_label.setWordWrap(True)
+        layout.addWidget(self.status_label)
+
+        button_bar = QHBoxLayout()
+        self.export_button = QPushButton('STL 내보내기...')
+        self.export_button.clicked.connect(self._export_stl)
+        button_bar.addWidget(self.export_button)
+        button_bar.addStretch()
+        self.apply_button = QPushButton('적용')
+        self.apply_button.clicked.connect(self._apply)
+        button_bar.addWidget(self.apply_button)
+        self.close_button = QPushButton('닫기')
+        self.close_button.clicked.connect(self.hide)
+        button_bar.addWidget(self.close_button)
+        layout.addLayout(button_bar)
+
+        for spin in list(self.dim_spins.values()) + list(self.offset_spins.values()):
+            spin.valueChanged.connect(self._update_bounds_preview)
+        for combo in list(self.ref_combos.values()):
+            combo.currentIndexChanged.connect(self._update_bounds_preview)
+        self.toolpath_check.toggled.connect(self._on_toolpath_toggled)
+
+        self._load_settings()
+        self._update_bounds_preview()
+
+    # -- 축 배정 스왑 -----------------------------------------------------
+    def _on_axis_changed(self, changed_key):
+        """T/W/L 중 하나를 바꿔 두 키가 같은 축을 가리키게 되면, 그 축을
+        원래 쓰던 다른 키를 지금 비어 버린 축으로 돌려 준다(2-way swap)."""
+        if self._updating:
+            return
+        values = {key: self.axis_combos[key].currentText() for key in self._DIM_KEYS}
+        counts = {}
+        for axis in values.values():
+            counts[axis] = counts.get(axis, 0) + 1
+        duplicated = [axis for axis, count in counts.items() if count > 1]
+        if duplicated:
+            missing_axis = next(a for a in self._AXES if a not in values.values())
+            other_key = next(
+                key for key in self._DIM_KEYS
+                if key != changed_key and values[key] == duplicated[0]
+            )
+            self._updating = True
+            self.axis_combos[other_key].setCurrentText(missing_axis)
+            self._updating = False
+        self._rebuild_ref_items()
+        self._update_bounds_preview()
+
+    def _rebuild_ref_items(self):
+        self._updating = True
+        for axis in self._AXES:
+            combo = self.ref_combos[axis]
+            current = combo.currentData()
+            combo.clear()
+            items = self._Z_REF_ITEMS if axis == 'Z' else self._XY_REF_ITEMS
+            for value, label in items:
+                combo.addItem(label, value)
+            if current:
+                idx = combo.findData(current)
+                if idx >= 0:
+                    combo.setCurrentIndex(idx)
+        self._updating = False
+
+    def _axis_of(self):
+        return {key: self.axis_combos[key].currentText() for key in self._DIM_KEYS}
+
+    def _dims(self):
+        return {key: self.dim_spins[key].value() for key in self._DIM_KEYS}
+
+    def _reference(self):
+        return {axis: self.ref_combos[axis].currentData() for axis in self._AXES}
+
+    def _offset(self):
+        return {axis: self.offset_spins[axis].value() for axis in self._AXES}
+
+    def _build_spec(self):
+        return nc_sim.StockSpec(self._dims(), self._axis_of(), self._reference(), self._offset())
+
+    def _update_bounds_preview(self):
+        try:
+            bounds = self._build_spec().bounds()
+        except ValueError as exc:
+            self.bounds_label.setText(str(exc))
+            return
+        self.bounds_label.setText(
+            'X %.1f ~ %.1f  /  Y %.1f ~ %.1f  /  Z %.1f ~ %.1f' % (
+                bounds['X'][0], bounds['X'][1], bounds['Y'][0], bounds['Y'][1],
+                bounds['Z'][0], bounds['Z'][1],
+            )
+        )
+
+    def _fit_to_toolpath(self, silent=False):
+        bounds = self.viewer.toolpath_bounds(margin=self.margin_spin.value())
+        if bounds is None:
+            if not silent:
+                QMessageBox.information(self, '소재 설정', '절삭 이송(G01/G02/G03) 경로가 없습니다.')
+            return
+        axis_of = self._axis_of()
+        self._updating = True
+        for key in self._DIM_KEYS:
+            axis = axis_of[key]
+            lo, hi = bounds[axis]
+            self.dim_spins[key].setValue(max(hi - lo, 0.1))
+        for axis in self._AXES:
+            lo, hi = bounds[axis]
+            idx = self.ref_combos[axis].findData('center')
+            if idx >= 0:
+                self.ref_combos[axis].setCurrentIndex(idx)
+            self.offset_spins[axis].setValue((lo + hi) / 2.0)
+        self._updating = False
+        self._update_bounds_preview()
+
+    def _resolution_value(self):
+        text = self.resolution_combo.currentText()
+        if text == '자동':
+            return None
+        try:
+            return float(text)
+        except ValueError:
+            return None
+
+    def _on_toolpath_toggled(self, checked):
+        self.viewer.set_toolpath_visible(checked)
+
+    def _apply(self):
+        try:
+            spec = self._build_spec()
+        except ValueError as exc:
+            QMessageBox.warning(self, '소재 설정', str(exc))
+            return
+        self.viewer.apply_stock_spec(spec, self._resolution_value(), self.enable_check.isChecked())
+        self._save_settings()
+        self._refresh_status()
+
+    def _export_stl(self):
+        if self.viewer.sim_stock is None:
+            QMessageBox.information(self, 'STL 내보내기', '먼저 [적용]으로 소재를 만들어야 합니다.')
+            return
+        path, _filter = QFileDialog.getSaveFileName(self, 'STL로 내보내기', 'sim.stl', 'STL (*.stl)')
+        if not path:
+            return
+        try:
+            self.viewer.export_stock_stl(path)
+        except Exception as exc:  # noqa: BLE001 - 사용자에게 그대로 보여준다
+            QMessageBox.warning(self, 'STL 내보내기 실패', str(exc))
+            return
+        QMessageBox.information(self, 'STL 내보내기', '저장했습니다:\n%s' % path)
+
+    def _refresh_status(self):
+        parts = []
+        if self.viewer.sim_status_text:
+            parts.append(self.viewer.sim_status_text)
+        rapid_count = self.viewer.rapid_cut_warning_count()
+        if rapid_count:
+            parts.append('급속 이동(G00) 절삭 경고 %d건' % rapid_count)
+        self.status_label.setText(' / '.join(parts))
+
+    def refresh_from_viewer(self):
+        self.enable_check.setChecked(self.viewer.sim_enabled)
+        self._refresh_status()
+
+    # -- QSettings 저장(전역 하나만 기억, F 결정) ------------------------------
+    _SETTINGS_GROUP = 'stock'
+
+    def _save_settings(self):
+        settings = self.viewer.settings
+        settings.beginGroup(self._SETTINGS_GROUP)
+        for key in self._DIM_KEYS:
+            settings.setValue('dim_%s' % key, self.dim_spins[key].value())
+            settings.setValue('axis_%s' % key, self.axis_combos[key].currentText())
+        for axis in self._AXES:
+            settings.setValue('ref_%s' % axis, self.ref_combos[axis].currentData())
+            settings.setValue('offset_%s' % axis, self.offset_spins[axis].value())
+        settings.setValue('resolution', self.resolution_combo.currentText())
+        settings.setValue('enabled', self.enable_check.isChecked())
+        settings.setValue('toolpath_visible', self.toolpath_check.isChecked())
+        settings.endGroup()
+
+    def _load_settings(self):
+        settings = self.viewer.settings
+        settings.beginGroup(self._SETTINGS_GROUP)
+        self._updating = True
+        any_dim_saved = False
+        for key in self._DIM_KEYS:
+            dim_val = settings.value('dim_%s' % key, None)
+            if dim_val is not None:
+                any_dim_saved = True
+                try:
+                    self.dim_spins[key].setValue(float(dim_val))
+                except (TypeError, ValueError):
+                    pass
+            axis_val = settings.value('axis_%s' % key, None)
+            if axis_val in self._AXES:
+                self.axis_combos[key].setCurrentText(axis_val)
+        self._rebuild_ref_items()
+        for axis in self._AXES:
+            ref_val = settings.value('ref_%s' % axis, None)
+            if ref_val is not None:
+                idx = self.ref_combos[axis].findData(ref_val)
+                if idx >= 0:
+                    self.ref_combos[axis].setCurrentIndex(idx)
+            off_val = settings.value('offset_%s' % axis, None)
+            if off_val is not None:
+                try:
+                    self.offset_spins[axis].setValue(float(off_val))
+                except (TypeError, ValueError):
+                    pass
+        res_val = settings.value('resolution', None)
+        if res_val in self._RESOLUTION_ITEMS:
+            self.resolution_combo.setCurrentText(res_val)
+        enabled_val = settings.value('enabled', False)
+        self.enable_check.setChecked(str(enabled_val).lower() in ('1', 'true'))
+        visible_val = settings.value('toolpath_visible', True)
+        self.toolpath_check.setChecked(str(visible_val).lower() in ('1', 'true'))
+        settings.endGroup()
+        self._updating = False
+        if not any_dim_saved:
+            # v1.9.0 결정 E: 소재를 설정한 적이 없으면 툴패스 범위 +
+            # 여유 2mm로 자동으로 채운다(프로그램이 아직 없으면 조용히 넘어감).
+            self._fit_to_toolpath(silent=True)
+
+
 class NCViewerWidget(QWidget):
     """Viewer-only widget used inside the main tool-list application."""
 
@@ -1441,6 +1770,10 @@ class NCViewerWidget(QWidget):
         self.plot_items = {}
         self.raw_lines = []
         self.tool_name_map = {}
+        # v1.9.0: 형상 시뮬레이션용 공구 값(TYPE/D/FL/R/SIG/PL/SO) — 키는
+        # tool_name_map과 같다(T01/T1/1). 밀링 전용, 선반이면 항상 빈 맵.
+        self.tool_shape_map = {}
+        self._init_sim_state()
         self.process_tool_map = {}
         self.tool_filter_list = None
         self.last_source_text = None
@@ -2191,10 +2524,12 @@ class NCViewerWidget(QWidget):
         self.tool_name_map = dict(tool_name_map or {})
         self._refresh_tool_filter(keep_selection=True)
 
-    def set_source_text(self, text, tool_name_map=None):
+    def set_source_text(self, text, tool_name_map=None, tool_shape_map=None):
         previous_tool_name_map = dict(self.tool_name_map)
         if tool_name_map is not None:
             self.tool_name_map = dict(tool_name_map)
+        if tool_shape_map is not None:
+            self.tool_shape_map = dict(tool_shape_map)
         text = text or ""
         signature = self._render_signature(text)
         if signature == self.last_render_signature:
@@ -2206,6 +2541,7 @@ class NCViewerWidget(QWidget):
         self.raw_lines = text.splitlines()
         self.process_nc_lines(self.raw_lines)
         self.last_render_signature = signature
+        self._rebuild_sim_nodes()
         self.set_cursor_line(self.current_cursor_line)
         return True
 
@@ -2234,10 +2570,279 @@ class NCViewerWidget(QWidget):
         self.current_cursor_line = 0
         self._refresh_tool_filter()
         self._set_coordinate_labels(("0.000",) * 6)
+        self._reset_sim_stock_progress()
+        self.sim_segments = []
+        self._sim_seq_keys = []
+        self._sim_tool_shapes = {}
+        self._sim_excluded = set()
 
     def _render_signature(self, text):
         specs = tuple(sorted(self.machine_specs.get(self.current_machine_type, {}).items()))
         return (text, self.current_machine_type, specs)
+
+    # ---------------------------------------------------------------- v1.9.0
+    # 밀링 3축 형상 가공 시뮬레이션(공구 형상 · STOCK · Z-map 절삭 · STL).
+    # 계산은 nc_sim.py(순수 numpy)에 맡기고, 여기서는 툴패스 → 절삭 세그먼트
+    # 변환, 재생 위치와의 연동, 메쉬 표시만 담당한다. 선반 모드에서는 항상
+    # 꺼져 있다(LATHE_MODE_GUIDELINES.md — 밀링 툴패스와 완전 분리).
+    _SIM_G68_RE = re.compile(r"G68\.2", re.I)
+    _SIM_G69_RE = re.compile(r"G69", re.I)
+    _SIM_SNAPSHOT_LIMIT = 20
+
+    def _init_sim_state(self):
+        self.sim_enabled = False
+        self._toolpath_visible = True
+        self.sim_stock_spec = None
+        self.sim_stock = None
+        self.sim_resolution = None
+        self.sim_segments = []
+        self._sim_seq_keys = []
+        self._sim_tool_shapes = {}
+        self._sim_excluded = set()
+        self._sim_process_start_seqs = set()
+        self._sim_snapshots = {}
+        self.sim_last_seq = -1
+        self.sim_mesh_item = None
+        self._sim_mesh_refresh_pending = False
+        self.sim_status_text = ''
+        self._stock_dialog = None
+
+    def is_sim_available(self):
+        """선반 모드에서는 형상 시뮬레이션 자체를 켤 수 없다."""
+        return not self.is_lathe_mode()
+
+    def _compute_tilt_lines(self):
+        """G68.2(경사면)~G69 구간의 원본 줄 인덱스 집합을 돌려준다. Z-map은
+        공구 축이 항상 월드 +Z라고 가정하므로, 이 구간의 절삭은 정확하지
+        않아 시뮬레이션에서 제외한다(3+2/동시 5축은 다음 단계 범위)."""
+        tilt_lines = set()
+        active = False
+        for idx, line in enumerate(self.raw_lines):
+            upper = (line or "").upper()
+            if self._SIM_G69_RE.search(upper):
+                active = False
+            if self._SIM_G68_RE.search(upper):
+                active = True
+                tilt_lines.add(idx)
+                continue
+            if active:
+                tilt_lines.add(idx)
+        return tilt_lines
+
+    def _rebuild_sim_nodes(self):
+        """process_nc_lines() 직후 호출 — 절삭 세그먼트 목록과 공구 형상
+        캐시를 새로 만든다. 프로그램이 바뀌었으니 지금까지 깎은 결과도
+        버리고 다시 시작한다."""
+        self._sim_tool_shapes = {}
+        self._sim_excluded = set()
+        segments = []
+        if self.is_sim_available():
+            tilt_lines = self._compute_tilt_lines()
+            for process_key, path_data in self.tool_paths.items():
+                tool_no = self.process_tool_map.get(process_key)
+                if tool_no not in self._sim_tool_shapes:
+                    values = self.tool_shape_map.get(tool_no)
+                    shape = None
+                    if values:
+                        shape = nc_sim.tool_shape_from_values(
+                            values.get('type'), values.get('D'), fl=values.get('FL'),
+                            r=values.get('R'), sig=values.get('SIG'), pl=values.get('PL'),
+                            so=values.get('SO'),
+                        )
+                    self._sim_tool_shapes[tool_no] = shape
+                    if shape is None and tool_no:
+                        self._sim_excluded.add(tool_no)
+                shape = self._sim_tool_shapes.get(tool_no)
+                if shape is None:
+                    continue
+                previous = None
+                for node in path_data:
+                    if not node.get("valid"):
+                        previous = None
+                        continue
+                    if previous is not None:
+                        src0 = previous.get('src_line')
+                        src1 = node.get('src_line')
+                        segments.append({
+                            'p0': previous['pt'], 'p1': node['pt'],
+                            'seq0': previous.get('seq', 0), 'seq1': node.get('seq', 0),
+                            'src_line': src1,
+                            'rapid': node.get('type') == 'G00',
+                            'tilt': (src0 in tilt_lines) or (src1 in tilt_lines),
+                            'tool_no': tool_no,
+                        })
+                    previous = node
+        segments.sort(key=lambda seg: seg['seq1'])
+        self.sim_segments = segments
+        self._sim_seq_keys = [seg['seq1'] for seg in segments]
+        self._sim_process_start_seqs = set(self.process_first_seq.values())
+        self._reset_sim_stock_progress()
+        self._refresh_sim_status_text()
+
+    def _refresh_sim_status_text(self):
+        parts = []
+        if self._sim_excluded:
+            names = ', '.join(sorted(self._sim_excluded))
+            parts.append('D 값 없어 제외: %s' % names)
+        tilt_count = sum(1 for seg in self.sim_segments if seg['tilt'])
+        if tilt_count:
+            parts.append('경사면(G68.2) 구간 %d개 제외' % tilt_count)
+        self.sim_status_text = ' / '.join(parts)
+
+    # -- STOCK 배치 -----------------------------------------------------------
+    def apply_stock_spec(self, spec, resolution=None, enabled=True):
+        """StockDialog의 [적용]이 부른다. spec: nc_sim.StockSpec."""
+        self.sim_stock_spec = spec
+        bounds = spec.bounds()
+        if resolution in (None, 'auto'):
+            resolution = nc_sim.auto_resolution(bounds)
+        self.sim_resolution = float(resolution)
+        self.sim_stock = nc_sim.ZMapStock(bounds, self.sim_resolution)
+        self.sim_enabled = bool(enabled) and self.is_sim_available()
+        self._reset_sim_stock_progress()
+        if self.sim_mesh_item is not None:
+            self.gl_view.removeItem(self.sim_mesh_item)
+            self.sim_mesh_item = None
+        seq = self.line_to_seq.get(self.current_cursor_line, self.current_cursor_line)
+        self._sim_advance_to_seq(seq)
+        self._sim_request_mesh_refresh(force=True)
+
+    def toolpath_bounds(self, margin=2.0):
+        """절삭 이송(G01/G02/G03) 노드의 XYZ 범위 + 여유(mm). 점이 없으면
+        None — [툴패스 범위에 맞추기]가 이걸로 채울 값을 만든다."""
+        pts = []
+        for path_data in self.tool_paths.values():
+            for node in path_data:
+                if node.get("valid") and node.get("type") != "G00":
+                    pts.append(node["pt"])
+        if not pts:
+            return None
+        arr = np.array(pts, dtype=np.float64)
+        lo = arr.min(axis=0) - margin
+        hi = arr.max(axis=0) + margin
+        return {'X': (float(lo[0]), float(hi[0])), 'Y': (float(lo[1]), float(hi[1])),
+                'Z': (float(lo[2]), float(hi[2]))}
+
+    def set_toolpath_visible(self, visible):
+        self._toolpath_visible = bool(visible)
+        self.update_visible_paths()
+
+    # -- 절삭/재생 연동 -----------------------------------------------------
+    def _reset_sim_stock_progress(self):
+        self.sim_last_seq = -1
+        self._sim_snapshots = {}
+        if self.sim_stock is not None:
+            self.sim_stock.reset()
+
+    def _sim_advance_to_seq(self, seq):
+        if not self.sim_enabled or self.sim_stock is None:
+            return
+        if seq == self.sim_last_seq:
+            return
+        if seq < self.sim_last_seq:
+            self._sim_rewind_to(seq)
+        else:
+            self._sim_cut_forward(self.sim_last_seq, seq)
+            self.sim_last_seq = seq
+        self._sim_request_mesh_refresh()
+
+    def _sim_store_snapshot(self, seq0):
+        if seq0 in self._sim_snapshots:
+            return
+        self._sim_snapshots[seq0] = self.sim_stock.snapshot()
+        if len(self._sim_snapshots) > self._SIM_SNAPSHOT_LIMIT:
+            oldest_key = next(iter(self._sim_snapshots))
+            if oldest_key != 0:
+                del self._sim_snapshots[oldest_key]
+
+    def _sim_cut_forward(self, seq_from, seq_to):
+        start = bisect.bisect_right(self._sim_seq_keys, seq_from)
+        end = bisect.bisect_right(self._sim_seq_keys, seq_to)
+        for segment in self.sim_segments[start:end]:
+            if segment['tilt']:
+                continue
+            shape = self._sim_tool_shapes.get(segment['tool_no'])
+            if shape is None:
+                continue
+            if segment['seq0'] in self._sim_process_start_seqs:
+                self._sim_store_snapshot(segment['seq0'])
+            self.sim_stock.cut_segment(
+                segment['p0'], segment['p1'], shape, rapid=segment['rapid'],
+                src_line=segment['src_line'], seq=segment['seq1'],
+            )
+
+    def _sim_rewind_to(self, seq):
+        snap_seq = None
+        for candidate in sorted(self._sim_snapshots):
+            if candidate <= seq:
+                snap_seq = candidate
+            else:
+                break
+        if snap_seq is not None:
+            self.sim_stock.restore(self._sim_snapshots[snap_seq])
+            self.sim_last_seq = snap_seq - 1
+        else:
+            self.sim_stock.reset()
+            self.sim_last_seq = -1
+        self._sim_cut_forward(self.sim_last_seq, seq)
+        self.sim_last_seq = seq
+
+    def rapid_cut_warning_count(self):
+        return len(self.sim_stock.rapid_cut_warnings) if self.sim_stock is not None else 0
+
+    # -- 메쉬 표시 ------------------------------------------------------------
+    def _sim_request_mesh_refresh(self, force=False):
+        """같은 이벤트 루프 틱 안에서 여러 번 불려도(재생 중 연속 seq 갱신)
+        실제 메쉬 재생성은 한 번만 하도록 다음 idle 시점으로 미룬다."""
+        if self.sim_stock is None or not self.sim_enabled:
+            return
+        if force:
+            self._sim_do_mesh_refresh()
+            return
+        if self._sim_mesh_refresh_pending:
+            return
+        self._sim_mesh_refresh_pending = True
+        QTimer.singleShot(0, self._sim_do_mesh_refresh)
+
+    def _sim_do_mesh_refresh(self):
+        self._sim_mesh_refresh_pending = False
+        if self.sim_stock is None or not self.sim_enabled:
+            return
+        verts, faces = self.sim_stock.to_mesh()
+        meshdata = gl.MeshData(vertexes=verts, faces=faces)
+        if self.sim_mesh_item is None:
+            self.sim_mesh_item = gl.GLMeshItem(
+                meshdata=meshdata, smooth=False, shader='shaded',
+                color=(0.55, 0.58, 0.64, 1.0), drawEdges=False, glOptions='opaque',
+            )
+            self.gl_view.addItem(self.sim_mesh_item)
+        else:
+            self.sim_mesh_item.setMeshData(meshdata=meshdata)
+        self.sim_mesh_item.setVisible(self.sim_enabled)
+
+    def set_sim_enabled(self, enabled):
+        self.sim_enabled = bool(enabled) and self.is_sim_available() and self.sim_stock is not None
+        if self.sim_mesh_item is not None:
+            self.sim_mesh_item.setVisible(self.sim_enabled)
+        if self.sim_enabled:
+            self._sim_request_mesh_refresh(force=True)
+
+    # -- STL 내보내기 ---------------------------------------------------------
+    def export_stock_stl(self, path):
+        if self.sim_stock is None:
+            raise ValueError('먼저 소재를 설정해야 합니다.')
+        verts, faces = self.sim_stock.to_mesh()
+        nc_sim.write_stl_binary(path, verts, faces)
+
+    # -- 팝업 -----------------------------------------------------------------
+    def open_stock_dialog(self, parent=None):
+        if self._stock_dialog is None:
+            self._stock_dialog = StockDialog(self, parent or self)
+        self._stock_dialog.refresh_from_viewer()
+        self._stock_dialog.show()
+        self._stock_dialog.raise_()
+        self._stock_dialog.activateWindow()
+        return self._stock_dialog
 
     def machine_types(self):
         return list(self.machine_specs.keys())
@@ -3974,7 +4579,7 @@ class NCViewerWidget(QWidget):
     def update_visible_paths(self):
         selected_items = self.selected_tools()
         for tool, plot_item_list in self.plot_items.items():
-            visible = (not self.pg_match_mode) and (tool in selected_items)
+            visible = (not self.pg_match_mode) and (tool in selected_items) and self._toolpath_visible
             for item in plot_item_list:
                 item.setVisible(visible)
         self.set_cursor_line(self.current_cursor_line)
@@ -3992,9 +4597,10 @@ class NCViewerWidget(QWidget):
         if index < len(self.dynamic_trace_items):
             item = self.dynamic_trace_items[index]
             item.setData(pos=pts, color=color, width=width)
-            item.setVisible(True)
+            item.setVisible(self._toolpath_visible)
         else:
             item = gl.GLLinePlotItem(pos=pts, color=color, width=width, antialias=True, mode="lines")
+            item.setVisible(self._toolpath_visible)
             self.gl_view.addItem(item)
             self.dynamic_trace_items.append(item)
         return True
@@ -4094,6 +4700,7 @@ class NCViewerWidget(QWidget):
         if modal_values:
             self._set_coordinate_labels(modal_values)
         self._update_time_overlay_seq(seq)
+        self._sim_advance_to_seq(seq)
 
         # v1.6.6: 선반 C축 회전 시뮬레이션. 밀링에서는 항상 0(변화 없음) —
         # is_lathe_mode()가 아니면 seq_to_c_rot 자체가 채워지지 않는다.

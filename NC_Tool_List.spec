@@ -11,6 +11,8 @@ viewer_hiddenimports = [
     'pyqtgraph', 'pyqtgraph.opengl',
     # v1.8.0: 라이선스 검증 공용 모듈(순수 파이썬, 외부 의존성 없음).
     'sumpath_license',
+    # v1.9.0: 밀링 3축 형상 가공 시뮬레이션 엔진(순수 numpy, Qt 비의존).
+    'nc_sim',
 ] + collect_submodules('pyqtgraph.opengl') + collect_submodules('OpenGL')
 
 a = Analysis(
