@@ -205,16 +205,32 @@ class ZMapStockTests(unittest.TestCase):
 
         self.assertTrue(np.allclose(stock_full.heights, stock_inc.heights))
 
-    def test_to_mesh_produces_closed_triangle_soup(self):
+    def test_to_mesh_is_closed_indexed_mesh_with_outward_normals(self):
         stock = self._make_stock(resolution=2.0)
+        tool = sim.tool_shape_from_values('FLAT E/M', d=6.0)
+        stock.cut_segment([-8.0, 0.0, -5.0], [8.0, 0.0, -5.0], tool)
         verts, faces, colors = stock.to_mesh()
         self.assertEqual(verts.shape[1], 3)
         self.assertEqual(faces.shape[1], 3)
-        self.assertEqual(verts.shape[0], faces.shape[0] * 3)
         self.assertEqual(colors.shape, (verts.shape[0], 4))
+        # 정점을 공유하는 인덱스 메쉬 — 정점 수가 삼각형×3보다 훨씬 적다
+        self.assertLess(verts.shape[0], faces.shape[0] * 3 // 2)
         # 모든 정점이 소재 bounds 안에 있어야 한다
         self.assertTrue(np.all(verts[:, 2] <= stock.ztop + 1e-6))
         self.assertTrue(np.all(verts[:, 2] >= stock.zlo - 1e-6))
+        # 닫힌 메쉬: 모든 변이 정확히 두 삼각형에 공유된다
+        edges = np.concatenate([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]])
+        edges.sort(axis=1)
+        _unique, counts = np.unique(edges, axis=0, return_counts=True)
+        self.assertTrue(np.all(counts == 2))
+        # 법선이 바깥쪽: 부호 있는 부피가 양수이고 소재 상자 부피보다 작다
+        tri = verts[faces].astype(np.float64)
+        volume = np.einsum('ij,ij->i', tri[:, 0], np.cross(tri[:, 1], tri[:, 2])).sum() / 6.0
+        bx = stock.grid_x()
+        by = stock.grid_y()
+        box = (bx[-1] - bx[0]) * (by[-1] - by[0]) * (stock.ztop - stock.zlo)
+        self.assertGreater(volume, 0.0)
+        self.assertLess(volume, box)
 
     def test_to_mesh_without_color_map_is_uniform_default_color(self):
         stock = self._make_stock(resolution=2.0)
@@ -248,6 +264,243 @@ class ZMapStockTests(unittest.TestCase):
         stock.restore(snap)
         self.assertFalse(np.any(stock.color_ids == 2))
         self.assertTrue(np.any(stock.color_ids == 1))
+
+
+class RadialLutTests(unittest.TestCase):
+    """v1.9.2 — 격자 간격에 맞춘 반경 방향 높이표."""
+
+    SHAPES = (
+        ('FLAT', lambda: sim.tool_shape_from_values('FLAT E/M', d=10.0)),
+        ('FILLET', lambda: sim.tool_shape_from_values('FILLET E/M', d=10.0, r=2.0)),
+        ('BALL', lambda: sim.tool_shape_from_values('BALL E/M', d=10.0)),
+        ('DRILL', lambda: sim.tool_shape_from_values('DRILL', d=10.0, sig=118.0)),
+        ('CHAMFER', lambda: sim.tool_shape_from_values('T-CUTTER', d=10.0, pl=1.5)),
+    )
+
+    def test_lut_nodes_match_profile_and_end_at_radius(self):
+        for name, make in self.SHAPES:
+            shape = make()
+            lut, inv_step = shape.radial_lut(0.25)
+            step = 1.0 / inv_step
+            n = lut.size - 2
+            self.assertAlmostEqual(n * step, shape.radius, places=9, msg=name)
+            r = np.minimum(np.arange(lut.size) * step, shape.radius)
+            self.assertTrue(np.allclose(lut, shape.height_grid(r), atol=1e-12), name)
+
+    def test_interpolated_height_stays_close_to_exact_profile(self):
+        for name, make in self.SHAPES:
+            shape = make()
+            lut, inv_step = shape.radial_lut(0.25)
+            d = np.linspace(0.0, shape.radius, 997)
+            pos = d * inv_step
+            k = np.minimum(pos.astype(int), lut.size - 2)
+            frac = pos - k
+            approx = lut[k] * (1 - frac) + lut[k + 1] * frac
+            self.assertLess(float(np.abs(approx - shape.height_grid(d)).max()), 0.08, name)
+
+    def test_lut_is_cached_per_resolution(self):
+        shape = sim.tool_shape_from_values('FLAT E/M', d=6.0)
+        self.assertIs(shape.radial_lut(0.5), shape.radial_lut(0.5))
+        self.assertIsNot(shape.radial_lut(0.5), shape.radial_lut(0.25))
+
+
+def _random_segments(rng, count):
+    """소재 안팎을 섞은 무작위 선분(수직 이동 포함)."""
+    p0 = np.column_stack([rng.uniform(-30, 30, count), rng.uniform(-30, 30, count),
+                          rng.uniform(-12, 4, count)])
+    p1 = p0 + np.column_stack([rng.uniform(-12, 12, count), rng.uniform(-12, 12, count),
+                               rng.uniform(-6, 6, count)])
+    vertical = rng.random(count) < 0.15
+    p1[vertical, :2] = p0[vertical, :2]
+    return p0, p1
+
+
+class BatchCutTests(unittest.TestCase):
+    COUNT = 300
+
+    def _stock(self, res=0.5):
+        return sim.ZMapStock({'X': (-20.0, 20.0), 'Y': (-20.0, 20.0), 'Z': (-15.0, 0.0)}, res)
+
+    def _tools(self):
+        return [
+            sim.tool_shape_from_values('FLAT E/M', d=6.0),
+            sim.tool_shape_from_values('BALL E/M', d=8.0),
+            sim.tool_shape_from_values('DRILL', d=5.0, sig=118.0),
+            None,  # D 값 없는 공구 — 건너뛴다
+        ]
+
+    def _inputs(self):
+        rng = np.random.default_rng(7)
+        p0, p1 = _random_segments(rng, self.COUNT)
+        return (p0, p1, rng.integers(0, 4, self.COUNT), rng.random(self.COUNT) < 0.3,
+                rng.integers(0, 5, self.COUNT))
+
+    def _run(self, use_numba, chunk=sim.SIM_CHUNK_SEGMENTS):
+        p0, p1, tool_idx, rapid, color = self._inputs()
+        stock = self._stock()
+        done = stock.cut_batch(p0, p1, self._tools(), tool_idx, rapid, color,
+                               src_lines=np.arange(self.COUNT), seqs=np.arange(self.COUNT) * 2,
+                               use_numba=use_numba, chunk=chunk)
+        self.assertTrue(done)
+        return stock
+
+    def test_batch_equals_one_by_one(self):
+        p0, p1, tool_idx, rapid, color = self._inputs()
+        tools = self._tools()
+        one = self._stock()
+        for m in range(self.COUNT):
+            if tools[tool_idx[m]] is None:
+                continue
+            one.cut_segment(p0[m], p1[m], tools[tool_idx[m]], rapid=bool(rapid[m]),
+                            src_line=m, seq=m * 2, color_id=int(color[m]))
+        batch = self._run(use_numba=False)
+        self.assertTrue(np.array_equal(one.heights, batch.heights))
+        self.assertTrue(np.array_equal(one.color_ids, batch.color_ids))
+        self.assertEqual(one.rapid_cut_warnings, batch.rapid_cut_warnings)
+
+    def test_chunked_equals_unchunked(self):
+        a = self._run(use_numba=False)
+        b = self._run(use_numba=False, chunk=37)
+        self.assertTrue(np.array_equal(a.heights, b.heights))
+        self.assertTrue(np.array_equal(a.color_ids, b.color_ids))
+
+    def test_numba_path_equals_numpy_path(self):
+        if not sim.numba_available():
+            self.skipTest('numba 없음')
+        a = self._run(use_numba=False)
+        b = self._run(use_numba=True)
+        self.assertTrue(np.array_equal(a.heights, b.heights))
+        self.assertTrue(np.array_equal(a.color_ids, b.color_ids))
+        self.assertEqual(a.rapid_cut_warnings, b.rapid_cut_warnings)
+
+    def test_segments_above_stock_change_nothing(self):
+        stock = self._stock()
+        tool = sim.tool_shape_from_values('FLAT E/M', d=6.0)
+        stock.cut_segment([-30.0, 0.0, 5.0], [30.0, 0.0, 0.0], tool, rapid=True, src_line=1, seq=1)
+        self.assertTrue(np.all(stock.heights == stock.ztop))
+        self.assertEqual(stock.rapid_cut_warnings, [])
+
+    def test_segments_outside_stock_are_ignored(self):
+        stock = self._stock()
+        tool = sim.tool_shape_from_values('FLAT E/M', d=6.0)
+        stock.cut_segment([100.0, 100.0, -5.0], [120.0, 100.0, -5.0], tool)
+        self.assertTrue(np.all(stock.heights == stock.ztop))
+
+    def test_tool_none_segments_are_skipped(self):
+        stock = self._stock()
+        stock.cut_batch(np.array([[0.0, 0.0, -5.0]]), np.array([[5.0, 0.0, -5.0]]),
+                        [None], [0], [False], [0])
+        self.assertTrue(np.all(stock.heights == stock.ztop))
+
+    def test_cancel_stops_between_chunks_and_clone_keeps_original(self):
+        stock = self._stock()
+        tool = sim.tool_shape_from_values('FLAT E/M', d=6.0)
+        work = stock.clone()
+        calls = {'n': 0}
+
+        def cancel():
+            calls['n'] += 1
+            return calls['n'] > 1
+
+        p0 = np.tile([-10.0, 0.0, -3.0], (10, 1))
+        p1 = np.tile([10.0, 0.0, -3.0], (10, 1))
+        done = work.cut_batch(p0, p1, [tool], np.zeros(10, int), np.zeros(10, bool),
+                              np.zeros(10, int), cancel=cancel, chunk=4, use_numba=False)
+        self.assertFalse(done)
+        self.assertTrue(np.all(stock.heights == stock.ztop))   # 원본은 그대로
+        self.assertTrue(np.any(work.heights < work.ztop))
+
+    def test_progress_callback_reports_chunks(self):
+        stock = self._stock()
+        tool = sim.tool_shape_from_values('FLAT E/M', d=6.0)
+        seen = []
+        stock.cut_batch(np.zeros((10, 3)), np.ones((10, 3)) * -1, [tool], np.zeros(10, int),
+                        np.zeros(10, bool), np.zeros(10, int), chunk=4,
+                        progress=lambda done, total: seen.append((done, total)), use_numba=False)
+        self.assertEqual(seen, [(4, 10), (8, 10), (10, 10)])
+
+    def test_heights_are_float32_and_color_ids_int16(self):
+        stock = self._stock()
+        self.assertEqual(stock.heights.dtype, np.float32)
+        self.assertEqual(stock.color_ids.dtype, np.int16)
+        self.assertLessEqual(stock.snapshot_nbytes(), stock.cell_count() * 6)
+
+
+class DisplayMeshTests(unittest.TestCase):
+    def _slot_stock(self):
+        stock = sim.ZMapStock({'X': (-50.0, 50.0), 'Y': (-50.0, 50.0), 'Z': (-20.0, 0.0)}, 0.1)
+        tool = sim.tool_shape_from_values('FLAT E/M', d=0.3)   # 폭 0.3mm 좁은 홈
+        stock.cut_segment([-40.0, 0.0, -5.0], [40.0, 0.0, -5.0], tool, color_id=1)
+        return stock
+
+    def test_display_grid_is_capped(self):
+        stock = self._slot_stock()
+        xs, ys, Z, C = stock.display_grid(200)
+        self.assertLessEqual(len(xs), 201)
+        self.assertLessEqual(len(ys), 201)
+        self.assertEqual(Z.shape, (len(ys), len(xs)))
+        self.assertEqual(C.shape, Z.shape)
+        self.assertAlmostEqual(float(xs[0]), -50.0, places=4)
+        self.assertAlmostEqual(float(xs[-1]), 50.0, places=4)
+
+    def test_narrow_slot_does_not_disappear_when_downsampled(self):
+        stock = self._slot_stock()
+        _xs, _ys, Z, C = stock.display_grid(100)
+        self.assertLess(float(Z.min()), -4.9)         # 홈 깊이 5가 표시 격자에도 남는다
+        self.assertTrue(np.any(C == 1))
+
+    def test_small_stock_uses_full_grid(self):
+        stock = sim.ZMapStock({'X': (0.0, 5.0), 'Y': (0.0, 5.0), 'Z': (-5.0, 0.0)}, 0.5)
+        _xs, _ys, Z, _C = stock.display_grid(600)
+        self.assertEqual(Z.shape, (stock.ny, stock.nx))
+        self.assertTrue(np.array_equal(Z, stock.heights))
+
+    def test_display_mesh_vertex_count_is_small(self):
+        stock = self._slot_stock()             # 계산 격자 1001 x 1001
+        verts, faces, colors, edges = stock.display_mesh(300)
+        self.assertLess(verts.shape[0], 300 * 300 + 2000)
+        self.assertEqual(colors.shape, (verts.shape[0], 4))
+        self.assertEqual(int(faces.max()) + 1, verts.shape[0])
+        self.assertEqual(edges.shape[1], 3)
+        self.assertEqual(edges.shape[0] % 2, 0)
+
+    def test_topology_cache_is_reused(self):
+        first = sim._topology(20, 30)
+        second = sim._topology(20, 30)
+        self.assertIs(first[0], second[0])
+
+    def test_edges_include_block_outline_and_slot_step(self):
+        stock = self._slot_stock()
+        _v, _f, _c, edges = stock.display_mesh(300)
+        segs = edges.reshape(-1, 2, 3)
+        self.assertGreater(segs.shape[0], 12 + 10)    # 외곽 + 홈 단차 선
+        self.assertTrue(np.any(np.isclose(segs[:, :, 2], -5.0, atol=0.01)))
+
+    def test_flat_stock_has_only_outline_edges(self):
+        stock = sim.ZMapStock({'X': (-5.0, 5.0), 'Y': (-5.0, 5.0), 'Z': (-5.0, 0.0)}, 1.0)
+        _v, _f, _c, edges = stock.display_mesh(600)
+        segs = edges.reshape(-1, 2, 3)
+        self.assertEqual(segs.shape[0], (2 * stock.nx + 2 * stock.ny - 4) + 4 + 4)
+
+    def test_edge_limit_thins_out_step_segments(self):
+        xs = np.arange(40, dtype=np.float32)
+        Z = np.zeros((40, 40), dtype=np.float32)
+        Z[:, ::2] = -5.0                               # 세로 줄무늬 — 단차가 아주 많다
+        edges = sim.edge_lines(xs, xs, Z, -10.0, 1.0, limit=50)
+        outline = (2 * 40 + 2 * 40 - 4) + 4 + 4
+        self.assertLessEqual(edges.shape[0] // 2, outline + 50)
+
+    def test_color_modes(self):
+        stock = self._slot_stock()
+        cmap = {1: (1.0, 0.0, 0.0, 1.0)}
+        _v, _f, tool_colors, _e = stock.display_mesh(300, color_map=cmap, mode='tool')
+        _v, _f, solid_colors, _e = stock.display_mesh(300, mode='solid')
+        _v, _f, depth_colors, _e = stock.display_mesh(300, mode='depth')
+        self.assertTrue(np.any(np.all(np.isclose(tool_colors, (1.0, 0.0, 0.0, 1.0)), axis=1)))
+        self.assertTrue(np.allclose(solid_colors, np.array(sim.DEFAULT_STOCK_COLOR)))
+        self.assertGreater(len({tuple(np.round(c, 3)) for c in depth_colors}), 1)
+        # 밝은 계통 — 깊이 모드 색의 평균 밝기가 충분히 높다
+        self.assertGreater(float(depth_colors[:, :3].mean()), 0.6)
 
 
 class AutoResolutionTests(unittest.TestCase):

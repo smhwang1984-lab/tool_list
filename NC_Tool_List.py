@@ -28,7 +28,7 @@ from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, T
 import sumpath_license
 
 
-APP_VERSION = '1.9.1'
+APP_VERSION = '1.10.0'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-09-24'
 APP_CREATOR = 'Hwang.seonmun'
@@ -38,6 +38,8 @@ OPEN_SOURCE_COMPONENTS = (
     'PyQt5',
     'pyqtgraph',
     'NumPy',
+    'Numba',
+    'llvmlite',
     'PyOpenGL',
     'ReportLab',
     'PyInstaller',

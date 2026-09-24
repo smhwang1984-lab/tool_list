@@ -4,12 +4,15 @@ import bisect
 import json
 from math import cos, radians, sin, tan
 import re
+import threading
 
 import numpy as np
 import pyqtgraph.opengl as gl
+from OpenGL import GL
 from pyqtgraph import Vector
 from PyQt5.QtCore import (
-    Qt, QEvent, QPointF, QRect, QRectF, QSettings, QSignalBlocker, QSize, QTimer, pyqtSignal,
+    Qt, QEvent, QObject, QPointF, QRect, QRectF, QSettings, QSignalBlocker, QSize, QTimer,
+    pyqtSignal,
 )
 from PyQt5.QtGui import (
     QBrush, QColor, QFont, QIcon, QKeySequence, QMatrix4x4, QPainter, QPainterPath, QPen, QPixmap,
@@ -27,6 +30,7 @@ from PyQt5.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QListWidget,
     QListWidgetItem,
     QMessageBox,
     QPushButton,
@@ -38,6 +42,7 @@ from PyQt5.QtWidgets import (
 )
 
 import nc_sim
+import nc_sim3d
 
 
 # 96 DPI(윈도우 100% 배율) 기준 1cm의 픽셀 근사값. 오버레이 여백을 "몇 cm"
@@ -1405,6 +1410,94 @@ class PlaybackBarWidget(QWidget):
         self.speed_value_label.setText("%dx" % self.speed_slider.value())
 
 
+# ------------------------------------------------------------------------ v1.9.2
+# 형상 시뮬레이션 백그라운드 계산. 워커는 자기 소재 복사본(stock)만 건드리고,
+# 끝나면 UI 스레드가 결과를 넘겨받는다(취소되면 복사본을 그냥 버린다).
+class _SimBridge(QObject):
+    """워커 스레드 -> UI 스레드 신호 중계(큐 연결)."""
+    job_done = pyqtSignal(object)
+    progress = pyqtSignal(int, int, int)      # 세대, 끝낸 선분 수, 전체 선분 수
+
+
+class _SimJob:
+    def __init__(self, generation, stock, seg, tools, start_idx, end_idx, snap_positions,
+                 have_snapshots, to_seq, bridge):
+        self.generation = generation
+        self.stock = stock
+        self.seg = seg
+        self.tools = tools
+        self.start_idx = start_idx
+        self.end_idx = end_idx
+        self.snap_positions = snap_positions
+        self.have_snapshots = have_snapshots
+        self.to_seq = to_seq
+        self.bridge = bridge
+        self.snapshots = {}
+        self.completed = False
+        self.error = None
+        self.thread = None
+        self._cancelled = False
+        self._threaded = False
+
+    def cancel(self):
+        self._cancelled = True
+
+    def start(self):
+        self._threaded = True
+        self.thread = threading.Thread(target=self._thread_main, daemon=True)
+        self.thread.start()
+
+    def _thread_main(self):
+        self.run()
+        try:
+            self.bridge.job_done.emit(self)
+        except RuntimeError:
+            pass        # 앱이 이미 종료돼 신호 객체가 사라졌다 — 결과는 버려도 된다
+
+    def run(self, use_numba=None):
+        """[start_idx, end_idx) 선분을 순서대로 깎는다. 공정 시작 선분 앞에서는
+        스냅샷을 남긴다(뒤로 이동할 때 거기서 다시 시작하기 위해)."""
+        try:
+            seg = self.seg
+            total = self.end_idx - self.start_idx
+            if seg is not None and total > 0:
+                cuts = [int(p) for p in self.snap_positions
+                        if self.start_idx <= p < self.end_idx]
+                bounds = sorted(set([self.start_idx, self.end_idx] + cuts))
+                snap_set = set(cuts)
+                done_before = 0
+                for a, b in zip(bounds[:-1], bounds[1:]):
+                    if a in snap_set:
+                        seq0 = int(seg['seq0'][a])
+                        if seq0 not in self.have_snapshots and seq0 not in self.snapshots:
+                            self.snapshots[seq0] = (self.stock.snapshot(),
+                                                    len(self.stock.rapid_cut_warnings))
+
+                    def progress(done, _total, offset=done_before):
+                        if self._threaded:
+                            try:
+                                self.bridge.progress.emit(self.generation, offset + done, total)
+                            except RuntimeError:
+                                self._cancelled = True     # 신호 객체가 사라짐 — 그만 계산
+
+                    extra = {}
+                    if getattr(self.stock, 'is_voxel', False):
+                        extra = {'axes0': seg['axis0'][a:b], 'axes1': seg['axis1'][a:b]}
+                    finished = self.stock.cut_batch(
+                        seg['p0'][a:b], seg['p1'][a:b], self.tools, seg['slot'][a:b],
+                        seg['rapid'][a:b], seg['color'][a:b],
+                        src_lines=seg['src'][a:b], seqs=seg['seq1'][a:b],
+                        cancel=lambda: self._cancelled, progress=progress, use_numba=use_numba,
+                        **extra,
+                    )
+                    if not finished:
+                        return
+                    done_before += b - a
+            self.completed = not self._cancelled
+        except Exception as exc:  # noqa: BLE001 - UI 스레드가 상태 줄에 보여준다
+            self.error = '%s: %s' % (type(exc).__name__, exc)
+
+
 # ------------------------------------------------------------------------ v1.9.0
 # 소재(STOCK) 설정 팝업 — 밀링 모드 전용. T/W/L 치수, 축 배정(T=Y, W=Z, L=X
 # 처럼 서로 바꿀 수 있음), 기준 위치(중심/한쪽 끝/윗면), 추가 이동, 해상도를
@@ -1414,7 +1507,7 @@ class StockDialog(QDialog):
     _AXES = ('X', 'Y', 'Z')
     _XY_REF_ITEMS = [('center', '중심'), ('neg', '-쪽 끝 = 0'), ('pos', '+쪽 끝 = 0')]
     _Z_REF_ITEMS = [('top', '윗면 = 0'), ('bottom', '바닥 = 0'), ('center', '중심')]
-    _RESOLUTION_ITEMS = ['자동', '0.05', '0.1', '0.2', '0.5']
+    _RESOLUTION_ITEMS = ['자동', '0.05', '0.1', '0.2', '0.5', '1.0']
 
     def __init__(self, viewer, parent=None):
         super().__init__(parent)
@@ -1498,6 +1591,15 @@ class StockDialog(QDialog):
         res_bar.addStretch()
         layout.addLayout(res_bar)
 
+        color_bar = QHBoxLayout()
+        color_bar.addWidget(QLabel('소재 색'))
+        self.color_mode_combo = QComboBox()
+        for value, label in NCViewerWidget.SIM_COLOR_MODES:
+            self.color_mode_combo.addItem(label, value)
+        color_bar.addWidget(self.color_mode_combo)
+        color_bar.addStretch()
+        layout.addLayout(color_bar)
+
         self.toolpath_check = QCheckBox('가공 경로 선 표시')
         self.toolpath_check.setChecked(True)
         layout.addWidget(self.toolpath_check)
@@ -1505,6 +1607,11 @@ class StockDialog(QDialog):
         self.status_label = QLabel('')
         self.status_label.setWordWrap(True)
         layout.addWidget(self.status_label)
+
+        self.rapid_button = QPushButton('급속 절삭 위치 보기...')
+        self.rapid_button.clicked.connect(self._show_rapid_list)
+        self.rapid_button.setVisible(False)
+        layout.addWidget(self.rapid_button)
 
         button_bar = QHBoxLayout()
         self.export_button = QPushButton('STL 내보내기...')
@@ -1524,6 +1631,7 @@ class StockDialog(QDialog):
         for combo in list(self.ref_combos.values()):
             combo.currentIndexChanged.connect(self._update_bounds_preview)
         self.toolpath_check.toggled.connect(self._on_toolpath_toggled)
+        self.color_mode_combo.currentIndexChanged.connect(self._on_color_mode_changed)
 
         self._load_settings()
         self._update_bounds_preview()
@@ -1627,6 +1735,34 @@ class StockDialog(QDialog):
     def _on_toolpath_toggled(self, checked):
         self.viewer.set_toolpath_visible(checked)
 
+    def _on_color_mode_changed(self, _index):
+        if self._updating:
+            return
+        self.viewer.set_sim_color_mode(self.color_mode_combo.currentData())
+        self._save_settings()
+
+    def _show_rapid_list(self):
+        """급속(G00) 이동이 소재를 깎은 줄 목록. 항목을 누르면 프로그램
+        편집기의 커서가 그 줄로 이동한다(line_activated)."""
+        lines = self.viewer.rapid_cut_warning_lines()
+        dialog = QDialog(self)
+        dialog.setWindowTitle('급속 이동 절삭 위치')
+        box = QVBoxLayout(dialog)
+        box.addWidget(QLabel('급속(G00) 이동이 소재를 깎은 줄입니다. 누르면 그 줄로 이동합니다.'))
+        listing = QListWidget()
+        for line in lines:
+            item = QListWidgetItem('%d행' % (line + 1))
+            item.setData(Qt.UserRole, line)
+            listing.addItem(item)
+        listing.itemClicked.connect(
+            lambda item: self.viewer.line_activated.emit(int(item.data(Qt.UserRole))))
+        box.addWidget(listing)
+        close = QPushButton('닫기')
+        close.clicked.connect(dialog.accept)
+        box.addWidget(close)
+        dialog.resize(280, 360)
+        dialog.exec_()
+
     def _apply(self):
         try:
             spec = self._build_spec()
@@ -1651,18 +1787,25 @@ class StockDialog(QDialog):
             return
         QMessageBox.information(self, 'STL 내보내기', '저장했습니다:\n%s' % path)
 
-    def _refresh_status(self):
+    def refresh_status(self):
         parts = []
+        if self.viewer.sim_progress_text:
+            parts.append(self.viewer.sim_progress_text)
+        if self.viewer.sim_notice_text:
+            parts.append('⚠ ' + self.viewer.sim_notice_text)
         if self.viewer.sim_status_text:
             parts.append(self.viewer.sim_status_text)
         rapid_count = self.viewer.rapid_cut_warning_count()
         if rapid_count:
             parts.append('급속 이동(G00) 절삭 경고 %d건' % rapid_count)
         self.status_label.setText(' / '.join(parts))
+        self.rapid_button.setVisible(rapid_count > 0)
+
+    _refresh_status = refresh_status
 
     def refresh_from_viewer(self):
         self.enable_check.setChecked(self.viewer.sim_enabled)
-        self._refresh_status()
+        self.refresh_status()
 
     # -- QSettings 저장(전역 하나만 기억, F 결정) ------------------------------
     _SETTINGS_GROUP = 'stock'
@@ -1679,6 +1822,7 @@ class StockDialog(QDialog):
         settings.setValue('resolution', self.resolution_combo.currentText())
         settings.setValue('enabled', self.enable_check.isChecked())
         settings.setValue('toolpath_visible', self.toolpath_check.isChecked())
+        settings.setValue('color_mode', self.color_mode_combo.currentData())
         settings.endGroup()
 
     def _load_settings(self):
@@ -1715,14 +1859,21 @@ class StockDialog(QDialog):
             self.resolution_combo.setCurrentText(res_val)
         enabled_val = settings.value('enabled', False)
         self.enable_check.setChecked(str(enabled_val).lower() in ('1', 'true'))
+        mode_val = settings.value('color_mode', 'tool')
+        mode_idx = self.color_mode_combo.findData(mode_val)
+        self.color_mode_combo.setCurrentIndex(mode_idx if mode_idx >= 0 else 0)
+        self.viewer.sim_color_mode = self.color_mode_combo.currentData()
         visible_val = settings.value('toolpath_visible', True)
         self.toolpath_check.setChecked(str(visible_val).lower() in ('1', 'true'))
         settings.endGroup()
         self._updating = False
+        # v1.9.3: 소재는 사용자가 정한 값만 쓴다 — 예전(v1.9.0 결정 E)처럼 처음 열 때
+        # 툴패스 범위로 자동 확장해 채우지 않는다("소재는 내가 선택한 걸로 지정돼야
+        # 함", 2026-09-24). 툴패스 범위 맞추기는 [툴패스 범위에 맞추기]를 눌렀을 때만.
+        # 한 번도 저장한 적이 없으면 기본 소재(L100 x W100 x T50, 윗면 = 0)로 시작한다.
         if not any_dim_saved:
-            # v1.9.0 결정 E: 소재를 설정한 적이 없으면 툴패스 범위 +
-            # 여유 2mm로 자동으로 채운다(프로그램이 아직 없으면 조용히 넘어감).
-            self._fit_to_toolpath(silent=True)
+            for key, value in (('L', 100.0), ('W', 100.0), ('T', 50.0)):
+                self.dim_spins[key].setValue(value)
 
 
 class NCViewerWidget(QWidget):
@@ -1773,6 +1924,8 @@ class NCViewerWidget(QWidget):
         # v1.9.0: 형상 시뮬레이션용 공구 값(TYPE/D/FL/R/SIG/PL/SO) — 키는
         # tool_name_map과 같다(T01/T1/1). 밀링 전용, 선반이면 항상 빈 맵.
         self.tool_shape_map = {}
+        # v1.10.0: 줄 인덱스 -> 공구 축 방향(월드, 단위벡터). +Z가 아닌 줄만 든다.
+        self.line_axis_map = {}
         self._init_sim_state()
         self.process_tool_map = {}
         self.tool_filter_list = None
@@ -2570,10 +2723,13 @@ class NCViewerWidget(QWidget):
         self.current_cursor_line = 0
         self._refresh_tool_filter()
         self._set_coordinate_labels(("0.000",) * 6)
+        self._sim_cancel_job()
         self._reset_sim_stock_progress()
-        self.sim_segments = []
-        self._sim_seq_keys = []
+        self.sim_seg = None
+        self._sim_seq_keys = np.zeros(0, dtype=np.int64)
+        self._sim_snap_positions = np.zeros(0, dtype=np.int64)
         self._sim_tool_shapes = {}
+        self._sim_tools = []
         self._sim_excluded = set()
 
     def _render_signature(self, text):
@@ -2582,12 +2738,15 @@ class NCViewerWidget(QWidget):
 
     # ---------------------------------------------------------------- v1.9.0
     # 밀링 3축 형상 가공 시뮬레이션(공구 형상 · STOCK · Z-map 절삭 · STL).
-    # 계산은 nc_sim.py(순수 numpy)에 맡기고, 여기서는 툴패스 → 절삭 세그먼트
-    # 변환, 재생 위치와의 연동, 메쉬 표시만 담당한다. 선반 모드에서는 항상
-    # 꺼져 있다(LATHE_MODE_GUIDELINES.md — 밀링 툴패스와 완전 분리).
-    _SIM_G68_RE = re.compile(r"G68\.2", re.I)
-    _SIM_G69_RE = re.compile(r"G69", re.I)
-    _SIM_SNAPSHOT_LIMIT = 20
+    # 계산은 nc_sim.py(순수 numpy, numba가 있으면 가속)에 맡기고, 여기서는
+    # 툴패스 → 절삭 세그먼트 변환, 공정 선택과의 연동, 백그라운드 계산(v1.9.2),
+    # 메쉬 표시만 담당한다. 선반 모드에서는 항상 꺼져 있다
+    # (LATHE_MODE_GUIDELINES.md — 밀링 툴패스와 완전 분리).
+    # 이 개수 이하의 선분은 UI 스레드에서 바로 계산한다(스레드 준비 비용이 더 큼).
+    _SIM_SYNC_SEGMENTS = 300
+    _SIM_SYNC_SEGMENTS_3D = 8
+    # 색상 모드 이름 -> nc_sim.display_mesh(mode=...)
+    SIM_COLOR_MODES = (('tool', '공구 색'), ('depth', '깎인 깊이'), ('solid', '단색'))
 
     def _init_sim_state(self):
         self.sim_enabled = False
@@ -2595,54 +2754,54 @@ class NCViewerWidget(QWidget):
         self.sim_stock_spec = None
         self.sim_stock = None
         self.sim_resolution = None
-        self.sim_segments = []
-        self._sim_seq_keys = []
+        self.sim_seg = None                   # 절삭 선분 배열 묶음(_rebuild_sim_nodes)
+        self.sim_engine = 'zmap'              # 'zmap'(공구 축 +Z만) / '3d'(경사면·5축 포함)
+        self._sim_seq_keys = np.zeros(0, dtype=np.int64)
         self._sim_tool_shapes = {}
+        self._sim_tools = []
         self._sim_excluded = set()
         self._sim_process_start_seqs = set()
-        self._sim_snapshots = {}
+        self._sim_snap_positions = np.zeros(0, dtype=np.int64)
+        self._sim_snapshots = {}              # seq0 -> ((heights, color_ids), 경고 수)
         self.sim_last_seq = -1
         self.sim_mesh_item = None
+        self.sim_edge_item = None
+        self.sim_color_mode = 'tool'
         self._sim_mesh_refresh_pending = False
         self.sim_status_text = ''
+        self.sim_progress_text = ''
+        self.sim_notice_text = ''
+        self._sim_no_tool_moves = 0
         self._stock_dialog = None
+        # 백그라운드 계산(v1.9.2)
+        self._sim_target_seq = None
+        self._sim_generation = 0
+        self._sim_job = None
+        self._sim_sync = False                # True면 항상 UI 스레드에서(테스트용)
+        self._sim_bridge = _SimBridge()
+        self._sim_bridge.job_done.connect(self._sim_on_job_done)
+        self._sim_bridge.progress.connect(self._sim_on_progress)
+        self.sim_progress_label = None
 
     def is_sim_available(self):
         """선반 모드에서는 형상 시뮬레이션 자체를 켤 수 없다."""
         return not self.is_lathe_mode()
 
-    def _compute_tilt_lines(self):
-        """G68.2(경사면)~G69 구간의 원본 줄 인덱스 집합을 돌려준다. Z-map은
-        공구 축이 항상 월드 +Z라고 가정하므로, 이 구간의 절삭은 정확하지
-        않아 시뮬레이션에서 제외한다(3+2/동시 5축은 다음 단계 범위).
-
-        v1.9.0 버그 수정: "(G68.2 INDEX CHG.)" 같은 괄호 주석 문구까지
-        그대로 매칭하면 실제 명령보다 몇 줄 앞서 경사면이 켜진 것으로
-        잘못 인식돼, 프로그램 전체가 제외되는 문제가 있었다(ncdata.nc로
-        확인) — 주석을 걷어낸 코드 부분만 본다."""
-        tilt_lines = set()
-        active = False
-        for idx, line in enumerate(self.raw_lines):
-            upper = self._code_without_comments(line).upper()
-            if self._SIM_G69_RE.search(upper):
-                active = False
-            if self._SIM_G68_RE.search(upper):
-                active = True
-                tilt_lines.add(idx)
-                continue
-            if active:
-                tilt_lines.add(idx)
-        return tilt_lines
-
     def _rebuild_sim_nodes(self):
-        """process_nc_lines() 직후 호출 — 절삭 세그먼트 목록과 공구 형상
-        캐시를 새로 만든다. 프로그램이 바뀌었으니 지금까지 깎은 결과도
-        버리고 다시 시작한다."""
+        """process_nc_lines() 직후 호출 — 절삭 선분 배열과 공구 형상 캐시를
+        새로 만든다. 프로그램이 바뀌었으니 지금까지 깎은 결과도 버리고 다시
+        시작한다. (v1.9.2: 선분을 dict 목록 대신 numpy 배열로 들고 있어
+        절삭 커널이 한꺼번에 받을 수 있다.)"""
+        self._sim_cancel_job()
         self._sim_tool_shapes = {}
+        self._sim_tools = []
         self._sim_excluded = set()
-        segments = []
+        self._sim_no_tool_moves = 0
+        cols = {key: [] for key in
+                ('p0', 'p1', 'seq0', 'seq1', 'src', 'rapid', 'ax0', 'ax1', 'slot', 'color')}
+        slot_of_tool = {}
+        z_axis = (0.0, 0.0, 1.0)
         if self.is_sim_available():
-            tilt_lines = self._compute_tilt_lines()
             for color_idx, (process_key, path_data) in enumerate(self.tool_paths.items()):
                 tool_no = self.process_tool_map.get(process_key)
                 if tool_no not in self._sim_tool_shapes:
@@ -2659,7 +2818,16 @@ class NCViewerWidget(QWidget):
                         self._sim_excluded.add(tool_no)
                 shape = self._sim_tool_shapes.get(tool_no)
                 if shape is None:
+                    if not tool_no:
+                        # 공구 번호(T)가 잡히지 않은 공정 — 어떤 공구인지 몰라 깎을 수 없다
+                        self._sim_no_tool_moves += sum(
+                            1 for node in path_data
+                            if node.get("valid") and node.get("type") != "G00")
                     continue
+                if tool_no not in slot_of_tool:
+                    slot_of_tool[tool_no] = len(self._sim_tools)
+                    self._sim_tools.append(shape)
+                slot = slot_of_tool[tool_no]
                 previous = None
                 for node in path_data:
                     if not node.get("valid"):
@@ -2668,22 +2836,58 @@ class NCViewerWidget(QWidget):
                     if previous is not None:
                         src0 = previous.get('src_line')
                         src1 = node.get('src_line')
-                        segments.append({
-                            'p0': previous['pt'], 'p1': node['pt'],
-                            'seq0': previous.get('seq', 0), 'seq1': node.get('seq', 0),
-                            'src_line': src1,
-                            'rapid': node.get('type') == 'G00',
-                            'tilt': (src0 in tilt_lines) or (src1 in tilt_lines),
-                            'tool_no': tool_no,
-                            # v1.9.1: 절삭면 색 — 공정 색(tool_color_for_index)과
-                            # 같은 인덱스라 툴패스 선 색과 그대로 맞아떨어진다.
-                            'color_idx': color_idx,
-                        })
+                        cols['p0'].append(previous['pt'])
+                        cols['p1'].append(node['pt'])
+                        cols['seq0'].append(previous.get('seq', 0))
+                        cols['seq1'].append(node.get('seq', 0))
+                        cols['src'].append(-1 if src1 is None else src1)
+                        cols['rapid'].append(node.get('type') == 'G00')
+                        # v1.10.0: 이동 시작/끝 줄의 공구 축(G68.2 경사면·G43.4 회전축
+                        # 값에서 파서가 기록). 없으면 +Z.
+                        cols['ax0'].append(self.line_axis_map.get(src0, z_axis))
+                        cols['ax1'].append(self.line_axis_map.get(src1, z_axis))
+                        cols['slot'].append(slot)
+                        # v1.9.1: 절삭면 색 — 공정 색(tool_color_for_index)과 같은
+                        # 인덱스라 툴패스 선 색과 그대로 맞아떨어진다.
+                        cols['color'].append(color_idx)
                     previous = node
-        segments.sort(key=lambda seg: seg['seq1'])
-        self.sim_segments = segments
-        self._sim_seq_keys = [seg['seq1'] for seg in segments]
+        count = len(cols['seq1'])
+        order = np.argsort(np.array(cols['seq1'], dtype=np.int64), kind='stable') if count else []
+        if count:
+            axis0 = np.array(cols['ax0'], dtype=np.float64).reshape(-1, 3)[order]
+            axis1 = np.array(cols['ax1'], dtype=np.float64).reshape(-1, 3)[order]
+            # 공구 축이 +Z가 아닌 이동(경사면 3+2 / 동시 5축) — 3D 소재 엔진이 필요하다
+            tilt = (np.abs(axis0[:, 2] - 1.0) > 1e-9) | (np.abs(axis1[:, 2] - 1.0) > 1e-9)
+            slot = np.array(cols['slot'], dtype=np.int32)[order]
+            self.sim_seg = {
+                'p0': np.array(cols['p0'], dtype=np.float64).reshape(-1, 3)[order],
+                'p1': np.array(cols['p1'], dtype=np.float64).reshape(-1, 3)[order],
+                'seq0': np.array(cols['seq0'], dtype=np.int64)[order],
+                'seq1': np.array(cols['seq1'], dtype=np.int64)[order],
+                'src': np.array(cols['src'], dtype=np.int64)[order],
+                'rapid': np.array(cols['rapid'], dtype=bool)[order],
+                'tilt': tilt,
+                'axis0': axis0,
+                'axis1': axis1,
+                'slot': slot,
+                'color': np.array(cols['color'], dtype=np.int16)[order],
+            }
+            rapid_arr = self.sim_seg['rapid']
+            self.sim_engine = '3d' if bool((tilt & ~rapid_arr).any()) else 'zmap'
+            self._sim_seq_keys = self.sim_seg['seq1']
+        else:
+            self.sim_seg = None
+            self.sim_engine = 'zmap'
+            self._sim_seq_keys = np.zeros(0, dtype=np.int64)
         self._sim_process_start_seqs = set(self.process_first_seq.values())
+        if self.sim_seg is not None:
+            # 스냅샷은 공정마다 "첫 절삭 선분" 앞에서 남긴다(color 값 = 공정 순번). 예전에는
+            # 공정 시작 줄(M6)의 seq와 정확히 같은 선분만 골라, M6 뒤에 G43 이전 이동이 끼는
+            # 실제 프로그램에서는 스냅샷이 하나도 안 잡혔다(v1.10.0 수정).
+            _colors, first_idx = np.unique(self.sim_seg['color'], return_index=True)
+            self._sim_snap_positions = np.sort(first_idx).astype(np.int64)
+        else:
+            self._sim_snap_positions = np.zeros(0, dtype=np.int64)
         self._reset_sim_stock_progress()
         self._refresh_sim_status_text()
 
@@ -2692,25 +2896,50 @@ class NCViewerWidget(QWidget):
         if self._sim_excluded:
             names = ', '.join(sorted(self._sim_excluded))
             parts.append('D 값 없어 제외: %s' % names)
-        tilt_count = sum(1 for seg in self.sim_segments if seg['tilt'])
-        if tilt_count:
-            parts.append('경사면(G68.2) 구간 %d개 제외' % tilt_count)
+        if self.sim_seg is not None and self.sim_engine == '3d':
+            tilt_count = int(self.sim_seg['tilt'].sum())
+            parts.append('3D 소재 방식 — 경사면(G68.2)/5축(G43.4) 이동 %d개 포함' % tilt_count)
+        if self._sim_no_tool_moves:
+            parts.append('공구 번호(T) 없는 이동 %d개 제외' % self._sim_no_tool_moves)
         self.sim_status_text = ' / '.join(parts)
+
+    def _sim_display_grid_max(self):
+        if getattr(self, 'safe_mode', False):
+            return nc_sim.SIM_DISPLAY_GRID_MAX_SAFE
+        return nc_sim.SIM_DISPLAY_GRID_MAX
 
     # -- STOCK 배치 -----------------------------------------------------------
     def apply_stock_spec(self, spec, resolution=None, enabled=True):
         """StockDialog의 [적용]이 부른다. spec: nc_sim.StockSpec."""
+        self._sim_cancel_job()
         self.sim_stock_spec = spec
         bounds = spec.bounds()
-        if resolution in (None, 'auto'):
-            resolution = nc_sim.auto_resolution(bounds)
-        self.sim_resolution = float(resolution)
-        self.sim_stock = nc_sim.ZMapStock(bounds, self.sim_resolution)
+        safe = bool(getattr(self, 'safe_mode', False))
+        if self.sim_engine == '3d':
+            # 경사면/5축 이동이 있는 프로그램 — 3D 복셀 소재. numba가 없으면(배포 exe)
+            # 계산이 수십 배 느리므로 자동 해상도를 거칠게 잡는다.
+            target = nc_sim3d.SIM3D_TARGET_VOXELS
+            if not nc_sim.numba_available() or safe:
+                target //= 8
+            if resolution in (None, 'auto'):
+                resolution = nc_sim3d.auto_resolution_3d(bounds, target)
+            else:
+                resolution = nc_sim3d.clamp_resolution_3d(bounds, resolution)
+            self.sim_resolution = float(resolution)
+            self.sim_stock = nc_sim3d.VoxelStock(bounds, self.sim_resolution)
+        else:
+            if resolution in (None, 'auto'):
+                resolution = nc_sim.auto_resolution(bounds, safe_mode=safe)
+            self.sim_resolution = float(resolution)
+            self.sim_stock = nc_sim.ZMapStock(bounds, self.sim_resolution)
         self.sim_enabled = bool(enabled) and self.is_sim_available()
         self._reset_sim_stock_progress()
         if self.sim_mesh_item is not None:
             self.gl_view.removeItem(self.sim_mesh_item)
             self.sim_mesh_item = None
+        if self.sim_edge_item is not None:
+            self.gl_view.removeItem(self.sim_edge_item)
+            self.sim_edge_item = None
         seq = self._sim_target_seq_for_selection()
         if seq is None:
             seq = self.line_to_seq.get(self.current_cursor_line, self.current_cursor_line)
@@ -2770,61 +2999,219 @@ class NCViewerWidget(QWidget):
             self._sim_advance_to_seq(seq)
 
     def _sim_advance_to_seq(self, seq):
+        """목표 seq까지의 누적 절삭 결과를 만들도록 요청한다. 긴 계산은
+        백그라운드 스레드에서 하고, 도중에 새 요청이 오면 진행 중인 계산을
+        선분 청크 사이에서 취소한다(v1.9.2)."""
         if not self.sim_enabled or self.sim_stock is None:
             return
+        self._sim_target_seq = seq
+        self._sim_pump()
+
+    def _sim_pump(self):
+        if self._sim_job is not None:
+            if self._sim_job.to_seq != self._sim_target_seq:
+                self._sim_job.cancel()      # 끝나면 _sim_on_job_done이 다시 pump
+            return
+        seq = self._sim_target_seq
+        if seq is None or self.sim_stock is None or not self.sim_enabled:
+            return
         if seq == self.sim_last_seq:
+            self._sim_set_progress(self.sim_diagnosis(), warn=True)
             return
+        seg = self.sim_seg
+        base = self.sim_stock.clone()
+        start_seq = self.sim_last_seq
         if seq < self.sim_last_seq:
-            self._sim_rewind_to(seq)
-        else:
-            self._sim_cut_forward(self.sim_last_seq, seq)
-            self.sim_last_seq = seq
-        self._sim_request_mesh_refresh()
-
-    def _sim_store_snapshot(self, seq0):
-        if seq0 in self._sim_snapshots:
-            return
-        self._sim_snapshots[seq0] = self.sim_stock.snapshot()
-        if len(self._sim_snapshots) > self._SIM_SNAPSHOT_LIMIT:
-            oldest_key = next(iter(self._sim_snapshots))
-            if oldest_key != 0:
-                del self._sim_snapshots[oldest_key]
-
-    def _sim_cut_forward(self, seq_from, seq_to):
-        start = bisect.bisect_right(self._sim_seq_keys, seq_from)
-        end = bisect.bisect_right(self._sim_seq_keys, seq_to)
-        for segment in self.sim_segments[start:end]:
-            if segment['tilt']:
-                continue
-            shape = self._sim_tool_shapes.get(segment['tool_no'])
-            if shape is None:
-                continue
-            if segment['seq0'] in self._sim_process_start_seqs:
-                self._sim_store_snapshot(segment['seq0'])
-            self.sim_stock.cut_segment(
-                segment['p0'], segment['p1'], shape, rapid=segment['rapid'],
-                src_line=segment['src_line'], seq=segment['seq1'],
-                color_id=segment['color_idx'],
-            )
-
-    def _sim_rewind_to(self, seq):
-        snap_seq = None
-        for candidate in sorted(self._sim_snapshots):
-            if candidate <= seq:
-                snap_seq = candidate
+            # 뒤로 — 목표 이하에서 가장 가까운 공정 시작 스냅샷에서 다시 깎는다
+            snap_seq = None
+            for candidate in sorted(self._sim_snapshots):
+                if candidate <= seq:
+                    snap_seq = candidate
+                else:
+                    break
+            if snap_seq is not None:
+                snap, warn_count = self._sim_snapshots[snap_seq]
+                base.restore(snap)
+                base.rapid_cut_warnings = base.rapid_cut_warnings[:warn_count]
+                start_seq = snap_seq - 1
             else:
-                break
-        if snap_seq is not None:
-            self.sim_stock.restore(self._sim_snapshots[snap_seq])
-            self.sim_last_seq = snap_seq - 1
+                base.reset()
+                start_seq = -1
+        if seg is None:
+            start_idx = end_idx = 0
         else:
-            self.sim_stock.reset()
-            self.sim_last_seq = -1
-        self._sim_cut_forward(self.sim_last_seq, seq)
-        self.sim_last_seq = seq
+            start_idx = int(np.searchsorted(self._sim_seq_keys, start_seq, side='right'))
+            end_idx = int(np.searchsorted(self._sim_seq_keys, seq, side='right'))
+        job = _SimJob(self._sim_generation, base, seg, self._sim_tools, start_idx, end_idx,
+                      self._sim_snap_positions, set(self._sim_snapshots), seq, self._sim_bridge)
+        sync_limit = self._SIM_SYNC_SEGMENTS_3D if getattr(base, 'is_voxel', False) else self._SIM_SYNC_SEGMENTS
+        if self._sim_sync or (end_idx - start_idx) <= sync_limit:
+            job.run(use_numba=False)
+            self._sim_adopt(job)
+            self._sim_request_mesh_refresh()
+            self._sim_pump()                 # 실행 중 목표가 바뀌었을 수 있다
+            return
+        self._sim_job = job
+        self._sim_set_progress('형상 계산 중… 0%')
+        job.start()
+
+    def _sim_adopt(self, job):
+        """끝난 계산 결과를 받아들인다(취소·오래된 세대·오류는 버린다)."""
+        if job.generation != self._sim_generation or not job.completed or job.error:
+            return False
+        self.sim_stock = job.stock
+        self.sim_last_seq = job.to_seq
+        for key, value in job.snapshots.items():
+            self._sim_snapshots[key] = value
+        self._sim_trim_snapshots()
+        return True
+
+    def _sim_trim_snapshots(self):
+        """스냅샷 총 메모리가 상한(SIM_SNAPSHOT_MEMORY_MB)을 넘으면 오래된 것부터
+        버린다(가장 앞의 것은 남겨 처음부터 다시 깎는 일을 줄인다)."""
+        if self.sim_stock is None:
+            return
+        limit = nc_sim.SIM_SNAPSHOT_MEMORY_MB * 1024 * 1024
+        size_of = self.sim_stock.snapshot_bytes
+        total = sum(size_of(v[0]) for v in self._sim_snapshots.values())
+        keys = list(self._sim_snapshots)
+        first = min(keys) if keys else None
+        for key in keys:
+            if total <= limit:
+                break
+            if key == first:
+                continue
+            total -= size_of(self._sim_snapshots.pop(key)[0])
+
+    def _sim_cancel_job(self):
+        """진행 중인 계산이 있으면 결과를 버리도록 세대를 올리고 취소한다."""
+        self._sim_generation += 1
+        if self._sim_job is not None:
+            self._sim_job.cancel()
+
+    def _sim_on_job_done(self, job):
+        """워커가 끝났을 때(UI 스레드, 큐 연결) 호출된다."""
+        if job is not self._sim_job:
+            return
+        self._sim_job = None
+        if self._sim_adopt(job):
+            self._sim_request_mesh_refresh()
+        if job.error:
+            self.sim_status_text = '형상 계산 오류: %s' % job.error
+        self._sim_set_progress('')
+        self._sim_pump()
+
+    def _sim_on_progress(self, generation, done, total):
+        if generation != self._sim_generation or self._sim_job is None:
+            return
+        percent = int(100 * done / max(total, 1))
+        self._sim_set_progress('형상 계산 중… %d%%' % percent)
+
+    _SIM_LABEL_PROGRESS_STYLE = (
+        'QLabel { background: rgba(20,24,30,200); color: #ffe082;'
+        ' border-radius: 4px; padding: 4px 8px; }')
+    _SIM_LABEL_WARN_STYLE = (
+        'QLabel { background: rgba(120,40,30,225); color: #ffffff;'
+        ' border-radius: 4px; padding: 4px 8px; }')
+
+    def _sim_set_progress(self, text, warn=False):
+        """뷰 왼쪽 위에 계산 진행(노랑) 또는 "깎이지 않은 이유"(빨강) 표시. 빈 문자열이면
+        숨긴다."""
+        self.sim_progress_text = text if not warn else ''
+        self.sim_notice_text = text if warn else ''
+        label = self.sim_progress_label
+        if not text:
+            if label is not None and not label.isHidden():
+                label.hide()
+                if label in self.gl_view.top_left_widgets:
+                    self.gl_view.top_left_widgets.remove(label)
+                self.gl_view._reposition_top_left()
+            self._sim_notify_dialog()
+            return
+        if label is None:
+            label = QLabel(self.gl_view)
+            self.sim_progress_label = label
+        label.setStyleSheet(self._SIM_LABEL_WARN_STYLE if warn else self._SIM_LABEL_PROGRESS_STYLE)
+        label.setText(text)
+        label.adjustSize()
+        if label not in self.gl_view.top_left_widgets:
+            self.gl_view.top_left_widgets.append(label)
+        label.show()
+        label.raise_()
+        self.gl_view._reposition_top_left()
+        self._sim_notify_dialog()
+
+    def sim_diagnosis(self):
+        """소재가 하나도 깎이지 않았을 때 그 이유를 사람이 읽을 문장으로 돌려준다.
+        깎였거나 시뮬레이션이 꺼져 있으면 빈 문자열."""
+        stock = self.sim_stock
+        if stock is None or not self.sim_enabled:
+            return ''
+        if stock.any_cut():
+            return ''
+        seg = self.sim_seg
+        if seg is None:
+            if self._sim_excluded:
+                return '공구 지름(D) 값이 없어 제외됨: %s' % ', '.join(sorted(self._sim_excluded))
+            if self._sim_no_tool_moves:
+                return ('공구 번호(T)가 잡히지 않아 이동 %d개가 제외됐습니다 (M6 T.. 공구 교환 확인)'
+                        % self._sim_no_tool_moves)
+            return '깎을 이동(G01/G02/G03)이 없습니다.'
+        upto = int(np.searchsorted(self._sim_seq_keys, self.sim_last_seq, side='right'))
+        if upto == 0:
+            return '선택한 공정까지 깎을 이동이 없습니다.'
+        usable = seg['slot'][:upto] >= 0
+        if not usable.any():
+            return '시뮬레이션할 수 있는 이동이 없습니다.'
+        pts = np.concatenate([seg['p0'][:upto][usable], seg['p1'][:upto][usable]])
+        lo = pts.min(axis=0)
+        hi = pts.max(axis=0)
+        radius = max((shape.radius for shape in self._sim_tools), default=0.0)
+        reach = radius + max((shape.cut_length for shape in self._sim_tools), default=0.0)
+        (x_lo, x_hi), (y_lo, y_hi) = stock.extent()
+        if not stock.is_voxel and lo[2] >= stock.ztop:
+            return ('툴패스의 가장 낮은 Z(%.1f)가 소재 윗면(Z %.1f)보다 위입니다 — '
+                    '소재 Z 기준 위치/이동값을 확인하세요' % (lo[2], stock.ztop))
+        if (hi[0] + radius < x_lo or lo[0] - radius > x_hi
+                or hi[1] + radius < y_lo or lo[1] - radius > y_hi):
+            return ('툴패스 X %.1f~%.1f / Y %.1f~%.1f 가 소재 X %.1f~%.1f / Y %.1f~%.1f 와 '
+                    '겹치지 않습니다 — 소재 XY 기준 위치를 확인하세요'
+                    % (lo[0], hi[0], lo[1], hi[1], x_lo, x_hi, y_lo, y_hi))
+        if stock.is_voxel and (hi[2] + reach < stock.zlo or lo[2] - reach > stock.ztop):
+            return ('툴패스 Z %.1f~%.1f 가 소재 Z %.1f~%.1f 와 겹치지 않습니다 — '
+                    '소재 Z 기준 위치/이동값을 확인하세요' % (lo[2], hi[2], stock.zlo, stock.ztop))
+        return '툴패스가 소재를 깎지 못했습니다 (공구가 소재 범위 안에서 소재에 닿지 않음)'
+
+    def _sim_notify_dialog(self):
+        dialog = self._stock_dialog
+        if dialog is not None and dialog.isVisible():
+            dialog.refresh_status()
+
+    def sim_wait(self, timeout_ms=60000):
+        """(테스트/스크립트용) 진행 중인 백그라운드 계산이 끝날 때까지 기다린다."""
+        waited = 0
+        while waited < timeout_ms:
+            job = self._sim_job
+            if job is None:
+                break
+            if job.thread is not None:
+                job.thread.join(0.01)
+            QApplication.processEvents()
+            waited += 10
+        QApplication.processEvents()
+        return self._sim_job is None
 
     def rapid_cut_warning_count(self):
         return len(self.sim_stock.rapid_cut_warnings) if self.sim_stock is not None else 0
+
+    def rapid_cut_warning_lines(self):
+        """급속(G00) 이동이 소재를 깎은 곳의 원본 줄 인덱스(0부터) 목록 —
+        중복 없이 오름차순."""
+        if self.sim_stock is None:
+            return []
+        lines = {line for line, _seq in self.sim_stock.rapid_cut_warnings
+                 if line is not None and line >= 0}
+        return sorted(lines)
 
     # -- 메쉬 표시 ------------------------------------------------------------
     def _sim_request_mesh_refresh(self, force=False):
@@ -2841,40 +3228,84 @@ class NCViewerWidget(QWidget):
         QTimer.singleShot(0, self._sim_do_mesh_refresh)
 
     def _sim_color_map(self):
-        """color_idx(공정 순번) -> RGBA(0~1) — 툴패스 선과 같은
-        tool_color_for_index() 팔레트를 그대로 쓴다(v1.9.1)."""
-        return {
-            idx: tuple(tool_color_for_index(idx)) + (1.0,)
-            for idx in range(len(self.tool_paths))
-        }
+        """color_idx(공정 순번) -> RGBA(0~1). 툴패스 선과 같은
+        tool_color_for_index() 팔레트를 쓰되, 소재는 밝은 계통으로 보이도록
+        흰색 쪽으로 섞는다(v1.9.2 — 조명 없이 단순 채움이라 진한 색은 무겁다)."""
+        def lighten(rgb):
+            return tuple(0.45 + 0.55 * float(c) for c in list(rgb)[:3]) + (1.0,)
+        return {idx: lighten(tool_color_for_index(idx)) for idx in range(len(self.tool_paths))}
+
+    # 소재 면은 조명 없이 정점 색 그대로 그린다. 모서리 선과 겹칠 때 깜빡이지
+    # 않도록 면만 살짝 뒤로 민다(polygon offset).
+    _SIM_MESH_GL_OPTIONS = {
+        GL.GL_DEPTH_TEST: True,
+        GL.GL_BLEND: False,
+        GL.GL_CULL_FACE: False,
+        GL.GL_POLYGON_OFFSET_FILL: True,
+        'glPolygonOffset': (1.0, 1.0),
+    }
+    _SIM_EDGE_GL_OPTIONS = {
+        GL.GL_DEPTH_TEST: True,
+        GL.GL_BLEND: False,
+        GL.GL_CULL_FACE: False,
+        GL.GL_POLYGON_OFFSET_FILL: False,
+    }
 
     def _sim_do_mesh_refresh(self):
         self._sim_mesh_refresh_pending = False
         if self.sim_stock is None or not self.sim_enabled:
             return
-        verts, faces, colors = self.sim_stock.to_mesh(color_map=self._sim_color_map())
+        verts, faces, colors, edge_verts = self.sim_stock.display_mesh(
+            self._sim_display_grid_max(), color_map=self._sim_color_map(),
+            mode=self.sim_color_mode,
+        )
         meshdata = gl.MeshData(vertexes=verts, faces=faces, vertexColors=colors)
         if self.sim_mesh_item is None:
+            # 셰이더·조명·법선 없이 정점 색만으로 채운다(구형 GL 드라이버 호환)
             self.sim_mesh_item = gl.GLMeshItem(
-                meshdata=meshdata, smooth=False, shader='shaded',
-                drawEdges=False, glOptions='opaque',
+                meshdata=meshdata, smooth=True, computeNormals=False, shader=None,
+                drawEdges=False, glOptions=dict(self._SIM_MESH_GL_OPTIONS),
             )
             self.gl_view.addItem(self.sim_mesh_item)
         else:
             self.sim_mesh_item.setMeshData(meshdata=meshdata)
         self.sim_mesh_item.setVisible(self.sim_enabled)
+        # 모서리 선 — 소재 외곽과 절삭 단차 경계
+        if self.sim_edge_item is None:
+            self.sim_edge_item = gl.GLLinePlotItem(
+                pos=edge_verts, mode='lines', color=nc_sim.EDGE_COLOR, width=1.0,
+                antialias=False, glOptions=dict(self._SIM_EDGE_GL_OPTIONS),
+            )
+            self.gl_view.addItem(self.sim_edge_item)
+        else:
+            self.sim_edge_item.setData(pos=edge_verts)
+        self.sim_edge_item.setVisible(self.sim_enabled)
 
     def set_sim_enabled(self, enabled):
         self.sim_enabled = bool(enabled) and self.is_sim_available() and self.sim_stock is not None
         if self.sim_mesh_item is not None:
             self.sim_mesh_item.setVisible(self.sim_enabled)
+        if self.sim_edge_item is not None:
+            self.sim_edge_item.setVisible(self.sim_enabled)
         if self.sim_enabled:
+            # 꺼져 있는 동안 공정 선택이 바뀌었을 수 있으니 결과를 다시 맞춘다
+            self._sim_recompute_for_selection()
             self._sim_request_mesh_refresh(force=True)
+
+    def set_sim_color_mode(self, mode):
+        """소재 색상 모드('tool' 공구 색 / 'depth' 깎인 깊이 / 'solid' 단색).
+        계산은 다시 하지 않고 색만 바꿔 다시 그린다."""
+        if mode not in dict(self.SIM_COLOR_MODES):
+            return
+        self.sim_color_mode = mode
+        self._sim_request_mesh_refresh(force=True)
 
     # -- STL 내보내기 ---------------------------------------------------------
     def export_stock_stl(self, path):
         if self.sim_stock is None:
             raise ValueError('먼저 소재를 설정해야 합니다.')
+        if self._sim_job is not None:
+            raise ValueError('형상 계산이 진행 중입니다. 끝난 뒤 다시 시도하세요.')
         verts, faces, _colors = self.sim_stock.to_mesh()
         nc_sim.write_stl_binary(path, verts, faces)
 
@@ -3449,6 +3880,20 @@ class NCViewerWidget(QWidget):
         r_k = np.array([[np.cos(rad_k), -np.sin(rad_k), 0], [np.sin(rad_k), np.cos(rad_k), 0], [0, 0, 1]])
         return r_k @ r_j @ r_i
 
+    @staticmethod
+    def tool_axis_from_rotary(is_ac, a_deg, b_deg, c_deg):
+        """G43.4(공구 중심점 제어)에서 회전축 값이 정하는 공구 축(월드, 단위벡터).
+
+        A→C 장비: Rz(C)·Rx(A)·z, B→C 장비: Rz(C)·Ry(B)·z. 규칙은 G68.2의 I=C/J=A 대응과
+        O3210.NC의 벡터 방향 진입 이동(-축 방향, 오차 0.001°)으로 확인했다. G43.4는
+        I/J/K를 쓰지 않는다 — 방향은 회전축 값만으로 결정된다."""
+        c = np.radians(c_deg)
+        if is_ac:
+            a = np.radians(a_deg)
+            return (float(np.sin(a) * np.sin(c)), float(-np.sin(a) * np.cos(c)), float(np.cos(a)))
+        b = np.radians(b_deg)
+        return (float(np.sin(b) * np.cos(c)), float(np.sin(b) * np.sin(c)), float(np.cos(b)))
+
     def get_5axis_rotation_matrix(self, machine_type, i_deg, j_deg, k_deg):
         if MACHINE_5AXIS_AC in machine_type:
             rad_a = np.radians(j_deg)
@@ -3543,6 +3988,12 @@ class NCViewerWidget(QWidget):
         g68_pending = False
         pending_i, pending_j, pending_k = 0.0, 0.0, 0.0
         active_matrix = np.eye(3)
+        # v1.10.0: G68.2 특징 좌표계 원점(X Y Z) — 월드 = 원점 + R · 로컬. G43.4(공구
+        # 중심점 제어) 활성 여부 — 켜져 있는 동안 A/B/C 값이 공구 축 방향을 정한다.
+        pending_origin = np.zeros(3)
+        active_origin = np.zeros(3)
+        tcp_active = False
+        self.line_axis_map = {}
         # v1.8.4: Fanuc 전원 투입 기본값은 G98(초기점 복귀)이다. 예전에는
         # False로 두고 "G98이 없으면 복귀 자체를 그리지 않는" 모델이었는데,
         # 실제 기계에서 복귀를 안 하는 경우는 없다(G98=초기점, G99=R점).
@@ -3637,6 +4088,7 @@ class NCViewerWidget(QWidget):
         k_pattern = re.compile(r"K\s*([+-]?\d*\.?\d+)")
         r_pattern = re.compile(r"R\s*([+-]?\d*\.?\d+)")
         g43_pattern = re.compile(r"G43")
+        g43_4_pattern = re.compile(r"G43\.4(?!\d)")
         g49_pattern = re.compile(r"G49")
         g98_pattern = re.compile(r"G98")
         g99_pattern = re.compile(r"G99")
@@ -3845,9 +4297,31 @@ class NCViewerWidget(QWidget):
 
             if g43_pattern.search(line_upper):
                 g43_active = True
+                tcp_active = g43_4_pattern.search(line_upper) is not None
             if g49_pattern.search(line_upper):
                 g43_active = False
+                tcp_active = False
                 continue
+
+            # v1.10.0: 이 줄에서 공구 축이 +Z가 아니면 기록한다(형상 시뮬레이션용).
+            # 위치(pt)는 그대로이고 방향만 따로 든다 — 노드 생성부는 건드리지 않고
+            # 노드의 src_line으로 조회한다.
+            if not is_lathe:
+                tool_axis = None
+                if is_4axis:
+                    rad_b = np.radians(float(modal_values[4]))
+                    tool_axis = (float(np.sin(rad_b)), 0.0, float(np.cos(rad_b)))
+                elif is_5axis_ac or is_5axis_bc:
+                    if not np.allclose(active_matrix, np.eye(3)):
+                        column = active_matrix[:, 2]
+                        tool_axis = (float(column[0]), float(column[1]), float(column[2]))
+                    elif tcp_active:
+                        tool_axis = self.tool_axis_from_rotary(
+                            is_5axis_ac, float(modal_values[3]), float(modal_values[4]),
+                            float(modal_values[5]),
+                        )
+                if tool_axis is not None and (abs(tool_axis[0]) > 1e-9 or abs(tool_axis[1]) > 1e-9):
+                    self.line_axis_map[idx] = tool_axis
 
             if not is_lathe:
                 # v1.7.2: 선반의 G98/G99는 밀링/MCT의 "고정 사이클 복귀
@@ -3982,6 +4456,7 @@ class NCViewerWidget(QWidget):
             if is_5axis_ac or is_5axis_bc:
                 if g69_pattern.search(line_upper):
                     active_matrix = np.eye(3)
+                    active_origin = np.zeros(3)
                     g68_pending = False
                 elif g68_pattern.search(line_upper):
                     g68_pending = True
@@ -3991,11 +4466,20 @@ class NCViewerWidget(QWidget):
                     pending_i = float(i_m.group(1)) if i_m else 0.0
                     pending_j = float(j_m.group(1)) if j_m else 0.0
                     pending_k = float(k_m.group(1)) if k_m else 0.0
+                    ox_m = x_pattern.search(line_upper)
+                    oy_m = y_pattern.search(line_upper)
+                    oz_m = z_pattern.search(line_upper)
+                    pending_origin = np.array([
+                        float(ox_m.group(1)) if ox_m else 0.0,
+                        float(oy_m.group(1)) if oy_m else 0.0,
+                        float(oz_m.group(1)) if oz_m else 0.0,
+                    ])
 
                 if g53_1_pattern.search(line_upper) and g68_pending:
                     active_matrix = self.get_5axis_rotation_matrix(
                         machine_type, pending_i, pending_j, pending_k
                     )
+                    active_origin = pending_origin.copy()
                     g68_pending = False
 
             if is_4axis:
@@ -4171,7 +4655,7 @@ class NCViewerWidget(QWidget):
                     local_target_pt = [cx, cy, cz]
                     coord_vec = np.array(local_target_pt)
                     target_pt = (
-                        active_matrix @ coord_vec
+                        active_matrix @ coord_vec + active_origin
                     ).tolist() if (is_5axis_ac or is_5axis_bc or is_4axis) else list(local_target_pt)
 
                 if cycle_active and is_lathe:
@@ -4259,7 +4743,7 @@ class NCViewerWidget(QWidget):
                     )
                     if is_5axis_ac or is_5axis_bc:
                         xy_approach_pt, r_point_pt, final_z_pt, return_pt = [
-                            (active_matrix @ raw).tolist() for raw in raw_points
+                            (active_matrix @ raw + active_origin).tolist() for raw in raw_points
                         ]
                     else:
                         xy_approach_pt, r_point_pt, final_z_pt, return_pt = [
@@ -4334,7 +4818,7 @@ class NCViewerWidget(QWidget):
                     last_pt = None
                     for local_pt in local_arc_pts:
                         rotated_pt = (
-                            (active_matrix @ np.array(local_pt)).tolist()
+                            (active_matrix @ np.array(local_pt) + active_origin).tolist()
                             if (is_5axis_ac or is_5axis_bc or is_4axis) else local_pt
                         )
                         self.tool_paths[current_tool].append({
