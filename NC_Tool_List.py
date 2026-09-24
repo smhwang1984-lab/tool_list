@@ -28,7 +28,7 @@ from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, T
 import sumpath_license
 
 
-APP_VERSION = '1.10.0'
+APP_VERSION = '2.0.0'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-09-24'
 APP_CREATOR = 'Hwang.seonmun'

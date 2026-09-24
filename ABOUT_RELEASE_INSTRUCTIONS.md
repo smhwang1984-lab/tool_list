@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-09-24 (NC_Tool_List v1.10.0 — G68.2(3+2 경사면)·G43.4(동시 5축) 가공 3D 소재 시뮬레이션)
+Last updated: 2026-09-24 (NC_Tool_List v2.0.0 — 소재 시뮬레이션 절삭면 색을 공정 목록 색과 동일하게)
 
 ## About button requirements
 
@@ -34,7 +34,33 @@ Last updated: 2026-09-24 (NC_Tool_List v1.10.0 — G68.2(3+2 경사면)·G43.4(�
 
 ## Version history
 
-### 2026-09-24 (latest, v1.10.0)
+### 2026-09-24 (latest, v2.0.0)
+
+- Version: 1.10.0 → 2.0.0
+- Release/build date: 2026-09-24
+- Summary: 사용자 요청 "공정 목록 표의 공정 색과 똑같게 맞춰줘(A안)". 소재 시뮬레이션의 절삭면 색을 공정 목록 칩·툴패스 선과
+  **완전히 같은 색**으로 맞췄다.
+  - 원인: 순번(공정 idx → `tool_color_for_index`)은 이미 같았지만 `_sim_color_map()`이 `0.45 + 0.55·c`로 흰색 쪽에 섞어 소재만 연하게 보였다.
+    섞는 부분(`lighten`)을 없애 팔레트 원색을 그대로 쓴다(2D 소재·3D 복셀 소재가 이 함수 하나를 공유).
+  - 색상 모드 콤보의 표시 이름 `공구 색` → `공정 색`(내부 값 `'tool'`과 저장된 설정 키는 그대로 — 기존 설정 호환).
+  - 색표 값만 바뀌므로 절삭·메쉬·렌더링 비용은 그대로. 미절삭 면은 기존 연한 기본색 유지.
+  - 테스트: `test_tool_colors_are_light` → `test_sim_colors_match_process_list`(모든 공정 idx에서 `_sim_color_map()[idx][:3] == tool_color_for_index(idx)`).
+- Open source software: 변경 없음(numba/llvmlite 포함 유지).
+- Verification: `python -m pytest` → 457 passed, 1 skipped, 2 failed. 실패 2건은 이 PC의 환경 조건이며 변경 전 HEAD에서도 동일하다:
+  `test_switching_to_lathe_changes_table_schema_and_machine`(레지스트리에 저장된 장비가 `5축 MCT (B to C)`), `SingleInstanceTests`(설치된 앱이 실행 중).
+  코드 리뷰(`/code-review medium`): 지적 사항 없음.
+- Installer/package status: **생성 완료**.
+  - `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` — onedir, UPX 비활성, numba/llvmlite 포함, 폴더 275MB.
+  - `ISCC.exe NC_Tool_List.iss` — `installer\NC_Tool_List_Setup_v2.0.0.exe`.
+  - 포터블: `installer\NC_Tool_List_Portable_v2.0.0.zip`.
+  - dist 폴더의 exe를 기동해 12초 뒤에도 실행 중임을 확인(설치본이 떠 있어 `USERNAME`을 바꿔 단일 실행 인계를 피함).
+  - Setup EXE SHA-256: 9BF2C796762F3248A9C9432CB51BBE552A275013ECBE4D42CEE0036C4AF72C50
+  - Portable ZIP SHA-256: BCC8CBF3349C7BFCF04AE93859F408B2D6E404425D81B9BE91FC6CFED34780C2
+  - App EXE SHA-256: F75CAA1FECCDAA32F60A2D72D5BF86B761FE0BE4DC8571DCC8DEB9E48D4337E6
+  - Setup 80.2 MB / Portable 111.9 MB. 구 v1.x 패키지는 `installer`에 그대로 남겨 둠.
+- 서명 상태: 설치본과 앱 실행 파일 모두 미서명이다(기존과 동일).
+
+### 2026-09-24 (v1.10.0)
 
 - Version: 1.9.3 → 1.10.0
 - Release/build date: 2026-09-24

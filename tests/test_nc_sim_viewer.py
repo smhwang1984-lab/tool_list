@@ -16,7 +16,7 @@ import numpy as np
 try:
     from PyQt5.QtWidgets import QApplication
     import nc_sim
-    from nc_viewer_widget import NCViewerWidget
+    from nc_viewer_widget import NCViewerWidget, tool_color_for_index
     IMPORT_ERROR = None
 except Exception as exc:  # noqa: BLE001
     IMPORT_ERROR = exc
@@ -298,10 +298,12 @@ M30
         viewer.set_sim_color_mode('없는 모드')
         self.assertEqual(viewer.sim_color_mode, 'tool')
 
-    def test_tool_colors_are_light(self):
+    def test_sim_colors_match_process_list(self):
         viewer = self.make_viewer()
-        for rgba in viewer._sim_color_map().values():
-            self.assertGreaterEqual(min(rgba[:3]), 0.45)
+        color_map = viewer._sim_color_map()
+        self.assertEqual(set(color_map), set(range(len(viewer.tool_paths))))
+        for idx, rgba in color_map.items():
+            self.assertEqual(tuple(rgba[:3]), tuple(float(c) for c in tool_color_for_index(idx)))
             self.assertEqual(rgba[3], 1.0)
 
     def test_stl_export_uses_full_resolution_mesh(self):
