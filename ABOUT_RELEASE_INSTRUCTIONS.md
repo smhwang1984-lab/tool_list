@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-09-24 (NC_Tool_List v1.10.0 — G68.2(3+2 경사면)·G43.4(동시 5축) 가공 3D 소재 시뮬레이션)
+Last updated: 2026-09-24 (NC_Tool_List v2.0.2 — 공정 색 경계를 그라데이션 없이 선명하게)
 
 ## About button requirements
 
@@ -34,7 +34,89 @@ Last updated: 2026-09-24 (NC_Tool_List v1.10.0 — G68.2(3+2 경사면)·G43.4(�
 
 ## Version history
 
-### 2026-09-24 (latest, v1.10.0)
+### 2026-09-24 (latest, v2.0.2)
+
+- Version: 2.0.1 → 2.0.2
+- Release/build date: 2026-09-24
+- Summary: v2.0.1 사용자 피드백 "색을 입히긴 하는데 색이 번져서 가공하지 않은 부분까지 번짐". 사용자 결정: 선택 없이 **선명 방식으로 고정**.
+  - 원인: 색이 정점마다 하나라 깎인 정점과 안 깎인 정점을 잇는 삼각형 안에서 그라데이션으로 섞였다(번지는 폭 ≈ 표시 격자 한 칸 —
+    2D 0.27~0.40mm, 3D 복셀 0.5~1.0mm, 3D는 표면 사각형 70만 개 초과 시 복셀을 합쳐 더 넓어짐). 측정 전 섞이는 면은 전체의 0.1~0.6%.
+  - `nc_sim.sharpen_color_edges()` 신설 — 색이 섞이는 삼각형만 정점을 복제해 면 하나를 한 색으로 칠한다(다수결, 셋 다 다르면 기본색이 아닌 첫 정점 색).
+    깎인 정점이 하나뿐인 면은 기본색, 둘 이상이면 공정 색. 나머지 면은 정점을 그대로 공유해 정점은 섞이는 면 x 3개만 늘어난다(측정 +3.5%, 극단적 합성 메쉬 +30%).
+    140만 삼각형에서도 0.07초. 2D(`ZMapStock.display_mesh`)·3D(`VoxelStock.display_mesh`) 모두 '공정 색'(`tool`) 모드에서만 적용 —
+    '깎인 깊이'는 원래 연속 그라데이션이라 그대로, STL(`to_mesh`)도 그대로. 3D 모서리 선은 캐시된 원래 정점 기준으로 계산.
+  - 적용 후 섞이는 면 0%. 계단 모양의 한 칸 이내 경계는 남는다(더 줄이려면 표시 해상도를 올려야 하며 그만큼 무거워진다).
+  - 테스트: `SharpenColorEdgesTests`(다수결·기하 불변·균일 메쉬 그대로·3색), `DisplayMeshTests`·`SurfaceMeshTests`에 선명 경계·정점 증가 상한·깊이 모드 불변,
+    3D 닫힌 메쉬 검사는 위치 기준으로 합쳐서 보도록, 뷰어 색상 모드 테스트는 정점 수 차이를 허용하도록 갱신.
+- Open source software: 변경 없음(numba/llvmlite 포함 유지).
+- Verification: `python -m pytest` → 관련 시뮬레이션 테스트 119건 통과, 전체 실행에서 실패는 이 PC의 환경 조건 1건뿐
+  (`test_switching_to_lathe_changes_table_schema_and_machine` — 레지스트리에 저장된 장비 `5축 MCT (B to C)`, 변경 전 HEAD에서도 동일).
+  코드 리뷰(`/code-review medium`): 지적 사항 없음.
+- Installer/package status: **생성 완료**.
+  - `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` — onedir, UPX 비활성, numba/llvmlite 포함.
+  - `ISCC.exe NC_Tool_List.iss` — `installer\NC_Tool_List_Setup_v2.0.2.exe`.
+  - 포터블: `installer\NC_Tool_List_Portable_v2.0.2.zip`.
+  - dist 폴더의 exe를 `USERNAME`을 바꿔 기동해 12초 뒤에도 실행 중임을 확인(파일 버전 2.0.2.0).
+  - Setup EXE SHA-256: 23C71D1FCE3734F4F0A37F1EB4DEF588DE5747AC2CC66878C79C80CFF0158D24
+  - Portable ZIP SHA-256: AE16AB759468E9DE66779BC2DF8E41AE718CC36EA24608BFFE0BF449888F1E96
+  - App EXE SHA-256: AA1311501B3EDA2B18E208DFF7C2FC6CD72D3FC477D81A89C68BB09BB7CC74AF
+  - Setup 80.1 MB / Portable 111.9 MB. 구 v1.x·v2.0.x 패키지는 `installer`에 그대로 남겨 둠.
+- 서명 상태: 설치본과 앱 실행 파일 모두 미서명이다(기존과 동일).
+
+### 2026-09-24 (v2.0.1)
+
+- Version: 2.0.0 → 2.0.1
+- Release/build date: 2026-09-24
+- Summary: v2.0.0 사용자 피드백 "색입히는 부분에 대해서 적용이 안됨". 조사 결과 코드는 정상(2D·3D 엔진 모두 메쉬 정점에 공정 색이 정확히 들어감)이었고,
+  이 PC의 저장 설정 `HKCU\Software\NC Tool List\EmbeddedViewer\stock\color_mode = solid`(소재 색 콤보 = 단색)가 공정 색 모드를 가리고 있었다.
+  - **한 번만 되돌리는 마이그레이션**: `StockDialog._load_settings`가 표식 키 `stock/color_mode_migrated_v2`가 없으면 저장된 `color_mode`가
+    `tool`이 아닐 때 `tool`(공정 색)로 되돌리고 표식을 남긴다. 이후 사용자가 다시 고른 값(단색·깎인 깊이 포함)은 유지된다.
+  - 테스트: `test_saved_solid_or_depth_mode_is_reset_to_tool_once`, `test_color_mode_chosen_after_migration_is_kept`,
+    `test_already_migrated_settings_are_left_alone`(격리된 `QSettings` ini 사용). 실제 QSettings로 팝업을 만들던
+    `test_dialog_status_shows_progress_and_rapid_button`도 격리 설정으로 바꿨다(마이그레이션이 실제 레지스트리에 쓰지 않도록).
+  - 설정 값은 팝업을 처음 열 때 적용된다(그 전에는 저장 값이 그대로). 이 PC 레지스트리는 수동으로 바꾸지 않았다.
+- Open source software: 변경 없음(numba/llvmlite 포함 유지).
+- Verification: `python -m pytest` → 461 passed, 1 skipped, 1 failed. 실패 1건은 이 PC의 환경 조건이며 변경 전 HEAD에서도 동일:
+  `test_switching_to_lathe_changes_table_schema_and_machine`(레지스트리에 저장된 장비가 `5축 MCT (B to C)`). 실행 후 실제 레지스트리 `color_mode`가 그대로 `solid`임을 확인.
+  코드 리뷰(`/code-review medium`): 지적 사항 없음.
+- Installer/package status: **생성 완료**.
+  - `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` — onedir, UPX 비활성, numba/llvmlite 포함.
+  - `ISCC.exe NC_Tool_List.iss` — `installer\NC_Tool_List_Setup_v2.0.1.exe`.
+  - 포터블: `installer\NC_Tool_List_Portable_v2.0.1.zip`.
+  - dist 폴더의 exe를 `USERNAME`을 바꿔 기동해 12초 뒤에도 실행 중임을 확인(파일 버전 2.0.1.0).
+  - Setup EXE SHA-256: 112B25F7FF5CE2E07F45C5BD40B4F21514FF8452BAA6AFF1431A34986CF88E4C
+  - Portable ZIP SHA-256: 2A741C90AAE44A38A4AFE0D2CA8C30EFC8D380C2CE4E7F678039315238C3C181
+  - App EXE SHA-256: 29255FC200ED9CC84F0A14CE6878A7CF28E56F49A2125F7650F462C14F15704C
+  - Setup 80.1 MB / Portable 111.9 MB. 구 v1.x·v2.0.0 패키지는 `installer`에 그대로 남겨 둠.
+- 서명 상태: 설치본과 앱 실행 파일 모두 미서명이다(기존과 동일).
+
+### 2026-09-24 (v2.0.0)
+
+- Version: 1.10.0 → 2.0.0
+- Release/build date: 2026-09-24
+- Summary: 사용자 요청 "공정 목록 표의 공정 색과 똑같게 맞춰줘(A안)". 소재 시뮬레이션의 절삭면 색을 공정 목록 칩·툴패스 선과
+  **완전히 같은 색**으로 맞췄다.
+  - 원인: 순번(공정 idx → `tool_color_for_index`)은 이미 같았지만 `_sim_color_map()`이 `0.45 + 0.55·c`로 흰색 쪽에 섞어 소재만 연하게 보였다.
+    섞는 부분(`lighten`)을 없애 팔레트 원색을 그대로 쓴다(2D 소재·3D 복셀 소재가 이 함수 하나를 공유).
+  - 색상 모드 콤보의 표시 이름 `공구 색` → `공정 색`(내부 값 `'tool'`과 저장된 설정 키는 그대로 — 기존 설정 호환).
+  - 색표 값만 바뀌므로 절삭·메쉬·렌더링 비용은 그대로. 미절삭 면은 기존 연한 기본색 유지.
+  - 테스트: `test_tool_colors_are_light` → `test_sim_colors_match_process_list`(모든 공정 idx에서 `_sim_color_map()[idx][:3] == tool_color_for_index(idx)`).
+- Open source software: 변경 없음(numba/llvmlite 포함 유지).
+- Verification: `python -m pytest` → 457 passed, 1 skipped, 2 failed. 실패 2건은 이 PC의 환경 조건이며 변경 전 HEAD에서도 동일하다:
+  `test_switching_to_lathe_changes_table_schema_and_machine`(레지스트리에 저장된 장비가 `5축 MCT (B to C)`), `SingleInstanceTests`(설치된 앱이 실행 중).
+  코드 리뷰(`/code-review medium`): 지적 사항 없음.
+- Installer/package status: **생성 완료**.
+  - `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` — onedir, UPX 비활성, numba/llvmlite 포함, 폴더 275MB.
+  - `ISCC.exe NC_Tool_List.iss` — `installer\NC_Tool_List_Setup_v2.0.0.exe`.
+  - 포터블: `installer\NC_Tool_List_Portable_v2.0.0.zip`.
+  - dist 폴더의 exe를 기동해 12초 뒤에도 실행 중임을 확인(설치본이 떠 있어 `USERNAME`을 바꿔 단일 실행 인계를 피함).
+  - Setup EXE SHA-256: 9BF2C796762F3248A9C9432CB51BBE552A275013ECBE4D42CEE0036C4AF72C50
+  - Portable ZIP SHA-256: BCC8CBF3349C7BFCF04AE93859F408B2D6E404425D81B9BE91FC6CFED34780C2
+  - App EXE SHA-256: F75CAA1FECCDAA32F60A2D72D5BF86B761FE0BE4DC8571DCC8DEB9E48D4337E6
+  - Setup 80.2 MB / Portable 111.9 MB. 구 v1.x 패키지는 `installer`에 그대로 남겨 둠.
+- 서명 상태: 설치본과 앱 실행 파일 모두 미서명이다(기존과 동일).
+
+### 2026-09-24 (v1.10.0)
 
 - Version: 1.9.3 → 1.10.0
 - Release/build date: 2026-09-24

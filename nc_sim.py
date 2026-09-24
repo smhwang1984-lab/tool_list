@@ -591,6 +591,8 @@ class ZMapStock:
         xs, ys, Z, C = self.display_grid(max_n)
         rgba = self.vertex_colors(C, Z, color_map, mode, default_color)
         verts, faces, colors = mesh_from_grid(xs, ys, Z, rgba, self.zlo, default_color)
+        if mode == 'tool' and color_map:
+            verts, faces, colors = sharpen_color_edges(verts, faces, colors, default_color)
         if edges:
             spacing = float(np.mean(np.diff(xs))) if len(xs) > 1 else self.resolution
             edge_verts = edge_lines(xs, ys, Z, self.zlo, spacing * SIM_EDGE_SLOPE)
@@ -688,6 +690,49 @@ def mesh_from_grid(xs, ys, Z, rgba, zlo, default_color=DEFAULT_STOCK_COLOR):
     colors[nt:nt + perim.size] = flat[perim]
     colors[nt + perim.size] = np.asarray(default_color, dtype=np.float32)
     return verts, faces, colors
+
+
+def _color_keys(colors):
+    """정점 색(RGB) -> 같은 색이면 같은 uint64 키. 삼각형 안에서 색이 다른지 빠르게 본다."""
+    bits = np.ascontiguousarray(colors[:, :3], dtype=np.float32).view(np.uint32).astype(np.uint64)
+    mul = np.uint64(1000003)
+    with np.errstate(over='ignore'):
+        return (bits[:, 0] * mul + bits[:, 1]) * mul + bits[:, 2]
+
+
+def sharpen_color_edges(verts, faces, colors, default_color=DEFAULT_STOCK_COLOR):
+    """공정 색 경계를 선명하게 — 삼각형 안에서 색이 섞이는(그라데이션) 면만 정점을 복제해
+    면 하나를 한 가지 색으로 칠한다(v2.0.2). 나머지 면은 정점을 그대로 공유하므로 정점은
+    (섞이는 면 수 x 3)개만 늘어난다.
+
+    색 결정: 세 정점 중 같은 색이 둘 이상이면 그 색(다수결), 셋이 모두 다르면 기본색이
+    아닌 첫 정점의 색. 그래서 깎인 정점이 하나뿐인 면은 기본색, 둘 이상인 면은 공정 색이 된다.
+    돌려줌: (verts, faces, colors) — 섞이는 면이 없으면 입력을 그대로 돌려준다."""
+    if faces.shape[0] == 0:
+        return verts, faces, colors
+    keys = _color_keys(colors)
+    k0, k1, k2 = keys[faces[:, 0]], keys[faces[:, 1]], keys[faces[:, 2]]
+    mixed = np.nonzero(~((k0 == k1) & (k1 == k2)))[0]
+    if mixed.size == 0:
+        return verts, faces, colors
+    f = faces[mixed]
+    m0, m1, m2 = k0[mixed], k1[mixed], k2[mixed]
+    default_key = _color_keys(np.asarray(default_color, dtype=np.float32).reshape(1, 4))[0]
+    pick = np.zeros(mixed.size, dtype=np.int64)            # 면 색을 가져올 정점 위치(0~2)
+    major = (m0 == m1) | (m0 == m2)
+    pick[~major & (m1 == m2)] = 1
+    none = ~major & (m1 != m2)                              # 셋이 모두 다름
+    first_cut = np.where(m0 != default_key, 0, np.where(m1 != default_key, 1, 2))
+    pick[none] = first_cut[none]
+    face_color = colors[f[np.arange(mixed.size), pick]]
+    base = verts.shape[0]
+    count = mixed.size
+    new_verts = verts[f.reshape(-1)]
+    new_colors = np.repeat(face_color, 3, axis=0)
+    new_faces = faces.copy()
+    new_faces[mixed] = (base + np.arange(count * 3, dtype=np.int64)).reshape(count, 3).astype(faces.dtype)
+    return (np.concatenate([verts, new_verts]), new_faces,
+            np.concatenate([colors, new_colors]).astype(np.float32))
 
 
 def edge_lines(xs, ys, Z, zlo, thr, limit=SIM_EDGE_SEGMENT_LIMIT):

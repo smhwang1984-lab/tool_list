@@ -1809,6 +1809,7 @@ class StockDialog(QDialog):
 
     # -- QSettings 저장(전역 하나만 기억, F 결정) ------------------------------
     _SETTINGS_GROUP = 'stock'
+    _COLOR_MIGRATED_KEY = 'color_mode_migrated_v2'
 
     def _save_settings(self):
         settings = self.viewer.settings
@@ -1860,6 +1861,14 @@ class StockDialog(QDialog):
         enabled_val = settings.value('enabled', False)
         self.enable_check.setChecked(str(enabled_val).lower() in ('1', 'true'))
         mode_val = settings.value('color_mode', 'tool')
+        # v2.0.1: 절삭면 색이 공정 목록 색과 같아진 v2.0.0 기능을 저장된 '단색'/'깎인 깊이'
+        # 선택이 가려 "색이 안 입혀진다"로 보이던 문제 — 한 번만 공정 색으로 되돌린다.
+        # 이후 사용자가 다시 고른 값은 그대로 유지한다.
+        if settings.value(self._COLOR_MIGRATED_KEY, None) is None:
+            if mode_val != 'tool':
+                mode_val = 'tool'
+                settings.setValue('color_mode', mode_val)
+            settings.setValue(self._COLOR_MIGRATED_KEY, True)
         mode_idx = self.color_mode_combo.findData(mode_val)
         self.color_mode_combo.setCurrentIndex(mode_idx if mode_idx >= 0 else 0)
         self.viewer.sim_color_mode = self.color_mode_combo.currentData()
@@ -2746,7 +2755,7 @@ class NCViewerWidget(QWidget):
     _SIM_SYNC_SEGMENTS = 300
     _SIM_SYNC_SEGMENTS_3D = 8
     # 색상 모드 이름 -> nc_sim.display_mesh(mode=...)
-    SIM_COLOR_MODES = (('tool', '공구 색'), ('depth', '깎인 깊이'), ('solid', '단색'))
+    SIM_COLOR_MODES = (('tool', '공정 색'), ('depth', '깎인 깊이'), ('solid', '단색'))
 
     def _init_sim_state(self):
         self.sim_enabled = False
@@ -3228,12 +3237,10 @@ class NCViewerWidget(QWidget):
         QTimer.singleShot(0, self._sim_do_mesh_refresh)
 
     def _sim_color_map(self):
-        """color_idx(공정 순번) -> RGBA(0~1). 툴패스 선과 같은
-        tool_color_for_index() 팔레트를 쓰되, 소재는 밝은 계통으로 보이도록
-        흰색 쪽으로 섞는다(v1.9.2 — 조명 없이 단순 채움이라 진한 색은 무겁다)."""
-        def lighten(rgb):
-            return tuple(0.45 + 0.55 * float(c) for c in list(rgb)[:3]) + (1.0,)
-        return {idx: lighten(tool_color_for_index(idx)) for idx in range(len(self.tool_paths))}
+        """color_idx(공정 순번) -> RGBA(0~1). 공정 목록 칩·툴패스 선과 같은
+        tool_color_for_index() 색을 그대로 쓴다(v2.0.0 — 섞지 않는다)."""
+        return {idx: tuple(float(c) for c in tool_color_for_index(idx)[:3]) + (1.0,)
+                for idx in range(len(self.tool_paths))}
 
     # 소재 면은 조명 없이 정점 색 그대로 그린다. 모서리 선과 겹칠 때 깜빡이지
     # 않도록 면만 살짝 뒤로 민다(polygon offset).
@@ -3293,7 +3300,7 @@ class NCViewerWidget(QWidget):
             self._sim_request_mesh_refresh(force=True)
 
     def set_sim_color_mode(self, mode):
-        """소재 색상 모드('tool' 공구 색 / 'depth' 깎인 깊이 / 'solid' 단색).
+        """소재 색상 모드('tool' 공정 색 / 'depth' 깎인 깊이 / 'solid' 단색).
         계산은 다시 하지 않고 색만 바꿔 다시 그린다."""
         if mode not in dict(self.SIM_COLOR_MODES):
             return

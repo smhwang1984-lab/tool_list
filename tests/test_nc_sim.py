@@ -490,6 +490,19 @@ class DisplayMeshTests(unittest.TestCase):
         outline = (2 * 40 + 2 * 40 - 4) + 4 + 4
         self.assertLessEqual(edges.shape[0] // 2, outline + 50)
 
+    def test_tool_mode_display_mesh_has_no_gradient_faces(self):
+        """v2.0.2: 공정 색 모드는 한 삼각형 안에서 색이 섞이지 않고, 늘어나는 정점은 적다."""
+        stock = self._slot_stock()
+        cmap = {1: (1.0, 0.0, 0.0, 1.0)}
+        verts, faces, colors, _e = stock.display_mesh(300, color_map=cmap, mode='tool')
+        rgb = colors[faces][:, :, :3]
+        self.assertTrue(np.all(rgb[:, 0] == rgb[:, 1]) and np.all(rgb[:, 0] == rgb[:, 2]))
+        self.assertTrue(np.any(np.all(np.isclose(rgb[:, 0], (1.0, 0.0, 0.0)), axis=1)))
+        base, _f, _c, _e = stock.display_mesh(300, mode='solid')
+        self.assertLess(verts.shape[0], base.shape[0] * 1.2)
+        depth, _f, _c, _e = stock.display_mesh(300, mode='depth')
+        self.assertEqual(depth.shape[0], base.shape[0])          # 깊이 모드는 그대로
+
     def test_color_modes(self):
         stock = self._slot_stock()
         cmap = {1: (1.0, 0.0, 0.0, 1.0)}
@@ -501,6 +514,45 @@ class DisplayMeshTests(unittest.TestCase):
         self.assertGreater(len({tuple(np.round(c, 3)) for c in depth_colors}), 1)
         # 밝은 계통 — 깊이 모드 색의 평균 밝기가 충분히 높다
         self.assertGreater(float(depth_colors[:, :3].mean()), 0.6)
+
+
+class SharpenColorEdgesTests(unittest.TestCase):
+    """v2.0.2 — 공정 색 경계를 그라데이션 없이 선명하게."""
+
+    RED = (1.0, 0.0, 0.0, 1.0)
+    DEF = sim.DEFAULT_STOCK_COLOR
+
+    def _quad(self, colors):
+        verts = np.array([[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]], dtype=np.float32)
+        faces = np.array([[0, 1, 2], [0, 2, 3]], dtype=np.int32)
+        return verts, faces, np.array(colors, dtype=np.float32)
+
+    def test_face_takes_majority_color_and_geometry_is_unchanged(self):
+        # v0, v1 = 공정 색, v2, v3 = 기본색 — 면 (0,1,2)는 둘이 공정 색, 면 (0,2,3)은 하나뿐
+        verts, faces, colors = self._quad([self.RED, self.RED, self.DEF, self.DEF])
+        v2, f2, c2 = sim.sharpen_color_edges(verts, faces, colors)
+        self.assertEqual(v2.shape[0], 4 + 6)                     # 섞이는 면 2개 x 정점 3개 복제
+        for face, expect in zip(f2, (self.RED, self.DEF)):
+            self.assertTrue(np.allclose(c2[face], np.array(expect, dtype=np.float32)))
+        # 삼각형이 차지하는 위치는 그대로다
+        self.assertTrue(np.array_equal(v2[f2[0]], verts[faces[0]]))
+        self.assertTrue(np.array_equal(v2[f2[1]], verts[faces[1]]))
+        self.assertTrue(np.array_equal(faces, [[0, 1, 2], [0, 2, 3]]))   # 입력은 건드리지 않는다
+
+    def test_uniform_mesh_is_returned_as_is(self):
+        verts, faces, colors = self._quad([self.RED] * 4)
+        v2, f2, c2 = sim.sharpen_color_edges(verts, faces, colors)
+        self.assertIs(v2, verts)
+        self.assertIs(f2, faces)
+        self.assertIs(c2, colors)
+
+    def test_three_different_colors_use_first_non_default_vertex(self):
+        blue = (0.0, 0.0, 1.0, 1.0)
+        verts = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0]], dtype=np.float32)
+        faces = np.array([[0, 1, 2]], dtype=np.int32)
+        colors = np.array([self.DEF, self.RED, blue], dtype=np.float32)
+        _v, f2, c2 = sim.sharpen_color_edges(verts, faces, colors)
+        self.assertTrue(np.allclose(c2[f2[0]], np.array(self.RED, dtype=np.float32)))
 
 
 class AutoResolutionTests(unittest.TestCase):

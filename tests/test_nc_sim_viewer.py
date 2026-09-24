@@ -16,7 +16,7 @@ import numpy as np
 try:
     from PyQt5.QtWidgets import QApplication
     import nc_sim
-    from nc_viewer_widget import NCViewerWidget
+    from nc_viewer_widget import NCViewerWidget, tool_color_for_index
     IMPORT_ERROR = None
 except Exception as exc:  # noqa: BLE001
     IMPORT_ERROR = exc
@@ -292,16 +292,19 @@ M30
         self.assertTrue(np.allclose(solid, np.array(nc_sim.DEFAULT_STOCK_COLOR)))
         self.assertGreater(len(np.unique(depth.round(3), axis=0)), 1)
         self.assertGreater(len(np.unique(tool.round(3), axis=0)), 1)
-        self.assertFalse(np.allclose(depth, tool))
+        # v2.0.2: 공정 색은 색이 섞이는 면의 정점을 복제하므로 깊이 모드와 정점 수가 다를 수 있다
+        self.assertFalse(depth.shape == tool.shape and np.allclose(depth, tool))
         self.assertTrue(np.array_equal(viewer.sim_stock.heights, heights))   # 재계산 없음
         self.assertEqual(viewer.sim_last_seq, last)
         viewer.set_sim_color_mode('없는 모드')
         self.assertEqual(viewer.sim_color_mode, 'tool')
 
-    def test_tool_colors_are_light(self):
+    def test_sim_colors_match_process_list(self):
         viewer = self.make_viewer()
-        for rgba in viewer._sim_color_map().values():
-            self.assertGreaterEqual(min(rgba[:3]), 0.45)
+        color_map = viewer._sim_color_map()
+        self.assertEqual(set(color_map), set(range(len(viewer.tool_paths))))
+        for idx, rgba in color_map.items():
+            self.assertEqual(tuple(rgba[:3]), tuple(float(c) for c in tool_color_for_index(idx)))
             self.assertEqual(rgba[3], 1.0)
 
     def test_stl_export_uses_full_resolution_mesh(self):
@@ -356,6 +359,45 @@ M30
         self.assertAlmostEqual(stock.x0, -18.5)
         self.assertAlmostEqual(stock.zlo, -11.0)
         self.assertAlmostEqual(stock.ztop, 0.0)
+
+    # -- 저장된 색상 모드 마이그레이션 (v2.0.1) ------------------------------------
+    def _dialog_with_saved_mode(self, mode, migrated=False):
+        import tempfile
+        from PyQt5.QtCore import QSettings
+        from nc_viewer_widget import StockDialog
+        viewer = self.make_viewer()
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        settings = QSettings(os.path.join(directory.name, 'iso.ini'), QSettings.IniFormat)
+        settings.setValue('stock/color_mode', mode)
+        if migrated:
+            settings.setValue('stock/color_mode_migrated_v2', True)
+        viewer.settings = settings
+        dialog = StockDialog(viewer)
+        self.addCleanup(dialog.deleteLater)
+        return viewer, dialog, settings
+
+    def test_saved_solid_or_depth_mode_is_reset_to_tool_once(self):
+        for mode in ('solid', 'depth'):
+            viewer, dialog, settings = self._dialog_with_saved_mode(mode)
+            self.assertEqual(dialog.color_mode_combo.currentData(), 'tool', mode)
+            self.assertEqual(viewer.sim_color_mode, 'tool', mode)
+            self.assertEqual(settings.value('stock/color_mode'), 'tool', mode)
+            self.assertTrue(settings.value('stock/color_mode_migrated_v2', False, type=bool))
+
+    def test_color_mode_chosen_after_migration_is_kept(self):
+        viewer, dialog, settings = self._dialog_with_saved_mode('solid')
+        dialog.color_mode_combo.setCurrentIndex(dialog.color_mode_combo.findData('solid'))
+        from nc_viewer_widget import StockDialog
+        reopened = StockDialog(viewer)                 # 같은 설정으로 다시 연다
+        self.addCleanup(reopened.deleteLater)
+        self.assertEqual(reopened.color_mode_combo.currentData(), 'solid')
+        self.assertEqual(viewer.sim_color_mode, 'solid')
+
+    def test_already_migrated_settings_are_left_alone(self):
+        viewer, dialog, settings = self._dialog_with_saved_mode('depth', migrated=True)
+        self.assertEqual(dialog.color_mode_combo.currentData(), 'depth')
+        self.assertEqual(settings.value('stock/color_mode'), 'depth')
 
     # -- 깎이지 않은 이유 진단 (v1.9.3) -------------------------------------------
     def _apply_and_diagnose(self, viewer, spec):
@@ -412,9 +454,7 @@ M30
         viewer = self.make_viewer()
         viewer.apply_stock_spec(make_spec(), 0.5, True)
         viewer.sim_wait()
-        from nc_viewer_widget import StockDialog
-        dialog = StockDialog(viewer)
-        self.addCleanup(dialog.deleteLater)
+        dialog = self._isolated_dialog(viewer)       # 실제 QSettings를 건드리지 않는다
         viewer.sim_progress_text = '형상 계산 중… 42%'
         dialog.refresh_status()
         self.assertIn('42%', dialog.status_label.text())

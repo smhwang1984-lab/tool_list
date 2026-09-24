@@ -462,9 +462,12 @@ class VoxelStock:
             self._mesh_cache = cache
         verts, faces = cache['verts'], cache['faces']
         colors = self._color_lookup(color_map, mode, default_color, verts, cache['cell_col'])
+        edge_source = verts             # 모서리 선은 캐시된 원래 정점 기준(아래에서 verts가 늘어남)
+        if mode == 'tool' and color_map:
+            verts, faces, colors = nc_sim.sharpen_color_edges(verts, faces, colors, default_color)
         if edges:
             if cache['edges'] is None:
-                cache['edges'] = crease_edges(verts, cache['quads'], SIM3D_CREASE_DEG)
+                cache['edges'] = crease_edges(edge_source, cache['quads'], SIM3D_CREASE_DEG)
             edge_verts = cache['edges']
         else:
             edge_verts = np.zeros((0, 3), dtype=np.float32)
