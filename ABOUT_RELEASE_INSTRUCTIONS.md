@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-09-22 (NC_Tool_List v1.8.4 — 밀링 고정 사이클 모달 반복 수정, 안전 모드 그래픽 어댑터 버튼)
+Last updated: 2026-09-24 (NC_Tool_List v1.10.0 — G68.2(3+2 경사면)·G43.4(동시 5축) 가공 3D 소재 시뮬레이션)
 
 ## About button requirements
 
@@ -34,7 +34,236 @@ Last updated: 2026-09-22 (NC_Tool_List v1.8.4 — 밀링 고정 사이클 모달
 
 ## Version history
 
-### 2026-09-22 (latest, v1.8.4)
+### 2026-09-24 (latest, v1.10.0)
+
+- Version: 1.9.3 → 1.10.0
+- Release/build date: 2026-09-24
+- Summary: 사용자 요청 "추가로 G68.2 G43.4 가공에 대해서도 시뮬레이션 표현 필요"(샘플 `O3210.NC` — B→C 동시 5축, "벡터 방향 진입으로 가공",
+  "프로그램에서 G68.2 기본 설정 → G69 취소 → G43.4 보정", "G43.4는 I/J/K 미사용, A/B/C가 벡터를 결정") 구현. 자세한 플랜·측정은 `v1.10.0_PLAN.md`.
+  - **3D 소재(복셀) 엔진 `nc_sim3d.py`** — 공구 축이 +Z가 아닌 이동(G68.2 경사면, G43.4 회전축 값)이 하나라도 있는 프로그램은 자동으로 3D 점유 격자로 시뮬레이션한다
+    (순수 3축 프로그램은 기존 Z-map 그대로). 이동마다 그 시점의 공구 축으로 공구 회전체를 빼며, 이동 중 축이 돌면(동시 5축) 2° 단위 조각으로 나눈다. 날장(FL)까지만 깎는다.
+  - **파서**: G43.4(켜짐)/G49·일반 G43(꺼짐) 추적, 모달 A/B/C 값으로 줄별 공구 축 기록(`line_axis_map`), G68.2 **원점 X Y Z** 반영(G69에서 해제).
+    공구 축 규칙: A→C `Rz(C)·Rx(A)·z`, B→C `Rz(C)·Ry(B)·z` — O3210.NC 진입 이동과 0.0005°, ncdata.nc와 0.0000° 일치로 검증.
+  - **표시**: 조명 없는 밝은 단색 + 표면 넷 메쉬(계단 없는 표면), 이웃 면이 40° 넘게 꺾이는 곳만 모서리 선, 절삭면은 그 면을 만든 공구 색. 화면 사각형 상한 초과 시 자동으로 거칠게.
+    색상 모드 전환은 메쉬 캐시로 즉시.
+  - **성능/안정**: numba 커널(`nc_sim_numba.cut_chunk3d`, numpy와 복셀 단위 동일), 스냅샷 zlib 압축(40MB→2MB), 백그라운드 계산·취소·진행률(v1.9.2 구조 재사용),
+    깎이기 전 소재는 상자 메쉬로 즉시 표시. 자동 해상도는 복셀 약 2,000만(numba 없으면 250만).
+  - **결함 수정**: 공정별 스냅샷이 M6 줄과 seq가 같은 선분에만 잡혀 실제 프로그램에서 한 개도 안 잡히던 문제(Z-map 포함).
+  - **배포에 numba 포함**(결정 C ★): `NC_Tool_List.spec`의 `NC_INCLUDE_NUMBA`(기본 1)로 전환. 배포 폴더 151MB → 275MB(llvmlite). 빼려면 빌드 전에 `NC_INCLUDE_NUMBA=0`.
+    동결 exe에서 3D 절삭·캐시(재실행 후 0.3초) 동작 확인.
+  - 소재 팝업 해상도 콤보에 1.0 추가, 진단 문구는 3D 기준으로 갱신(경사면은 더 이상 "제외"가 아니라 3D로 계산).
+- 측정(이 PC): `O3210.NC` 26,153줄 numba 28~37초(0.59mm), numpy 45초(1.18mm로 자동 하향) / `ncdata.nc` 32,903줄 numba 16초(0.43mm).
+- Open source software: **numba 0.67 / llvmlite 0.49를 배포물에 포함**(BSD 라이선스). About 화면 오픈소스 목록(`OPEN_SOURCE_COMPONENTS`)에 Numba·llvmlite 추가.
+- Verification: `python -m pytest` → 459 passed, 1 skipped, 10 subtests passed(신규 `tests/test_nc_sim3d.py` 24건, `tests/test_nc_sim_viewer.py` 확장,
+  `tests/data/O3210_excerpt.nc` 발췌). (`SingleInstanceTests`는 설치된 앱이 실행 중이면 실패하는 환경 조건 — 앱을 끄면 통과.)
+- Installer/package status: **생성 완료**.
+  - `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` — onedir, UPX 비활성, **numba/llvmlite 포함**(`NC_INCLUDE_NUMBA=1` 기본). `_internal`에 numba·llvmlite·`nc_sim_numba.py`(캐시용 소스) 포함, 폴더 275MB.
+  - `ISCC.exe NC_Tool_List.iss`(Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.10.0.exe`.
+  - 포터블: `installer\NC_Tool_List_Portable_v1.10.0.zip`.
+  - dist 폴더의 exe를 직접 기동해 12초 뒤에도 실행 중임을 확인. 앱 전체 구성 점검 exe로 3+2 프로그램의 3D 절삭(스레드 + numba)·화면 갱신 확인.
+  - Setup EXE SHA-256: D279F6CCAD5CDE5AFC6C3B49D76DB424E08EC3EB6B9E06EEC668A1BD4B25F96F
+  - Portable ZIP SHA-256: 092BCF8C464D5E2B3BA0056EE1959371B973ECEBD9C409E0C2BC9B43F15CFF97
+  - App EXE SHA-256: D2B710F5CE29118E60F0C216B028329FD2B62440C78B27B24798B8890DF0A2A1
+  - Setup 80.1 MB / Portable 111.9 MB (v1.9.3: 46.5 / 64.1 MB — numba 포함분). 구 v1.9.x 패키지는 `installer`에 그대로 남겨 둠.
+  - numba 없는 작은 빌드가 필요하면 `set NC_INCLUDE_NUMBA=0` 후 위 절차(그 경우 3D 시뮬레이션은 numpy 경로, 해상도가 거칠어짐).
+- 서명 상태: 설치본과 앱 실행 파일 모두 미서명이다(기존과 동일). llvmlite(JIT)를 포함하므로 백신 오탐 여부는 현장 PC에서 확인 필요.
+
+### 2026-09-24 (v1.9.3)
+
+- Version: 1.9.2 → 1.9.3
+- Release/build date: 2026-09-24
+- Summary: v1.9.2 설치 후 사용자 피드백 2건 — "소재가 깎여나가지 않아 / 일반 3축
+  가공에서도 모델이 깎이지 않음", "소재 설정 시 툴패스 영역에서 확장되는 형태로 나오는데
+  소재는 내가 선택한 걸로 지정이 되어야 함".
+  1. **소재 자동 확장 제거** — 소재 팝업을 처음 열 때 툴패스 범위(+여유)로 치수·위치를
+     자동으로 채우던 동작(v1.9.0 결정 E)을 없앴다. 저장된 값이 없으면 기본 소재
+     (L100 × W100 × T50, 윗면 = 0, 중심)로 시작하고, 사용자가 입력한 값은 그대로 쓰인다.
+     툴패스에 맞추기는 [툴패스 범위에 맞추기] 버튼을 눌렀을 때만 동작한다.
+  2. **"깎이지 않은 이유" 진단 표시** — 계산이 끝났는데 소재가 하나도 깎이지 않았으면
+     3D 화면 왼쪽 위에 빨간 경고로 이유를 알려주고 소재 팝업 상태줄에도 ⚠로 표시한다:
+     ① 툴패스의 가장 낮은 Z가 소재 윗면보다 위(소재 Z 기준 위치/이동 확인),
+     ② 툴패스 X/Y 범위가 소재와 겹치지 않음(소재 XY 기준 확인),
+     ③ 경사면(G68.2, 3+2) 가공이라 3축 시뮬레이션에서 제외됨,
+     ④ 공구 지름(D) 값이 없어 제외됨, ⑤ 공구 번호(T)가 잡히지 않은 이동이 제외됨.
+     ⑤는 v1.9.2까지 조용히 건너뛰던 경우다(상태줄에도 개수를 표시).
+  - 조사 결과: 3축 프로그램은 오프스크린·실제 GL 화면·**PyInstaller 동결 exe(스레드
+    경로, numpy)** 모두에서 정상적으로 깎이고 화면 메쉬도 자동 갱신됨을 확인했다.
+    즉 엔진/패키징 결함은 재현되지 않았고, 사용자 환경에서 안 깎이는 경우는 위 ①~⑤
+    입력 조건(특히 ③ — `ncdata.nc` 같은 3+2 프로그램은 선분 32,416개가 전부 경사면
+    구간이라 3축 엔진에서는 원래 제외됨)이 원인일 가능성이 높다. 3+2 가공 시뮬레이션은
+    별도 엔진(다방향 소재 표현)이 필요한 다음 단계다.
+- Open source software: 추가 없음(numpy만 사용, numba는 배포물 미포함).
+- Verification: `python -m pytest` → 423 passed, 1 skipped, 10 subtests passed
+  (`tests/test_nc_sim_viewer.py`에 자동 확장 없음·사용자 소재 그대로·진단 5종 신규 8건).
+- Installer/package status: **생성 완료**.
+  - `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` — onedir, UPX 비활성. `_internal`에 numba/llvmlite 없음.
+  - `ISCC.exe NC_Tool_List.iss`(Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.9.3.exe`.
+  - 포터블: `installer\NC_Tool_List_Portable_v1.9.3.zip`.
+  - dist 폴더의 exe를 직접 기동해 10초 뒤에도 실행 중임을 확인.
+  - Setup EXE SHA-256: 0988946D254308B3E36568E215474FC055388108636C953D41E84F5F3C665716
+  - Portable ZIP SHA-256: 9DCE8239AFAFA41D99209590D32CEED3D4E002647788909E0D321DB2849FA83C
+  - App EXE SHA-256: 48350BD2978A20DEE81261C213FD87A7EFBD7341F424DBEA795DA06B718A8CE7
+  - Setup 46.5 MB / Portable 64.1 MB. (구 v1.9.1/v1.9.2 패키지는 `installer`에 그대로 남겨 둠)
+- 서명 상태: 설치본과 앱 실행 파일 모두 미서명이다(기존과 동일).
+
+### 2026-09-24 (v1.9.2)
+
+- Version: 1.9.1 → 1.9.2
+- Release/build date: 2026-09-24
+- Summary: 형상(소재) 시뮬레이션 **속도 개선 + 저사양 표시 최적화**. 외부 플랜
+  `PLAN_stock_simulation.md`에서 지금 구조에 붙일 수 있는 것만 골라
+  `v1.9.2_PLAN.md`로 정리·승인(결정 A~G 모두 권장안)받아 구현했다.
+  - **절삭 계산 28~130배 빠름** — 칸마다 "이동 선분까지의 수평 거리 d"로
+    `팁 Z + h(d)`를 바로 계산한다(공구 반경별 높이표 보간, 격자 맞춤 오차
+    없음, Z 변화 구간은 잘게 나눔). 소재 위/밖 선분은 건너뛴다. 높이는
+    float32, 공구 색 id는 int16(스냅샷 12MB → 6MB). D6 공구 3만 선분:
+    v1.9.1 약 139초 → numpy 4.9초 / numba 1.05초.
+  - **백그라운드 계산** — `QThread` 대신 데몬 스레드 + 큐 신호로, 워커가 소재
+    **복사본**만 깎고 끝나면 UI가 넘겨받는다. 진행률을 뷰 왼쪽 위와 소재
+    팝업에 표시하고, 새 요청이 오면 청크(2,000선분) 사이에서 취소한다.
+    [적용] 클릭 후 UI가 막히는 시간 0.07초. 300선분 이하는 바로 계산한다.
+  - **표시 최적화** — 계산 격자와 화면 격자를 분리(화면 최대 600×600, 블록
+    **최솟값**으로 줄여 좁은 홈 보존), 정점을 공유하는 닫힌 인덱스 메쉬(정점
+    608만 → 약 17만), 면 인덱스 재사용. STL은 전체 해상도 그대로.
+  - **사용자 추가 지시 반영: 샤이닝 없는 밝은 단색 + 모서리 선** —
+    `GLMeshItem(shader=None, smooth=True, computeNormals=False)`로 조명·법선
+    없이 정점 색만 그리고, 모서리(소재 외곽 + 기울기가 45° 넘게 꺾이는 절삭
+    단차의 윗/아랫 테두리)를 `GLLinePlotItem`으로 그린다. 면은 polygon
+    offset으로 살짝 뒤로 밀어 선과 깜빡이지 않게 했다.
+  - **색상 모드** — 소재 팝업에 "소재 색" 콤보(공구 색 / 깎인 깊이 / 단색),
+    QSettings `stock/color_mode`에 저장. 공구 색은 흰색 쪽으로 섞어 밝게.
+  - **급속(G00) 절삭 위치 목록** — 팝업의 [급속 절삭 위치 보기...]에서 줄
+    번호를 누르면 프로그램 편집기 커서가 그 줄로 이동한다.
+  - **결함 수정** — 되감은 뒤 다시 깎으면 급속 절삭 경고가 중복으로 쌓이던
+    문제(스냅샷에 경고 개수를 함께 저장). 소재를 껐다 켤 때 그 사이 바뀐
+    공정 선택이 반영되지 않던 문제.
+  - **Numba는 선택 의존성** — `nc_sim_numba.py`(별도 모듈, 지연 import)는 개발
+    PC에 numba가 있을 때만 쓰고 결과는 numpy 경로와 비트 단위로 같다. 배포
+    exe에는 넣지 않는다(`NC_Tool_List.spec` `excludes`에 numba/llvmlite/
+    nc_sim_numba 명시 — 포함 시 약 +60MB). exe에서는 numpy 경로로 계산한다.
+  - 내부 API 변경: `ZMapStock.cut_batch()` 신설(기존 `cut_segment/cut_point`
+    유지), `to_mesh()`는 정점 공유 인덱스 메쉬, `ToolShape.radial_lut()`,
+    `ZMapStock.display_mesh()/display_grid()/clone()`, 뷰어 `sim_segments`
+    (dict 목록) → `sim_seg`(numpy 배열 묶음).
+- Open source software: 런타임 추가 없음(numpy만). 개발용 선택 의존성으로
+  numba 0.67 / llvmlite 0.49를 설치해 가속 경로를 검증했다(배포물 미포함).
+- Verification: `python -m pytest` → 415 passed, 1 skipped, 10 subtests
+  passed(v1.9.1 기준 378 passed; 신규 `tests/test_nc_sim.py` 21건 + 신규
+  `tests/test_nc_sim_viewer.py` 16건). numba 경로 = numpy 경로 비트 단위
+  일치, 무작위 seek 20회 = 처음부터 계산, 긴 프로그램 도중 연속 요청 후 결과
+  일치를 테스트로 확인. 실제 GL 화면 스크린샷으로 3가지 색상 모드와 모서리
+  선 확인. `tests/bench_nc_sim.py`로 속도 측정. (`test_nc_tool_list.py`의
+  일부는 저장된 장비가 선반이면 실패하는 기존 문제가 있다 — v1.9.1에서도
+  동일하게 재현되며 이번 변경과 무관.)
+- Installer/package status: **생성 완료**.
+  - `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` — onedir, UPX 비활성. `_internal`에 numba/llvmlite 없음(numpy 경로로 동작).
+  - `ISCC.exe NC_Tool_List.iss`(Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.9.2.exe`.
+  - 포터블: `installer\NC_Tool_List_Portable_v1.9.2.zip`.
+  - dist 폴더의 exe를 직접 기동해 10초 뒤에도 실행 중임을 확인.
+  - Setup EXE SHA-256: 4A1E0D18A79EE5D34B9D70D7184A0E1267ACAF1F28B92D739805FB0761B6D61E
+  - Portable ZIP SHA-256: 88AF2D230C820AE3C0C355F661B7FB30F62D4AC010E63ED4E0135F133CB70CBD
+  - App EXE SHA-256: 1079AA5C4FC12C0793D6B89264D424BBA63C20E6D7652D5758943449BE3CCC89
+  - Setup 46.5 MB / Portable 64.1 MB.
+- 서명 상태: 설치본과 앱 실행 파일 모두 미서명이다(기존과 동일).
+
+### 2026-09-24 (v1.9.1)
+
+- Version: 1.9.0 → 1.9.1
+- Release/build date: 2026-09-24
+- Summary: v1.9.0 형상 시뮬레이션에 대한 사용자 피드백 2건 반영.
+  1. **계산을 가볍게** — "계산 후 공정 선택 시 산출되는 모양만 보이면
+     될 것 같아 실시간 시물레이션은 너무 무겁네." 재생/커서 이동
+     프레임마다(`set_cursor_seq`) STOCK을 다시 깎던 것을 없애고,
+     **공정 필터에서 선택이 바뀔 때만**(`update_visible_paths` ->
+     `_sim_recompute_for_selection`) 계산하도록 바꿨다. 선택된 공정
+     중 가장 뒤(seq가 큰) 공정 끝까지 누적 절삭 결과 하나만 계산해
+     보여준다 — 전체 공정 기준 누적은 그대로(결정 G), 계산 자체(Z-map
+     엔진·스냅샷·되돌리기)는 손대지 않고 "언제 부르는가"만 바꿨다.
+     `apply_stock_spec()`([적용] 버튼)도 같은 기준으로 맞췄다.
+  2. **절삭면에 공구 색 입히기** — "추가로 공구툴패스 색을 가공
+     모델에 입혀줘." `nc_sim.ZMapStock`이 XY 칸마다 "마지막으로 깎은
+     공구 색 id"(`color_ids`)를 함께 들고 있다가, `to_mesh(color_map=...)`
+     로 윗면 정점마다 그 공구의 RGBA를 입힌다(옆벽/바닥/미절삭 칸은
+     회색 기본색). 색 id는 공정 순번이라 툴패스 선 색(`tool_color_for_
+     index`)과 그대로 맞아떨어진다. 스냅샷/되돌리기에도 색이 함께
+     저장·복원된다.
+  - `nc_sim.ZMapStock.snapshot()`/`.restore()`가 이제 `(heights,
+    color_ids)` 튜플을 주고받는다(내부 API, 호출부 전부 갱신).
+  - `to_mesh()`가 `(verts, faces, colors)` 3-튜플을 돌려준다(기존
+    2-튜플에서 변경, 내부 API).
+- Open source software: 추가 없음(기존 numpy만 사용).
+- Verification: `python -m pytest` → 377 passed, 1 skipped, 10 subtests
+  passed(`tests/test_nc_sim.py` 30건 — 색 관련 신규 3건 포함). 2공구
+  데모 프로그램으로 스크린샷 확인 — 서로 다른 공정이 절삭면에 각자
+  다른 색(주황/청록)으로 표시됨을 확인. 재생 커서만 움직였을 때는
+  절삭이 다시 계산되지 않고(무겁던 부분 제거), 공정 필터 선택을 바꿀
+  때만 계산됨을 별도 검증.
+- Installer/package status: **생성 완료**.
+  - `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` — onedir, UPX 비활성.
+  - `ISCC.exe NC_Tool_List.iss`(Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.9.1.exe`.
+  - 포터블: `installer\NC_Tool_List_Portable_v1.9.1.zip`(구 v1.9.0 패키지는 삭제).
+  - dist 폴더의 exe를 직접 기동해 정상 실행 확인.
+  - Setup EXE SHA-256: FF1E7B2A045359C0BCC3B588885647E970B501A6F31E8FE53D1A9BD3C86AE98D
+  - Portable ZIP SHA-256: 3B832D6B836DC59A7221D7CB89950EB6C6070D1FB4188163141FCC487DFD34D7
+  - App EXE SHA-256: 58D881BEC6D3CB3E034AF6DD198B9C7C274D388B504367E96C7BF2DC353EC94B
+  - Setup 46.5 MB / Portable 64.1 MB.
+- 서명 상태: 설치본과 앱 실행 파일 모두 미서명이다(기존과 동일).
+- 참고: 이전 빌드 검증 중 강제 종료되지 않은 exe 프로세스가 남아
+  `SingleInstanceTests` 테스트 1건을 일시적으로 실패시킨 적이 있다
+  (코드 문제 아님) — 패키징 검증 후에는 launched exe를 확실히 종료
+  했는지 확인할 것.
+
+### 2026-09-23 (v1.9.0)
+
+- Version: 1.8.4 → 1.9.0
+- Release/build date: 2026-09-23
+- Summary: 밀링 3축 형상 가공 시뮬레이션(신규 기능) — 사용자 확정(2026-09-23,
+  결정 A~H 승인)에 따라 구현.
+  - 새 모듈 `nc_sim.py`(순수 numpy, Qt 비의존): 공구 형상(ToolShape) —
+    FLAT/DYNAMIC E/M은 평바닥, FILLET E/M·CUTTER·FACE MILL은 바닥 R,
+    BALL E/M은 반구, DRILL은 SIG 각도(기본 118도) 원뿔, PL 값이 있는 그
+    외 공구는 45도 챔퍼(각진 U자), 나머지는 평바닥 원기둥으로 대체.
+    StockSpec(T/W/L 축 배정·기준 위치·추가 이동 -> bounds),
+    ZMapStock(Z-map 절삭·스냅샷·삼각형 더미 메쉬),
+    write_stl_binary(바이너리 STL, 외부 의존성 없음).
+  - `NC_Tool_List.py`: `tool_shape_map_from_rows()`로 툴리스트 값을
+    뷰어에 전달, 필터 바에 `[소재]` 버튼 추가(선반 모드에서는 숨김).
+  - `nc_viewer_widget.py`: `StockDialog` 팝업(T/W/L·축 배정 스왑·기준
+    위치·추가 이동·해상도·툴패스 범위 맞추기·STL 내보내기), 재생
+    위치(seq)와 연동한 증분 절삭/공정 경계 스냅샷 되돌리기, G68.2~G69
+    구간 자동 제외, 가공 경로 선 표시/숨기기 토글, 메쉬 표시.
+  - 소재를 설정한 적이 없으면 툴패스 범위 + 여유 2mm로 자동 채움, 설정은
+    전역 하나만 기억, 공구 필터와 무관하게 전체 공정을 절삭.
+  - **3축 전용** — 3+2(G68.2)/동시 5축 실제 절삭, 선반 모드 형상 표시는
+    범위 밖(LATHE_MODE_GUIDELINES.md 그대로 유지). 다음 단계에서 확장
+    검토.
+  - 버그 수정: `(G68.2 INDEX CHG.)` 같은 괄호 주석 문구까지 그대로
+    매칭해 실제 명령보다 앞서 경사면 구간으로 잘못 켜지던 문제 —
+    `_code_without_comments()`로 주석을 걷어낸 코드 부분만 보도록 수정.
+  - 실행 화면(3D 뷰어 + 소재 설정 팝업)을 스크린샷으로 확인해 STOCK
+    절삭 결과가 올바르게 표시됨을 검증(간단한 3축 데모 프로그램 사용 —
+    제공된 실 샘플 `ncdata.nc`는 처음부터 끝까지 G68.2 3+2 가공이라
+    전량 제외 대상이었음).
+- Open source software: 추가 없음(신규 모듈 `nc_sim.py`는 numpy만 사용,
+  이미 쓰고 있던 의존성).
+- Verification: `python -m pytest` → 375 passed, 1 skipped, 10 subtests
+  passed(신규 `tests/test_nc_sim.py` 27건 포함). 실제 샘플(ncdata.nc)로
+  형상 생성 -> 소재 적용 -> 재생 -> 되감기 -> STL 내보내기까지 수동
+  스모크 테스트 확인.
+- Installer/package status: **생성 완료**.
+  - `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` — onedir, UPX 비활성.
+  - `ISCC.exe NC_Tool_List.iss`(Inno Setup 6) — `installer\NC_Tool_List_Setup_v1.9.0.exe`.
+  - 포터블: `installer\NC_Tool_List_Portable_v1.9.0.zip`.
+  - dist 폴더의 exe를 직접 기동해 정상 실행 확인(2회 빌드 모두).
+  - Setup EXE SHA-256: 592F0AA5F5D21E044DEFC468D0ED4E65F7A7BB7B16413D2A5A041DB0453A354C
+  - Portable ZIP SHA-256: DD0F56FD2E02B4FA7CE3147D3E231C0C2A1CBF2075F3E22B0AC38C8BD8D453DA
+  - App EXE SHA-256: 35AED497A6F83E3E8D0377744D43C2CCB09B3287BD0BFBF4B2B46AFDF09FD733
+  - Setup 46.5 MB / Portable 64.1 MB.
+- 서명 상태: 설치본과 앱 실행 파일 모두 미서명이다(기존과 동일).
+- 참고: 이 빌드는 작업 worktree(`worktree-v190-sim-plan`)에서 만들었다.
+  메인 브랜치에 병합한 뒤 배포용으로 다시 빌드하는 것을 권장한다.
+
+### 2026-09-22 (v1.8.4)
 
 - Version: 1.8.3 → 1.8.4
 - Release/build date: 2026-09-22

@@ -28,9 +28,9 @@ from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, T
 import sumpath_license
 
 
-APP_VERSION = '1.8.4'
+APP_VERSION = '1.10.0'
 APP_NAME = 'Sum Path'
-APP_BUILD_DATE = '2026-09-22'
+APP_BUILD_DATE = '2026-09-24'
 APP_CREATOR = 'Hwang.seonmun'
 APP_PURPOSE = 'NC 프로그램에서 공구 리스트를 산출하고 NC 경로를 Viewer로 확인하는 도구'
 OPEN_SOURCE_COMPONENTS = (
@@ -38,6 +38,8 @@ OPEN_SOURCE_COMPONENTS = (
     'PyQt5',
     'pyqtgraph',
     'NumPy',
+    'Numba',
+    'llvmlite',
     'PyOpenGL',
     'ReportLab',
     'PyInstaller',
@@ -1476,6 +1478,41 @@ def tool_name_map_from_rows(rows):
             mapping[str(number)] = name
     return mapping
 
+
+def _safe_float(value):
+    """숫자로 못 읽으면(빈 칸 포함) None — 공구 형상 값이 없다는 뜻으로 쓴다."""
+    try:
+        if value in (None, ''):
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def tool_shape_map_from_rows(rows):
+    """v1.9.0 형상 시뮬레이션용 — 3D 뷰어 필터 키(T01/T1/1)마다 공구 형상에
+    필요한 값(TYPE/D/FL/R/SIG/PL/SO)을 묶어 돌려준다. 밀링 전용
+    (nc_sim.tool_shape_from_values()가 그대로 받는 형태)."""
+    mapping = {}
+    for row in rows or []:
+        no = str(row.get('NO', '')).strip().upper()
+        match = re.fullmatch(r'T?(\d+)', no)
+        if not match:
+            continue
+        number = int(match.group(1))
+        values = {
+            'type': str(row.get('TYPE', '')).strip(),
+            'D': _safe_float(row.get('D')),
+            'FL': _safe_float(row.get('FL')),
+            'R': _safe_float(row.get('R')),
+            'SIG': _safe_float(row.get('SIG')),
+            'PL': _safe_float(row.get('PL')),
+            'SO': _safe_float(row.get('SO')),
+        }
+        for key in ('T%02d' % number, 'T%d' % number, str(number)):
+            mapping[key] = values
+    return mapping
+
 def append_nc_programs(base_text, additions):
     """Append one or more NC programs below the current M30/% tail."""
     parts = []
@@ -2139,7 +2176,7 @@ else:
             if self.tool_filter_list is not None:
                 self.tool_filter_list.clear()
 
-        def set_source_text(self, text, tool_name_map=None):
+        def set_source_text(self, text, tool_name_map=None, tool_shape_map=None):
             if self.tool_filter_list is None:
                 return False
             self.tool_filter_list.clear()
@@ -2724,6 +2761,11 @@ else:
             filter_bar.addWidget(self.pg_match_check)
             self._add_button(filter_bar, '전체', lambda: self.viewer.select_all_tools(True), filter_kfont)
             self._add_button(filter_bar, '해제', lambda: self.viewer.select_all_tools(False), filter_kfont)
+            # v1.9.0: 밀링 3축 형상 가공 시뮬레이션 — 소재 설정 팝업. 선반
+            # 모드에서는 숨긴다(_viewer_machine_type_changed가 토글).
+            self.stock_button = self._add_button(filter_bar, '소재', self.open_stock_dialog, filter_kfont)
+            self.stock_button.setToolTip('소재(STOCK) 설정과 가공 형상 시뮬레이션')
+            self.stock_button.setVisible(not self.is_lathe_program())
             filter_layout.addLayout(filter_bar)
             self.tool_filter = QListWidget()
             self.tool_filter.setSelectionMode(QAbstractItemView.MultiSelection)
@@ -3154,11 +3196,19 @@ else:
                 self.machine_spec_inputs[key] = edit
                 self.machine_spec_form.addRow('%s:' % key, edit)
 
+        def open_stock_dialog(self):
+            """v1.9.0: 밀링 3축 형상 가공 시뮬레이션 — 소재 설정 팝업을 연다."""
+            if hasattr(self.viewer, 'open_stock_dialog'):
+                self.viewer.open_stock_dialog(self)
+
         def _viewer_machine_type_changed(self):
             machine_type = self.machine_type_combo.currentText()
             self._rebuild_machine_spec_form()
             self.viewer.set_machine_type(machine_type)
             self.machine_settings_status.setText('')
+            stock_button = getattr(self, 'stock_button', None)
+            if stock_button is not None:
+                stock_button.setVisible(not is_lathe_machine(machine_type))
             if not is_lathe_machine(machine_type):
                 # v1.6.8: 산출 모드 콤보가 "MCT (밀링)"로 되돌아갈 때 어느
                 # MCT였는지 기억해 둔다 — 사용자가 직접 장비 콤보를
@@ -3862,7 +3912,10 @@ else:
                 self.viewer.clear()
                 return
             _metadata, rows = self.parsed_program_data(source_text)
-            self.viewer.set_source_text(source_text, self.tool_name_map(rows or self.current_rows()))
+            rows = rows or self.current_rows()
+            self.viewer.set_source_text(
+                source_text, self.tool_name_map(rows), self.tool_shape_map(rows),
+            )
             # v1.7.6: 다시 파싱했으니 seq 테이블도 새로 만들어졌다 —
             # playback_seq를 그 커서 위치에 맞는 seq로 재동기화한다
             # (없으면 0으로, 기존 동작과 동일).
@@ -4358,6 +4411,12 @@ else:
             if self.is_lathe_program():
                 return lathe_tool_name_map_from_rows(rows)
             return tool_name_map_from_rows(rows)
+
+        def tool_shape_map(self, rows):
+            # v1.9.0: 형상 시뮬레이션은 밀링 모드 전용 — 선반은 빈 맵을 준다.
+            if self.is_lathe_program():
+                return {}
+            return tool_shape_map_from_rows(rows)
 
         def copy_table(self):
             if self.table.rowCount() == 0:
