@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-09-24 (NC_Tool_List v2.0.0 — 소재 시뮬레이션 절삭면 색을 공정 목록 색과 동일하게)
+Last updated: 2026-09-24 (NC_Tool_List v2.0.1 — 저장된 소재 색 모드를 공정 색으로 한 번 되돌리는 마이그레이션)
 
 ## About button requirements
 
@@ -34,7 +34,34 @@ Last updated: 2026-09-24 (NC_Tool_List v2.0.0 — 소재 시뮬레이션 절삭�
 
 ## Version history
 
-### 2026-09-24 (latest, v2.0.0)
+### 2026-09-24 (latest, v2.0.1)
+
+- Version: 2.0.0 → 2.0.1
+- Release/build date: 2026-09-24
+- Summary: v2.0.0 사용자 피드백 "색입히는 부분에 대해서 적용이 안됨". 조사 결과 코드는 정상(2D·3D 엔진 모두 메쉬 정점에 공정 색이 정확히 들어감)이었고,
+  이 PC의 저장 설정 `HKCU\Software\NC Tool List\EmbeddedViewer\stock\color_mode = solid`(소재 색 콤보 = 단색)가 공정 색 모드를 가리고 있었다.
+  - **한 번만 되돌리는 마이그레이션**: `StockDialog._load_settings`가 표식 키 `stock/color_mode_migrated_v2`가 없으면 저장된 `color_mode`가
+    `tool`이 아닐 때 `tool`(공정 색)로 되돌리고 표식을 남긴다. 이후 사용자가 다시 고른 값(단색·깎인 깊이 포함)은 유지된다.
+  - 테스트: `test_saved_solid_or_depth_mode_is_reset_to_tool_once`, `test_color_mode_chosen_after_migration_is_kept`,
+    `test_already_migrated_settings_are_left_alone`(격리된 `QSettings` ini 사용). 실제 QSettings로 팝업을 만들던
+    `test_dialog_status_shows_progress_and_rapid_button`도 격리 설정으로 바꿨다(마이그레이션이 실제 레지스트리에 쓰지 않도록).
+  - 설정 값은 팝업을 처음 열 때 적용된다(그 전에는 저장 값이 그대로). 이 PC 레지스트리는 수동으로 바꾸지 않았다.
+- Open source software: 변경 없음(numba/llvmlite 포함 유지).
+- Verification: `python -m pytest` → 461 passed, 1 skipped, 1 failed. 실패 1건은 이 PC의 환경 조건이며 변경 전 HEAD에서도 동일:
+  `test_switching_to_lathe_changes_table_schema_and_machine`(레지스트리에 저장된 장비가 `5축 MCT (B to C)`). 실행 후 실제 레지스트리 `color_mode`가 그대로 `solid`임을 확인.
+  코드 리뷰(`/code-review medium`): 지적 사항 없음.
+- Installer/package status: **생성 완료**.
+  - `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` — onedir, UPX 비활성, numba/llvmlite 포함.
+  - `ISCC.exe NC_Tool_List.iss` — `installer\NC_Tool_List_Setup_v2.0.1.exe`.
+  - 포터블: `installer\NC_Tool_List_Portable_v2.0.1.zip`.
+  - dist 폴더의 exe를 `USERNAME`을 바꿔 기동해 12초 뒤에도 실행 중임을 확인(파일 버전 2.0.1.0).
+  - Setup EXE SHA-256: 112B25F7FF5CE2E07F45C5BD40B4F21514FF8452BAA6AFF1431A34986CF88E4C
+  - Portable ZIP SHA-256: 2A741C90AAE44A38A4AFE0D2CA8C30EFC8D380C2CE4E7F678039315238C3C181
+  - App EXE SHA-256: 29255FC200ED9CC84F0A14CE6878A7CF28E56F49A2125F7650F462C14F15704C
+  - Setup 80.1 MB / Portable 111.9 MB. 구 v1.x·v2.0.0 패키지는 `installer`에 그대로 남겨 둠.
+- 서명 상태: 설치본과 앱 실행 파일 모두 미서명이다(기존과 동일).
+
+### 2026-09-24 (v2.0.0)
 
 - Version: 1.10.0 → 2.0.0
 - Release/build date: 2026-09-24

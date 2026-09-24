@@ -359,6 +359,45 @@ M30
         self.assertAlmostEqual(stock.zlo, -11.0)
         self.assertAlmostEqual(stock.ztop, 0.0)
 
+    # -- 저장된 색상 모드 마이그레이션 (v2.0.1) ------------------------------------
+    def _dialog_with_saved_mode(self, mode, migrated=False):
+        import tempfile
+        from PyQt5.QtCore import QSettings
+        from nc_viewer_widget import StockDialog
+        viewer = self.make_viewer()
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        settings = QSettings(os.path.join(directory.name, 'iso.ini'), QSettings.IniFormat)
+        settings.setValue('stock/color_mode', mode)
+        if migrated:
+            settings.setValue('stock/color_mode_migrated_v2', True)
+        viewer.settings = settings
+        dialog = StockDialog(viewer)
+        self.addCleanup(dialog.deleteLater)
+        return viewer, dialog, settings
+
+    def test_saved_solid_or_depth_mode_is_reset_to_tool_once(self):
+        for mode in ('solid', 'depth'):
+            viewer, dialog, settings = self._dialog_with_saved_mode(mode)
+            self.assertEqual(dialog.color_mode_combo.currentData(), 'tool', mode)
+            self.assertEqual(viewer.sim_color_mode, 'tool', mode)
+            self.assertEqual(settings.value('stock/color_mode'), 'tool', mode)
+            self.assertTrue(settings.value('stock/color_mode_migrated_v2', False, type=bool))
+
+    def test_color_mode_chosen_after_migration_is_kept(self):
+        viewer, dialog, settings = self._dialog_with_saved_mode('solid')
+        dialog.color_mode_combo.setCurrentIndex(dialog.color_mode_combo.findData('solid'))
+        from nc_viewer_widget import StockDialog
+        reopened = StockDialog(viewer)                 # 같은 설정으로 다시 연다
+        self.addCleanup(reopened.deleteLater)
+        self.assertEqual(reopened.color_mode_combo.currentData(), 'solid')
+        self.assertEqual(viewer.sim_color_mode, 'solid')
+
+    def test_already_migrated_settings_are_left_alone(self):
+        viewer, dialog, settings = self._dialog_with_saved_mode('depth', migrated=True)
+        self.assertEqual(dialog.color_mode_combo.currentData(), 'depth')
+        self.assertEqual(settings.value('stock/color_mode'), 'depth')
+
     # -- 깎이지 않은 이유 진단 (v1.9.3) -------------------------------------------
     def _apply_and_diagnose(self, viewer, spec):
         viewer.apply_stock_spec(spec, 0.5, True)
@@ -414,9 +453,7 @@ M30
         viewer = self.make_viewer()
         viewer.apply_stock_spec(make_spec(), 0.5, True)
         viewer.sim_wait()
-        from nc_viewer_widget import StockDialog
-        dialog = StockDialog(viewer)
-        self.addCleanup(dialog.deleteLater)
+        dialog = self._isolated_dialog(viewer)       # 실제 QSettings를 건드리지 않는다
         viewer.sim_progress_text = '형상 계산 중… 42%'
         dialog.refresh_status()
         self.assertIn('42%', dialog.status_label.text())

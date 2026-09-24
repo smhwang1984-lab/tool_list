@@ -1809,6 +1809,7 @@ class StockDialog(QDialog):
 
     # -- QSettings 저장(전역 하나만 기억, F 결정) ------------------------------
     _SETTINGS_GROUP = 'stock'
+    _COLOR_MIGRATED_KEY = 'color_mode_migrated_v2'
 
     def _save_settings(self):
         settings = self.viewer.settings
@@ -1860,6 +1861,14 @@ class StockDialog(QDialog):
         enabled_val = settings.value('enabled', False)
         self.enable_check.setChecked(str(enabled_val).lower() in ('1', 'true'))
         mode_val = settings.value('color_mode', 'tool')
+        # v2.0.1: 절삭면 색이 공정 목록 색과 같아진 v2.0.0 기능을 저장된 '단색'/'깎인 깊이'
+        # 선택이 가려 "색이 안 입혀진다"로 보이던 문제 — 한 번만 공정 색으로 되돌린다.
+        # 이후 사용자가 다시 고른 값은 그대로 유지한다.
+        if settings.value(self._COLOR_MIGRATED_KEY, None) is None:
+            if mode_val != 'tool':
+                mode_val = 'tool'
+                settings.setValue('color_mode', mode_val)
+            settings.setValue(self._COLOR_MIGRATED_KEY, True)
         mode_idx = self.color_mode_combo.findData(mode_val)
         self.color_mode_combo.setCurrentIndex(mode_idx if mode_idx >= 0 else 0)
         self.viewer.sim_color_mode = self.color_mode_combo.currentData()
