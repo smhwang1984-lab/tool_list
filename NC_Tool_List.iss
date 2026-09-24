@@ -2,7 +2,7 @@
 ; C:\NC_Tool_List 폴더에 설치됩니다.
 
 #define MyAppName "NC Tool List"
-#define MyAppVersion "2.0.1"
+#define MyAppVersion "2.0.2"
 #define MyAppPublisher "S M.HWANG"
 #define MyAppExeName "NC_Tool_List.exe"
 

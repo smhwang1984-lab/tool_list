@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-09-24 (NC_Tool_List v2.0.1 — 저장된 소재 색 모드를 공정 색으로 한 번 되돌리는 마이그레이션)
+Last updated: 2026-09-24 (NC_Tool_List v2.0.2 — 공정 색 경계를 그라데이션 없이 선명하게)
 
 ## About button requirements
 
@@ -34,7 +34,36 @@ Last updated: 2026-09-24 (NC_Tool_List v2.0.1 — 저장된 소재 색 모드를
 
 ## Version history
 
-### 2026-09-24 (latest, v2.0.1)
+### 2026-09-24 (latest, v2.0.2)
+
+- Version: 2.0.1 → 2.0.2
+- Release/build date: 2026-09-24
+- Summary: v2.0.1 사용자 피드백 "색을 입히긴 하는데 색이 번져서 가공하지 않은 부분까지 번짐". 사용자 결정: 선택 없이 **선명 방식으로 고정**.
+  - 원인: 색이 정점마다 하나라 깎인 정점과 안 깎인 정점을 잇는 삼각형 안에서 그라데이션으로 섞였다(번지는 폭 ≈ 표시 격자 한 칸 —
+    2D 0.27~0.40mm, 3D 복셀 0.5~1.0mm, 3D는 표면 사각형 70만 개 초과 시 복셀을 합쳐 더 넓어짐). 측정 전 섞이는 면은 전체의 0.1~0.6%.
+  - `nc_sim.sharpen_color_edges()` 신설 — 색이 섞이는 삼각형만 정점을 복제해 면 하나를 한 색으로 칠한다(다수결, 셋 다 다르면 기본색이 아닌 첫 정점 색).
+    깎인 정점이 하나뿐인 면은 기본색, 둘 이상이면 공정 색. 나머지 면은 정점을 그대로 공유해 정점은 섞이는 면 x 3개만 늘어난다(측정 +3.5%, 극단적 합성 메쉬 +30%).
+    140만 삼각형에서도 0.07초. 2D(`ZMapStock.display_mesh`)·3D(`VoxelStock.display_mesh`) 모두 '공정 색'(`tool`) 모드에서만 적용 —
+    '깎인 깊이'는 원래 연속 그라데이션이라 그대로, STL(`to_mesh`)도 그대로. 3D 모서리 선은 캐시된 원래 정점 기준으로 계산.
+  - 적용 후 섞이는 면 0%. 계단 모양의 한 칸 이내 경계는 남는다(더 줄이려면 표시 해상도를 올려야 하며 그만큼 무거워진다).
+  - 테스트: `SharpenColorEdgesTests`(다수결·기하 불변·균일 메쉬 그대로·3색), `DisplayMeshTests`·`SurfaceMeshTests`에 선명 경계·정점 증가 상한·깊이 모드 불변,
+    3D 닫힌 메쉬 검사는 위치 기준으로 합쳐서 보도록, 뷰어 색상 모드 테스트는 정점 수 차이를 허용하도록 갱신.
+- Open source software: 변경 없음(numba/llvmlite 포함 유지).
+- Verification: `python -m pytest` → 관련 시뮬레이션 테스트 119건 통과, 전체 실행에서 실패는 이 PC의 환경 조건 1건뿐
+  (`test_switching_to_lathe_changes_table_schema_and_machine` — 레지스트리에 저장된 장비 `5축 MCT (B to C)`, 변경 전 HEAD에서도 동일).
+  코드 리뷰(`/code-review medium`): 지적 사항 없음.
+- Installer/package status: **생성 완료**.
+  - `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` — onedir, UPX 비활성, numba/llvmlite 포함.
+  - `ISCC.exe NC_Tool_List.iss` — `installer\NC_Tool_List_Setup_v2.0.2.exe`.
+  - 포터블: `installer\NC_Tool_List_Portable_v2.0.2.zip`.
+  - dist 폴더의 exe를 `USERNAME`을 바꿔 기동해 12초 뒤에도 실행 중임을 확인(파일 버전 2.0.2.0).
+  - Setup EXE SHA-256: 23C71D1FCE3734F4F0A37F1EB4DEF588DE5747AC2CC66878C79C80CFF0158D24
+  - Portable ZIP SHA-256: AE16AB759468E9DE66779BC2DF8E41AE718CC36EA24608BFFE0BF449888F1E96
+  - App EXE SHA-256: AA1311501B3EDA2B18E208DFF7C2FC6CD72D3FC477D81A89C68BB09BB7CC74AF
+  - Setup 80.1 MB / Portable 111.9 MB. 구 v1.x·v2.0.x 패키지는 `installer`에 그대로 남겨 둠.
+- 서명 상태: 설치본과 앱 실행 파일 모두 미서명이다(기존과 동일).
+
+### 2026-09-24 (v2.0.1)
 
 - Version: 2.0.0 → 2.0.1
 - Release/build date: 2026-09-24

@@ -308,12 +308,32 @@ class SurfaceMeshTests(unittest.TestCase):
         self.assertEqual(colors.shape, (verts.shape[0], 4))
         self.assertTrue(np.any(np.all(np.isclose(colors, (1.0, 0.0, 0.0, 1.0)), axis=1)))
         self.assertTrue(np.any(np.all(np.isclose(colors, nc_sim.DEFAULT_STOCK_COLOR, atol=1e-5), axis=1)))
+        # v2.0.2: 색이 섞이는 면은 정점을 복제하므로 닫힘 여부는 위치가 같은 정점을 합쳐서 본다
+        _u, weld = np.unique(verts, axis=0, return_inverse=True)
+        faces = weld.reshape(-1)[faces]
         edge_set = faces[:, [0, 1]].tolist() + faces[:, [1, 2]].tolist() + faces[:, [2, 0]].tolist()
         keys = np.sort(np.array(edge_set), axis=1)
         _u, counts = np.unique(keys, axis=0, return_counts=True)
         self.assertTrue(np.all(counts == 2))
         self.assertEqual(edges.shape[1], 3)
         self.assertGreater(edges.shape[0], 24)
+
+    def test_tool_color_edges_are_sharp_not_gradients(self):
+        """v2.0.2: 공정 색 모드에서는 한 삼각형 안에서 색이 섞이지 않고(선명), 늘어나는 정점은 적다."""
+        stock = self._cut_stock()
+        cmap = {2: (1.0, 0.0, 0.0, 1.0)}
+        verts, faces, colors, _e = stock.display_mesh(color_map=cmap, mode='tool')
+        rgb = colors[faces][:, :, :3]                       # (F, 3, 3)
+        self.assertTrue(np.all(rgb[:, 0] == rgb[:, 1]))
+        self.assertTrue(np.all(rgb[:, 0] == rgb[:, 2]))
+        base_verts, _f, _c, _e = stock.display_mesh(color_map=cmap, mode='solid')
+        self.assertLess(verts.shape[0], base_verts.shape[0] * 1.2)
+        # 기본색(미절삭) 면과 공정 색 면이 모두 있다
+        self.assertTrue(np.any(np.all(np.isclose(rgb[:, 0], (1.0, 0.0, 0.0)), axis=1)))
+        self.assertTrue(np.any(np.all(np.isclose(rgb[:, 0], nc_sim.DEFAULT_STOCK_COLOR[:3], atol=1e-5), axis=1)))
+        # 깎인 깊이 모드는 원래대로 연속 그라데이션(정점 수 그대로)
+        depth_verts, _f, _c, _e = stock.display_mesh(mode='depth')
+        self.assertEqual(depth_verts.shape[0], base_verts.shape[0])
 
     def test_color_modes_and_stl_full_resolution(self):
         stock = self._cut_stock()

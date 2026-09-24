@@ -292,7 +292,8 @@ M30
         self.assertTrue(np.allclose(solid, np.array(nc_sim.DEFAULT_STOCK_COLOR)))
         self.assertGreater(len(np.unique(depth.round(3), axis=0)), 1)
         self.assertGreater(len(np.unique(tool.round(3), axis=0)), 1)
-        self.assertFalse(np.allclose(depth, tool))
+        # v2.0.2: 공정 색은 색이 섞이는 면의 정점을 복제하므로 깊이 모드와 정점 수가 다를 수 있다
+        self.assertFalse(depth.shape == tool.shape and np.allclose(depth, tool))
         self.assertTrue(np.array_equal(viewer.sim_stock.heights, heights))   # 재계산 없음
         self.assertEqual(viewer.sim_last_seq, last)
         viewer.set_sim_color_mode('없는 모드')
