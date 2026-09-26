@@ -3777,13 +3777,14 @@ G02 X20. Y10. R10.
         finally:
             self._restore(viewer, original, qapp)
 
-    # ---- v1.6.8: 선반 고정 사이클. R/깊이는 사이클 진입 직전 위치에서의
-    # 증분값이다(사용자 확정, 2026-09-06) — MCT의 절대값 해석과 다르다. ----
+    # ---- v1.6.8: 선반 고정 사이클. R은 사이클 진입 직전 위치에서의
+    # 증분값이다(사용자 확정, 2026-09-06). v2.2.1: 깊이(Z/X)는 구멍 바닥의
+    # 절대 좌표(Fanuc 선반 규격, 사용자 확정 2026-09-26) — X는 지름. ----
 
     @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
-    def test_lathe_cycle_z_axis_g17_is_incremental_from_entry_z(self):
-        """G17(주축 방향): 진입 시 Z=100에서 R2, Z-30 -> R점 Z102, 깊이 Z70.
-        반대축(X, 지름)은 절대 위치 그대로."""
+    def test_lathe_cycle_z_axis_g17_r_is_incremental_depth_is_absolute(self):
+        """G17(주축 방향): 진입 시 Z=100에서 R2 -> R점 Z102(증분), Z-30 -> 구멍 바닥
+        Z-30(절대). 반대축(X, 지름)은 절대 위치 그대로."""
         qapp = app.QApplication.instance() or app.QApplication([])
         viewer, original = self._lathe_viewer(qapp)
         source = """T0100
@@ -3796,22 +3797,21 @@ G80
             viewer.set_source_text(source, {'T01': 'DRILL'})
             points = viewer.tool_paths[list(viewer.tool_paths)[0]]
             cycle_pts = [(p['type'], [round(v, 6) for v in p['pt']]) for p in points[2:]]
-            # 지름 40 -> 반경 20 유지, Z만 100(접근) -> 102(R) -> 70(깊이) -> 100(복귀).
+            # 지름 40 -> 반경 20 유지, Z만 100(접근) -> 102(R) -> -30(바닥) -> 100(복귀).
             self.assertEqual(cycle_pts, [
                 ('G00', [100.0, 0.0, 20.0]),
                 ('G00', [102.0, 0.0, 20.0]),
-                ('G01', [70.0, 0.0, 20.0]),
+                ('G01', [-30.0, 0.0, 20.0]),
                 ('G00', [100.0, 0.0, 20.0]),
             ])
         finally:
             self._restore(viewer, original, qapp)
 
     @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
-    def test_lathe_cycle_x_axis_g19_uses_radius_increment_directly(self):
-        """G19(지름 방향): R과 깊이 워드 모두 반경 공간 증분값이고 둘 다
-        진입 시 반경에서 독립적으로 잰다(절반으로 재환산하지 않음,
-        사용자 확정). 지름100(반경50) 진입에서 R-25 -> 반경25(지름50),
-        X-10 -> 반경40(지름80)."""
+    def test_lathe_cycle_x_axis_g19_r_is_radius_increment_depth_is_absolute_diameter(self):
+        """G19(지름 방향): R은 진입 반경에서의 반경 공간 증분(절반으로 재환산하지
+        않음, 사용자 확정), 깊이 X는 구멍 바닥의 절대 지름(v2.2.1). 지름100(반경50)
+        진입에서 R-25 -> 반경25, X-10 -> 반경 -5(중심을 지나 관통)."""
         qapp = app.QApplication.instance() or app.QApplication([])
         viewer, original = self._lathe_viewer(qapp)
         source = """T0100
@@ -3828,7 +3828,7 @@ G80
             self.assertEqual(cycle_pts, [
                 ('G00', [50.0, 0.0, 50.0]),
                 ('G00', [50.0, 0.0, 25.0]),
-                ('G01', [50.0, 0.0, 40.0]),
+                ('G01', [50.0, 0.0, -5.0]),
                 ('G00', [50.0, 0.0, 50.0]),
             ])
         finally:
@@ -3853,11 +3853,11 @@ G80
         try:
             viewer.set_source_text(z_source, {'T01': 'DRILL'})
             z_final = [round(v, 6) for v in viewer.tool_paths[list(viewer.tool_paths)[0]][-2]['pt']]
-            self.assertEqual(z_final, [70.0, 0.0, 20.0])  # Z축으로 판정 -> Z만 움직임
+            self.assertEqual(z_final, [-30.0, 0.0, 20.0])  # Z축으로 판정 -> Z만 움직임
 
             viewer.set_source_text(x_source, {'T01': 'DRILL'})
             x_final = [round(v, 6) for v in viewer.tool_paths[list(viewer.tool_paths)[0]][-2]['pt']]
-            self.assertEqual(x_final, [50.0, 0.0, 40.0])  # X축으로 판정 -> 반경만 움직임
+            self.assertEqual(x_final, [50.0, 0.0, -5.0])  # X축으로 판정 -> 반경만 움직임
         finally:
             self._restore(viewer, original, qapp)
 
@@ -3878,7 +3878,7 @@ G80
             points = viewer.tool_paths[list(viewer.tool_paths)[0]]
             final_pt = [round(v, 6) for v in points[-2]['pt']]
             # Z워드가 함께 있어도 평면이 G19이므로 X축(반경) 사이클로 처리된다.
-            self.assertEqual(final_pt, [50.0, 0.0, 40.0])
+            self.assertEqual(final_pt, [50.0, 0.0, -5.0])
         finally:
             self._restore(viewer, original, qapp)
 
@@ -3904,9 +3904,36 @@ G80
             self.assertEqual(repeat_pts, [
                 ('G00', [50.0, 50.0, 0.0]),
                 ('G00', [50.0, 25.0, 0.0]),
-                ('G01', [50.0, 40.0, 0.0]),
+                ('G01', [50.0, -5.0, 0.0]),
                 ('G00', [50.0, 50.0, 0.0]),
             ])
+        finally:
+            self._restore(viewer, original, qapp)
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_face_drill_from_real_sample_reaches_below_the_face(self):
+        """v2.2.1 실사례(O1699 T12): 초기 Z10, G83Z-4.95R-9.2 — R점 Z0.8(증분), 구멍 바닥 Z-4.95(절대).
+        증분으로 보던 v1.6.8~v2.2.0은 바닥이 Z5.05(R점 위)가 되어 드릴이 소재 밖으로 뒤로 갔다."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        source = """T1200
+M35
+G98G17X200.Z10.
+G0X130.C90.
+G83Z-4.95R-9.2P500F60.
+C60.
+G80
+"""
+        try:
+            viewer.set_source_text(source, {'T12': 'DRILL'})
+            cuts = [p for p in viewer.tool_paths[list(viewer.tool_paths)[0]] if p['type'] == 'G01']
+            self.assertEqual(len(cuts), 2)
+            for p in cuts:
+                self.assertAlmostEqual(p['pt'][0], -4.95)                  # 구멍 바닥 = 절대 Z
+                self.assertAlmostEqual(math.hypot(p['pt'][1], p['pt'][2]), 65.0)   # X130 → 반경 65
+            r_points = [p for p in viewer.tool_paths[list(viewer.tool_paths)[0]] if p['type'] == 'G00'
+                        and abs(p['pt'][0] - 0.8) < 1e-9]
+            self.assertTrue(r_points)                                         # R점 Z0.8 = 10 + (-9.2)
         finally:
             self._restore(viewer, original, qapp)
 
@@ -4915,7 +4942,7 @@ G80
             self.assertEqual(first, [
                 ('G00', [-16.51, 0.0, 50.0]),
                 ('G00', [-16.51, 0.0, 10.89]),
-                ('G01', [-16.51, 0.0, 44.775]),
+                ('G01', [-16.51, 0.0, -2.6125]),           # X-5.225 = 절대 지름(중심 관통)
                 ('G00', [-16.51, 0.0, 50.0]),
             ])
             # H-180. 뒤 같은 4점이 반대편(C=-180)에서 반복돼야 한다 —
@@ -4925,7 +4952,7 @@ G80
             self.assertEqual(repeat, [
                 ('G00', [-16.51, 0.0, -50.0]),
                 ('G00', [-16.51, 0.0, -10.89]),
-                ('G01', [-16.51, 0.0, -44.775]),
+                ('G01', [-16.51, 0.0, 2.6125]),
                 ('G00', [-16.51, 0.0, -50.0]),
             ])
         finally:

@@ -897,6 +897,19 @@ def entry_axes(p0, p1, rapid, breaks, planes=None, c_angles=None):
         while k < count and not assigned[k]:
             k += 1
         run_end = k                                    # [run_start, run_end) 는 축이 없는 급속 구간
+        # 공정(공구)이 바뀌는 곳(breaks)에서는 앞 공정의 자세를 이어 쓰지 않는다 — 경계 앞은 앞 묶음,
+        # 경계부터는 뒤 묶음의 축(O4811 실측: 페이스커터 접근이 앞 공정 드릴의 C-180 자세를 물려받아
+        # 몸체가 소재를 관통하는 것으로 계산됐다).
+        cut = next((j for j in range(run_start, run_end) if breaks[j]), None)
+        if cut is not None:
+            prev_axis = axes[run_start - 1].copy() if run_start > 0 else None
+            next_axis = axes[run_end].copy() if run_end < count else None
+            if prev_axis is not None and cut > run_start:
+                axes[run_start:cut] = prev_axis
+            fill = next_axis if next_axis is not None else prev_axis
+            if fill is not None:
+                axes[cut:run_end] = fill
+            continue
         prev_axis = axes[run_start - 1].copy() if run_start > 0 else None
         next_axis = axes[run_end].copy() if run_end < count else None
         if prev_axis is None and next_axis is None:

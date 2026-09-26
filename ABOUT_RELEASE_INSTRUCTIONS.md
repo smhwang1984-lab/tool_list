@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-09-26 (NC_Tool_List v2.2.0 — 선반 형상 시뮬레이션: 선삭 + 턴밀)
+Last updated: 2026-09-26 (NC_Tool_List v2.2.1 — 선반 드릴 고정 사이클 깊이 = 절대 좌표)
 
 ## About button requirements
 
@@ -34,7 +34,30 @@ Last updated: 2026-09-26 (NC_Tool_List v2.2.0 — 선반 형상 시뮬레이션:
 
 ## Version history
 
-### 2026-09-26 (latest, v2.2.0)
+### 2026-09-26 (latest, v2.2.1)
+
+- Version: 2.2.0 → 2.2.1
+- Release/build date: 2026-09-26
+- Summary: 사용자 결정 "절대 좌표로 바꿔서" — 선반 드릴 고정 사이클(G83/G87 등, 선반에서 인식하는 G81~G89)의 **깊이 Z(X)를 구멍 바닥의
+  절대 좌표**로 해석한다(Fanuc 선반 규격). X는 지름이라 반경 = X/2. R은 기존대로 진입 직전 위치 기준 증분(반경 공간).
+  v1.6.8~v2.2.0은 깊이도 증분으로 봐서 실제 샘플 O1699 `G83Z-4.95R-9.2`(초기 Z10)의 바닥이 Z5.05(R점 Z0.8 위)가 되어 드릴이 소재 밖으로
+  뒤로 그려졌고 시뮬레이션에서 구멍이 뚫리지 않았다. 수정 후 O1699 정면 구멍 12개(30° 간격)+4개(45°)가 뚫린다. **툴패스 표시도 함께 바뀐다.**
+  - 턴밀 급속 축: 급속 구간이 공정 경계를 넘으면 경계 앞은 앞 묶음, 경계부터는 뒤 묶음의 자세(O4811 페이스커터 접근이 앞 공정 드릴의
+    C-180 자세를 물려받아 몸체가 소재를 관통하는 것으로 계산되던 것).
+  - 남은 관찰(판단 보류, 선반 지침 §12): C축만 도는 급속(`H-180.`)을 뷰어가 직선(현)으로 그려 급속 경고로 나타남, O4811 G87 `R-39.11`의 R점
+    반경 10.89가 선삭 외경(반경 45) 안쪽 — R 해석 또는 이전 공정 형상 확인 필요.
+- Open source software: 변경 없음.
+- Verification: `python -m pytest` → 602 passed, 1 skipped, 1 failed(이 PC 저장 장비 설정 — 기존 환경 실패). 선반 사이클 테스트 6개의 기대값을
+  절대 깊이로 갱신하고 O1699 실사례 테스트를 추가.
+- Installer/package status: **생성 완료**. `installer\NC_Tool_List_Setup_v2.2.1.exe`, `installer\NC_Tool_List_Portable_v2.2.1.zip`.
+  dist exe를 `USERNAME`을 바꿔 기동해 12초 뒤에도 실행 중임을 확인(파일 버전 2.2.1.0).
+  - Setup EXE SHA-256: EE256F2F207ADA39C13FD95B1405C524B4D21F796EB1DA1C109972E89B6218B9
+  - Portable ZIP SHA-256: E4194DA15DDF8FAC39AE56B2BB4CD6D7AC6D0AFAD4208E78A5C2A70EE8FED12A
+  - App EXE SHA-256: 937589F389839F61535064B659D794F62A754CEDEC548940032E99E986BB8AD4
+  - Setup 80.2 MB / Portable 112.0 MB.
+- 서명 상태: 설치본과 앱 실행 파일 모두 미서명이다(기존과 동일).
+
+### 2026-09-26 (v2.2.0)
 
 - Version: 2.1.0 → 2.2.0
 - Release/build date: 2026-09-26

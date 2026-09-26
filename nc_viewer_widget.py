@@ -4561,7 +4561,7 @@ class NCViewerWidget(QWidget):
         lathe_cycle_axis = None      # "Z"(주축 방향, G17) 또는 "X"(지름 방향, G19)
         lathe_cycle_ref = None       # 사이클 진입 직전 위치 — Z축은 mm, X축은 반경(mm)
         lathe_cycle_r = 0.0          # 마지막 R 워드(반경 공간 증분값, 모달)
-        lathe_cycle_depth = 0.0      # 마지막 깊이 워드(Z축=Z워드, X축=X워드=반경 증분, 모달)
+        lathe_cycle_depth = 0.0      # 마지막 구멍 바닥(절대 — Z축=Z mm, X축=X 지름/2 반경, 모달)
         # 이 프로그램에서 G17/G18/G19가 한 번이라도 명시됐는가 — 명시됐다면
         # 사이클 방향 판정에서 평면이 워드 판정보다 우선한다(사용자 확정).
         lathe_plane_explicit = False
@@ -5213,9 +5213,12 @@ class NCViewerWidget(QWidget):
                     ).tolist() if (is_5axis_ac or is_5axis_bc or is_4axis) else list(local_target_pt)
 
                 if cycle_active and is_lathe:
-                    # v1.6.8 재작성: 선반 사이클의 R/깊이 워드는 밀링과 달리
+                    # v1.6.8 재작성: 선반 사이클의 R 워드는 밀링과 달리
                     # 사이클 진입 직전 위치에서의 **증분**이다(사용자 확정,
-                    # 2026-09-06). 방향은 평면이 한 번이라도 명시됐으면
+                    # 2026-09-06). v2.2.1: 깊이(Z/X 워드)는 Fanuc 선반 규격대로
+                    # **구멍 바닥의 절대 좌표**다(사용자 확정, 2026-09-26 — 증분으로
+                    # 보면 실제 샘플 O1699 G83Z-4.95R-9.2의 바닥이 R점 위가 되어
+                    # 드릴이 소재 밖으로 뒤로 갔다). 방향은 평면이 한 번이라도 명시됐으면
                     # G19=X축(지름 방향)/그 외=Z축(주축 방향)을 그대로
                     # 따르고, 평면이 전혀 없었으면 이 사이클 블록에 Z 워드가
                     # 있는지로 자동 판정한다(Z 있으면 Z축, X만 있으면 X축).
@@ -5236,15 +5239,15 @@ class NCViewerWidget(QWidget):
                     if r_cycle_match:
                         lathe_cycle_r = float(r_cycle_match.group(1))
                     if axis == "Z" and z_match:
-                        lathe_cycle_depth = float(z_match.group(1))
+                        lathe_cycle_depth = float(z_match.group(1))          # 절대 Z
                     elif axis == "X" and x_match:
-                        lathe_cycle_depth = float(x_match.group(1))
+                        lathe_cycle_depth = float(x_match.group(1)) / 2.0    # 절대 지름 → 반경
 
-                    # R과 깊이 모두 반경 공간(X축) 또는 Z 길이(Z축) 증분값 —
-                    # 절반으로 나누지 않고 기준점에 그대로 더한다
-                    # (LATHE_MODE_GUIDELINES.md §2의 I/R 반경값 규약과 동일).
+                    # R은 반경 공간(X축) 또는 Z 길이(Z축) 증분값 — 절반으로 나누지
+                    # 않고 기준점에 그대로 더한다(§2의 I/R 반경값 규약과 동일).
+                    # 깊이는 위에서 이미 절대 좌표(반경)로 바꿔 두었다.
                     r_target = lathe_cycle_ref + lathe_cycle_r
-                    depth_target = lathe_cycle_ref + lathe_cycle_depth
+                    depth_target = lathe_cycle_depth
 
                     if axis == "Z":
                         # 반대축(X, 지름)은 보통의 절대 위치 — 이 줄에서 이미

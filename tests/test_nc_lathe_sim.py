@@ -484,6 +484,18 @@ class EntryAxisTests(unittest.TestCase):
         np.testing.assert_allclose(axes[4], [0, 0, 1])                         # 마지막 접근 = 뒤 묶음
         np.testing.assert_allclose(axes[5], [0, 0, 1])
         np.testing.assert_allclose(axes[6], [0, 0, 1])                         # 마지막 후퇴 = 앞(묶음 2)
+        # 공정 경계(breaks)의 급속은 앞 공정 자세를 물려받지 않는다: 드릴(축 -z) 후퇴 → [공정 경계] 접근 2번 → 커터 플런지(축 +z)
+        p0 = [[0, 0, -8], [0, 0, -20], [10, 0, 50], [10, 0, 50]]
+        p1 = [[0, 0, -20], [10, 0, 50], [10, 0, 50], [10, 0, 40]]
+        axes, _c = lathe.entry_axes(p0, p1, [False, True, True, False], [True, False, True, False], [None] * 4)
+        np.testing.assert_allclose(axes[0], [0, 0, 1])                         # 드릴 진입 -z → 축 +z
+        np.testing.assert_allclose(axes[1], [0, 0, 1])                         # 후퇴(경계 전) = 앞 묶음
+        np.testing.assert_allclose(axes[2], [0, 0, 1])                         # 경계부터 = 뒤 묶음
+        p0 = [[0, 0, -8], [0, 0, -20], [10, 0, 50], [10, 0, 50]]
+        p1 = [[0, 0, -20], [10, 0, 50], [10, 0, 50], [5, 0, 50]]              # 뒤 묶음 진입 -x → 축 +x
+        axes, _c = lathe.entry_axes(p0, p1, [False, True, True, False], [True, False, True, False], [None] * 4)
+        np.testing.assert_allclose(axes[2], [1, 0, 0])                         # 경계 뒤 급속은 새 공구 자세
+        np.testing.assert_allclose(axes[1], [0, 0, 1])
         # 두 묶음 사이 급속이 하나뿐이면 후퇴로 본다(앞 묶음 축)
         axes, _c = lathe.entry_axes([[0, 0, 8], [-3, 0, 8], [-10, 0, 30]], [[-3, 0, 8], [-10, 0, 30], [-10, 0, 20]],
                                     [False, True, False], [True, False, False], [None] * 3)
