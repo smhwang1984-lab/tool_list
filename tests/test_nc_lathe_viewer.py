@@ -216,10 +216,10 @@ class LatheViewerTests(unittest.TestCase):
         viewer._sim_set_progress(viewer.sim_diagnosis(), warn=True)
         self.assertIn('겹치지', viewer.sim_notice_text)
 
-    def test_turnmill_moves_are_counted_not_cut(self):
-        program = PROGRAM.replace('M30\n%', """N3
+    # -- 턴밀(M2) ---------------------------------------------------------------------
+    TURNMILL = PROGRAM.replace('M30\n%', """N3
 ( T06 - MILL TOOL CHECK )
-( T06 - D10 X 90 NC DRILL )
+( T06 - D6 CARBIDE DRILL )
 G0X400.Z200.
 M35
 T0600
@@ -227,27 +227,106 @@ T0606
 G98G17X200.Z10.
 C0.Y0.
 G97S800M3P12
-G0X130.C90.
-G83Z-4.95R-9.2P500F60.M89
-C60.
-G80
+G0X16.C0.
+Z2.
+G1Z-4.F60.
+G0Z10.
+C90.
+Z2.
+G1Z-4.
+G0Z10.
+M90
+G0G19X60.Z-20.
+C180.
+G1X20.F30.
+G0X60.
 M34
 G0X400.Z200.
 M30
 %""")
-        rows = ROWS + ({'NO': 'T0606', 'INSERT': 'D10 X 90 NC DRILL', 'HOLDER': 'MILL TOOL CHECK'},)
-        viewer = self.load(program, rows)
-        self.assertGreater(viewer._sim_turnmill_moves, 0)
-        self.assertIn('턴밀', viewer.sim_status_text)
+    TURNMILL_ROWS = ROWS + ({'NO': 'T0606', 'INSERT': 'D6 CARBIDE DRILL', 'HOLDER': 'MILL TOOL CHECK'},)
+
+    def voxel(self, stock, x, y, z):
+        v = stock.voxel
+        return bool(v.occ[int((x - v.x0) / v.step[0]), int((y - v.y0) / v.step[1]), int((z - v.z0) / v.step[2])])
+
+    def test_turnmill_segments_use_the_hybrid_engine_with_entry_axes(self):
+        viewer = self.load(self.TURNMILL, self.TURNMILL_ROWS)
+        self.assertEqual(viewer.sim_engine, 'lathe3d')
+        seg = viewer.sim_seg
+        mill = seg['mill']
+        self.assertTrue(mill.any() and (~mill).any())
         milled = [info for info in viewer.line_lathe_map.values() if info[0]]
         self.assertGreater(len(milled), 3)                                     # M35 구간 줄 표시
-        lines = program.splitlines()
+        lines = self.TURNMILL.splitlines()
         m35 = lines.index('M35')
         self.assertFalse(viewer.line_lathe_map[m35 - 1][0])                    # M35 앞 줄은 선삭
-        self.assertTrue(viewer.line_lathe_map[m35 + 3][0])                     # M35 뒤는 밀링 구간
-        stock = self.apply(viewer)
-        self.assertTrue(stock.any_cut())                                       # 선삭은 그대로 깎임
-        self.assertAlmostEqual(outer_radius(stock, -14.0), 9.5, delta=0.06)
+        self.assertTrue(viewer.line_lathe_map[m35 + 3][0])
+        cutting = mill & ~seg['rapid']
+        axes = seg['axis0'][cutting]
+        # 정면 드릴(G17): 축 +X, 레이디얼 드릴(G19, C180): 축 = 바깥쪽 반경(C180 → 월드 -Z)
+        self.assertTrue(any(np.allclose(a, [1, 0, 0]) for a in axes))
+        self.assertTrue(any(np.allclose(a, [0, 0, -1], atol=1e-6) for a in axes))
+        self.assertIn('3D 복셀', viewer.sim_status_text)
+
+    def test_turnmill_holes_are_cut_in_the_voxel_stock(self):
+        viewer = self.load(self.TURNMILL, self.TURNMILL_ROWS)
+        stock = self.apply(viewer, make_spec(), 0.1)
+        self.assertTrue(getattr(stock, 'is_turnmill', False))
+        stock.sync()
+        self.assertTrue(stock.milled)
+        # 정면 드릴(G0/G1 직선 — 고정 사이클 해석과 무관): C0(월드 (x, 0, 8)), C90(월드 (x, 8, 0)), 깊이 z -4
+        self.assertFalse(self.voxel(stock, -2.0, 0.0, 8.0))
+        self.assertFalse(self.voxel(stock, -2.0, 8.0, 0.0))
+        self.assertTrue(self.voxel(stock, -2.0, -8.0, 0.0))                    # C270에는 구멍 없음
+        # 레이디얼 드릴: C180, z -20(선삭 범위 밖, 소재 반경 20), 반경 30 → 10 (월드 (-20, 0, -r))
+        self.assertFalse(self.voxel(stock, -20.0, 0.0, -12.0))
+        self.assertTrue(self.voxel(stock, -20.0, 0.0, 12.0))                   # 반대편(C0)은 그대로
+        self.assertTrue(self.voxel(stock, -20.0, 12.0, 0.0))                   # C90 쪽도 그대로
+        self.assertEqual(stock.rapid_cut_warnings, [])                        # 후퇴 급속은 드릴 자세 그대로 → 경고 없음
+        self.assertAlmostEqual(outer_radius(stock.lathe, -14.0), 9.5, delta=0.06)   # 선삭 결과도 그대로
+        viewer._sim_do_mesh_refresh()
+        self.assertIsNotNone(viewer.sim_mesh_item)
+
+    def test_stock_is_rebuilt_when_the_program_gains_turnmill(self):
+        """선반 소재를 만든 뒤 턴밀 프로그램을 열거나 툴리스트에 D·종류를 채워 엔진이 lathe3d가 되면, 같은 소재
+        사양으로 하이브리드 소재를 다시 만들어야 한다(축대칭 소재에 턴밀 선분이 들어가면 축 둘레를 통째로 깎는다)."""
+        viewer = self.load()
+        self.apply(viewer, make_spec(), 0.1)
+        self.assertFalse(getattr(viewer.sim_stock, 'is_turnmill', False))
+        viewer._sim_sync = True
+        viewer.set_source_text(self.TURNMILL, {}, geometry_map(self.TURNMILL_ROWS))
+        self.assertEqual(viewer.sim_engine, 'lathe3d')
+        self.assertTrue(viewer.sim_wait())
+        self.assertTrue(getattr(viewer.sim_stock, 'is_turnmill', False))
+        self.assertAlmostEqual(viewer.sim_stock.lathe.r_max, 20.0)            # 같은 소재 사양
+        # 반대로 턴밀 공구 정보가 사라지면 축대칭 소재로 돌아간다
+        viewer.set_source_text(self.TURNMILL, {}, geometry_map(ROWS))
+        self.assertEqual(viewer.sim_engine, 'lathe')
+        self.assertTrue(viewer.sim_wait())
+        self.assertFalse(getattr(viewer.sim_stock, 'is_turnmill', False))
+
+    def test_turnmill_only_tool_outside_m35_is_reported(self):
+        program = PROGRAM.replace('M30\n%', """N3
+( T07 - MILL TOOL CHECK )
+( T07 - D50. FACE CUTTER )
+T0707
+G0X60.Z-20.
+G1X30.F100.
+G0X60.
+M30
+%""")
+        rows = ROWS + ({'NO': 'T0707', 'INSERT': 'D50. FACE CUTTER', 'HOLDER': 'MILL TOOL CHECK'},)
+        viewer = self.load(program, rows)
+        self.assertIn('T07', viewer._sim_lathe_unusable)
+        self.assertIn('T07', viewer.sim_status_text)
+        self.assertIn('턴밀 전용', viewer.sim_status_text)
+
+    def test_turnmill_tool_without_diameter_is_skipped_and_reported(self):
+        rows = ROWS + ({'NO': 'T0606', 'INSERT': 'MYSTERY TOOL', 'HOLDER': 'MILL TOOL CHECK'},)
+        viewer = self.load(self.TURNMILL, rows)
+        self.assertIn('T06', viewer._sim_lathe_excluded)
+        self.assertEqual(viewer.sim_engine, 'lathe')                          # 턴밀 공구가 없으면 축대칭만
 
     def test_g41_note_and_thread_note_in_status(self):
         viewer = self.load(PROGRAM.replace('G1Z-15.F.2', 'G41G1Z-15.F.2'))

@@ -150,10 +150,24 @@ class ToolPolygonTests(unittest.TestCase):
         self.assertEqual((thread.kind, thread.thread_angle, thread.internal), ('외경나사', 60.0, False))
         self.assertTrue(lathe.tool_from_geometry(spec.geometry_from_row(
             {'INSERT': '16IR 1.5 ISO', 'HOLDER': 'SIR 0016 M16', 'KIND': '내경나사'})).internal)
-        for kind, text in (('비절삭', '비절삭'), ('페이스커터', '턴밀'), ('', '종류를 모름')):
+        for kind, text in (('비절삭', '비절삭'), ('', '종류를 모름')):
             with self.assertRaises(lathe.ToolShapeError) as ctx:
                 lathe.tool_from_geometry(spec.geometry_from_row({'INSERT': 'D10 X', 'KIND': kind, 'D': '10'}))
             self.assertIn(text, str(ctx.exception))
+        # 페이스커터: 선삭 단면은 없고(축대칭으로 쓰지 않음) 턴밀 형상만 있다
+        face = lathe.tool_from_geometry(spec.geometry_from_row(
+            {'INSERT': 'D50. FACE CUTTER', 'KIND': '페이스커터', 'D': '50', 'SO': '40'}))
+        self.assertIsNone(face.poly)
+        self.assertAlmostEqual(face.mill_shape.radius, 25.0)
+        self.assertAlmostEqual(face.mill_shape.cut_length, 40.0)                 # SO = 날장 최대
+        # 드릴·엔드밀: 선삭 단면(중심 드릴) + 턴밀 형상 둘 다
+        drill = lathe.tool_from_geometry(spec.geometry_from_row(
+            {'INSERT': 'D6 CARBIDE DRILL', 'KIND': '드릴', 'D': '6'}))
+        self.assertIsNotNone(drill.poly)
+        self.assertAlmostEqual(drill.mill_shape.radius, 3.0)
+        self.assertGreaterEqual(drill.mill_shape.cut_length, 999.0)             # SO 없음 → 무제한
+        # 선삭 공구에는 턴밀 형상이 없다
+        self.assertIsNone(lathe.tool_from_geometry(make_geometry()).mill_shape)
         with self.assertRaises(lathe.ToolShapeError):                          # 지름 없음
             lathe.tool_from_geometry(spec.geometry_from_row({'INSERT': 'DRILL', 'KIND': '드릴'}))
 
@@ -212,6 +226,15 @@ class StockAndCuttingTests(unittest.TestCase):
         cut(stock, [tool], [(2.0, 10.0), (-30.0, 10.0)])                     # 내경 Ø20 (팁 r=10, 몸체는 -r쪽)
         self.assertAlmostEqual(inner_radius(stock, -15.0), 10.0, delta=0.06)
         self.assertAlmostEqual(outer_radius(stock, -15.0), 25.0, delta=0.05)
+
+    def test_turning_points_with_a_leftover_c_rotation_use_their_true_radius(self):
+        """M35 뒤 C가 남은 채 선삭하면 점이 회전돼 온다(y = r, z ≈ 0) — 반경은 hypot(y, z)여야 한다."""
+        a, b = make_stock(), make_stock()
+        cut(a, [turning_tool()], [(2.0, 20.0), (-30.0, 20.0)])
+        p0 = np.array([[2.0, 20.0, 0.0]])                                     # C90으로 돌아간 같은 점
+        p1 = np.array([[-30.0, 20.0, 0.0]])
+        b.cut_batch(p0, p1, [turning_tool()], [0], [False], [0])
+        self.assertTrue(np.array_equal(a.occ, b.occ))
 
     def test_od_groove_width_and_depth(self):
         stock = make_stock()
@@ -404,6 +427,195 @@ class StockAndCuttingTests(unittest.TestCase):
         stock.reset()
         self.assertFalse(stock.any_cut())
         self.assertEqual(stock.rapid_cut_warnings, [])
+
+
+class EntryAxisTests(unittest.TestCase):
+    """턴밀 공구 축 = 가공 묶음 진입 벡터의 반대 방향(사용자 결정 I)."""
+
+    def test_face_drilling_plunge_gives_plus_x(self):
+        p0 = [[5, 0, 8], [1, 0, 8], [-6, 0, 8]]
+        p1 = [[1, 0, 8], [-6, 0, 8], [5, 0, 8]]
+        axes, corrected = lathe.entry_axes(p0, p1, [True, False, True], [True, False, False], ['G17'] * 3)
+        np.testing.assert_allclose(axes, [[1, 0, 0]] * 3)
+        self.assertEqual(corrected, 0)
+
+    def test_radial_drilling_gives_the_outward_radial_axis_at_the_c_angle(self):
+        c = math.radians(60.0)
+        out = np.array([0.0, math.sin(c), math.cos(c)])
+        start, bottom = 30.0 * out + [-10, 0, 0], 10.0 * out + [-10, 0, 0]
+        axes, corrected = lathe.entry_axes([start, start], [bottom, start + 0.0 * out], [False, True],
+                                           [True, False], ['G19', 'G19'])
+        np.testing.assert_allclose(axes[0], out, atol=1e-9)
+        np.testing.assert_allclose(axes[1], out, atol=1e-9)                    # 급속은 앞 묶음 축
+        self.assertEqual(corrected, 0)
+
+    def test_g19_side_face_milling_with_y_offset_keeps_the_machine_x_axis(self):
+        """O4811 T12(D50 페이스커터, G19, Y-34.273 옆면 가공) 실측 — 진입(기계 -X)이 맞는데 공구 위치의 반경 방향을
+        법선으로 쓰면 비스듬한 축으로 잘못 보정됐다. G19 법선은 C 각도의 기계 X 방향이다."""
+        p0 = [[-27.0, -34.3, 17.2], [-27.0, -34.3, 14.2]]
+        p1 = [[-27.0, -34.3, 14.2], [-27.0, -6.8, 14.2]]
+        axes, corrected = lathe.entry_axes(p0, p1, [False, False], [True, False], ['G19', 'G19'], [0.0, 0.0])
+        np.testing.assert_allclose(axes, [[0, 0, 1], [0, 0, 1]], atol=1e-9)
+        self.assertEqual(corrected, 0)
+        # C 90°면 기계 X 방향 = 월드 (0, 1, 0)
+        np.testing.assert_allclose(lathe.plane_normal('G19', (0, 5, 5), 90.0), [0, 1, 0], atol=1e-12)
+        np.testing.assert_allclose(lathe.plane_normal('G19', (0, 3, 4), None), [0, 0.6, 0.8])   # C를 모를 때
+
+    def test_side_entry_is_corrected_to_the_plane_normal_and_counted(self):
+        # G17(축방향) 평면인데 진입이 옆(y 방향)으로 들어온다 → 평면 법선(+X)로 보정
+        axes, corrected = lathe.entry_axes([[-2, 20, 5]], [[-2, 10, 5]], [False], [True], ['G17'])
+        np.testing.assert_allclose(axes[0], [1, 0, 0])
+        self.assertEqual(corrected, 1)
+        # 평면을 모르면(G18 등) 진입 벡터 그대로
+        axes, corrected = lathe.entry_axes([[-2, 20, 5]], [[-2, 10, 5]], [False], [True], ['G18'])
+        np.testing.assert_allclose(axes[0], [0, 1, 0])
+        self.assertEqual(corrected, 0)
+
+    def test_each_bundle_after_a_rapid_gets_its_own_axis_and_breaks_split_bundles(self):
+        # 묶음 1: -x로 플런지(축 +x) 뒤 옆으로 이동 → 급속 후퇴 → 급속 이동 → 급속 접근 → 묶음 2: -z로 플런지(축 +z)
+        p0 = [[0, 0, 8], [-3, 0, 8], [-3, 4, 8], [10, 4, 8], [-10, 0, 40], [-10, 0, 30], [-10, 0, 20]]
+        p1 = [[-3, 0, 8], [-3, 4, 8], [10, 4, 8], [-10, 0, 40], [-10, 0, 30], [-10, 0, 20], [-10, 0, 40]]
+        rapid = [False, False, True, True, True, False, True]
+        axes, _c = lathe.entry_axes(p0, p1, rapid, [True] + [False] * 6, [None] * 7)
+        np.testing.assert_allclose(axes[0], [1, 0, 0])
+        np.testing.assert_allclose(axes[1], [1, 0, 0])                         # 같은 묶음은 같은 축
+        np.testing.assert_allclose(axes[2], [1, 0, 0])                         # 후퇴 = 앞 묶음 자세
+        np.testing.assert_allclose(axes[3], [1, 0, 0])                         # 중간 급속 = 앞 묶음
+        np.testing.assert_allclose(axes[4], [0, 0, 1])                         # 마지막 접근 = 뒤 묶음
+        np.testing.assert_allclose(axes[5], [0, 0, 1])
+        np.testing.assert_allclose(axes[6], [0, 0, 1])                         # 마지막 후퇴 = 앞(묶음 2)
+        # 두 묶음 사이 급속이 하나뿐이면 후퇴로 본다(앞 묶음 축)
+        axes, _c = lathe.entry_axes([[0, 0, 8], [-3, 0, 8], [-10, 0, 30]], [[-3, 0, 8], [-10, 0, 30], [-10, 0, 20]],
+                                    [False, True, False], [True, False, False], [None] * 3)
+        np.testing.assert_allclose(axes[1], [1, 0, 0])
+        # breaks(공정 경계)는 급속이 없어도 묶음을 나눈다
+        axes, _c = lathe.entry_axes([[0, 0, 8], [-10, 0, 30]], [[-3, 0, 8], [-10, 0, 20]], [False, False],
+                                    [True, True], [None, None])
+        np.testing.assert_allclose(axes[1], [0, 0, 1])
+
+
+class TurnMillStockTests(unittest.TestCase):
+    def setUp(self):
+        self.spec = lathe.LatheStockSpec(40.0, 30.0, 0.0)
+        bounds = self.spec.bounds()
+        self.vres = 0.25
+        self.stock = lathe.TurnMillStock(bounds, 0.05, self.vres)
+        self.turn = turning_tool()
+        self.drill = lathe.tool_from_geometry(spec.geometry_from_row(
+            {'INSERT': 'D6 CARBIDE DRILL', 'KIND': '드릴', 'D': '6', 'SO': '30'}))
+
+    def voxel(self, stock, x, y, z):
+        v = stock.voxel
+        return bool(v.occ[int((x - v.x0) / v.step[0]), int((y - v.y0) / v.step[1]), int((z - v.z0) / v.step[2])])
+
+    def program(self):
+        # 선삭(반경 15, z 2 → -20) + 정면 드릴 2개(C0: 월드 (x, 0, 8), C90: (x, 8, 0)), 깊이 z -6
+        moves = [((2, 0, 15.0), (-20, 0, 15.0), 0, False, False)]
+        for y, z in ((0.0, 8.0), (8.0, 0.0)):
+            moves += [((5, y, z), (1, y, z), 1, True, True), ((1, y, z), (-6, y, z), 1, False, True),
+                      ((-6, y, z), (5, y, z), 1, True, True)]
+        p0 = np.array([m[0] for m in moves], float)
+        p1 = np.array([m[1] for m in moves], float)
+        idx = np.array([m[2] for m in moves])
+        rapid = np.array([m[3] for m in moves])
+        mill = np.array([m[4] for m in moves])
+        color = np.where(mill, 1, 0)
+        axes, _c = lathe.entry_axes(p0, p1, rapid, np.r_[True, np.zeros(len(moves) - 1, bool)], ['G17'] * len(moves))
+        return p0, p1, idx, rapid, mill, color, axes
+
+    def test_initial_voxels_form_the_cylinder(self):
+        v = self.stock.voxel
+        expected = math.pi * 20 * 20 * 30 / self.vres ** 3
+        self.assertAlmostEqual(int(v.occ.sum()) / expected, 1.0, delta=0.02)
+        self.assertTrue(self.voxel(self.stock, -10, 0, 19.5))
+        self.assertFalse(self.voxel(self.stock, -10, 14.5, 14.5))            # 반경 20.5 밖(모서리)
+        self.assertFalse(self.stock.any_cut())
+
+    def test_turning_and_axial_drilling_combine(self):
+        p0, p1, idx, rapid, mill, color, axes = self.program()
+        self.stock.cut_batch(p0, p1, [self.turn, self.drill], idx, rapid, color, axes0=axes, axes1=axes,
+                             mill=mill, use_numba=False)
+        st = self.stock
+        st.sync()
+        self.assertTrue(st.any_cut() and st.milled)
+        self.assertFalse(self.voxel(st, -3, 0, 8))                             # C0 구멍
+        self.assertFalse(self.voxel(st, -3, 8, 0))                             # C90 구멍
+        self.assertTrue(self.voxel(st, -3, -8, 0))                             # 구멍 없는 C270
+        self.assertTrue(self.voxel(st, -8, 0, 8))                              # 구멍 바닥(z -6) 아래
+        self.assertFalse(self.voxel(st, -5, 0, 17))                            # 선삭으로 사라진 바깥
+        self.assertTrue(self.voxel(st, -25, 0, 17))                            # 선삭 범위 밖 어깨
+        self.assertEqual(st.rapid_cut_warnings, [])
+        # 구멍 벽의 색 = 턴밀 공정(1), 선삭 면의 색 = 공정 0
+        v = st.voxel
+        i = int((-3 - v.x0) / v.step[0])
+        j = int((0 - v.y0) / v.step[1])
+        k = int((8 - v.z0) / v.step[2])
+        self.assertEqual(int(v.col[i, j, k]), 1)
+        k2 = int((17 - v.z0) / v.step[2])
+        self.assertEqual(int(v.col[int((-5 - v.x0) / v.step[0]), j, k2]), 0)
+
+    def test_order_does_not_matter(self):
+        p0, p1, idx, rapid, mill, color, axes = self.program()
+        self.stock.cut_batch(p0, p1, [self.turn, self.drill], idx, rapid, color, axes0=axes, axes1=axes,
+                             mill=mill, use_numba=False)
+        other = lathe.TurnMillStock(self.spec.bounds(), 0.05, self.vres)
+        order = list(range(1, len(p0))) + [0]                                 # 드릴 먼저, 선삭 나중
+        other.cut_batch(p0[order], p1[order], [self.turn, self.drill], idx[order], rapid[order], color[order],
+                        axes0=axes[order], axes1=axes[order], mill=mill[order], use_numba=False)
+        self.stock.sync()
+        other.sync()
+        self.assertTrue(np.array_equal(self.stock.voxel.occ, other.voxel.occ))
+
+    def test_rapid_into_material_during_turnmill_is_warned(self):
+        p0 = np.array([[5.0, 0.0, 8.0], [5.0, 0.0, 8.0]])
+        p1 = np.array([[-6.0, 0.0, 8.0], [5.0, 0.0, 8.0]])
+        axes = np.tile([1.0, 0.0, 0.0], (2, 1))
+        self.stock.cut_batch(p0, p1, [self.turn, self.drill], [1, 1], [True, True], [1, 1],
+                             src_lines=[40, 41], seqs=[40, 41], axes0=axes, axes1=axes, mill=[True, True],
+                             use_numba=False)
+        self.assertIn(40, [line for line, _seq in self.stock.rapid_cut_warnings])
+
+    def test_snapshot_restore_clone_reset(self):
+        p0, p1, idx, rapid, mill, color, axes = self.program()
+        snap0 = self.stock.snapshot()
+        self.stock.cut_batch(p0, p1, [self.turn, self.drill], idx, rapid, color, axes0=axes, axes1=axes,
+                             mill=mill, use_numba=False)
+        after = self.stock.clone()
+        snap1 = self.stock.snapshot()
+        self.assertGreater(lathe.TurnMillStock.snapshot_bytes(snap1), 0)
+        self.stock.restore(snap0)
+        self.assertFalse(self.stock.any_cut())
+        self.stock.restore(snap1)
+        self.assertTrue(np.array_equal(self.stock.voxel.occ, after.voxel.occ))
+        self.assertTrue(np.array_equal(self.stock.lathe.occ, after.lathe.occ))
+        self.assertTrue(self.stock.milled)
+        self.stock.reset()
+        self.assertFalse(self.stock.any_cut())
+        self.assertFalse(self.stock.milled)
+
+    def test_display_sections_and_depth_colors(self):
+        p0, p1, idx, rapid, mill, color, axes = self.program()
+        self.stock.cut_batch(p0, p1, [self.turn, self.drill], idx, rapid, color, axes0=axes, axes1=axes,
+                             mill=mill, use_numba=False)
+        cmap = {0: (1.0, 0.0, 0.0, 1.0), 1: (0.0, 1.0, 0.0, 1.0)}
+        v3, f3, c3, _e = self.stock.display_mesh(color_map=cmap, section='3q')
+        self.assertFalse(((v3[:, 1] < -self.vres) & (v3[:, 2] > self.vres)).any())
+        vh, _f, _c, _e = self.stock.display_mesh(section='half')
+        self.assertFalse((vh[:, 1] < -self.vres).any())
+        vf, ff, cf, _e = self.stock.display_mesh(color_map=cmap, section='full')
+        self.assertTrue((vf[:, 1] < -5).any())
+        self.assertLess(int(ff.max()), len(vf))
+        has = lambda colors, c: bool((np.abs(colors - np.array(c, np.float32)).max(axis=1) < 1e-6).any())
+        self.assertTrue(has(cf, cmap[0]) and has(cf, cmap[1]))
+        _v, _f, depth, _e = self.stock.display_mesh(mode='depth', section='full')
+        self.assertGreater(len({tuple(np.round(c, 3)) for c in depth}), 2)
+
+    def test_voxel_resolution_targets_twenty_million(self):
+        bounds = lathe.LatheStockSpec(100.0, 60.0).bounds()
+        res = lathe.turnmill_voxel_resolution(bounds)
+        voxels = (60.0 / res) * (100.0 / res) ** 2
+        self.assertAlmostEqual(voxels / 20_000_000, 1.0, delta=0.1)
+        self.assertGreater(lathe.turnmill_voxel_resolution(bounds, numba_ok=False), res)
 
 
 class DisplayMeshTests(unittest.TestCase):

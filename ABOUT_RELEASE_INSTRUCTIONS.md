@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-09-26 (NC_Tool_List v2.1.0 — 선반 인서트·홀더 규격표와 R/T/PITCH/종류/방향 열)
+Last updated: 2026-09-26 (NC_Tool_List v2.2.0 — 선반 형상 시뮬레이션: 선삭 + 턴밀)
 
 ## About button requirements
 
@@ -34,7 +34,41 @@ Last updated: 2026-09-26 (NC_Tool_List v2.1.0 — 선반 인서트·홀더 규�
 
 ## Version history
 
-### 2026-09-26 (latest, v2.1.0)
+### 2026-09-26 (latest, v2.2.0)
+
+- Version: 2.1.0 → 2.2.0
+- Release/build date: 2026-09-26
+- Summary: 사용자 요청 "선반 시뮬레이션 플랜 구성해줘" → 결정(A 턴밀까지 한 번에, B~H 권장안, **I 턴밀 공구 축 = 진입 벡터**, **J SO = 날장 최대**).
+  플랜 `v2.2.0_PLAN.md`, 규약 `LATHE_MODE_GUIDELINES.md` §12.
+  - **M0 규격 해석기 보강**(실제 샘플 문구): 띄어 쓴 ISO 코드(`CNMG 12 04 08`), 대시 없는 보링 바(`S16R STFPR`→내경), `16ER 16UNJ` 등 TPI 나사,
+    종류 `엔드밀`·`페이스커터`·`비절삭`, 문구의 지름 `D<숫자>`. 툴리스트 14열(**인선**·**D** 추가), 태그 `[D ..]`.
+  - **M1 선삭(축대칭)** `nc_lathe_sim.py`(Qt 비의존, 선반 전용): 반단면 점유 격자(약 400만 칸), 공구 단면 다각형(ISO 인서트·홈·나사·중심 드릴, 인선 1~4/9),
+    쓸어낸 볼록 껍질 절삭(numba 커널 `cut_chunk_lathe` + numpy 동일), **G76 나사를 피치 간격 V홈으로 근사**(뷰어의 급속 사선 대신, 사이클 뒤 시작점 복귀),
+    급속 절삭 경고(겹친 단면적 0.5mm² 이상), 3/4·반·전체 단면 회전체 표시, 공정 색. 선반 소재 창(지름·길이·앞면 Z·내경, 밀링 소재와 별도 저장).
+  - **M2 턴밀**: M35 구간 절삭이 있으면 `TurnMillStock` = 축대칭 격자 + 3D 복셀(`nc_sim3d.VoxelStock` 재사용, 약 2,000만 복셀). 선삭은 격자, 턴밀은 복셀에서 깎고
+    턴밀 직전·표시 직전에 격자를 복셀에 반영(교환 법칙). 공구 축 = 가공 묶음 진입 벡터의 반대(측면 진입은 평면 법선으로 보정 — G19 법선은 C 각도의 기계 X),
+    날장 = SO(없으면 무제한). 표시는 복셀 메쉬(선삭 세부는 복셀 크기).
+  - 뷰어 연결은 선반 분기에서만(줄 정보 `line_lathe_map`, `sim_engine` `lathe`/`lathe3d`). 밀링 엔진 코드 경로는 그대로.
+  - `tests/conftest.py`: 테스트마다 예약된 Qt 창 삭제를 처리 — 창이 쌓여 전체 실행이 접근 위반으로 죽던 문제(전체 실행 250초 → 130초).
+- 실측(이 PC, numba, 소재는 추정 치수): O1699 4.8초 / O2222 6.2초 / O4811 3.4초 / O4812 0.5초(선삭만).
+- 알려진 한계·열린 문제: G41/G42 인선 R 보정 미적용, 나사는 나선이 아닌 V홈 고리, 홀더·척 간섭 미검사, 인선 번호 규약은 현장 확인 필요,
+  **선반 드릴 고정 사이클(G83/G87) 깊이 해석** — 현 규약(진입 위치 기준 증분)이면 실제 샘플의 정면·레이디얼 구멍이 뚫리지 않음(사용자 결정 대기).
+- 코드 리뷰(`/code-review high`) 지적 반영: 턴밀 유무가 바뀔 때 소재 재생성, 동기 경로 numba, M35 밖 턴밀 공구 안내, C가 남은 선삭 점의 반경,
+  상태 문구 정확화, 동기화 캐시 무효화 조건, 단면 사본 메모리, 중심 공구 형상 중복 생성.
+- Open source software: 변경 없음(numba/llvmlite 포함 유지).
+- Verification: `python -m pytest` → 601 passed, 1 skipped, 1 failed(이 PC의 저장된 장비 설정 — 변경 전에도 동일한 환경 실패).
+  신규 `tests/test_nc_lathe_sim.py`(엔진·턴밀 소재·진입 축), `tests/test_nc_lathe_viewer.py`(뷰어·소재 창), `tests/test_lathe_insert_spec.py` 확장.
+- Installer/package status: **생성 완료**.
+  - `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` — onedir, UPX 비활성, numba/llvmlite 포함, 숨은 import에 `nc_lathe_sim` 추가(PYZ 포함 확인).
+  - `ISCC.exe NC_Tool_List.iss` — `installer\NC_Tool_List_Setup_v2.2.0.exe`, 포터블 `installer\NC_Tool_List_Portable_v2.2.0.zip`.
+  - dist 폴더의 exe를 `USERNAME`을 바꿔 기동해 12초 뒤에도 실행 중임을 확인(파일 버전 2.2.0.0). 동결 exe에서 선반 시뮬레이션 실행 자체는 확인하지 못함.
+  - Setup EXE SHA-256: DA2DF34DD1B1F86160614B3CFB06C534D6A0003AE6D5038969059212AEB0057A
+  - Portable ZIP SHA-256: 7AE304F68744425F92E25C8EED192307326BB0B7E29127BC529FE373F32B6FB9
+  - App EXE SHA-256: B2D77EDCD0337B6AF2A8B36A3B6B10442DE19C700DA29B4CC133128D7856E561
+  - Setup 80.2 MB / Portable 112.0 MB.
+- 서명 상태: 설치본과 앱 실행 파일 모두 미서명이다(기존과 동일).
+
+### 2026-09-26 (v2.1.0)
 
 - Version: 2.0.2 → 2.1.0
 - Release/build date: 2026-09-26

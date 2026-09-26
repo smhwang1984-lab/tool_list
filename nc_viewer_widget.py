@@ -1487,6 +1487,9 @@ class _SimJob:
                     elif getattr(self.stock, 'is_lathe', False):
                         extra = {'thread_pitch': seg['thread_pitch'][a:b],
                                  'thread_height': seg['thread_height'][a:b]}
+                        if getattr(self.stock, 'is_turnmill', False):
+                            extra.update(mill=seg['mill'][a:b], axes0=seg['axis0'][a:b],
+                                         axes1=seg['axis0'][a:b])
                     finished = self.stock.cut_batch(
                         seg['p0'][a:b], seg['p1'][a:b], self.tools, seg['slot'][a:b],
                         seg['rapid'][a:b], seg['color'][a:b],
@@ -2997,7 +3000,10 @@ class NCViewerWidget(QWidget):
         self.sim_section_mode = '3q'          # 선반 단면 보기: '3q'/'half'/'full'
         self._sim_lathe_excluded = {}         # 공구번호 -> 제외 사유(선반)
         self._sim_lathe_notes = []            # 선반 진단 안내(날장 무제한 등)
-        self._sim_turnmill_moves = 0          # 선반의 M35(턴밀) 절삭 이동 수(M2 전까지는 계산 안 함)
+        self._sim_turnmill_moves = 0          # 선반의 M35(턴밀) 절삭 이동 수
+        self._sim_turnmill_skipped = 0        # 턴밀 형상(D·종류)이 없어 못 깎은 턴밀 절삭 이동 수
+        self._sim_axis_corrected = 0          # 진입 벡터가 평면과 어긋나 평면 코드로 보정한 가공 묶음 수
+        self._sim_lathe_unusable = {}         # 공구번호 -> (사유, 못 깎은 절삭 이동 수)
         self._sim_thread_moves = 0
         self._sim_lathe_cutters = False
         # 백그라운드 계산(v1.9.2)
@@ -3281,9 +3287,11 @@ class NCViewerWidget(QWidget):
             end_idx = int(np.searchsorted(self._sim_seq_keys, seq, side='right'))
         job = _SimJob(self._sim_generation, base, seg, self._sim_tools, start_idx, end_idx,
                       self._sim_snap_positions, set(self._sim_snapshots), seq, self._sim_bridge)
-        sync_limit = self._SIM_SYNC_SEGMENTS_3D if getattr(base, 'is_voxel', False) else self._SIM_SYNC_SEGMENTS
+        heavy = getattr(base, 'is_voxel', False) or getattr(base, 'heavy', False)
+        sync_limit = self._SIM_SYNC_SEGMENTS_3D if heavy else self._SIM_SYNC_SEGMENTS
         if self._sim_sync or (end_idx - start_idx) <= sync_limit:
-            job.run(use_numba=False)
+            # 턴밀 소재의 복셀 절삭은 선분이 적어도 무겁다(페이스커터 한 번에 수백만 복셀) — numba를 쓴다
+            job.run(use_numba=None if getattr(base, 'is_turnmill', False) else False)
             self._sim_adopt(job)
             self._sim_request_mesh_refresh()
             self._sim_pump()                 # 실행 중 목표가 바뀌었을 수 있다
@@ -3401,11 +3409,14 @@ class NCViewerWidget(QWidget):
         """선반: 축대칭(선삭) 절삭 선분 배열과 공구 형상 캐시를 만든다. M35(턴밀) 이동은
         축대칭이 아니므로 여기서는 세고만 한다. G76 나사는 (피치, 높이)를 함께 든다."""
         cols = {key: [] for key in ('p0', 'p1', 'seq0', 'seq1', 'src', 'rapid', 'slot', 'color',
-                                    'tpitch', 'theight')}
+                                    'tpitch', 'theight', 'mill', 'plane', 'brk', 'cdeg')}
         slot_of_tool = {}
         self._sim_lathe_excluded = {}
         self._sim_lathe_notes = []
         self._sim_turnmill_moves = 0
+        self._sim_turnmill_skipped = 0
+        self._sim_axis_corrected = 0
+        self._sim_lathe_unusable = {}
         self._sim_thread_moves = 0
         self._sim_lathe_cutters = False
         geometry_map = self.tool_shape_map or {}
@@ -3438,6 +3449,7 @@ class NCViewerWidget(QWidget):
                 self._sim_tools.append(shape)
             slot = slot_of_tool[tool_no]
             previous = None
+            process_start = True              # 공정이 바뀌는 곳은 가공 묶음의 경계(진입 벡터 계산)
             for index, node in enumerate(path_data):
                 if not node.get("valid"):
                     previous = None
@@ -3446,11 +3458,25 @@ class NCViewerWidget(QWidget):
                     continue        # 프로그램 첫 공정의 가상 시작점(0,0,0) — 실제 이동이 아니다
                 if previous is not None:
                     src1 = node.get('src_line')
-                    mill, _plane, thread = self.line_lathe_map.get(src1, (False, None, None))
-                    if mill:
-                        if node.get('type') != 'G00':
-                            self._sim_turnmill_moves += 1
+                    mill, plane, thread = self.line_lathe_map.get(src1, (False, None, None))
+                    cutting = node.get('type') != 'G00'
+                    if mill and cutting:
+                        self._sim_turnmill_moves += 1
+                    usable = shape.mill_shape is not None if mill else shape.poly is not None
+                    if not usable:
+                        if mill and cutting:
+                            self._sim_turnmill_skipped += 1
+                        if cutting:
+                            reason = ('선삭 공구라 턴밀(M35) 구간에서는 깎지 않음' if mill else
+                                      '턴밀 전용 공구라 선삭 구간(M35 밖)에서는 깎지 않음')
+                            _why, moves = self._sim_lathe_unusable.get(tool_no, (reason, 0))
+                            self._sim_lathe_unusable[tool_no] = (reason, moves + 1)
                     else:
+                        cols['mill'].append(bool(mill))
+                        cols['plane'].append(plane)
+                        cols['cdeg'].append(self.line_to_c_rot.get(src1))
+                        cols['brk'].append(process_start)
+                        process_start = False
                         cols['p0'].append(previous['pt'])
                         cols['p1'].append(node['pt'])
                         cols['seq0'].append(previous.get('seq', 0))
@@ -3473,6 +3499,23 @@ class NCViewerWidget(QWidget):
         order = np.argsort(np.array(cols['seq1'], dtype=np.int64), kind='stable') if count else []
         self.sim_engine = 'lathe'
         if count:
+            mill_arr = np.array(cols['mill'], dtype=bool)
+            rapid_arr = np.array(cols['rapid'], dtype=bool)
+            axes = np.tile([1.0, 0.0, 0.0], (count, 1))
+            if mill_arr.any():
+                # 턴밀 공구 축 = 가공 묶음 진입 벡터의 반대 방향(결정 I). 공정 순서(수집 순서)로 계산한다.
+                p0 = np.array(cols['p0'], dtype=np.float64).reshape(-1, 3)
+                p1 = np.array(cols['p1'], dtype=np.float64).reshape(-1, 3)
+                idx = np.nonzero(mill_arr)[0]
+                brk = np.array(cols['brk'], dtype=bool)
+                gap = np.concatenate([[True], np.diff(idx) > 1])      # 선삭이 끼어들면 새 묶음
+                mill_axes, corrected = nc_lathe_sim.entry_axes(
+                    p0[idx], p1[idx], rapid_arr[idx], brk[idx] | gap, [cols['plane'][i] for i in idx],
+                    [cols['cdeg'][i] for i in idx])
+                axes[idx] = mill_axes
+                self._sim_axis_corrected = corrected
+                if (mill_arr & ~rapid_arr).any():
+                    self.sim_engine = 'lathe3d'
             self.sim_seg = {
                 'p0': np.array(cols['p0'], dtype=np.float64).reshape(-1, 3)[order],
                 'p1': np.array(cols['p1'], dtype=np.float64).reshape(-1, 3)[order],
@@ -3484,6 +3527,8 @@ class NCViewerWidget(QWidget):
                 'color': np.array(cols['color'], dtype=np.int16)[order],
                 'thread_pitch': np.array(cols['tpitch'], dtype=np.float64)[order],
                 'thread_height': np.array(cols['theight'], dtype=np.float64)[order],
+                'mill': mill_arr[order],
+                'axis0': axes[order],
             }
             self._sim_seq_keys = self.sim_seg['seq1']
             _colors, first_idx = np.unique(self.sim_seg['color'], return_index=True)
@@ -3495,6 +3540,12 @@ class NCViewerWidget(QWidget):
         self._sim_process_start_seqs = set(self.process_first_seq.values())
         self._reset_sim_stock_progress()
         self._refresh_sim_status_text()
+        stock = self.sim_stock
+        if stock is not None and self.sim_stock_spec is not None and \
+                bool(getattr(stock, 'is_turnmill', False)) != (self.sim_engine == 'lathe3d'):
+            # 프로그램·툴리스트가 바뀌어 턴밀 유무가 달라졌다 — 같은 소재 사양으로 알맞은 소재를 다시 만든다
+            # (그대로 두면 턴밀 선분이 축대칭 엔진으로 들어가 축 둘레를 통째로 깎는다)
+            self._apply_lathe_stock_spec(self.sim_stock_spec, self.sim_resolution, self.sim_enabled)
 
     def _refresh_lathe_status_text(self):
         parts = []
@@ -3502,7 +3553,20 @@ class NCViewerWidget(QWidget):
             parts.append('형상 정보 없어 제외: ' + ', '.join(
                 '%s(%s)' % (no, reason) for no, reason in sorted(self._sim_lathe_excluded.items())))
         if self._sim_turnmill_moves:
-            parts.append('턴밀(M35) 이동 %d개 — 이 단계에서는 계산하지 않음' % self._sim_turnmill_moves)
+            done = self._sim_turnmill_moves - self._sim_turnmill_skipped
+            if done > 0 and self.sim_engine == 'lathe3d':
+                voxel_res = getattr(self.sim_stock, 'voxel_resolution', None)
+                size = (' %.2fmm' % voxel_res) if voxel_res else ''
+                text = '턴밀(M35) 이동 %d개 — 3D 복셀%s로 계산(선삭 세부는 복셀 크기로 표시)' % (done, size)
+            else:
+                text = '턴밀(M35) 이동 %d개 — 계산할 수 있는 턴밀 공구가 없음' % self._sim_turnmill_moves
+            if self._sim_turnmill_skipped and done > 0:
+                text += ', 공구 형상이 없어 제외 %d개' % self._sim_turnmill_skipped
+            parts.append(text)
+        for no, (why, moves) in sorted(self._sim_lathe_unusable.items()):
+            parts.append('%s: %s(이동 %d개)' % (no, why, moves))
+            if self._sim_axis_corrected:
+                parts.append('진입 방향이 평면과 어긋나 평면 기준으로 공구 축을 정한 가공 %d곳' % self._sim_axis_corrected)
         if self._sim_thread_moves:
             parts.append('G76 나사 %d구간 — 피치 간격 V홈으로 근사(나선은 표시 안 함)' % self._sim_thread_moves)
         if self._sim_no_tool_moves:
@@ -3521,7 +3585,13 @@ class NCViewerWidget(QWidget):
         if resolution in (None, 'auto'):
             resolution = nc_lathe_sim.auto_resolution(bounds, safe_mode=safe)
         self.sim_resolution = float(resolution)
-        self.sim_stock = nc_lathe_sim.LatheStock(bounds, self.sim_resolution)
+        if self.sim_engine == 'lathe3d':
+            voxel_res = nc_lathe_sim.turnmill_voxel_resolution(
+                bounds, safe_mode=safe, numba_ok=nc_sim.numba_available())
+            self.sim_stock = nc_lathe_sim.TurnMillStock(bounds, self.sim_resolution, voxel_res)
+        else:
+            self.sim_stock = nc_lathe_sim.LatheStock(bounds, self.sim_resolution)
+        self._refresh_sim_status_text()             # 복셀 해상도가 정해졌으니 안내 문구를 다시 만든다
         self.sim_enabled = bool(enabled)
         self._reset_sim_stock_progress()
         for name in ('sim_mesh_item', 'sim_edge_item'):
@@ -3541,12 +3611,12 @@ class NCViewerWidget(QWidget):
         seg = self.sim_seg
         if seg is None:
             return None
-        cutting = ~seg['rapid'] & (seg['slot'] >= 0) & (seg['thread_pitch'] <= 0)
+        cutting = ~seg['rapid'] & (seg['slot'] >= 0) & (seg['thread_pitch'] <= 0) & ~seg['mill']
         if not cutting.any():
             return None
         pts = np.concatenate([seg['p0'][cutting], seg['p1'][cutting]])
         z_hi, z_lo = float(pts[:, 0].max()), float(pts[:, 0].min())
-        radius = float(np.abs(pts[:, 2]).max())
+        radius = float(np.hypot(pts[:, 1], pts[:, 2]).max())
         return {'diameter': 2.0 * (radius + margin), 'length': (z_hi - z_lo) + margin,
                 'front_z': z_hi}
 
@@ -3565,8 +3635,8 @@ class NCViewerWidget(QWidget):
             if self._sim_lathe_excluded:
                 return '깎을 수 있는 공구가 없습니다 — ' + ', '.join(
                     '%s(%s)' % (no, why) for no, why in sorted(self._sim_lathe_excluded.items()))
-            if self._sim_turnmill_moves:
-                return '선삭 이동이 없습니다(턴밀 M35 이동은 이 단계에서 계산하지 않음)'
+            if self._sim_turnmill_skipped:
+                return ('턴밀(M35) 공구의 지름(D)·종류를 몰라 깎지 못했습니다 — 툴리스트 D·종류 칸을 확인하세요')
             return '깎을 이동(G01/G02/G03)이 없습니다.'
         upto = int(np.searchsorted(self._sim_seq_keys, self.sim_last_seq, side='right'))
         if upto == 0:
@@ -3576,7 +3646,8 @@ class NCViewerWidget(QWidget):
             return '선택한 공정까지 절삭 이동이 없습니다(급속 이동뿐).'
         pts = np.concatenate([seg['p0'][:upto][usable], seg['p1'][:upto][usable]])
         z_lo, z_hi = float(pts[:, 0].min()), float(pts[:, 0].max())
-        r_lo, r_hi = float(np.abs(pts[:, 2]).min()), float(np.abs(pts[:, 2]).max())
+        radii = np.hypot(pts[:, 1], pts[:, 2])
+        r_lo, r_hi = float(radii.min()), float(radii.max())
         (s_lo, s_hi), (_a, s_r) = stock.extent()
         if z_hi < s_lo or z_lo > s_hi:
             return ('툴패스 Z %.1f~%.1f 가 소재 Z %.1f~%.1f 와 겹치지 않습니다 — 소재 앞면 Z 위치·길이를 확인하세요'
