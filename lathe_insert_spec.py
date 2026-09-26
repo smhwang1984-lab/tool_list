@@ -61,7 +61,17 @@ HOLDER_LENGTHS = {'A': 32, 'B': 40, 'C': 50, 'D': 60, 'E': 70, 'F': 80, 'G': 90,
                   'R': 200, 'S': 250, 'T': 300, 'U': 350, 'V': 400, 'W': 450, 'Y': 500}
 
 # 툴리스트 열 값
-KINDS = ('외경', '내경', '외경홈', '내경홈', '정면홈', '외경나사', '내경나사', '절단', '드릴')
+KINDS = ('외경', '내경', '외경홈', '내경홈', '정면홈', '외경나사', '내경나사', '절단',
+         '드릴', '엔드밀', '페이스커터', '비절삭')
+# 턴밀(M35 구동공구)·중심 드릴 — 지름(D)이 필요하다
+MILLING_KINDS = ('드릴', '엔드밀', '페이스커터')
+NON_CUTTING_KIND = '비절삭'
+# 인선(가상 인선 번호) — 노즈 중심에서 가상 인선(프로그램 좌표점)이 있는 방향.
+# 화면에서 X(반경)가 위, Z가 오른쪽(+Z = 심압대 쪽) 기준:
+#   1 = 우상(+X +Z), 2 = 우하(-X +Z), 3 = 좌하(-X -Z), 4 = 좌상(+X -Z), 9 = 노즈 중심.
+# 외경 우수 공구(척 쪽 -Z로 깎음)는 3, 외경 좌수는 2, 내경 우수는 4, 내경 좌수는 1.
+TIPS = ('1', '2', '3', '4', '9')
+TIP_LABELS = {'1': '1 (우상)', '2': '2 (우하)', '3': '3 (좌하)', '4': '4 (좌상)', '9': '9 (중심)'}
 DIRECTIONS = ('R', 'L', 'N')
 DIRECTION_LABELS = {'R': 'R (우수)', 'L': 'L (좌수)', 'N': 'N (중립)'}
 
@@ -86,10 +96,10 @@ PROGRAM_SPECIFIC_SOURCES = (SOURCE_TAG, SOURCE_INSERT, SOURCE_PROGRAM)
 # ISO 1832 선삭 인서트: 형상 여유각 공차 고정 + 크기(2) 두께(2, 또는 T#) [노즈 R(2)]
 INSERT_RE = re.compile(
     r'(?<![A-Z0-9])([CDEMVSTWR])([ABCDEFGNP])([AFCHEGJKLMNU])([ABFGHJMNQRTUWX])'
-    r'\s*(\d{2})(T\d|\d{2})(\d{2})?(?!\d)', re.I)
+    r'\s*(\d{2})\s*(T\d|\d{2})\s*(\d{2})?(?!\d)', re.I)
 # 나사 인서트: 길이 [E|I][R|L] 피치 [규격]  (예: 16ER 1.5 ISO, 16IR 14W, 22ER 3.0 ISO)
 THREAD_INSERT_RE = re.compile(
-    r'(?<![A-Z0-9])(\d{2})\s*([EI])\s*([RL])\s*(\d+(?:[.,]\d+)?)\s*(ISO|UN|W|NPTF|NPT|BSPT|G|ACME)?'
+    r'(?<![A-Z0-9])(\d{2})\s*([EI])\s*([RL])\s*(\d+(?:[.,]\d+)?)\s*(ISO|UNJ|UNC|UNF|UNEF|UNS|UN|W|NPTF|NPT|BSPT|BSPP|G|ACME)?'
     r'(?![A-Z0-9])', re.I)
 # 부분 프로파일 나사 인서트: 16ER AG60, 16IR A60 (피치 없음)
 THREAD_PARTIAL_RE = re.compile(
@@ -106,18 +116,24 @@ HOLDER_RE = re.compile(
 # ISO 5608 형식이 아닌 홀더(홈/나사/절단용: MGEHR 2525-3, SER 2525M16)의 좌우 — 코드 끝 R/L + 섕크
 HOLDER_HAND_RE = re.compile(r'(?<![A-Z])[A-Z]{2,5}([RL])\s*\d{4}(?![0-9])', re.I)
 # 내경 바(boring bar) 접두어: S25T-PCLNR, A32S-MCLNR
-BAR_PREFIX_RE = re.compile(r'(?<![A-Z0-9])[A-Z]\d{2}[A-Z]\s*-\s*[A-Z]{4,5}[RLN]', re.I)
+BAR_PREFIX_RE = re.compile(r'(?<![A-Z0-9])[A-Z]\d{2}[A-Z]\s*-?\s*[A-Z]{4,5}[RLN]', re.I)
 # 문구 안 노즈 R 표기: "| R-0.8", "R0.4"
 TEXT_R_RE = re.compile(r'(?<![A-Za-z0-9])R\s*[-=]?\s*(\d+(?:\.\d+)?)(?![0-9.]*[A-Za-z])')
 
-# NC 주석 태그: [R 0.8] [T 3.0] [P 1.5] / [PITCH 1.5]
+# NC 주석 태그: [R 0.8] [T 3.0] [P 1.5] / [PITCH 1.5] / [D 10](턴밀 공구 지름)
 TAG_RES = {
+    'D': re.compile(r'\[\s*D\s*=?\s*([\d.]+)\s*\]', re.I),
     'R': re.compile(r'\[\s*R\s*=?\s*([\d.]+)\s*\]', re.I),
     'T': re.compile(r'\[\s*T\s*=?\s*([\d.]+)\s*\]', re.I),
     'PITCH': re.compile(r'\[\s*P(?:ITCH)?\s*=?\s*([\d.]+)\s*\]', re.I),
 }
 
-_KW_DRILL = re.compile(r'드릴|DRILL', re.I)
+_KW_NONCUT = re.compile(r'SETTING[\s.-]*PIN|NULLING|KNURL|ROLLE|널링|세팅', re.I)
+_KW_DRILL = re.compile(r'드릴|DRILL|CENTER|CENTRE|센터', re.I)
+_KW_FACECUT = re.compile(r'FACE[\s-]*(?:CUTTER|MILL)|페이스', re.I)
+_KW_ENDMILL = re.compile(r'END[\s-]*MILL|엔드밀|E/M', re.I)
+# 공구 지름 표기: "D10 X 90 NC DRILL", "D5.5 CARBIDE DRILL", "D3. FLAT END MILL", "MTI 0808 D30 A60"
+TOOL_D_RE = re.compile(r'(?<![A-Z0-9.])D\s*(\d+(?:\.\d+)?)(?![0-9A-Za-z])', re.I)
 _KW_CUTOFF = re.compile(r'절단|CUT[\s-]?OFF|PARTING', re.I)
 _KW_THREAD = re.compile(r'나사|THREAD|THRD', re.I)
 _KW_GROOVE = re.compile(r'홈|GROOV|GRV', re.I)
@@ -276,6 +292,9 @@ def parse_insert(text):
     return info
 
 
+TPI_FORMS = ('UN', 'UNJ', 'UNC', 'UNF', 'UNEF', 'UNS', 'W', 'NPT', 'NPTF', 'BSPT', 'BSPP', 'G')
+
+
 @_cached_dict
 def parse_thread_insert(text):
     """나사 인서트(16ER 1.5 ISO / 16IR AG60 ...). 없으면 None.
@@ -288,14 +307,14 @@ def parse_thread_insert(text):
         form = (form or '').upper()
         if value is None or value <= 0:
             return None
-        if form in ('UN', 'W', 'NPT', 'NPTF', 'BSPT', 'G'):          # 산/inch
+        if form in TPI_FORMS:                                          # 산/inch
             pitch = 25.4 / value
         else:
             pitch = value
         return {
             'side': '외경' if side.upper() == 'E' else '내경', 'hand': hand.upper(),
             'pitch': pitch, 'form': form or 'ISO', 'length': int(length),
-            'angle': 55.0 if form in ('W', 'BSPT', 'G') else 60.0,
+            'angle': 55.0 if form in ('W', 'BSPT', 'BSPP', 'G') else 60.0,
         }
     match = THREAD_PARTIAL_RE.search(text)
     if match:
@@ -332,6 +351,15 @@ def parse_groove_insert(text):
 # --------------------------------------------------------------------------
 # ISO 5608 홀더
 # --------------------------------------------------------------------------
+
+def parse_tool_diameter(text):
+    """문구의 D<숫자>(턴밀·중심 드릴 공구 지름, mm). 없으면 None."""
+    match = TOOL_D_RE.search(str(text or ''))
+    if not match:
+        return None
+    value = _float(match.group(1))
+    return value if value and value > 0 else None
+
 
 @_cached_dict
 def parse_holder(text):
@@ -408,8 +436,14 @@ def infer_kind(insert_text, holder_text, hints=None):
     internal = bool(
         _KW_INTERNAL.search(text) or BAR_PREFIX_RE.search(text)
         or (thread and thread['side'] == '내경'))
+    if _KW_NONCUT.search(text):
+        return NON_CUTTING_KIND
     if _KW_DRILL.search(text):
         return '드릴'
+    if _KW_FACECUT.search(text):
+        return '페이스커터'
+    if _KW_ENDMILL.search(text):
+        return '엔드밀'
     if _KW_CUTOFF.search(text):
         return '절단'
     if _KW_THREAD.search(text) or thread:
@@ -454,6 +488,19 @@ def infer_direction(kind, insert_text, holder_text):
     return ''
 
 
+def infer_tip(kind, hand):
+    """가상 인선 번호 자동 추천 — 외경 R 3 / L 2, 내경 R 4 / L 1, 정면홈 4. 그 밖(외경·내경 홈, 손을 모를 때)은 ''.
+    (외경·내경 홈은 프로그램 기준 모서리를 알 수 없어 추천하지 않는다 — 직접 지정, 비우면 왼쪽 모서리.)"""
+    hand = str(hand or '').upper()
+    if kind in ('외경', '외경나사'):
+        return {'R': '3', 'L': '2'}.get(hand, '')
+    if kind in ('내경', '내경나사'):
+        return {'R': '4', 'L': '1'}.get(hand, '')
+    if kind == '정면홈':
+        return '4'         # 실측(O2222/O4811 정면홈 가공 경로): 프로그램 기준점 = 바깥(+r) 모서리
+    return ''
+
+
 # --------------------------------------------------------------------------
 # 값 결정 (출처 우선순위)
 # --------------------------------------------------------------------------
@@ -464,7 +511,7 @@ def iso_values(insert_text, holder_text=''):
     text = '%s' % (insert_text or '')
     found = {}
     text_r = TEXT_R_RE.search(text)
-    if text_r and _clean_number(text_r.group(1)):
+    if text_r and (_float(text_r.group(1)) or 0.0) > 0:          # "R-0." 같은 0은 값이 아니다
         found['R'] = (_clean_number(text_r.group(1)), SOURCE_TEXT)
     insert = parse_insert(text)
     groove = parse_groove_insert(text)
@@ -493,7 +540,7 @@ def resolve_fields(insert_text, holder_text, tags=None, hints=None, store=None):
     saved = store.get_insert(insert_text, holder_text) if store is not None else {}
     saved_tool = store.get_tool(holder_text, insert_text) if store is not None else {}
     iso = iso_values(insert_text, holder_text)
-    values = {'R': '', 'T': '', 'PITCH': '', 'KIND': '', 'DIR': ''}
+    values = {'R': '', 'T': '', 'PITCH': '', 'KIND': '', 'DIR': '', 'TIP': '', 'D': ''}
     sources = {key: '' for key in values}
 
     def take(key, candidates):
@@ -515,6 +562,14 @@ def resolve_fields(insert_text, holder_text, tags=None, hints=None, store=None):
     take('KIND', [(saved_tool.get('KIND', ''), SOURCE_SAVED), (auto_kind, SOURCE_AUTO)])
     auto_dir = infer_direction(values['KIND'] or auto_kind, insert_text, holder_text)
     take('DIR', [(saved_tool.get('DIR', ''), SOURCE_SAVED), (auto_dir, SOURCE_AUTO)])
+    auto_tip = infer_tip(values['KIND'] or auto_kind, values['DIR'] or auto_dir)
+    take('TIP', [(saved_tool.get('TIP', ''), SOURCE_SAVED), (auto_tip, SOURCE_AUTO)])
+    # 턴밀·중심 드릴 공구 지름 — 인서트 문구의 D<숫자>(홀더 문구는 밀링 공구일 때만 뒤져 본다)
+    diameter = parse_tool_diameter(insert_text)
+    if diameter is None and (values['KIND'] or auto_kind) in MILLING_KINDS:
+        diameter = parse_tool_diameter(holder_text)
+    take('D', [(tags.get('D', ''), SOURCE_TAG), (saved.get('D', ''), SOURCE_SAVED),
+               (fmt_number(diameter) if diameter else '', SOURCE_TEXT)])
     return values, sources
 
 
@@ -583,6 +638,22 @@ def describe_holder(text):
 # 시뮬레이션용 형상 맵
 # --------------------------------------------------------------------------
 
+def mill_type_for(kind, insert_text=''):
+    """턴밀·중심 드릴 종류 -> nc_sim.tool_shape_from_values의 type 문자열. 해당 없으면 None."""
+    text = str(insert_text or '').upper()
+    if kind == '드릴':
+        return 'DRILL'
+    if kind == '페이스커터':
+        return 'FACE MILL'
+    if kind == '엔드밀':
+        if 'BALL' in text or '볼' in text:
+            return 'BALL E/M'
+        if 'FILLET' in text:
+            return 'FILLET E/M'
+        return 'FLAT E/M'
+    return None
+
+
 def geometry_from_row(row):
     """툴리스트 행 하나 -> 선반 시뮬레이션이 쓸 공구 형상 dict.
     값이 없거나 해석 못한 항목은 None."""
@@ -592,9 +663,14 @@ def geometry_from_row(row):
     holder = parse_holder(holder_text) or parse_holder(insert_text)
     thread = parse_thread_insert(insert_text)
     groove = parse_groove_insert(insert_text)
+    tip_text = str(row.get('TIP', '')).strip()
     geometry = {
         'kind': str(row.get('KIND', '')).strip(),
         'hand': str(row.get('DIR', '')).strip().upper(),
+        'tip': int(tip_text) if tip_text.isdigit() else None,
+        'diameter': _float(row.get('D')),
+        'so': _float(row.get('SO')),                       # 날장 최대(날 길이가 없을 때, 사용자 확정 2026-09-26)
+        'mill_type': None,
         'nose_r': _float(row.get('R')),
         'width': _float(row.get('T')),
         'pitch': _float(row.get('PITCH')),
@@ -617,6 +693,7 @@ def geometry_from_row(row):
             geometry['pitch'] = thread['pitch']
     if groove and geometry['width'] is None:
         geometry['width'] = groove['width']
+    geometry['mill_type'] = mill_type_for(geometry['kind'], insert_text)
     if holder:
         geometry['approach_angle'] = holder['approach_angle']
         if holder['shank_w']:
@@ -652,11 +729,11 @@ def specs_path(base_dir):
 class LatheSpecStore:
     """사용자가 툴리스트 [수정] 창에서 넣은 값을 인서트 이름별로 기억한다.
 
-    insert : 정규화한 인서트 문구 -> {'R','T','PITCH'}
-    tool   : '홀더||인서트' -> {'KIND','DIR'}  (같은 인서트도 홀더에 따라 종류가 다르다)"""
+    insert : 정규화한 인서트 문구 -> {'R','T','PITCH','D'}
+    tool   : '홀더||인서트' -> {'KIND','DIR','TIP'}  (같은 인서트도 홀더에 따라 종류가 다르다)"""
 
-    INSERT_FIELDS = ('R', 'T', 'PITCH')
-    TOOL_FIELDS = ('KIND', 'DIR')
+    INSERT_FIELDS = ('R', 'T', 'PITCH', 'D')
+    TOOL_FIELDS = ('KIND', 'DIR', 'TIP')
 
     def __init__(self, path=None):
         self.path = None if path is None else str(path)
