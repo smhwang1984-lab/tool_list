@@ -25,10 +25,11 @@ from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
+import lathe_insert_spec
 import sumpath_license
 
 
-APP_VERSION = '2.0.2'
+APP_VERSION = '2.1.0'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-09-24'
 APP_CREATOR = 'Hwang.seonmun'
@@ -184,10 +185,26 @@ LATHE_SPINDLE_TOKEN_RE = re.compile(
 # 도피 이송, 나사 리드 F도 포함. G98/G99 단위 구분도 안 한다 — 결정 E).
 LATHE_FEED_RE = re.compile(r'F\s*([\d.]+)', re.I)
 
+# v2.1.0: 선반 시뮬레이션용 공구 데이터 — INSERT 옆에 R(노즈/코너 R)·T(홈 폭)·PITCH,
+# SO와 SPINDL 사이에 종류(KIND)·방향(DIR)을 둔다(사용자 확정, 2026-09-26). 값은
+# lathe_insert_spec이 ISO 규격 해석/주석 태그/프로그램(G76·G32)/직접 입력 저장값에서
+# 자동으로 채우고, 모두 [수정] 창에서 고칠 수 있다.
 LATHE_COLUMNS = [
-    ('NO', 'TOOL NO'), ('INSERT', 'INSERT'), ('HOLDER', '홀더'), ('SO', 'SO'),
+    ('NO', 'TOOL NO'), ('INSERT', 'INSERT'), ('R', 'R'), ('T', 'T'), ('PITCH', 'PITCH'),
+    ('HOLDER', '홀더'), ('SO', 'SO'), ('KIND', '종류'), ('DIR', '방향'),
     ('SPINDL', 'SPINDL'), ('FEED', 'FEED'), ('REMARK', 'REMARK'),
 ]
+# 자동 추천 값을 사용자가 고칠 수 있는 열(수정 창에서 콤보로 고른다)
+LATHE_SPEC_KEYS = ('R', 'T', 'PITCH', 'KIND', 'DIR')
+
+
+class LatheRow(dict):
+    """선반 툴리스트 행 — 일반 dict처럼 쓰되, R/T/PITCH/KIND/DIR 값이 어디서 왔는지
+    (`sources`: NC 주석 태그 / ISO 규격 해석 / 프로그램 / 직접 입력 ...)를 함께 든다."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.sources = {}
 
 
 def _lathe_collect_spindle_feed(code):
@@ -247,7 +264,7 @@ def _strip_lathe_tool_prefix(text):
     return match.group(1) if match else text
 
 
-def parse_lathe_program(text):
+def parse_lathe_program(text, store=None):
     """선반 전용 툴리스트 파서(v1.6.5). 밀링 parse_program()의
     N#(#: Tool Change)/[SO ..]/M6 규약과는 완전히 다른, 선반 실제 프로그램
     양식(O1699.nc)에 맞춘 별도 파서다 — 서로 재사용하지 않는다.
@@ -270,7 +287,13 @@ def parse_lathe_program(text):
     건너뛰고, 그다음 두 통짜 주석을 홀더/인서트로 읽는다 — 예전 포스트
     (O1699.nc, 이 머리줄이 없음)는 그대로 동작한다. 블록 코드 안에 T워드가
     하나도 없을 때에 한해, 건너뛴 이 주석의 4자리 값을 TOOL NO 폴백으로
-    쓴다(승인된 규약)."""
+    쓴다(승인된 규약).
+
+    v2.1.0: R/T/PITCH/KIND/DIR 열을 자동으로 채운다(lathe_insert_spec.resolve_fields).
+    주석의 [R 0.8] [T 3.0] [P 1.5] 태그는 SO처럼 읽어 표시 문구에서 걷어내고,
+    블록 코드의 G76/G32(피치 F)·G75·G74·G70~G73은 종류/피치 힌트가 된다.
+    store(LatheSpecStore)가 있으면 사용자가 [수정] 창에서 넣어 둔 값을 반영한다.
+    돌려주는 행은 LatheRow(dict)이고 .sources에 값의 출처가 들어 있다."""
     lines = text.splitlines()
     n_indices = [i for i, line in enumerate(lines) if LATHE_N_RE.match(line)]
     # v1.7.8: REMARK에 붙일 경보정(G41/G42) 표기 — N번호 -> "(G41)" 등.
@@ -298,12 +321,16 @@ def parse_lathe_program(text):
             if len(comments) >= 2:
                 break
         so_value = ''
+        tags = {}
         cleaned_comments = []
         for comment_text in comments:
             so_match = LATHE_SO_RE.search(comment_text)
             if so_match and not so_value:
                 so_value = so_match.group(1)
-            cleaned_comments.append(LATHE_SO_RE.sub('', comment_text).strip())
+            for tag_key, tag_value in lathe_insert_spec.find_tags(comment_text).items():
+                tags.setdefault(tag_key, tag_value)
+            cleaned_comments.append(
+                lathe_insert_spec.strip_tags(LATHE_SO_RE.sub('', comment_text)))
         comments = cleaned_comments
         holder = comments[0] if len(comments) >= 1 else ''
         insert = comments[1] if len(comments) >= 2 else ''
@@ -335,14 +362,16 @@ def parse_lathe_program(text):
 
         # v1.7.7: SPINDL/FEED는 블록 전체 코드(여러 줄에 걸친 G96/G97 모달
         # 추적이 필요하므로)를 한 번에 이어붙여 스캔한다.
-        block_code = '\n'.join(code_without_comments(line) for line in block)
+        block_code_lines = [code_without_comments(line) for line in block]
+        block_code = '\n'.join(block_code_lines)
         block_spindle, block_feed = _lathe_collect_spindle_feed(block_code)
+        block_hints = lathe_insert_spec.program_hints(block_code_lines)
 
         key = tool_no or ('__N%d__' % start)
         entry = tools.setdefault(
             key, {
                 'tool_no': tool_no, 'holder': '', 'insert': '', 'so': '',
-                'remarks': [], 'spindle': [], 'feed': [],
+                'remarks': [], 'spindle': [], 'feed': [], 'tags': {}, 'hints': {},
             }
         )
         if not entry['holder']:
@@ -351,6 +380,9 @@ def parse_lathe_program(text):
             entry['insert'] = insert
         if not entry['so']:
             entry['so'] = so_value
+        for tag_key, tag_value in tags.items():
+            entry['tags'].setdefault(tag_key, tag_value)
+        entry['hints'] = lathe_insert_spec.merge_hints(entry['hints'], block_hints)
         entry['spindle'].extend(block_spindle)
         entry['feed'].extend(block_feed)
         if n_label not in entry['remarks']:
@@ -360,15 +392,24 @@ def parse_lathe_program(text):
 
     def _row_for(key):
         entry = tools[key]
-        return {
+        values, sources = lathe_insert_spec.resolve_fields(
+            entry['insert'], entry['holder'], entry['tags'], entry['hints'], store)
+        row = LatheRow({
             'NO': entry['tool_no'],
             'INSERT': entry['insert'],
+            'R': values['R'],
+            'T': values['T'],
+            'PITCH': values['PITCH'],
             'HOLDER': entry['holder'],
             'SO': entry['so'],
+            'KIND': values['KIND'],
+            'DIR': values['DIR'],
             'SPINDL': _lathe_value_range(entry['spindle']),
             'FEED': _lathe_value_range(entry['feed']),
             'REMARK': _format_remark(entry['remarks'], radius_comp),
-        }
+        })
+        row.sources = sources
+        return row
 
     # v1.6.6: MCT 툴리스트(공구번호 순 + 빠진 번호는 빈 행)와 같은 모양으로
     # 정렬한다 — 지금까지는 N블록(공정) 등장 순서 그대로였다. TOOL NO의 앞
@@ -607,9 +648,10 @@ _COL_WIDTH_TOTAL = sum(COL_WIDTH.values())
 # 어긋나지 않게 한다.
 # v1.7.7: SPINDL은 모달 접두어(예 "G96S40~G97S800")까지 붙어 SO보다
 # 길어질 수 있어 FEED보다도 조금 더 넓게 잡는다.
+# v2.1.0: R/T/PITCH/KIND/DIR 열 추가(짧은 값이라 좁게).
 _LATHE_COL_WIDTH_BASE = {
-    'NO': 88, 'INSERT': 220, 'HOLDER': 220, 'SO': 64, 'SPINDL': 128,
-    'FEED': 104, 'REMARK': 140,
+    'NO': 88, 'INSERT': 220, 'R': 52, 'T': 52, 'PITCH': 68, 'HOLDER': 220, 'SO': 64,
+    'KIND': 96, 'DIR': 56, 'SPINDL': 128, 'FEED': 104, 'REMARK': 140,
 }
 LATHE_COL_WIDTH = {
     key: round(width * COPY_TABLE_SCALE) + TABLE_CELL_PADDING_PX * 2
@@ -869,7 +911,9 @@ def make_pdf_story(rows, metadata, available_width, fonts):
 # v1.7.2: SO(옵셋 번호 한두 자리, 예 "40")도 NO/REMARK처럼 짧으므로 좁게 둔다.
 # v1.7.7: SPINDL/FEED 2열 추가. SPINDL은 모달 접두어(예 "G96S40~G97S800")가
 # 붙어 SO보다 길어질 수 있어 FEED보다 조금 더 넓게 잡는다.
-LATHE_PDF_COLUMN_WEIGHTS = [50, 250, 250, 40, 95, 80, 90]
+# v2.1.0: R/T/PITCH/KIND/DIR 5열 추가 — INSERT/홀더 비중을 줄여 한 페이지에 맞춘다.
+# 순서는 LATHE_COLUMNS와 같다(NO/INSERT/R/T/PITCH/HOLDER/SO/KIND/DIR/SPINDL/FEED/REMARK).
+LATHE_PDF_COLUMN_WEIGHTS = [46, 190, 32, 32, 40, 190, 34, 62, 34, 84, 70, 78]
 
 
 def lathe_pdf_column_widths(available_width):
@@ -916,7 +960,7 @@ def style_lathe_pdf_table(data, available_width, regular_font, bold_font):
     # (뒤에 추가해 위 LEFT 지정을 이 열에서만 덮어쓴다). v1.7.7: SPINDL/FEED도
     # 코드 형태의 짧은 값이라 같은 이유로 가운데 정렬에 포함한다.
     column_keys = [key for key, _label in LATHE_COLUMNS]
-    for centered_key in ('SO', 'SPINDL', 'FEED'):
+    for centered_key in ('R', 'T', 'PITCH', 'SO', 'KIND', 'DIR', 'SPINDL', 'FEED'):
         col_index = column_keys.index(centered_key)
         commands.append(('ALIGN', (col_index, 2), (col_index, -1), 'CENTER'))
     table.setStyle(TableStyle(commands))
@@ -2224,6 +2268,12 @@ else:
         def __init__(self, _root=None):
             super().__init__()
             self.name_types = load_name_types()
+            # v2.1.0: 선반 인서트별 R/T/PITCH·종류/방향 직접 입력 저장값(이름→TYPE 변환표와
+            # 같은 사용자 설정 폴더). 테스트처럼 _root를 주면 그 폴더에 둔다.
+            store_dir = Path(_root) if _root is not None else settings_path().parent
+            self.lathe_store = lathe_insert_spec.LatheSpecStore(
+                lathe_insert_spec.specs_path(store_dir))
+            self._lathe_notice = ''
             self.metadata = {key: '' for key in METADATA_ALIASES}
             self.current_file_path = None
             self.current_mode = 'tool'
@@ -3896,7 +3946,7 @@ else:
                 if lathe:
                     # v1.6.5: 선반은 밀링 parse_program()과 다른 전용 파서를
                     # 쓴다 — N번호/괄호 주석 2줄/Tnnnn 규약이 서로 다르다.
-                    self._last_parsed_rows = parse_lathe_program(source_text)
+                    self._last_parsed_rows = parse_lathe_program(source_text, self.lathe_store)
                 else:
                     self._last_parsed_rows = parse_program(source_text, self.name_types, lathe=False)
             return self._last_parsed_metadata, list(self._last_parsed_rows)
@@ -4016,7 +4066,7 @@ else:
                 return
             row_index = selected_rows[0]
             row = {key: self.table_text(row_index, key) for key, _label in self.active_columns()}
-            self.show_row_editor(row, row_index)
+            self.show_row_editor(row, row_index, self._row_sources(row_index))
 
         def delete_selected(self):
             selected_rows = self.selected_rows()
@@ -4047,35 +4097,99 @@ else:
         # 해당하면 왼쪽 정렬, 그 외(짧은 코드/숫자 열)는 가운데 정렬한다.
         _LEFT_ALIGN_COLUMN_KEYS = ('NAME', 'HOLDER', 'REMARK', 'INSERT')
 
-        def show_row_editor(self, values, row_index=None):
+        def show_row_editor(self, values, row_index=None, sources=None):
             dialog = QDialog(self)
             dialog.setWindowTitle('공구 행 수정' if row_index is not None else '공구 행 추가')
             grid = QGridLayout(dialog)
             columns = self.active_columns()
+            lathe = self.is_lathe_program()
             editors = {}
             for index, (key, label) in enumerate(columns):
                 column = (index // 8) * 2
                 row = index % 8
                 grid.addWidget(QLabel(label), row, column)
-                editor = QLineEdit(str(values.get(key, '')))
+                current = str(values.get(key, ''))
+                if lathe and key in self._LATHE_CHOICES:
+                    editor = QComboBox()
+                    editor.addItem('', '')
+                    for data, text in self._LATHE_CHOICES[key]:
+                        editor.addItem(text, data)
+                else:
+                    editor = QLineEdit()
+                self._set_editor_value(editor, current)
+                if lathe and key in LATHE_SPEC_KEYS:
+                    hint = self._LATHE_FIELD_HINTS.get(key, '')
+                    if (sources or {}).get(key) in lathe_insert_spec.PROGRAM_SPECIFIC_SOURCES:
+                        hint += '\n※ 프로그램에서 온 값입니다 — 고쳐도 이번 표에서만 바뀝니다'
+                    editor.setToolTip(hint)
                 editors[key] = editor
                 grid.addWidget(editor, row, column + 1)
+
+            def value_of(key):
+                editor = editors[key]
+                if isinstance(editor, QComboBox):
+                    return str(editor.currentData() or '').strip()
+                return editor.text().strip()
+
+            def set_value(key, text):
+                self._set_editor_value(editors[key], text)
+
             buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
-            grid.addWidget(buttons, 8, 0, 1, 4)
+            if lathe:
+                # v2.1.0: INSERT/홀더 문구에서 R/T/PITCH/종류/방향을 다시 추천받는다(고칠 수 있다).
+                auto_button = QPushButton('자동 추천')
+                auto_button.setToolTip(
+                    'INSERT/홀더 문구로 R·T·PITCH·종류·방향을 다시 채웁니다.\n'
+                    '추천할 값이 없는 칸은 그대로 둡니다.')
+
+                def apply_recommendation():
+                    recommended = lathe_insert_spec.recommend_fields(
+                        value_of('INSERT'), value_of('HOLDER'))
+                    for spec_key in LATHE_SPEC_KEYS:
+                        if recommended.get(spec_key):
+                            set_value(spec_key, recommended[spec_key])
+
+                auto_button.clicked.connect(apply_recommendation)
+                grid.addWidget(auto_button, 8, 0, 1, 2)
+                grid.addWidget(buttons, 9, 0, 1, 4)
+            else:
+                grid.addWidget(buttons, 8, 0, 1, 4)
 
             def save():
-                row = {key: editors[key].text().strip() for key, _label in columns}
+                row = {key: value_of(key) for key, _label in columns}
                 if 'TYPE' in row and not row['TYPE'] and row.get('NAME'):
                     row['TYPE'] = derive_type(row['NAME'], self.name_types)
                 if 'D' in row and not row['D'] and row.get('NAME'):
                     row['D'] = derive_d(row['NAME'])
                 target = row_index
+                changed = []
+                if lathe:
+                    row = LatheRow(row)
+                    baseline = dict(values)
+                    if target is None:
+                        # 새 행은 비워 둔 R/T/PITCH/종류/방향을 문구·저장값으로 자동 채운다
+                        # (자동 채운 값은 사용자가 바꾼 값이 아니므로 기준값에 넣어 저장 대상에서 뺀다)
+                        resolved, resolved_sources = lathe_insert_spec.resolve_fields(
+                            row.get('INSERT', ''), row.get('HOLDER', ''), store=self.lathe_store)
+                        for spec_key in LATHE_SPEC_KEYS:
+                            if not row.get(spec_key) and resolved.get(spec_key):
+                                row[spec_key] = resolved[spec_key]
+                                row.sources[spec_key] = resolved_sources[spec_key]
+                                baseline[spec_key] = resolved[spec_key]
+                    else:
+                        row.sources = dict(sources or {})
+                    changed = self._save_lathe_spec_edits(baseline, row)
                 if target is None:
                     target = self.table.rowCount()
                     self.table.insertRow(target)
                 self.set_table_row(target, row)
+                if lathe:
+                    self._propagate_lathe_specs(target, values, row, changed)
                 self.table.selectRow(target)
                 self.update_count()
+                if lathe and self._lathe_notice:
+                    # update_count()가 라벨을 '공구 N개'로 덮어쓰므로 안내는 그 뒤에 다시 보여 준다
+                    self._flash_count_message(self._lathe_notice, 6000)
                 if self.current_mode == 'viewer':
                     self.sync_viewer_from_source()
                 dialog.accept()
@@ -4084,11 +4198,177 @@ else:
             buttons.rejected.connect(dialog.reject)
             dialog.exec_()
 
+        # v2.1.0 ---- 선반 인서트/공구 규격 값(R/T/PITCH/종류/방향) 처리 ----------------
+        _LATHE_FIELD_HINTS = {
+            'R': '노즈 R / 코너 R (mm)',
+            'T': '홈 바이트 폭 (mm) — 규격을 못 찾으면 직접 입력',
+            'PITCH': '나사 피치 (mm)',
+            'KIND': '공구 종류 — 자동 추천 후 고칠 수 있습니다',
+            'DIR': '공구 방향: R 우수 / L 좌수 / N 중립',
+        }
+
+        # [수정] 창 콤보(종류/방향) 선택지: (저장 값, 표시 문구)
+        _LATHE_CHOICES = {
+            'KIND': [(kind, kind) for kind in lathe_insert_spec.KINDS],
+            'DIR': [(direction, lathe_insert_spec.DIRECTION_LABELS[direction])
+                    for direction in lathe_insert_spec.DIRECTIONS],
+        }
+
+        @staticmethod
+        def _set_editor_value(editor, text):
+            """입력칸(QLineEdit/QComboBox)에 값을 넣는다. 콤보에 없는 값이면 항목을 추가해 보존한다."""
+            text = str(text or '')
+            if isinstance(editor, QComboBox):
+                if text and editor.findData(text) < 0:
+                    editor.addItem(text, text)
+                editor.setCurrentIndex(max(0, editor.findData(text)))
+            else:
+                editor.setText(text)
+
+        def _flash_count_message(self, text, msec=5000):
+            """공구 개수 라벨에 안내 문구를 잠깐 보여 준 뒤 원래 문구로 되돌린다. 되돌리는 타이머는
+            창에 딸려 있어(부모 = 이 창) 창이 먼저 사라져도 파괴된 창을 건드리지 않는다."""
+            timer = getattr(self, '_count_message_timer', None)
+            if timer is None:
+                timer = QTimer(self)
+                timer.setSingleShot(True)
+                timer.timeout.connect(self.update_count)
+                self._count_message_timer = timer
+            self.count.setText(text)
+            timer.start(msec)
+
+        def _row_sources(self, row_index):
+            """표의 R/T/PITCH/종류/방향 셀에 붙여 둔 값 출처(없으면 빈 문자열)."""
+            found = {}
+            for column, (key, _label) in enumerate(self.active_columns()):
+                if key in LATHE_SPEC_KEYS:
+                    item = self.table.item(row_index, column)
+                    found[key] = (item.data(Qt.UserRole) or '') if item else ''
+            return found
+
+        def _save_lathe_spec_edits(self, original, row):
+            """[수정] 창에서 바꾼 R/T/PITCH/종류/방향을 처리하고 row.sources의 출처 표시를 갱신한다.
+
+            - 문구만으로 나오는 추천값(ISO 해석 등)과 같으면 저장값을 지우고 그 출처로 표시한다.
+            - 원래 값이 프로그램에서 온 것(주석 태그/인서트 표기/G76·G32)이면 인서트 이름별 저장값보다
+              우선하므로 저장해도 다음 파싱에서 적용되지 않는다 — 저장하지 않고 이번 표에만 둔다.
+            - 그 밖에는 인서트(종류/방향은 홀더+인서트) 이름별로 저장한다. 실제로 저장소가 바뀔 때만
+              파일에 쓴다.
+            돌려줌: 바꾼 키 목록."""
+            self._lathe_notice = ''
+            changed = [key for key in LATHE_SPEC_KEYS
+                       if str(row.get(key, '')) != str(original.get(key, ''))]
+            if not changed:
+                return []
+            insert_text = row.get('INSERT', '')
+            holder_text = row.get('HOLDER', '')
+            auto_values, auto_sources = lathe_insert_spec.resolve_fields(insert_text, holder_text)
+            program_specific = lathe_insert_spec.PROGRAM_SPECIFIC_SOURCES
+            insert_values, tool_values = {}, {}
+            for key in changed:
+                typed = str(row.get(key, ''))
+                auto_value = auto_values.get(key, '')
+                if typed and typed == auto_value:
+                    stored, source = '', auto_sources[key]
+                elif row.sources.get(key, '') in program_specific:
+                    stored, source = None, lathe_insert_spec.SOURCE_MANUAL      # 이번 표에서만 유지
+                elif not typed:
+                    # 비우기 — 추천값이 있으면 "일부러 비움"으로 저장해야 다음 파싱에도 비어 있다
+                    if auto_value:
+                        stored, source = lathe_insert_spec.BLANK, lathe_insert_spec.SOURCE_SAVED
+                    else:
+                        stored, source = '', ''
+                else:
+                    stored, source = typed, lathe_insert_spec.SOURCE_SAVED
+                row.sources[key] = source
+                if stored is None:
+                    continue
+                if key in lathe_insert_spec.LatheSpecStore.INSERT_FIELDS:
+                    insert_values[key] = stored
+                else:
+                    tool_values[key] = stored
+            if any(row.sources.get(key) == lathe_insert_spec.SOURCE_MANUAL for key in changed):
+                self._lathe_notice = '프로그램(주석 태그/G76·G32)에서 온 값은 고쳐도 이번 표에서만 바뀝니다'
+                self._flash_count_message(self._lathe_notice, 6000)
+            store = self.lathe_store
+            snapshot = json.dumps([store.insert, store.tool], sort_keys=True, ensure_ascii=False)
+            store.update_insert(insert_text, insert_values, holder_text)
+            store.update_tool(holder_text, insert_text, tool_values)
+            if json.dumps([store.insert, store.tool], sort_keys=True,
+                          ensure_ascii=False) != snapshot:
+                try:
+                    store.save()
+                except OSError:
+                    # 이번 실행에서는 메모리 값으로 계속 동작하지만 다음 실행에는 남지 않는다 — 알린다
+                    self._lathe_notice = '⚠ 입력값을 파일에 저장하지 못했습니다(이번 실행에서만 유지)'
+                    self._flash_count_message(self._lathe_notice, 6000)
+                self.invalidate_parse_cache()
+            return changed
+
+        def _propagate_lathe_specs(self, edited_index, original, row, changed):
+            """같은 인서트(종류/방향은 같은 홀더+인서트)를 쓰는 다른 행의 비었거나 옛 값 그대로인
+            칸에 방금 바꾼 값을 채운다."""
+            if not changed:
+                return
+            insert_key = lathe_insert_spec.normalize_key(row.get('INSERT', ''))
+            holder_key = lathe_insert_spec.normalize_key(row.get('HOLDER', ''))
+            if not insert_key:
+                return
+            columns = [key for key, _label in self.active_columns()]
+            for index in range(self.table.rowCount()):
+                if index == edited_index:
+                    continue
+                if lathe_insert_spec.normalize_key(self.table_text(index, 'INSERT')) != insert_key:
+                    continue
+                same_holder = (lathe_insert_spec.normalize_key(self.table_text(index, 'HOLDER'))
+                               == holder_key)
+                for key in changed:
+                    if row.sources.get(key) == lathe_insert_spec.SOURCE_MANUAL:
+                        continue                    # 이번 표에서만 쓰는 값은 다른 행에 퍼뜨리지 않는다
+                    if key in ('KIND', 'DIR') and not same_holder:
+                        continue
+                    if self.table_text(index, key) not in ('', str(original.get(key, ''))):
+                        continue
+                    target_item = self.table.item(index, columns.index(key))
+                    target_source = (target_item.data(Qt.UserRole) or '') if target_item else ''
+                    if target_source in lathe_insert_spec.PROGRAM_SPECIFIC_SOURCES:
+                        continue                    # 그 행은 자기 프로그램의 값(태그/G76 등)이 이긴다
+                    source = (getattr(row, 'sources', None) or {}).get(
+                        key, lathe_insert_spec.SOURCE_SAVED)
+                    item = QTableWidgetItem(str(row.get(key, '')))
+                    item.setTextAlignment(Qt.AlignCenter)
+                    item.setData(Qt.UserRole, source)
+                    tip = self._lathe_cell_tooltip(key, {key: row.get(key, '')}, {key: source})
+                    if tip:
+                        item.setToolTip(tip)
+                    self.table.setItem(index, columns.index(key), item)
+
+        def _lathe_cell_tooltip(self, key, row, sources):
+            if key == 'INSERT':
+                return lathe_insert_spec.describe_insert(row.get('INSERT', ''))
+            if key == 'HOLDER':
+                return lathe_insert_spec.describe_holder(row.get('HOLDER', ''))
+            if key in LATHE_SPEC_KEYS:
+                hint = self._LATHE_FIELD_HINTS.get(key, '')
+                if str(row.get(key, '')):
+                    source = sources.get(key) or lathe_insert_spec.SOURCE_SAVED
+                    return '%s\n출처: %s' % (hint, source)
+                return '%s\n비어 있음 — [수정]에서 입력하세요' % hint
+            return ''
+
         def set_table_row(self, row_index, row):
+            lathe = self.is_lathe_program()
+            sources = getattr(row, 'sources', None) or {}
             for column, (key, _label) in enumerate(self.active_columns()):
                 item = QTableWidgetItem(str(row.get(key, '')))
                 if key not in self._LEFT_ALIGN_COLUMN_KEYS:
                     item.setTextAlignment(Qt.AlignCenter)
+                if lathe:
+                    if key in LATHE_SPEC_KEYS:
+                        item.setData(Qt.UserRole, sources.get(key, ''))
+                    tip = self._lathe_cell_tooltip(key, row, sources)
+                    if tip:
+                        item.setToolTip(tip)
                 self.table.setItem(row_index, column, item)
 
         def run(self):

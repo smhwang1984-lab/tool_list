@@ -30,6 +30,8 @@ viewer_hiddenimports = [
     'nc_sim',
     # v1.10.0: 3D 소재(복셀) 엔진 — 경사면/동시 5축 가공 시뮬레이션.
     'nc_sim3d',
+    # v2.1.0: 선반 인서트·홀더 ISO 규격표와 툴리스트 자동 입력(순수 파이썬, Qt 비의존).
+    'lathe_insert_spec',
 ] + numba_imports + collect_submodules('pyqtgraph.opengl') + collect_submodules('OpenGL')
 
 a = Analysis(
