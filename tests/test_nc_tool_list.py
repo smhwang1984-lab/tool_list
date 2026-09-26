@@ -4240,7 +4240,7 @@ M1
         keys = [key for key, _label in app.LATHE_COLUMNS]
         self.assertEqual(
             keys, ['NO', 'INSERT', 'R', 'T', 'PITCH', 'HOLDER', 'SO', 'KIND', 'DIR',
-                   'SPINDL', 'FEED', 'REMARK']
+                   'TIP', 'D', 'SPINDL', 'FEED', 'REMARK']      # v2.2.0: 인선·D 추가
         )
 
     # ---- v1.7.7: 선반 SPINDL/FEED 열 — "so와 remark 사이에 Spindle Feed

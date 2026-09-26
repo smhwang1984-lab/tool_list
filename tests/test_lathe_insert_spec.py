@@ -128,6 +128,103 @@ class ThreadGrooveHolderParseTests(unittest.TestCase):
         self.assertIsNone(spec.parse_holder('D50.0 X H103 T-DRILL'))
 
 
+class RealSampleTextTests(unittest.TestCase):
+    """v2.2.0 M0 — 실제 선반 샘플(O1699/O2222/O4811/O4812)의 인서트·홀더 문구."""
+
+    def fields(self, insert, holder=''):
+        values, _sources = spec.resolve_fields(insert, holder)
+        return values
+
+    def test_spaced_iso_codes_are_parsed(self):
+        info = spec.parse_insert('CNMG 12 04 08 | R-0.8')
+        self.assertEqual((info['shape'], info['ic'], info['thickness'], info['nose_r']),
+                         ('C', 12.7, 4.76, 0.8))
+        info = spec.parse_insert('VCMT 16 04 04 | R-0.4')
+        self.assertEqual((info['shape'], info['ic'], info['nose_r']), ('V', 9.525, 0.4))
+        self.assertIsNone(spec.parse_insert('D50.0 X H103 T-DRILL'))
+
+    def test_boring_bar_holders_without_dash_are_internal(self):
+        for holder in ('S16R STFPR 11 - D20', 'E08K STFPR 09', 'S07J SWUBR 06-D08', 'S40T PCLNR 12 - 50'):
+            self.assertTrue(spec.parse_holder(holder)['is_bar'], holder)
+        self.assertEqual(self.fields('TPGT 110302 | R-0.2', 'S16R STFPR 11 - D20')['KIND'], '내경')
+        self.assertEqual(self.fields('WBGT 060102 | R-0.2', 'S07J SWUBR 06-D08')['KIND'], '내경')
+        self.assertFalse(spec.parse_holder('SVJCR 2525 M16')['is_bar'])          # 외경 홀더는 그대로
+        self.assertEqual(self.fields('VCMT 160404', 'SVJCR 2525 M16')['KIND'], '외경')
+
+    def test_unj_and_other_tpi_thread_forms(self):
+        info = spec.parse_thread_insert('16ER 16UNJ | R-0.24')
+        self.assertAlmostEqual(info['pitch'], 25.4 / 16, places=4)                # = 1.5875
+        self.assertEqual((info['side'], info['hand'], info['angle']), ('외경', 'R', 60.0))
+        self.assertAlmostEqual(spec.parse_thread_insert('16IR 20UNF')['pitch'], 1.27, places=3)
+        self.assertEqual(spec.parse_thread_insert('16ER 1.5 ISO')['pitch'], 1.5)  # 기존 표기 그대로
+        self.assertEqual(self.fields('16ER 16UNJ | R-0.24', 'SER 2525 M16')['KIND'], '외경나사')
+
+    def test_milling_and_center_tools_and_non_cutting_tools(self):
+        cases = (
+            ('D50.0 X H103 T-DRILL', 'SLEEVE', '드릴', '50'),
+            ('D12 CARBIDE DRILL', 'ER25', '드릴', '12'),
+            ('D1.5 CENTER', 'ER25-75', '드릴', '1.5'),
+            ('D10 X 90 NC DRILL', 'MILL TOOL CHECK', '드릴', '10'),
+            ('D5.5 CARBIDE DRILL, ANGLE', 'MILL TOOL CHECK', '드릴', '5.5'),
+            ('D16 FLAT END MILL, ANGLE', 'MILL TOOL CHECK', '엔드밀', '16'),
+            ('D12 X R1.5 FILLET END MILL', 'ER25', '엔드밀', '12'),
+            ('D50. FACE CUTTER, STRAIGHT | R-0.8', 'MILL TOOL CHECK', '페이스커터', '50'),
+            ('D10.SETTING PIN | R-0.', 'ER25', '비절삭', '10'),
+            ('ROLLE NULLING  | R-0.12', 'NULLING TOOL', '비절삭', ''),
+        )
+        for insert, holder, kind, diameter in cases:
+            values = self.fields(insert, holder)
+            self.assertEqual((values['KIND'], values['D']), (kind, diameter), insert)
+        # 종류를 못 정하는 밀링 공구(MTI ...)도 지름은 읽는다 — 종류는 사용자가 정한다
+        values = self.fields('MTI 0808 D30 A60 MT8, STRAIGHT', 'MILL TOOL CHECK')
+        self.assertEqual((values['KIND'], values['D']), ('', '30'))
+        # 문구가 없는 R 0("R-0.")은 값이 아니다
+        self.assertEqual(self.fields('D10.SETTING PIN | R-0.', 'ER25')['R'], '')
+
+    def test_milling_tool_type_mapping_for_the_simulation(self):
+        self.assertEqual(spec.mill_type_for('드릴'), 'DRILL')
+        self.assertEqual(spec.mill_type_for('페이스커터', 'D50. FACE CUTTER'), 'FACE MILL')
+        self.assertEqual(spec.mill_type_for('엔드밀', 'D16 FLAT END MILL'), 'FLAT E/M')
+        self.assertEqual(spec.mill_type_for('엔드밀', 'D6 BALL END MILL'), 'BALL E/M')
+        self.assertEqual(spec.mill_type_for('엔드밀', 'D12 X R1.5 FILLET END MILL'), 'FILLET E/M')
+        self.assertIsNone(spec.mill_type_for('외경'))
+
+    def test_tip_numbers_by_kind_and_hand(self):
+        self.assertEqual(spec.infer_tip('외경', 'R'), '3')
+        self.assertEqual(spec.infer_tip('외경', 'L'), '2')
+        self.assertEqual(spec.infer_tip('내경', 'R'), '4')
+        self.assertEqual(spec.infer_tip('내경', 'L'), '1')
+        self.assertEqual(spec.infer_tip('외경나사', 'R'), '3')
+        self.assertEqual(spec.infer_tip('외경홈', 'N'), '')                 # 홈은 기준 모서리를 모른다
+        self.assertEqual(spec.infer_tip('외경', ''), '')
+        self.assertEqual(self.fields('CNMG 120408', 'PCLNR 2525M 12')['TIP'], '3')
+        self.assertEqual(self.fields('CNMG 120408', 'PCLNL 2525M 12')['TIP'], '2')
+        self.assertEqual(self.fields('DNMG150404', 'S25T-PCLNR 12')['TIP'], '4')
+
+    def test_tags_and_saved_values_for_d_and_tip(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = spec.LatheSpecStore(spec.specs_path(directory))
+            store.update_insert('MTI 0808 D30 A60 MT8', {'D': '32'})
+            store.update_tool('MILL TOOL CHECK', 'MTI 0808 D30 A60 MT8', {'KIND': '엔드밀', 'TIP': '9'})
+            values, sources = spec.resolve_fields('MTI 0808 D30 A60 MT8', 'MILL TOOL CHECK', store=store)
+            self.assertEqual((values['D'], sources['D']), ('32', spec.SOURCE_SAVED))     # 저장값 > 문구
+            self.assertEqual((values['KIND'], values['TIP']), ('엔드밀', '9'))
+        text = 'D10 X 90 NC DRILL [D 9.8]'
+        self.assertEqual(spec.find_tags(text), {'D': '9.8'})
+        values, sources = spec.resolve_fields(spec.strip_tags(text), '', tags=spec.find_tags(text))
+        self.assertEqual((values['D'], sources['D']), ('9.8', spec.SOURCE_TAG))          # 태그 > 문구
+        self.assertEqual(spec.strip_tags(text), 'D10 X 90 NC DRILL')
+
+    def test_geometry_carries_diameter_so_and_tip(self):
+        geometry = spec.geometry_from_row({
+            'INSERT': 'D12 CARBIDE DRILL', 'HOLDER': 'ER25', 'KIND': '드릴', 'D': '12', 'SO': '40', 'TIP': ''})
+        self.assertEqual((geometry['diameter'], geometry['so'], geometry['mill_type'], geometry['tip']),
+                         (12.0, 40.0, 'DRILL', None))
+        geometry = spec.geometry_from_row({'INSERT': 'CNMG 120408', 'HOLDER': 'PCLNR 2525M 12',
+                                           'KIND': '외경', 'DIR': 'R', 'TIP': '3'})
+        self.assertEqual((geometry['tip'], geometry['so'], geometry['diameter']), (3, None, None))
+
+
 class ReviewRegressionTests(unittest.TestCase):
     """코드 리뷰에서 나온 결함이 다시 생기지 않게 고정한다."""
 

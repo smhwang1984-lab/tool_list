@@ -189,13 +189,14 @@ LATHE_FEED_RE = re.compile(r'F\s*([\d.]+)', re.I)
 # SO와 SPINDL 사이에 종류(KIND)·방향(DIR)을 둔다(사용자 확정, 2026-09-26). 값은
 # lathe_insert_spec이 ISO 규격 해석/주석 태그/프로그램(G76·G32)/직접 입력 저장값에서
 # 자동으로 채우고, 모두 [수정] 창에서 고칠 수 있다.
+# v2.2.0: 선반 형상 시뮬레이션용 — 종류/방향 옆에 인선(가상 인선 번호)과 D(턴밀·중심 드릴 지름).
 LATHE_COLUMNS = [
     ('NO', 'TOOL NO'), ('INSERT', 'INSERT'), ('R', 'R'), ('T', 'T'), ('PITCH', 'PITCH'),
-    ('HOLDER', '홀더'), ('SO', 'SO'), ('KIND', '종류'), ('DIR', '방향'),
-    ('SPINDL', 'SPINDL'), ('FEED', 'FEED'), ('REMARK', 'REMARK'),
+    ('HOLDER', '홀더'), ('SO', 'SO'), ('KIND', '종류'), ('DIR', '방향'), ('TIP', '인선'),
+    ('D', 'D'), ('SPINDL', 'SPINDL'), ('FEED', 'FEED'), ('REMARK', 'REMARK'),
 ]
-# 자동 추천 값을 사용자가 고칠 수 있는 열(수정 창에서 콤보로 고른다)
-LATHE_SPEC_KEYS = ('R', 'T', 'PITCH', 'KIND', 'DIR')
+# 자동 추천 값을 사용자가 고칠 수 있는 열(수정 창에서 입력/콤보로 고른다)
+LATHE_SPEC_KEYS = ('R', 'T', 'PITCH', 'KIND', 'DIR', 'TIP', 'D')
 
 
 class LatheRow(dict):
@@ -404,6 +405,8 @@ def parse_lathe_program(text, store=None):
             'SO': entry['so'],
             'KIND': values['KIND'],
             'DIR': values['DIR'],
+            'TIP': values['TIP'],
+            'D': values['D'],
             'SPINDL': _lathe_value_range(entry['spindle']),
             'FEED': _lathe_value_range(entry['feed']),
             'REMARK': _format_remark(entry['remarks'], radius_comp),
@@ -651,7 +654,7 @@ _COL_WIDTH_TOTAL = sum(COL_WIDTH.values())
 # v2.1.0: R/T/PITCH/KIND/DIR 열 추가(짧은 값이라 좁게).
 _LATHE_COL_WIDTH_BASE = {
     'NO': 88, 'INSERT': 220, 'R': 52, 'T': 52, 'PITCH': 68, 'HOLDER': 220, 'SO': 64,
-    'KIND': 96, 'DIR': 56, 'SPINDL': 128, 'FEED': 104, 'REMARK': 140,
+    'KIND': 96, 'DIR': 56, 'TIP': 60, 'D': 56, 'SPINDL': 128, 'FEED': 104, 'REMARK': 140,
 }
 LATHE_COL_WIDTH = {
     key: round(width * COPY_TABLE_SCALE) + TABLE_CELL_PADDING_PX * 2
@@ -912,8 +915,9 @@ def make_pdf_story(rows, metadata, available_width, fonts):
 # v1.7.7: SPINDL/FEED 2열 추가. SPINDL은 모달 접두어(예 "G96S40~G97S800")가
 # 붙어 SO보다 길어질 수 있어 FEED보다 조금 더 넓게 잡는다.
 # v2.1.0: R/T/PITCH/KIND/DIR 5열 추가 — INSERT/홀더 비중을 줄여 한 페이지에 맞춘다.
-# 순서는 LATHE_COLUMNS와 같다(NO/INSERT/R/T/PITCH/HOLDER/SO/KIND/DIR/SPINDL/FEED/REMARK).
-LATHE_PDF_COLUMN_WEIGHTS = [46, 190, 32, 32, 40, 190, 34, 62, 34, 84, 70, 78]
+# v2.2.0: TIP/D 2열 추가. 순서는 LATHE_COLUMNS와 같다
+# (NO/INSERT/R/T/PITCH/HOLDER/SO/KIND/DIR/TIP/D/SPINDL/FEED/REMARK).
+LATHE_PDF_COLUMN_WEIGHTS = [46, 175, 30, 30, 38, 175, 32, 60, 30, 32, 32, 80, 66, 74]
 
 
 def lathe_pdf_column_widths(available_width):
@@ -960,7 +964,7 @@ def style_lathe_pdf_table(data, available_width, regular_font, bold_font):
     # (뒤에 추가해 위 LEFT 지정을 이 열에서만 덮어쓴다). v1.7.7: SPINDL/FEED도
     # 코드 형태의 짧은 값이라 같은 이유로 가운데 정렬에 포함한다.
     column_keys = [key for key, _label in LATHE_COLUMNS]
-    for centered_key in ('R', 'T', 'PITCH', 'SO', 'KIND', 'DIR', 'SPINDL', 'FEED'):
+    for centered_key in ('R', 'T', 'PITCH', 'SO', 'KIND', 'DIR', 'TIP', 'D', 'SPINDL', 'FEED'):
         col_index = column_keys.index(centered_key)
         commands.append(('ALIGN', (col_index, 2), (col_index, -1), 'CENTER'))
     table.setStyle(TableStyle(commands))
@@ -4205,6 +4209,8 @@ else:
             'PITCH': '나사 피치 (mm)',
             'KIND': '공구 종류 — 자동 추천 후 고칠 수 있습니다',
             'DIR': '공구 방향: R 우수 / L 좌수 / N 중립',
+            'TIP': '가상 인선 번호(화면에서 X 위, Z 오른쪽 기준): 1 우상 / 2 우하 / 3 좌하 / 4 좌상 / 9 중심',
+            'D': '턴밀·중심 드릴 공구 지름 (mm) — 문구의 D값 자동, 없으면 직접 입력',
         }
 
         # [수정] 창 콤보(종류/방향) 선택지: (저장 값, 표시 문구)
@@ -4212,6 +4218,7 @@ else:
             'KIND': [(kind, kind) for kind in lathe_insert_spec.KINDS],
             'DIR': [(direction, lathe_insert_spec.DIRECTION_LABELS[direction])
                     for direction in lathe_insert_spec.DIRECTIONS],
+            'TIP': [(tip, lathe_insert_spec.TIP_LABELS[tip]) for tip in lathe_insert_spec.TIPS],
         }
 
         @staticmethod
