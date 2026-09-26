@@ -4236,9 +4236,11 @@ M1
             self.assertEqual(row.get('SO', ''), '')
 
     def test_lathe_columns_schema_has_spindl_feed_between_so_and_remark(self):
+        """v2.1.0: INSERT 옆에 R/T/PITCH, SO와 SPINDL 사이에 종류/방향이 들어간다."""
         keys = [key for key, _label in app.LATHE_COLUMNS]
         self.assertEqual(
-            keys, ['NO', 'INSERT', 'HOLDER', 'SO', 'SPINDL', 'FEED', 'REMARK']
+            keys, ['NO', 'INSERT', 'R', 'T', 'PITCH', 'HOLDER', 'SO', 'KIND', 'DIR',
+                   'SPINDL', 'FEED', 'REMARK']
         )
 
     # ---- v1.7.7: 선반 SPINDL/FEED 열 — "so와 remark 사이에 Spindle Feed
@@ -5831,9 +5833,9 @@ class ToolListModeComboTests(unittest.TestCase):
             self.assertTrue(app.is_lathe_machine(window.machine_type_combo.currentText()))
             # v1.7.2: SO 열이 추가돼 4열 -> 5열, v1.7.7: SPINDL/FEED 2열이
             # 더 추가돼 5열 -> 7열이 됐다.
-            self.assertEqual(len(window.active_columns()), 7)
+            self.assertEqual(len(window.active_columns()), len(app.LATHE_COLUMNS))
             # run()이 즉시 다시 불려 표 스키마도 실제로 갱신됐어야 한다.
-            self.assertEqual(window.table.columnCount(), 7)
+            self.assertEqual(window.table.columnCount(), len(app.LATHE_COLUMNS))
             self.assertEqual(window.table.horizontalHeaderItem(0).text(), 'TOOL NO')
 
             window.tool_mode_combo.setCurrentText('밀링')

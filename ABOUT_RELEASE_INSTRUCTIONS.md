@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-09-24 (NC_Tool_List v2.0.2 — 공정 색 경계를 그라데이션 없이 선명하게)
+Last updated: 2026-09-26 (NC_Tool_List v2.1.0 — 선반 인서트·홀더 규격표와 R/T/PITCH/종류/방향 열)
 
 ## About button requirements
 
@@ -34,7 +34,45 @@ Last updated: 2026-09-24 (NC_Tool_List v2.0.2 — 공정 색 경계를 그라데
 
 ## Version history
 
-### 2026-09-24 (latest, v2.0.2)
+### 2026-09-26 (latest, v2.1.0)
+
+- Version: 2.0.2 → 2.1.0
+- Release/build date: 2026-09-26
+- Summary: 사용자 요청 "선반 시뮬레이션에 쓸 인서트 규격표 만들어줘 … 규격을 찾을 수 없는 경우 툴리스트에 인서트 옆에 R T Pith 등의 데이터를
+  넣을 수 있는 공간 … 넣을 수 있는 데이터는 자동으로" + 결정(A: T = 홈바이트 폭, B/C 권장안, D: 종류·방향도 입력, SO와 SPINDL 사이, 자동 추천 + 수정 가능).
+  **선반 형상 시뮬레이션 자체는 아직 없다 — 이번은 그 시뮬레이션이 쓸 공구 데이터 기반**이다. 규약은 `LATHE_MODE_GUIDELINES.md` §11.
+  - **규격표 모듈 `lathe_insert_spec.py`**(Qt 비의존, 선반 전용): ISO 1832 선삭 인서트(`CNMG 120408` → 형상·날끝각·여유각·내접원·두께·노즈 R·날 길이),
+    나사 인서트(`16ER 1.5 ISO` 외경/내경·좌우·피치·나사각), 잘 알려진 홈 인서트 표기 몇 가지(`N123..-0300-0004`·`MGMN300`·`GTN-3`·`GIP 3.00-0.40`),
+    ISO 5608 홀더(`PCLNR 2525M 12` → 접근각·좌우·섕크·길이·내경 바). 읽지 못한 값은 지어내지 않고 빈칸(노즈 코드 `00`도 R 빈칸).
+  - **툴리스트 12열**: `NO / INSERT / R / T / PITCH / 홀더 / SO / 종류 / 방향 / SPINDL / FEED / REMARK`. 종류 = 외경·내경·외경홈·내경홈·정면홈·외경나사·내경나사·절단·드릴,
+    방향 = R 우수 / L 좌수 / N 중립. 셀 툴팁에 값의 출처, INSERT/홀더 툴팁에 규격 해석 요약. 화면 표·PDF(열 비율 12개)·복사가 모두 새 열을 따른다.
+  - **자동 입력**: 주석 태그 `[R 0.8] [T 3.0] [P 1.5]` > 직접 입력 저장값 > 인서트 문구의 `R-0.8` > ISO 해석(PITCH는 태그 > 인서트 표기 > 프로그램 G76/G32의 같은 줄 F > 저장값),
+    종류/방향은 문구 키워드·인서트·홀더 구조 > 프로그램(G76/G32·G75·G74·G70~G73) 순으로 추천. 태그는 표시 문구에서 걷어낸다.
+  - **직접 입력 저장**(`%APPDATA%\NC Tool List\lathe_insert_specs.json`): [수정] 창에서 바꾼 값만 인서트별(R/T/PITCH, 인서트가 비면 홀더 이름) / 홀더+인서트별(종류/방향)로 저장,
+    추천값과 같으면 삭제, 추천값을 일부러 비우면 `-`(BLANK)로 저장. [수정] 창에 종류·방향 콤보와 [자동 추천] 버튼. 새 행은 빈 칸을 자동으로 채운다.
+    프로그램에서 온 값(태그/인서트 표기/G76·G32)을 고친 것은 저장해도 다음 파싱에서 프로그램 값이 이기므로 저장하지 않고 "이번 표에서만"으로 표시하고 안내한다.
+    같은 인서트를 쓰는 다른 행의 빈/옛 값 칸은 바로 갱신(단, 자기 프로그램 값인 행은 건드리지 않음). 저장 실패는 상태 표시줄에 경고.
+  - **시뮬레이션용 형상 맵** `geometry_map_from_rows(rows)`(밀링 `tool_shape_map`과 같은 `T01/T1/1` 키). 밀링 코드·밀링 열은 변경 없음.
+  - `NC_Tool_List.spec` 숨은 import에 `lathe_insert_spec` 추가(빌드에 포함됨을 확인).
+- 코드 리뷰 4회(`/code-review`) 지적 사항을 모두 반영: 홀더 코드 앞 영어 단어(`BORING BAR PCLNR`)에서 코드를 놓치던 것, 노즈 코드 `00`이 R 0으로 표시되던 것,
+  프로그램 값 수정이 다음 파싱에서 사라지던 것, 인서트가 빈 행의 수정이 저장되지 않던 것, 자동 추천을 지워도 되살아나던 것, 나사와 무관한 이송 F를 피치로 읽던 것,
+  전파가 자기 태그 값을 덮어쓰던 것, 저장 실패·안내 문구가 조용히 사라지던 것, 해석 결과 캐시.
+- Open source software: 변경 없음(numba/llvmlite 포함 유지).
+- Verification: `python -m pytest` → 524 passed, 1 skipped, 1 failed. 실패 1건은 이 PC의 환경 조건이며 변경 전 HEAD에서도 동일:
+  `test_switching_to_lathe_changes_table_schema_and_machine`(저장된 장비 설정). 신규 `tests/test_lathe_insert_spec.py` 58건(해석기·우선순위·저장소·파서 통합·표/수정 창).
+  **테스트 주의**: 앱 창(뷰어 포함)을 테스트마다 새로 만들어 쌓으면 전체 실행에서 뒤쪽 기존 테스트가 접근 위반으로 죽는다(실측) — 창 테스트는 클래스당 하나를 공유한다.
+- Installer/package status: **생성 완료**.
+  - `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` — onedir, UPX 비활성, numba/llvmlite 포함.
+  - `ISCC.exe NC_Tool_List.iss` — `installer\NC_Tool_List_Setup_v2.1.0.exe`.
+  - 포터블: `installer\NC_Tool_List_Portable_v2.1.0.zip`.
+  - dist 폴더의 exe를 `USERNAME`을 바꿔 기동해 12초 뒤에도 실행 중임을 확인(파일 버전 2.1.0.0, PYZ에 `lathe_insert_spec` 포함).
+  - Setup EXE SHA-256: EEF183E3C05EF4EEB72E83EFB4A97516266B90CD350EE8C45D18869EB10874EE
+  - Portable ZIP SHA-256: 2B56785B0C4BD1E05428F5ED169EE797BF71A1D6CCBA9D68CA02C3CF0E908D5B
+  - App EXE SHA-256: 191BFC29A8FCDD4D8033F713871304DC497B2AD52F87341FD610310B2A2E0371
+  - Setup 80.2 MB / Portable 111.9 MB. 구 v1.x·v2.0.x 패키지는 `installer`에 그대로 남겨 둠.
+- 서명 상태: 설치본과 앱 실행 파일 모두 미서명이다(기존과 동일).
+
+### 2026-09-24 (v2.0.2)
 
 - Version: 2.0.1 → 2.0.2
 - Release/build date: 2026-09-24
