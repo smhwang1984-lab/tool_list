@@ -50,6 +50,19 @@ M6 T3
 """
 
 
+def line_end_points(points):
+    """v2.2.2: 경로 점을 원본 줄(src_line)별 마지막 점으로 묶는다 — C축 회전 이동이 원호 점 여러 개로
+    그려지므로 점 순번 대신 "그 줄이 끝난 위치"로 검증한다. 돌려줌: {src_line: [x, y, z](반올림)}."""
+    ends = {}
+    for p in points:
+        ends[p['src_line']] = [round(v, 6) for v in p['pt']]
+    return ends
+
+
+def line_points(points, src_line):
+    return [p['pt'] for p in points if p['src_line'] == src_line]
+
+
 class NcToolListTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -4829,12 +4842,13 @@ G90 G0 X50. Z-10.
         try:
             viewer.set_source_text(source, {'T01': 'END MILL'})
             points = viewer.tool_paths[list(viewer.tool_paths)[0]]
-            # 순서: [0,0,0](공정 시작) / [5,0,50](G0) / [5,50,0](C90 배치회전)
-            # / [5,0,50](G28 H0 리셋) / [-10,0,25](마지막 이동).
-            self.assertEqual([round(v, 6) for v in points[2]['pt']], [5.0, 50.0, 0.0])
-            self.assertEqual([round(v, 6) for v in points[3]['pt']], [5.0, 0.0, 50.0])
-            self.assertEqual(points[3]['type'], 'G00')
-            self.assertEqual([round(v, 6) for v in points[4]['pt']], [-10.0, 0.0, 25.0])
+            ends = line_end_points(points)
+            # 줄별 끝 위치: [5,0,50](G0) / [5,50,0](C90) / [5,0,50](G28 H0 리셋) / [-10,0,25].
+            self.assertEqual(ends[1], [5.0, 0.0, 50.0])
+            self.assertEqual(ends[2], [5.0, 50.0, 0.0])
+            self.assertEqual(ends[3], [5.0, 0.0, 50.0])
+            self.assertEqual([p['type'] for p in points if p['src_line'] == 3][-1], 'G00')
+            self.assertEqual(ends[4], [-10.0, 0.0, 25.0])
         finally:
             self._restore(viewer, original, qapp)
 
@@ -4859,10 +4873,11 @@ G0 X50. Z-10.
         try:
             viewer.set_source_text(source, {'T01': 'END MILL'})
             points = viewer.tool_paths[list(viewer.tool_paths)[0]]
-            self.assertEqual([round(v, 6) for v in points[2]['pt']], [5.0, 50.0, 0.0])
-            self.assertEqual([round(v, 6) for v in points[3]['pt']], [5.0, 0.0, 50.0])
-            self.assertEqual(points[3]['type'], 'G00')
-            self.assertEqual([round(v, 6) for v in points[4]['pt']], [-10.0, 0.0, 25.0])
+            ends = line_end_points(points)
+            self.assertEqual(ends[2], [5.0, 50.0, 0.0])
+            self.assertEqual(ends[3], [5.0, 0.0, 50.0])
+            self.assertEqual([p['type'] for p in points if p['src_line'] == 3][-1], 'G00')
+            self.assertEqual(ends[4], [-10.0, 0.0, 25.0])
         finally:
             self._restore(viewer, original, qapp)
 
@@ -4882,11 +4897,11 @@ G0 X50. Z-10.
         try:
             viewer.set_source_text(source, {'T01': 'END MILL'})
             points = viewer.tool_paths[list(viewer.tool_paths)[0]]
-            # G28V0. 줄은 아무 점도 추가하지 않는다: start / G0 / C90 /
-            # 마지막 G0(C가 90에 남아 있는 채 회전) 이렇게 4개뿐이다.
-            self.assertEqual(len(points), 4)
-            self.assertEqual([round(v, 6) for v in points[2]['pt']], [5.0, 50.0, 0.0])
-            self.assertEqual([round(v, 6) for v in points[-1]['pt']], [-10.0, 25.0, 0.0])
+            # G28V0. 줄은 아무 점도 추가하지 않는다(C 리셋도 없음) — 마지막 G0는 C가 90에 남아 있는 채 이동.
+            ends = line_end_points(points)
+            self.assertNotIn(3, ends)
+            self.assertEqual(ends[2], [5.0, 50.0, 0.0])
+            self.assertEqual(ends[4], [-10.0, 25.0, 0.0])
         finally:
             self._restore(viewer, original, qapp)
 
@@ -4907,13 +4922,48 @@ H90.
         try:
             viewer.set_source_text(source, {'T01': 'END MILL'})
             points = viewer.tool_paths[list(viewer.tool_paths)[0]]
-            # 순서: [0,0,0](시작) / [5,0,50](G0) / [5,0,50](C0, 변화 없음)
-            # / [5,50,0](H90 → C=90) / [-10,25,0](G0, C=90인 채 이동)
+            # 줄별 끝 위치: [5,0,50](C0, 변화 없음) / [5,50,0](H90 → C=90) / [-10,25,0](C=90인 채 이동)
             # / [-10,0,-25](H90 → C=90+90=180, 절대 지정이 아님을 확인).
-            self.assertEqual([round(v, 6) for v in points[3]['pt']], [5.0, 50.0, 0.0])
-            self.assertEqual(points[3]['type'], 'G00')
-            self.assertEqual([round(v, 6) for v in points[4]['pt']], [-10.0, 25.0, 0.0])
-            self.assertEqual([round(v, 6) for v in points[5]['pt']], [-10.0, 0.0, -25.0])
+            ends = line_end_points(points)
+            self.assertEqual(ends[2], [5.0, 0.0, 50.0])
+            self.assertEqual(len(line_points(points, 2)), 1)                    # C가 안 바뀐 줄은 점 하나
+            self.assertEqual(ends[3], [5.0, 50.0, 0.0])
+            self.assertEqual([p['type'] for p in points if p['src_line'] == 3][-1], 'G00')
+            self.assertEqual(ends[4], [-10.0, 25.0, 0.0])
+            self.assertEqual(ends[5], [-10.0, 0.0, -25.0])
+        finally:
+            self._restore(viewer, original, qapp)
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_c_rotation_moves_are_drawn_as_arcs_not_chords(self):
+        """v2.2.2(사용자 요청 "C축 회전 급속을 직선 대신 원호로"): C만 도는 급속은 반경을 유지하는 원호,
+        X와 C가 함께 바뀌면 반경이 선형으로 변하는 나선으로 그린다. 방향은 지령 그대로(C0 → C270은 +270°)."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        source = """T0100
+G0 X100. Z5.
+C90.
+G1 X60. C0. F100.
+C270.
+"""
+        try:
+            viewer.set_source_text(source, {'T01': 'END MILL'})
+            points = viewer.tool_paths[list(viewer.tool_paths)[0]]
+            rapid = line_points(points, 2)                                      # C0 → C90, 반경 50
+            self.assertEqual(len(rapid), 18)                                    # 90° / 5°
+            for pt in rapid:
+                self.assertAlmostEqual(float((pt[1] ** 2 + pt[2] ** 2) ** 0.5), 50.0, places=6)
+            self.assertEqual([round(v, 6) for v in rapid[-1]], [5.0, 50.0, 0.0])
+            self.assertTrue(all(p['type'] == 'G00' for p in points if p['src_line'] == 2))
+            spiral = line_points(points, 3)                                     # C90 → C0, 반경 50 → 30 나선
+            radii = [float((pt[1] ** 2 + pt[2] ** 2) ** 0.5) for pt in spiral]
+            self.assertTrue(all(b < a for a, b in zip(radii, radii[1:])))      # 반경이 고르게 줄어든다
+            self.assertAlmostEqual(radii[-1], 30.0, places=6)
+            self.assertTrue(all(p['type'] == 'G01' for p in points if p['src_line'] == 3))
+            full = line_points(points, 4)                                       # C0 → C270: +270° 쪽으로 54점
+            self.assertEqual(len(full), 54)
+            self.assertAlmostEqual(full[17][1], 30.0, places=6)                 # 18번째 점 = +90°(월드 +Y)를 지난다
+            self.assertEqual([round(v, 6) for v in full[-1]], [5.0, -30.0, 0.0])
         finally:
             self._restore(viewer, original, qapp)
 
@@ -4936,7 +4986,12 @@ G80
         try:
             viewer.set_source_text(source, {'T04': 'DRILL'})
             points = viewer.tool_paths[list(viewer.tool_paths)[0]]
-            self.assertEqual(len(points), 11)
+            # v2.2.2: H-180. 줄은 복귀점(C0)에서 새 접근점(C-180)까지 반경 50을 유지하는 원호(5° 간격) + 사이클 4점
+            h_line = line_points(points, 5)
+            self.assertEqual(len(h_line), 35 + 4)
+            for pt in h_line[:35]:
+                self.assertAlmostEqual(float((pt[1] ** 2 + pt[2] ** 2) ** 0.5), 50.0, places=6)
+                self.assertAlmostEqual(pt[0], -16.51, places=6)
             # C=0에서의 첫 사이클 전개(접근/R점/깊이/복귀).
             first = [(p['type'], [round(v, 6) for v in p['pt']]) for p in points[3:7]]
             self.assertEqual(first, [

@@ -461,6 +461,22 @@ class EntryAxisTests(unittest.TestCase):
         np.testing.assert_allclose(lathe.plane_normal('G19', (0, 5, 5), 90.0), [0, 1, 0], atol=1e-12)
         np.testing.assert_allclose(lathe.plane_normal('G19', (0, 3, 4), None), [0, 0.6, 0.8])   # C를 모를 때
 
+    def test_axis_rotates_with_c_during_a_c_rotation(self):
+        """v2.2.2: 레이디얼 드릴(C0 진입, 축 +Z) 뒤 C가 0 → -180으로 도는 급속 원호 — 공구 축도 C와 함께 돌아야
+        반대편에서 몸체가 소재를 관통하는 것으로 계산되지 않는다."""
+        p0 = [[-16.5, 0.0, 50.0], [-16.5, 0.0, 10.0], [-16.5, 0.0, 50.0]]
+        p1 = [[-16.5, 0.0, 10.0], [-16.5, 0.0, 50.0], [-16.5, 0.0, -50.0]]
+        axes0, axes1, _c = lathe.entry_axes(p0, p1, [False, True, True], [True, False, False], ['G19'] * 3,
+                                            [0.0, 0.0, -180.0], c_start=[0.0, 0.0, 0.0], c_end=[0.0, 0.0, -180.0])
+        np.testing.assert_allclose(axes0[0], [0, 0, 1], atol=1e-9)             # 진입 -r → 축 +r(C0)
+        np.testing.assert_allclose(axes1[2], [0, 0, -1], atol=1e-9)            # C-180에서는 반대편 바깥쪽
+        np.testing.assert_allclose(axes0[2], [0, 0, 1], atol=1e-9)
+        mid = lathe.rotate_about_spindle([[0.0, 0.0, 1.0]], -90.0)[0]
+        np.testing.assert_allclose(mid, [0, -1, 0], atol=1e-9)                 # lathe_rotate_c와 같은 규약
+        # C를 주지 않으면 예전 반환 형태 그대로
+        axes, corrected = lathe.entry_axes(p0, p1, [False, True, True], [True, False, False])
+        self.assertEqual(axes.shape, (3, 3))
+
     def test_side_entry_is_corrected_to_the_plane_normal_and_counted(self):
         # G17(축방향) 평면인데 진입이 옆(y 방향)으로 들어온다 → 평면 법선(+X)로 보정
         axes, corrected = lathe.entry_axes([[-2, 20, 5]], [[-2, 10, 5]], [False], [True], ['G17'])

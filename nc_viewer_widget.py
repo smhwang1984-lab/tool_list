@@ -174,6 +174,33 @@ def lathe_local_point(z_value, x_diameter, y_value=0.0):
     return [float(z_value), float(y_value or 0.0), float(x_diameter) / 2.0]
 
 
+LATHE_C_ARC_STEP_DEG = 5.0      # v2.2.2: C축 회전 이동을 원호로 그릴 때의 각도 간격
+
+
+def lathe_c_arc_points(start_local, end_local, start_c, end_c, step_deg=LATHE_C_ARC_STEP_DEG):
+    """v2.2.2: C가 start_c → end_c로 도는 선반 이동의 월드 경로 점들(시작점 제외, 끝점 포함).
+
+    실제 기계는 공구가 제자리(또는 X/Z 직선 이동)에 있고 소재가 돌므로, 소재 좌표계에서 본 공구 경로는
+    주축 둘레의 원호(X/Z가 함께 바뀌면 나선)다. 로컬(회전 전) 좌표는 선형으로 옮기고 C는 선형으로 돌린다.
+    회전 방향·크기는 지령 그대로(end_c - start_c) — 롤오버(최단 경로) 설정은 가정하지 않는다."""
+    delta = float(end_c) - float(start_c)
+    steps = max(1, int(np.ceil(abs(delta) / float(step_deg))))
+    start = np.asarray(start_local, dtype=np.float64)
+    end = np.asarray(end_local, dtype=np.float64)
+    points = []
+    for k in range(1, steps + 1):
+        t = k / steps
+        points.append(lathe_rotate_c((start + (end - start) * t).tolist(), float(start_c) + delta * t))
+    return points
+
+
+def lathe_c_arc_angles(start_c, end_c, step_deg=LATHE_C_ARC_STEP_DEG):
+    """lathe_c_arc_points와 같은 분할의 각 점 C 각도(도)."""
+    delta = float(end_c) - float(start_c)
+    steps = max(1, int(np.ceil(abs(delta) / float(step_deg))))
+    return [float(start_c) + delta * k / steps for k in range(1, steps + 1)]
+
+
 def lathe_rotate_c(point, c_deg):
     """로컬 선반 좌표(lathe_local_point)를 주축(월드 X) 둘레로 C도 만큼
     돌린다(v1.6.6)."""
@@ -1489,7 +1516,7 @@ class _SimJob:
                                  'thread_height': seg['thread_height'][a:b]}
                         if getattr(self.stock, 'is_turnmill', False):
                             extra.update(mill=seg['mill'][a:b], axes0=seg['axis0'][a:b],
-                                         axes1=seg['axis0'][a:b])
+                                         axes1=seg['axis1'][a:b])
                     finished = self.stock.cut_batch(
                         seg['p0'][a:b], seg['p1'][a:b], self.tools, seg['slot'][a:b],
                         seg['rapid'][a:b], seg['color'][a:b],
@@ -3409,7 +3436,7 @@ class NCViewerWidget(QWidget):
         """선반: 축대칭(선삭) 절삭 선분 배열과 공구 형상 캐시를 만든다. M35(턴밀) 이동은
         축대칭이 아니므로 여기서는 세고만 한다. G76 나사는 (피치, 높이)를 함께 든다."""
         cols = {key: [] for key in ('p0', 'p1', 'seq0', 'seq1', 'src', 'rapid', 'slot', 'color',
-                                    'tpitch', 'theight', 'mill', 'plane', 'brk', 'cdeg')}
+                                    'tpitch', 'theight', 'mill', 'plane', 'brk', 'cdeg', 'c0', 'c1')}
         slot_of_tool = {}
         self._sim_lathe_excluded = {}
         self._sim_lathe_notes = []
@@ -3475,6 +3502,9 @@ class NCViewerWidget(QWidget):
                         cols['mill'].append(bool(mill))
                         cols['plane'].append(plane)
                         cols['cdeg'].append(self.line_to_c_rot.get(src1))
+                        # v2.2.2: 선분 시작·끝의 C(원호 점은 자기 각도, 그 밖은 그 줄의 C) — 턴밀 공구 축을 C와 함께 돌린다
+                        cols['c0'].append(previous.get('c', self.line_to_c_rot.get(previous.get('src_line'), 0.0)))
+                        cols['c1'].append(node.get('c', self.line_to_c_rot.get(src1, 0.0)))
                         cols['brk'].append(process_start)
                         process_start = False
                         cols['p0'].append(previous['pt'])
@@ -3502,6 +3532,7 @@ class NCViewerWidget(QWidget):
             mill_arr = np.array(cols['mill'], dtype=bool)
             rapid_arr = np.array(cols['rapid'], dtype=bool)
             axes = np.tile([1.0, 0.0, 0.0], (count, 1))
+            axes_end = axes.copy()
             if mill_arr.any():
                 # 턴밀 공구 축 = 가공 묶음 진입 벡터의 반대 방향(결정 I). 공정 순서(수집 순서)로 계산한다.
                 p0 = np.array(cols['p0'], dtype=np.float64).reshape(-1, 3)
@@ -3509,10 +3540,13 @@ class NCViewerWidget(QWidget):
                 idx = np.nonzero(mill_arr)[0]
                 brk = np.array(cols['brk'], dtype=bool)
                 gap = np.concatenate([[True], np.diff(idx) > 1])      # 선삭이 끼어들면 새 묶음
-                mill_axes, corrected = nc_lathe_sim.entry_axes(
+                c0 = np.array([cols['c0'][i] or 0.0 for i in idx], dtype=np.float64)
+                c1 = np.array([cols['c1'][i] or 0.0 for i in idx], dtype=np.float64)
+                mill_axes0, mill_axes1, corrected = nc_lathe_sim.entry_axes(
                     p0[idx], p1[idx], rapid_arr[idx], brk[idx] | gap, [cols['plane'][i] for i in idx],
-                    [cols['cdeg'][i] for i in idx])
-                axes[idx] = mill_axes
+                    [cols['cdeg'][i] for i in idx], c_start=c0, c_end=c1)
+                axes[idx] = mill_axes0
+                axes_end[idx] = mill_axes1
                 self._sim_axis_corrected = corrected
                 if (mill_arr & ~rapid_arr).any():
                     self.sim_engine = 'lathe3d'
@@ -3529,6 +3563,7 @@ class NCViewerWidget(QWidget):
                 'thread_height': np.array(cols['theight'], dtype=np.float64)[order],
                 'mill': mill_arr[order],
                 'axis0': axes[order],
+                'axis1': axes_end[order],
             }
             self._sim_seq_keys = self.sim_seg['seq1']
             _colors, first_idx = np.unique(self.sim_seg['color'], return_index=True)
@@ -4855,7 +4890,9 @@ class NCViewerWidget(QWidget):
                                             float(thread_p.group(1)) / 1000.0 if thread_p else 0.0)
                         except ValueError:
                             lathe_thread = None
-                self.line_lathe_map[idx] = (bool(lathe_milling_active), current_plane, lathe_thread)
+                # v2.2.2: 극좌표(G12.1~G13.1)는 M35 없이도 구동공구 밀링이다 — 턴밀(3D)로 계산한다
+                self.line_lathe_map[idx] = (bool(lathe_milling_active or polar_interpolation),
+                                            current_plane, lathe_thread)
 
             # v1.10.0: 이 줄에서 공구 축이 +Z가 아니면 기록한다(형상 시뮬레이션용).
             # 위치(pt)는 그대로이고 방향만 따로 든다 — 노드 생성부는 건드리지 않고
@@ -5136,6 +5173,7 @@ class NCViewerWidget(QWidget):
                     # 회전시키기 위해서다(4/5축 밀링과 같은 방식, v1.4.5).
                     start_local = lathe_local_point(cz, cx, cy_lathe)
                     start_pt = lathe_rotate_c(start_local, cc_deg)
+                    start_cc = cc_deg          # v2.2.2: C 회전 이동을 원호로 그리기 위한 시작 각도
                     if x_match:
                         cx = float(x_match.group(1))
                     if z_match:
@@ -5265,6 +5303,17 @@ class NCViewerWidget(QWidget):
                         final_pt = lathe_world_point(cz, depth_target * 2.0, cc_deg)
                         cx = start_local[2] * 2.0  # 사이클은 항상 초기점으로 복귀(아래)
 
+                    if not polar_interpolation and start_cc != cc_deg:
+                        # v2.2.2: 사이클 반복 줄(C60. / H-180. 등)은 이전 구멍의 복귀점(옛 C)에서 새 구멍의
+                        # 접근점(새 C)까지 소재가 도는 것이다 — 직선(현)이 아니라 주축 둘레 원호로 잇는다.
+                        if axis == "Z":
+                            approach_local = lathe_local_point(start_local[0], cx)
+                        else:
+                            approach_local = lathe_local_point(cz, start_local[2] * 2.0)
+                        arc = zip(lathe_c_arc_points(start_local, approach_local, start_cc, cc_deg),
+                                  lathe_c_arc_angles(start_cc, cc_deg))
+                        for arc_pt, arc_c in list(arc)[:-1]:
+                            self.tool_paths[current_tool].append({"pt": arc_pt, "type": "G00", "valid": True, "src_line": idx, "seq": seq_pos, "c": arc_c})
                     self.tool_paths[current_tool].append({"pt": approach_pt, "type": "G00", "valid": True, "src_line": idx, "seq": seq_pos})
                     self.tool_paths[current_tool].append({"pt": r_point_pt, "type": "G00", "valid": True, "src_line": idx, "seq": seq_pos})
                     self.tool_paths[current_tool].append({"pt": final_pt, "type": "G01", "valid": True, "src_line": idx, "seq": seq_pos})
@@ -5386,6 +5435,17 @@ class NCViewerWidget(QWidget):
                         self.line_to_coord_map[idx] = self.seq_to_coord_map[seq_pos] = (
                             last_pt if last_pt is not None else target_pt
                         )
+                elif is_lathe and not polar_interpolation and start_cc != cc_deg:
+                    # v2.2.2: C축이 도는 선반 이동(G0 C90. / H-180. / G1 X.. C..)은 직선(현)이 아니라 주축 둘레
+                    # 원호(X/Z가 함께 바뀌면 나선)로 그린다 — 직선이면 반경 방향으로 축을 가로지르는 경로가 되어
+                    # 형상 시뮬레이션이 공구가 소재를 관통한 것으로 계산했다.
+                    for arc_pt, arc_c in zip(lathe_c_arc_points(start_local, target_local, start_cc, cc_deg),
+                                             lathe_c_arc_angles(start_cc, cc_deg)):
+                        self.tool_paths[current_tool].append({
+                            "pt": arc_pt, "type": current_motion, "valid": True,
+                            "src_line": idx, "seq": seq_pos, "c": arc_c,
+                        })
+                    self.line_to_coord_map[idx] = self.seq_to_coord_map[seq_pos] = target_pt
                 else:
                     self.tool_paths[current_tool].append({
                         "pt": target_pt,

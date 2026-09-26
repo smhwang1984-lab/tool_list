@@ -29,9 +29,9 @@ import lathe_insert_spec
 import sumpath_license
 
 
-APP_VERSION = '2.2.1'
+APP_VERSION = '2.2.2'
 APP_NAME = 'Sum Path'
-APP_BUILD_DATE = '2026-09-26'
+APP_BUILD_DATE = '2026-09-27'
 APP_CREATOR = 'Hwang.seonmun'
 APP_PURPOSE = 'NC 프로그램에서 공구 리스트를 산출하고 NC 경로를 Viewer로 확인하는 도구'
 OPEN_SOURCE_COMPONENTS = (

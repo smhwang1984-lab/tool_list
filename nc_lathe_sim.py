@@ -839,7 +839,20 @@ def plane_normal(plane, point, c_deg=None):
     return None
 
 
-def entry_axes(p0, p1, rapid, breaks, planes=None, c_angles=None):
+def rotate_about_spindle(vectors, c_deg):
+    """월드 벡터를 주축(월드 X) 둘레로 C도 돌린다(뷰어 lathe_rotate_c와 같은 규약). c_deg는 벡터마다 다를 수 있다."""
+    v = np.asarray(vectors, dtype=np.float64).reshape(-1, 3)
+    c = np.radians(np.asarray(c_deg, dtype=np.float64)).reshape(-1)
+    if c.size == 1:
+        c = np.full(v.shape[0], c[0])
+    s, k = np.sin(c), np.cos(c)
+    out = v.copy()
+    out[:, 1] = v[:, 1] * k + v[:, 2] * s
+    out[:, 2] = -v[:, 1] * s + v[:, 2] * k
+    return out
+
+
+def entry_axes(p0, p1, rapid, breaks, planes=None, c_angles=None, c_start=None, c_end=None):
     """턴밀 선분마다 공구 축(단위벡터, 팁→홀더)을 정한다(사용자 결정 I: 진입 벡터 방향).
 
     가공 묶음 = 급속 이동이나 breaks(공정이 바뀌는 곳) 사이의 연속 절삭 이송. 묶음의 첫 절삭 이동(진입)의
@@ -847,7 +860,12 @@ def entry_axes(p0, p1, rapid, breaks, planes=None, c_angles=None):
     (측면 진입 등) 평면 법선으로 보정한다. 두 묶음 사이의 급속 이동들은 앞 묶음의 축(후퇴 — 공구는 아직
     그 자세)을 쓰고, 마지막 급속(다음 진입 직전의 접근)만 뒤 묶음의 축을 쓴다. 앞 묶음이 없으면 모두 뒤 묶음,
     뒤 묶음이 없으면 모두 앞 묶음의 축.
-    돌려줌: (axes (M,3), 보정한 묶음 수)."""
+    돌려줌: (axes (M,3), 보정한 묶음 수).
+
+    v2.2.2 — c_start/c_end(선분 시작·끝의 C 각도, 도)를 주면 공구 축이 C와 함께 돈다: 기계에서 공구 자세는
+    고정이고 소재가 돌므로, 소재 기준 축 = 진입 때 축을 (그 선분의 C − 진입 C)만큼 주축 둘레로 돌린 것.
+    이때는 (axes0 (M,3) 선분 시작 축, axes1 (M,3) 선분 끝 축, 보정한 묶음 수)를 돌려준다(C가 도는 급속 원호에서
+    반경 방향 공구가 C0 자세 그대로 반대편 소재를 관통하는 것으로 계산되던 문제)."""
     p0 = np.asarray(p0, dtype=np.float64).reshape(-1, 3)
     p1 = np.asarray(p1, dtype=np.float64).reshape(-1, 3)
     rapid = np.asarray(rapid, dtype=bool)
@@ -855,6 +873,7 @@ def entry_axes(p0, p1, rapid, breaks, planes=None, c_angles=None):
     count = p0.shape[0]
     axes = np.tile([1.0, 0.0, 0.0], (count, 1))
     assigned = np.zeros(count, dtype=bool)
+    source = np.arange(count)              # 축을 가져온 묶음의 진입 선분 번호(기준 C를 찾을 때 쓴다)
     corrected = 0
     cos_tol = math.cos(math.radians(AXIS_PLANE_TOLERANCE_DEG))
     m = 0
@@ -867,10 +886,12 @@ def entry_axes(p0, p1, rapid, breaks, planes=None, c_angles=None):
         while end < count and not rapid[end] and not breaks[end]:
             end += 1
         axis = None
+        entry = start
         for k in range(start, end):
             e = p1[k] - p0[k]
             length = float(np.linalg.norm(e))
             if length > 1e-6:
+                entry = k
                 axis = -e / length
                 normal = plane_normal(planes[k] if planes is not None else None, p0[k],
                                       c_angles[k] if c_angles is not None else None)
@@ -885,6 +906,7 @@ def entry_axes(p0, p1, rapid, breaks, planes=None, c_angles=None):
                                   c_angles[start] if c_angles is not None else None)
             axis = normal if normal is not None else np.array([1.0, 0.0, 0.0])
         axes[start:end] = axis
+        source[start:end] = entry
         assigned[start:end] = True
         m = end
     # 급속 이동(묶음 사이 구간): 후퇴·중간 = 앞 묶음 축, 마지막 접근 = 뒤 묶음 축
@@ -901,27 +923,35 @@ def entry_axes(p0, p1, rapid, breaks, planes=None, c_angles=None):
         # 경계부터는 뒤 묶음의 축(O4811 실측: 페이스커터 접근이 앞 공정 드릴의 C-180 자세를 물려받아
         # 몸체가 소재를 관통하는 것으로 계산됐다).
         cut = next((j for j in range(run_start, run_end) if breaks[j]), None)
+        prev_i = run_start - 1 if run_start > 0 else None
+        next_i = run_end if run_end < count else None
+
+        def fill(a, b, i):
+            if i is not None and a < b:
+                axes[a:b] = axes[i]
+                source[a:b] = source[i]
+
         if cut is not None:
-            prev_axis = axes[run_start - 1].copy() if run_start > 0 else None
-            next_axis = axes[run_end].copy() if run_end < count else None
-            if prev_axis is not None and cut > run_start:
-                axes[run_start:cut] = prev_axis
-            fill = next_axis if next_axis is not None else prev_axis
-            if fill is not None:
-                axes[cut:run_end] = fill
+            fill(run_start, cut, prev_i)
+            fill(cut, run_end, next_i if next_i is not None else prev_i)
             continue
-        prev_axis = axes[run_start - 1].copy() if run_start > 0 else None
-        next_axis = axes[run_end].copy() if run_end < count else None
-        if prev_axis is None and next_axis is None:
+        if prev_i is None and next_i is None:
             continue
-        if prev_axis is None:
-            axes[run_start:run_end] = next_axis
-        elif next_axis is None or run_end - run_start == 1:
-            axes[run_start:run_end] = prev_axis
+        if prev_i is None:
+            fill(run_start, run_end, next_i)
+        elif next_i is None or run_end - run_start == 1:
+            fill(run_start, run_end, prev_i)
         else:
-            axes[run_start:run_end - 1] = prev_axis
-            axes[run_end - 1] = next_axis
-    return axes, corrected
+            fill(run_start, run_end - 1, prev_i)
+            fill(run_end - 1, run_end, next_i)
+    if c_start is None:
+        return axes, corrected
+    c_start = np.asarray(c_start, dtype=np.float64).reshape(-1)
+    c_end = c_start if c_end is None else np.asarray(c_end, dtype=np.float64).reshape(-1)
+    reference = c_start[source]
+    axes0 = rotate_about_spindle(axes, c_start - reference)
+    axes1 = rotate_about_spindle(axes, c_end - reference)
+    return axes0, axes1, corrected
 
 
 # --------------------------------------------------------------------------

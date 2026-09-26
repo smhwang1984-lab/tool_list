@@ -131,7 +131,10 @@ TAG_RES = {
 _KW_NONCUT = re.compile(r'SETTING[\s.-]*PIN|NULLING|KNURL|ROLLE|널링|세팅', re.I)
 _KW_DRILL = re.compile(r'드릴|DRILL|CENTER|CENTRE|센터', re.I)
 _KW_FACECUT = re.compile(r'FACE[\s-]*(?:CUTTER|MILL)|페이스', re.I)
-_KW_ENDMILL = re.compile(r'END[\s-]*MILL|엔드밀|E/M', re.I)
+# v2.2.2: 실제 샘플 표기 변형 — "FILLET EN MILL"(O4006), 형상 키워드(FLAT/FILLET/BALL/볼)도 엔드밀
+_KW_ENDMILL = re.compile(r'END?[\s-]*MILL|엔드밀|E/M|(?<![A-Z])(?:FLAT|FILLET|BALL)(?![A-Z])|볼', re.I)
+# 공구 블록이 턴밀(구동공구) 구간 — M35 또는 극좌표 G12.1/G112
+_MILLING_MODE_RE = re.compile(r'M35(?!\d)|G12\.1|G112(?!\d)', re.I)
 # 공구 지름 표기: "D10 X 90 NC DRILL", "D5.5 CARBIDE DRILL", "D3. FLAT END MILL", "MTI 0808 D30 A60"
 TOOL_D_RE = re.compile(r'(?<![A-Z0-9.])D\s*(\d+(?:\.\d+)?)(?![0-9A-Za-z])', re.I)
 _KW_CUTOFF = re.compile(r'절단|CUT[\s-]?OFF|PARTING', re.I)
@@ -397,7 +400,7 @@ def program_hints(code_lines):
     """공구 블록 코드(주석 제외, 줄 목록)에서 종류/피치 힌트를 뽑는다.
     돌려줌: dict — thread, groove, face_groove, turning(bool), pitch(mm 문자열, 없으면 '')."""
     hints = {'thread': False, 'groove': False, 'face_groove': False, 'turning': False,
-             'pitch': ''}
+             'milling': False, 'pitch': ''}
     lines = list(code_lines)
     for index, line in enumerate(lines):
         if _GCODE_THREAD_RE.search(line):
@@ -415,13 +418,15 @@ def program_hints(code_lines):
             hints['face_groove'] = True
         if _GCODE_TURN_CYCLE_RE.search(line):
             hints['turning'] = True
+        if _MILLING_MODE_RE.search(line):
+            hints['milling'] = True
     return hints
 
 
 def merge_hints(base, extra):
     """같은 공구가 여러 N 블록에서 쓰일 때 힌트를 합친다(피치는 처음 값 유지)."""
     merged = dict(base)
-    for key in ('thread', 'groove', 'face_groove', 'turning'):
+    for key in ('thread', 'groove', 'face_groove', 'turning', 'milling'):
         merged[key] = bool(base.get(key)) or bool(extra.get(key))
     merged['pitch'] = base.get('pitch') or extra.get('pitch') or ''
     return merged
@@ -458,6 +463,10 @@ def infer_kind(insert_text, holder_text, hints=None):
         return '내경'
     if _KW_EXTERNAL.search(text):
         return '외경'
+    if hints.get('milling') and parse_tool_diameter(insert_text):
+        # v2.2.2: 문구로 종류를 못 정해도 턴밀(M35/G12.1) 구간에서 지름이 있는 공구는 엔드밀로 추천한다
+        # ("MTI 0808 D30 A60", "BMT ANGLE" 등). 드릴·페이스커터라면 [수정]에서 고친다.
+        return '엔드밀'
     if hints.get('thread'):
         return '내경나사' if internal else '외경나사'
     if hints.get('groove'):
