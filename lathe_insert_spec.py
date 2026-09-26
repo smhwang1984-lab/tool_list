@@ -489,13 +489,15 @@ def infer_direction(kind, insert_text, holder_text):
 
 
 def infer_tip(kind, hand):
-    """가상 인선 번호 자동 추천 — 외경 R 3 / L 2, 내경 R 4 / L 1. 손을 모르거나 홈·나사가 아니면 ''.
-    (홈 공구는 프로그램 기준 모서리를 알 수 없어 추천하지 않는다 — 직접 지정.)"""
+    """가상 인선 번호 자동 추천 — 외경 R 3 / L 2, 내경 R 4 / L 1, 정면홈 4. 그 밖(외경·내경 홈, 손을 모를 때)은 ''.
+    (외경·내경 홈은 프로그램 기준 모서리를 알 수 없어 추천하지 않는다 — 직접 지정, 비우면 왼쪽 모서리.)"""
     hand = str(hand or '').upper()
     if kind in ('외경', '외경나사'):
         return {'R': '3', 'L': '2'}.get(hand, '')
     if kind in ('내경', '내경나사'):
         return {'R': '4', 'L': '1'}.get(hand, '')
+    if kind == '정면홈':
+        return '4'         # 실측(O2222/O4811 정면홈 가공 경로): 프로그램 기준점 = 바깥(+r) 모서리
     return ''
 
 

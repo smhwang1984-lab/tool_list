@@ -328,3 +328,142 @@ def cut_chunk3d(occ, col, x0, y0, z0, rx, ry, rz, P0, P1, A0, A1, tool_idx, colo
                                 ax + dx * tb, ay + dy * tb, az + dz * tb,
                                 ux, uy, uz, lut, base, kmax, radius, inv_step, length, c)
         hit[m] = removed > 0
+
+
+# --------------------------------------------------------------------------
+# v2.2.0 — 선반 축대칭 소재(nc_lathe_sim.LatheStock) 절삭 커널
+# 공구 = (z, r) 단면의 볼록 다각형. 선분 하나가 쓸고 지나간 영역은 다각형을 시작점/끝점에
+# 놓은 두 복사본의 볼록 껍질이다. 껍질을 스캔라인(열 단위)으로 채워 격자 칸을 지운다.
+# 산식은 nc_lathe_sim._cut_chunk_numpy 와 같아야 한다(tests/test_nc_lathe_sim.py 가 비교).
+# --------------------------------------------------------------------------
+
+@njit(cache=True, nogil=True)
+def _cross(ax, ay, bx, by, cx, cy):
+    return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
+
+
+@njit(cache=True, nogil=True)
+def _convex_hull(zs, rs, n, hz, hr):
+    """Andrew monotone chain. 점 n개 -> 반시계 껍질 꼭짓점 수. hz/hr 크기는 2n 이상."""
+    idx = np.arange(n)
+    for i in range(1, n):
+        key = idx[i]
+        j = i - 1
+        while j >= 0 and (zs[idx[j]] > zs[key] or (zs[idx[j]] == zs[key] and rs[idx[j]] > rs[key])):
+            idx[j + 1] = idx[j]
+            j -= 1
+        idx[j + 1] = key
+    k = 0
+    for ii in range(n):
+        i = idx[ii]
+        while k >= 2 and _cross(hz[k - 2], hr[k - 2], hz[k - 1], hr[k - 1], zs[i], rs[i]) <= 0.0:
+            k -= 1
+        hz[k] = zs[i]
+        hr[k] = rs[i]
+        k += 1
+    t = k + 1
+    for ii in range(n - 2, -1, -1):
+        i = idx[ii]
+        while k >= t and _cross(hz[k - 2], hr[k - 2], hz[k - 1], hr[k - 1], zs[i], rs[i]) <= 0.0:
+            k -= 1
+        hz[k] = zs[i]
+        hr[k] = rs[i]
+        k += 1
+    return k - 1 if k > 1 else k
+
+
+@njit(cache=True, nogil=True)
+def _fill_hull(occ, col, z0, dz, dr, hz, hr, h, color, cut):
+    """껍질(꼭짓점 h개) 안에 중심이 든 소재 칸을 센다. cut이 1이면 지우고 색을 남긴다."""
+    nz = occ.shape[0]
+    nr = occ.shape[1]
+    if h < 1:
+        return 0
+    zmin = hz[0]
+    zmax = hz[0]
+    for i in range(1, h):
+        if hz[i] < zmin:
+            zmin = hz[i]
+        if hz[i] > zmax:
+            zmax = hz[i]
+    iz0 = int(math.ceil((zmin - z0) / dz - 0.5))
+    iz1 = int(math.floor((zmax - z0) / dz - 0.5))
+    if iz0 < 0:
+        iz0 = 0
+    if iz1 > nz - 1:
+        iz1 = nz - 1
+    removed = 0
+    for iz in range(iz0, iz1 + 1):
+        zc = z0 + (iz + 0.5) * dz
+        lo = 1e300
+        hi = -1e300
+        for i in range(h):
+            j = i + 1 if i + 1 < h else 0
+            za = hz[i]
+            zb = hz[j]
+            ra = hr[i]
+            rb = hr[j]
+            if za == zb:
+                if za == zc:
+                    if ra < lo:
+                        lo = ra
+                    if rb < lo:
+                        lo = rb
+                    if ra > hi:
+                        hi = ra
+                    if rb > hi:
+                        hi = rb
+                continue
+            if (za <= zc and zc <= zb) or (zb <= zc and zc <= za):
+                r = ra + (zc - za) / (zb - za) * (rb - ra)
+                if r < lo:
+                    lo = r
+                if r > hi:
+                    hi = r
+        if hi < lo:
+            continue
+        ir0 = int(math.ceil(lo / dr - 0.5))
+        ir1 = int(math.floor(hi / dr - 0.5))
+        if ir0 < 0:
+            ir0 = 0
+        if ir1 > nr - 1:
+            ir1 = nr - 1
+        for ir in range(ir0, ir1 + 1):
+            if occ[iz, ir]:
+                removed += 1
+                if cut:
+                    occ[iz, ir] = 0
+                    col[iz, ir] = color
+    return removed
+
+
+@njit(cache=True, nogil=True)
+def cut_chunk_lathe(occ, col, z0, dz, dr, p0z, p0r, p1z, p1r, tool_idx, color, rapid,
+                    poly_z, poly_r, poff, pcnt, hit):
+    """선분 묶음을 순서대로 깎는다. rapid 선분은 깎지 않고 닿는 소재 칸 수만 hit에 남긴다."""
+    total = p0z.shape[0]
+    maxk = 1
+    for t in range(pcnt.shape[0]):
+        if pcnt[t] > maxk:
+            maxk = pcnt[t]
+    zs = np.empty(2 * maxk)
+    rs = np.empty(2 * maxk)
+    hz = np.empty(4 * maxk + 4)
+    hr = np.empty(4 * maxk + 4)
+    for m in range(total):
+        t = tool_idx[m]
+        if t < 0:
+            hit[m] = 0
+            continue
+        n = pcnt[t]
+        base = poff[t]
+        for k in range(n):
+            zs[k] = poly_z[base + k] + p0z[m]
+            rs[k] = poly_r[base + k] + p0r[m]
+            zs[n + k] = poly_z[base + k] + p1z[m]
+            rs[n + k] = poly_r[base + k] + p1r[m]
+        h = _convex_hull(zs, rs, 2 * n, hz, hr)
+        if rapid[m]:
+            hit[m] = _fill_hull(occ, col, z0, dz, dr, hz, hr, h, color[m], 0)
+        else:
+            hit[m] = _fill_hull(occ, col, z0, dz, dr, hz, hr, h, color[m], 1)

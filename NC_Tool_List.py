@@ -2815,11 +2815,10 @@ else:
             filter_bar.addWidget(self.pg_match_check)
             self._add_button(filter_bar, '전체', lambda: self.viewer.select_all_tools(True), filter_kfont)
             self._add_button(filter_bar, '해제', lambda: self.viewer.select_all_tools(False), filter_kfont)
-            # v1.9.0: 밀링 3축 형상 가공 시뮬레이션 — 소재 설정 팝업. 선반
-            # 모드에서는 숨긴다(_viewer_machine_type_changed가 토글).
+            # v1.9.0: 밀링 3축 형상 가공 시뮬레이션 — 소재 설정 팝업. v2.2.0부터 선반도
+            # 같은 버튼으로 선반 소재 창(지름·길이·앞면 Z·내경)을 연다.
             self.stock_button = self._add_button(filter_bar, '소재', self.open_stock_dialog, filter_kfont)
             self.stock_button.setToolTip('소재(STOCK) 설정과 가공 형상 시뮬레이션')
-            self.stock_button.setVisible(not self.is_lathe_program())
             filter_layout.addLayout(filter_bar)
             self.tool_filter = QListWidget()
             self.tool_filter.setSelectionMode(QAbstractItemView.MultiSelection)
@@ -3262,7 +3261,7 @@ else:
             self.machine_settings_status.setText('')
             stock_button = getattr(self, 'stock_button', None)
             if stock_button is not None:
-                stock_button.setVisible(not is_lathe_machine(machine_type))
+                stock_button.setVisible(True)      # v2.2.0: 선반도 소재 창(선반 소재)이 있다
             if not is_lathe_machine(machine_type):
                 # v1.6.8: 산출 모드 콤보가 "MCT (밀링)"로 되돌아갈 때 어느
                 # MCT였는지 기억해 둔다 — 사용자가 직접 장비 콤보를
@@ -4700,9 +4699,10 @@ else:
             return tool_name_map_from_rows(rows)
 
         def tool_shape_map(self, rows):
-            # v1.9.0: 형상 시뮬레이션은 밀링 모드 전용 — 선반은 빈 맵을 준다.
+            # v2.2.0: 선반은 v2.1.0 규격표의 공구 형상 맵(종류·방향·인선·R·폭·피치·D·SO·ISO 해석)을
+            # 준다 — 뷰어의 선반 시뮬레이션(nc_lathe_sim)이 공구 단면을 만드는 데 쓴다.
             if self.is_lathe_program():
-                return {}
+                return lathe_insert_spec.geometry_map_from_rows(rows)
             return tool_shape_map_from_rows(rows)
 
         def copy_table(self):

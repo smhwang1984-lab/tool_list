@@ -91,12 +91,20 @@ class SimViewerTests(unittest.TestCase):
         self.assertGreater(int(seg['rapid'].sum()), 0)
         self.assertEqual(int(seg['tilt'].sum()), 0)
 
-    def test_lathe_mode_never_simulates(self):
+    def test_lathe_mode_uses_its_own_engine_never_the_milling_ones(self):
+        """v2.2.0: 선반도 시뮬레이션이 있지만 밀링 엔진(zmap/3d)과는 완전히 분리된다(지침 §0).
+        밀링 소재 사양(StockSpec)을 선반 뷰어에 넣어도 밀링 소재가 만들어지면 안 된다."""
         viewer = self.make_viewer(machine=LATHE)
-        self.assertFalse(viewer.is_sim_available())
-        viewer.apply_stock_spec(make_spec(), 0.5, True)
-        self.assertFalse(viewer.sim_enabled)
-        self.assertIsNone(viewer.sim_mesh_item)
+        self.assertTrue(viewer.is_sim_available())
+        self.assertEqual(viewer.sim_engine, 'lathe')
+        self.assertNotEqual(viewer.sim_engine, 'zmap')
+        self.assertNotEqual(viewer.sim_engine, '3d')
+        self.assertFalse(getattr(viewer.sim_stock, 'is_voxel', False))
+        # 선반 뷰어에서는 선반 소재 사양만 소재가 된다
+        import nc_lathe_sim
+        viewer.apply_stock_spec(nc_lathe_sim.LatheStockSpec(40.0, 30.0), 0.2, True)
+        self.assertTrue(viewer.sim_stock.is_lathe)
+        self.assertNotIsInstance(viewer.sim_stock, nc_sim.ZMapStock)
 
     def test_tool_without_diameter_is_excluded_and_reported(self):
         viewer = NCViewerWidget()
