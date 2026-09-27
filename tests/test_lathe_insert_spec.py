@@ -175,11 +175,38 @@ class RealSampleTextTests(unittest.TestCase):
         for insert, holder, kind, diameter in cases:
             values = self.fields(insert, holder)
             self.assertEqual((values['KIND'], values['D']), (kind, diameter), insert)
-        # 종류를 못 정하는 밀링 공구(MTI ...)도 지름은 읽는다 — 종류는 사용자가 정한다
+        # 문구로 종류를 못 정하는 밀링 공구(MTI ...)도 홀더가 구동공구(MILL TOOL)면 엔드밀로 추천(v2.2.3)
         values = self.fields('MTI 0808 D30 A60 MT8, STRAIGHT', 'MILL TOOL CHECK')
-        self.assertEqual((values['KIND'], values['D']), ('', '30'))
+        self.assertEqual((values['KIND'], values['D']), ('엔드밀', '30'))
         # 문구가 없는 R 0("R-0.")은 값이 아니다
         self.assertEqual(self.fields('D10.SETTING PIN | R-0.', 'ER25')['R'], '')
+
+    def test_turnmill_test_program_tool_texts(self):
+        """v2.2.3 실사례(TurnMill Test.nc) — 지름 뒤 X, DIA 표기, EN(엔드밀 약어), 챔퍼밀, 나사밀, MILL TOOL 홀더."""
+        holder = 'MILL TOOL CHECK'
+        cases = (
+            ('D12 FLAT EN, STRAIGHT | DIA-12.', '엔드밀', '12', 'FLAT E/M'),
+            ('D10.BALL EN, STRAIGHT | DIA-10. | R-5.', '엔드밀', '10', 'BALL E/M'),
+            ('D10XR0.8 FILLET EN, STRAIGHT | DIA-10. | R-0.8', '엔드밀', '10', 'FILLET E/M'),
+            ('D2X90X6 CHAMF EN, STRAIGHT | DIA-6.', '엔드밀', '6', 'CHAMF'),
+            ('.2500-28 UNJF_3B, STRAIGHT | DIA-6.35', '드릴', '6.35', 'DRILL'),          # 측면 탭 → 드릴 근사
+            ('D5.2 CARBIDE DRILL, STRAIGHT | DIA-5.2', '드릴', '5.2', 'DRILL'),
+        )
+        for insert, kind, diameter, mill_type in cases:
+            values = self.fields(insert, holder)
+            self.assertEqual((values['KIND'], values['D']), (kind, diameter), insert)
+            self.assertEqual(spec.mill_type_for(values['KIND'], insert), mill_type, insert)
+        self.assertEqual(spec.chamfer_angle('D2X90X6 CHAMF EN'), 90.0)
+        self.assertEqual(spec.parse_tool_diameter('D10XR0.8 FILLET'), 10.0)
+        self.assertEqual(spec.parse_tool_diameter('D3. FLAT END MILL'), 3.0)
+        # 공정 주석에 DIA가 없으면 인치 나사 호칭으로(실제 파일 T08/T09)
+        self.assertEqual(spec.parse_tool_diameter('.2500-28 UNJF_3B, STRAIGHT'), 6.35)
+        self.assertEqual(spec.parse_tool_diameter('.3125-24 UNJF_3B, STRAIGHT'), 7.9375)
+        self.assertEqual(self.fields('.3125-24 UNJF_3B, STRAIGHT', holder)['KIND'], '드릴')
+        self.assertEqual(self.fields('M6X1.0 TAP')['KIND'], '드릴')
+        self.assertIsNone(spec.parse_tool_diameter('DNMG 150404'))              # 인서트 코드는 지름이 아니다
+        # MILL TOOL 홀더가 아니고 턴밀 구간도 아니면 정체 모를 문구는 추천하지 않는다
+        self.assertEqual(self.fields('.2500-28 UNJF_3B | DIA-6.35', 'ER25')['KIND'], '')
 
     def test_milling_tool_type_mapping_for_the_simulation(self):
         self.assertEqual(spec.mill_type_for('드릴'), 'DRILL')

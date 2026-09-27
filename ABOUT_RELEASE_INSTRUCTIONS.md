@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-09-26 (NC_Tool_List v2.2.1 — 선반 드릴 고정 사이클 깊이 = 절대 좌표)
+Last updated: 2026-09-27 (NC_Tool_List v2.2.2 — C축 회전 이동 원호, 밀링만 있는 턴밀 가공)
 
 ## About button requirements
 
@@ -34,7 +34,55 @@ Last updated: 2026-09-26 (NC_Tool_List v2.2.1 — 선반 드릴 고정 사이클
 
 ## Version history
 
-### 2026-09-26 (latest, v2.2.1)
+### 2026-09-27 (latest, v2.2.3)
+
+- Version: 2.2.2 → 2.2.3
+- Release/build date: 2026-09-27
+- Summary: 사용자 요청 "TurnMill Test.nc C축 가공 시뮬레이션에서 회전축을 넘어감 — 3공정·4공정, 축을 넘어가면 안 되고 다음 C점으로 가공되어야 함"
+  ("본래 시뮬레이션에서는 넘어가지 않았음").
+  1. **절대 C 지령 롤오버**: v2.2.2 C축 원호가 지령 차이를 그대로 돌아 `C355.23 → C0.`에서 -355°(거의 한 바퀴)를 거꾸로 돌며 축 반대편을
+     가로질렀다. 절대 C는 최단 경로(±180° 이내, 이 예는 +4.77°)로, H(증분)는 지령 그대로 돈다. 툴패스 표시와 시뮬레이션이 함께 바뀐다.
+     3·4공정: 20점 넘는 긴 회전 줄 0개, 절삭점 반경 최소 약 19mm(축을 가로지르지 않음).
+  2. **TurnMill Test 공구 인식**: T06 `D2X90X6 CHAMF EN`(챔퍼밀 원뿔), T10 `D10XR0.8 FILLET EN`, T08/T09 `.2500-28 UNJF_3B`(측면 리지드 탭 →
+     드릴 형상, 지름 6.35/7.9375)가 공구 종류를 몰라 시뮬레이션에서 제외되던 것을 인식 — 이제 제외 공구 없음(전체 15.9초).
+     홀더 문구 `MILL TOOL`이면 구동공구로 보고 지름이 있으면 엔드밀 추천(O4812 `MTI 0808 D30`도 엔드밀 추천으로 바뀜, 수정 가능).
+- Open source software: 변경 없음.
+- Verification: `python -m pytest` → 606 passed, 1 skipped, 2 failed(이 PC 환경: 저장된 장비 설정, 설치된 앱 실행 중 — v2.2.2와 동일).
+  롤오버 테스트(0° 건너기, H 증분 유지), TurnMill Test 공구 문구·챔퍼밀 원뿔·나사 호칭 지름 테스트 추가, C0→C270 원호 기대를 최단 -90°로 갱신.
+- Installer/package status: **생성 완료**. `installer\NC_Tool_List_Setup_v2.2.3.exe`, `installer\NC_Tool_List_Portable_v2.2.3.zip`.
+  dist exe를 `USERNAME`을 바꿔 기동해 12초 뒤에도 실행 중임을 확인(파일 버전 2.2.3.0).
+  - Setup EXE SHA-256: CD23C4126AE9CA4180F7CC1A030AC044B082BB9DF290FE56B43027BFCDF9B9C8
+  - Portable ZIP SHA-256: 9C874156CD4831FEF31C3FF6E96A1535604DD5C4C43035FEC9FB3BCDB567A8B3
+  - App EXE SHA-256: 0619D72F172174B7F779B1DF1C25BD12DC34904CCE6EA3628364F54CED4C1E9F
+  - Setup 80.2 MB / Portable 112.0 MB.
+- 서명 상태: 설치본과 앱 실행 파일 모두 미서명이다(기존과 동일).
+
+### 2026-09-27 (v2.2.2)
+
+- Version: 2.2.1 → 2.2.2
+- Release/build date: 2026-09-27
+- Summary: 사용자 요청 2건.
+  1. **"C축 회전 급속을 직선 대신 원호로"** — C(또는 H)가 바뀌는 선반 이동(`G0 C90.`, `H-180.`, `G28 H0.`, `G1 X.. C..`)과 사이클 반복 줄(`C60.`)을
+     5° 간격 원호로 그린다(X/Z가 함께 바뀌면 나선, 방향은 지령 그대로, 극좌표 G12.1 구간은 제외). 툴패스 표시와 시뮬레이션이 함께 바뀐다.
+     원호 점에 C 각도를 붙이고 턴밀 공구 축도 C와 함께 돌린다(소재 기준에서 공구 자세가 C만큼 돈다) — 반대편에서 공구 몸체가 소재를
+     관통하는 것으로 계산되던 급속 경고가 사라진다(O4811 24건 → 7건, 남은 223·224행은 G87 R점 문제).
+  2. **"턴밀에서 밀링 공정만 진행할 때 가공이 안 됨"** — 원인: 공구 종류를 판정하지 못해 턴밀 공구가 제외됨(O4006 `D4 X R0.3 FILLET EN MILL`).
+     `EN MILL`·`FLAT`·`FILLET`·`BALL`을 엔드밀로, 문구로 못 정해도 M35·G12.1 구간 공구에 지름 D가 있으면 엔드밀로 추천(수정 가능),
+     M35 없는 G12.1 극좌표 구간도 턴밀(3D)로 계산. O4006(밀링만) 8.9초, O4812 T12(`MTI 0808 D30`)도 계산됨.
+- 알려진 점: 지름 30 공구로 해석된 O4812 T12는 이동마다 약 300만 복셀을 훑어 약 90초 걸린다(백그라운드·진행률·취소 가능). 실제 지름이
+  다르면 툴리스트 D를 고치면 빨라진다. C축 원호 점이 늘어 턴밀 샘플 계산이 2~3배 길어졌다(O1699 4.8→12.9초).
+- Open source software: 변경 없음.
+- Verification: `python -m pytest` → 603 passed, 1 skipped, 2 failed(이 PC 환경: 저장된 장비 설정, 설치된 앱 실행 중). C축 원호 테스트 추가,
+  점 순번에 기대던 C 회전 테스트 5개를 "줄별 끝 위치"로 갱신, 축 회전·실제 샘플 문구 테스트 추가.
+- Installer/package status: **생성 완료**. `installer\NC_Tool_List_Setup_v2.2.2.exe`, `installer\NC_Tool_List_Portable_v2.2.2.zip`.
+  dist exe를 `USERNAME`을 바꿔 기동해 12초 뒤에도 실행 중임을 확인(파일 버전 2.2.2.0).
+  - Setup EXE SHA-256: A4E8CADDB621F9C4E8DA79B73A362910D7EFB3DF18282F2CBEB9BB6A2A89039A
+  - Portable ZIP SHA-256: 892ADDC7A21D99EE7FD1CEF14ACC62774F8B299D87D6910789F7D555019D9F9C
+  - App EXE SHA-256: 4D3E8D925DF7C6F0BC652627DEA0EA986CD9E4AD4821829497F225A28BE86B15
+  - Setup 80.2 MB / Portable 112.0 MB.
+- 서명 상태: 설치본과 앱 실행 파일 모두 미서명이다(기존과 동일).
+
+### 2026-09-26 (v2.2.1)
 
 - Version: 2.2.0 → 2.2.1
 - Release/build date: 2026-09-26

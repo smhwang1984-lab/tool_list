@@ -99,7 +99,7 @@ INSERT_RE = re.compile(
     r'\s*(\d{2})\s*(T\d|\d{2})\s*(\d{2})?(?!\d)', re.I)
 # 나사 인서트: 길이 [E|I][R|L] 피치 [규격]  (예: 16ER 1.5 ISO, 16IR 14W, 22ER 3.0 ISO)
 THREAD_INSERT_RE = re.compile(
-    r'(?<![A-Z0-9])(\d{2})\s*([EI])\s*([RL])\s*(\d+(?:[.,]\d+)?)\s*(ISO|UNJ|UNC|UNF|UNEF|UNS|UN|W|NPTF|NPT|BSPT|BSPP|G|ACME)?'
+    r'(?<![A-Z0-9.])(\d{2})\s*([EI])\s*([RL])\s*(\d+(?:[.,]\d+)?)\s*(ISO|UNJ|UNC|UNF|UNEF|UNS|UN|W|NPTF|NPT|BSPT|BSPP|G|ACME)?'
     r'(?![A-Z0-9])', re.I)
 # 부분 프로파일 나사 인서트: 16ER AG60, 16IR A60 (피치 없음)
 THREAD_PARTIAL_RE = re.compile(
@@ -129,11 +129,23 @@ TAG_RES = {
 }
 
 _KW_NONCUT = re.compile(r'SETTING[\s.-]*PIN|NULLING|KNURL|ROLLE|널링|세팅', re.I)
-_KW_DRILL = re.compile(r'드릴|DRILL|CENTER|CENTRE|센터', re.I)
+_KW_DRILL = re.compile(r'드릴|DRILL|CENTER|CENTRE|센터|(?<![A-Z])TAP(?![A-Z])|탭', re.I)   # v2.2.3: 탭 = 드릴 형상으로 근사
 _KW_FACECUT = re.compile(r'FACE[\s-]*(?:CUTTER|MILL)|페이스', re.I)
-_KW_ENDMILL = re.compile(r'END[\s-]*MILL|엔드밀|E/M', re.I)
+# v2.2.2: 실제 샘플 표기 변형 — "FILLET EN MILL"(O4006), 형상 키워드(FLAT/FILLET/BALL/볼)도 엔드밀
+_KW_ENDMILL = re.compile(r'END?[\s-]*MILL|엔드밀|E/M|(?<![A-Z])(?:FLAT|FILLET|BALL|CHAMF\w*|EN)(?![A-Z])|볼', re.I)
+# 공구 블록이 턴밀(구동공구) 구간 — M35 또는 극좌표 G12.1/G112
+_MILLING_MODE_RE = re.compile(r'M35(?!\d)|G12\.1|G112(?!\d)', re.I)
 # 공구 지름 표기: "D10 X 90 NC DRILL", "D5.5 CARBIDE DRILL", "D3. FLAT END MILL", "MTI 0808 D30 A60"
-TOOL_D_RE = re.compile(r'(?<![A-Z0-9.])D\s*(\d+(?:\.\d+)?)(?![0-9A-Za-z])', re.I)
+# 뒤에 X는 올 수 있다("D10XR0.8", "D2X90X6" — TurnMill Test.nc v2.2.3)
+TOOL_D_RE = re.compile(r'(?<![A-Z0-9.])D\s*(\d+(?:\.\d+)?)(?![0-9])(?![A-WYZa-wyz])', re.I)
+# 명시 지름 "| DIA-6.35" — D 표기보다 우선(챔퍼밀 D2X90X6의 최대 지름, 나사밀 .2500-28 UNJF의 지름)
+TOOL_DIA_RE = re.compile(r'(?<![A-Z])DIA\s*[-=:]?\s*(\d+(?:\.\d+)?)', re.I)
+# 홀더 문구의 구동공구 표식("MILL TOOL CHECK") — 이 공구는 턴밀(밀링) 공구다
+_KW_LIVE_TOOL = re.compile(r'MILL[\s_-]*TOOL', re.I)
+# 인치 나사 호칭 ".2500-28 UNJF" — 나사밀 지름을 모를 때의 대체값(호칭 지름 inch × 25.4)
+THREAD_SIZE_INCH_RE = re.compile(r'(?<![\d.])(\d*\.\d+)\s*-\s*\d+\s*UN', re.I)
+# 챔퍼밀 각도 "D2X90X6"의 90, "90DEG"/"90°"
+CHAMFER_ANGLE_RE = re.compile(r'X\s*(\d+(?:\.\d+)?)\s*X|(\d+(?:\.\d+)?)\s*(?:DEG|°)', re.I)
 _KW_CUTOFF = re.compile(r'절단|CUT[\s-]?OFF|PARTING', re.I)
 _KW_THREAD = re.compile(r'나사|THREAD|THRD', re.I)
 _KW_GROOVE = re.compile(r'홈|GROOV|GRV', re.I)
@@ -353,10 +365,12 @@ def parse_groove_insert(text):
 # --------------------------------------------------------------------------
 
 def parse_tool_diameter(text):
-    """문구의 D<숫자>(턴밀·중심 드릴 공구 지름, mm). 없으면 None."""
-    match = TOOL_D_RE.search(str(text or ''))
+    """문구의 지름(턴밀·중심 드릴 공구, mm) — "DIA-6.35"가 있으면 그것, 없으면 D<숫자>. 없으면 None."""
+    match = TOOL_DIA_RE.search(str(text or '')) or TOOL_D_RE.search(str(text or ''))
     if not match:
-        return None
+        inch = THREAD_SIZE_INCH_RE.search(str(text or ''))
+        value = _float(inch.group(1)) if inch else None
+        return round(value * 25.4, 4) if value and value > 0 else None
     value = _float(match.group(1))
     return value if value and value > 0 else None
 
@@ -397,7 +411,7 @@ def program_hints(code_lines):
     """공구 블록 코드(주석 제외, 줄 목록)에서 종류/피치 힌트를 뽑는다.
     돌려줌: dict — thread, groove, face_groove, turning(bool), pitch(mm 문자열, 없으면 '')."""
     hints = {'thread': False, 'groove': False, 'face_groove': False, 'turning': False,
-             'pitch': ''}
+             'milling': False, 'pitch': ''}
     lines = list(code_lines)
     for index, line in enumerate(lines):
         if _GCODE_THREAD_RE.search(line):
@@ -415,13 +429,15 @@ def program_hints(code_lines):
             hints['face_groove'] = True
         if _GCODE_TURN_CYCLE_RE.search(line):
             hints['turning'] = True
+        if _MILLING_MODE_RE.search(line):
+            hints['milling'] = True
     return hints
 
 
 def merge_hints(base, extra):
     """같은 공구가 여러 N 블록에서 쓰일 때 힌트를 합친다(피치는 처음 값 유지)."""
     merged = dict(base)
-    for key in ('thread', 'groove', 'face_groove', 'turning'):
+    for key in ('thread', 'groove', 'face_groove', 'turning', 'milling'):
         merged[key] = bool(base.get(key)) or bool(extra.get(key))
     merged['pitch'] = base.get('pitch') or extra.get('pitch') or ''
     return merged
@@ -458,6 +474,13 @@ def infer_kind(insert_text, holder_text, hints=None):
         return '내경'
     if _KW_EXTERNAL.search(text):
         return '외경'
+    if (hints.get('milling') or _KW_LIVE_TOOL.search(text)) and THREAD_SIZE_INCH_RE.search(insert_text or ''):
+        # v2.2.3: 구동공구의 인치 나사 호칭(".2500-28 UNJF_3B")은 측면 리지드 탭(M29 + G88) — 드릴 형상으로 근사
+        return '드릴'
+    if (hints.get('milling') or _KW_LIVE_TOOL.search(text)) and parse_tool_diameter(insert_text):
+        # v2.2.2: 문구로 종류를 못 정해도 턴밀(M35/G12.1) 구간에서 지름이 있는 공구는 엔드밀로 추천한다
+        # ("MTI 0808 D30 A60", "BMT ANGLE" 등). 드릴·페이스커터라면 [수정]에서 고친다.
+        return '엔드밀'
     if hints.get('thread'):
         return '내경나사' if internal else '외경나사'
     if hints.get('groove'):
@@ -638,6 +661,15 @@ def describe_holder(text):
 # 시뮬레이션용 형상 맵
 # --------------------------------------------------------------------------
 
+def chamfer_angle(text):
+    """챔퍼밀 끝 각도(도) — "D2X90X6"의 90. 없으면 None."""
+    match = CHAMFER_ANGLE_RE.search(str(text or ''))
+    if not match:
+        return None
+    value = _float(match.group(1) or match.group(2))
+    return value if value and 0 < value < 180 else None
+
+
 def mill_type_for(kind, insert_text=''):
     """턴밀·중심 드릴 종류 -> nc_sim.tool_shape_from_values의 type 문자열. 해당 없으면 None."""
     text = str(insert_text or '').upper()
@@ -646,6 +678,8 @@ def mill_type_for(kind, insert_text=''):
     if kind == '페이스커터':
         return 'FACE MILL'
     if kind == '엔드밀':
+        if 'CHAMF' in text:
+            return 'CHAMF'
         if 'BALL' in text or '볼' in text:
             return 'BALL E/M'
         if 'FILLET' in text:
@@ -671,6 +705,7 @@ def geometry_from_row(row):
         'diameter': _float(row.get('D')),
         'so': _float(row.get('SO')),                       # 날장 최대(날 길이가 없을 때, 사용자 확정 2026-09-26)
         'mill_type': None,
+        'chamfer_angle': chamfer_angle(insert_text),
         'nose_r': _float(row.get('R')),
         'width': _float(row.get('T')),
         'pitch': _float(row.get('PITCH')),
