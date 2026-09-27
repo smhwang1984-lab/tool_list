@@ -143,6 +143,13 @@ class ToolPolygonTests(unittest.TestCase):
         at_radius = tool.poly[tool.poly[:, 1] >= 6.0 - 1e-9, 0]              # 반경 6인 꼭짓점들(원뿔 끝 + 날 끝)
         self.assertAlmostEqual(float(at_radius.min()), 6.0 / math.tan(math.radians(59.0)), places=2)
 
+    def test_chamfer_mill_is_a_cone_with_its_angle(self):
+        geometry = spec.geometry_from_row({'INSERT': 'D2X90X6 CHAMF EN', 'KIND': '엔드밀', 'D': '6', 'SO': '20'})
+        tool = lathe.tool_from_geometry(geometry)
+        shape = tool.mill_shape
+        self.assertAlmostEqual(shape.radius, 3.0)
+        self.assertAlmostEqual(shape.height_at(3.0), 3.0 / math.tan(math.radians(45.0)), places=4)   # 90° 원뿔
+
     def test_tool_from_geometry_kinds_and_refusals(self):
         self.assertEqual(lathe.tool_from_geometry(make_geometry()).kind, '외경')
         thread = lathe.tool_from_geometry(spec.geometry_from_row(

@@ -29,7 +29,7 @@ import lathe_insert_spec
 import sumpath_license
 
 
-APP_VERSION = '2.2.2'
+APP_VERSION = '2.2.3'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-09-27'
 APP_CREATOR = 'Hwang.seonmun'

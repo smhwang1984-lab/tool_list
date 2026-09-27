@@ -34,7 +34,30 @@ Last updated: 2026-09-27 (NC_Tool_List v2.2.2 — C축 회전 이동 원호, 밀
 
 ## Version history
 
-### 2026-09-27 (latest, v2.2.2)
+### 2026-09-27 (latest, v2.2.3)
+
+- Version: 2.2.2 → 2.2.3
+- Release/build date: 2026-09-27
+- Summary: 사용자 요청 "TurnMill Test.nc C축 가공 시뮬레이션에서 회전축을 넘어감 — 3공정·4공정, 축을 넘어가면 안 되고 다음 C점으로 가공되어야 함"
+  ("본래 시뮬레이션에서는 넘어가지 않았음").
+  1. **절대 C 지령 롤오버**: v2.2.2 C축 원호가 지령 차이를 그대로 돌아 `C355.23 → C0.`에서 -355°(거의 한 바퀴)를 거꾸로 돌며 축 반대편을
+     가로질렀다. 절대 C는 최단 경로(±180° 이내, 이 예는 +4.77°)로, H(증분)는 지령 그대로 돈다. 툴패스 표시와 시뮬레이션이 함께 바뀐다.
+     3·4공정: 20점 넘는 긴 회전 줄 0개, 절삭점 반경 최소 약 19mm(축을 가로지르지 않음).
+  2. **TurnMill Test 공구 인식**: T06 `D2X90X6 CHAMF EN`(챔퍼밀 원뿔), T10 `D10XR0.8 FILLET EN`, T08/T09 `.2500-28 UNJF_3B`(측면 리지드 탭 →
+     드릴 형상, 지름 6.35/7.9375)가 공구 종류를 몰라 시뮬레이션에서 제외되던 것을 인식 — 이제 제외 공구 없음(전체 15.9초).
+     홀더 문구 `MILL TOOL`이면 구동공구로 보고 지름이 있으면 엔드밀 추천(O4812 `MTI 0808 D30`도 엔드밀 추천으로 바뀜, 수정 가능).
+- Open source software: 변경 없음.
+- Verification: `python -m pytest` → 606 passed, 1 skipped, 2 failed(이 PC 환경: 저장된 장비 설정, 설치된 앱 실행 중 — v2.2.2와 동일).
+  롤오버 테스트(0° 건너기, H 증분 유지), TurnMill Test 공구 문구·챔퍼밀 원뿔·나사 호칭 지름 테스트 추가, C0→C270 원호 기대를 최단 -90°로 갱신.
+- Installer/package status: **생성 완료**. `installer\NC_Tool_List_Setup_v2.2.3.exe`, `installer\NC_Tool_List_Portable_v2.2.3.zip`.
+  dist exe를 `USERNAME`을 바꿔 기동해 12초 뒤에도 실행 중임을 확인(파일 버전 2.2.3.0).
+  - Setup EXE SHA-256: CD23C4126AE9CA4180F7CC1A030AC044B082BB9DF290FE56B43027BFCDF9B9C8
+  - Portable ZIP SHA-256: 9C874156CD4831FEF31C3FF6E96A1535604DD5C4C43035FEC9FB3BCDB567A8B3
+  - App EXE SHA-256: 0619D72F172174B7F779B1DF1C25BD12DC34904CCE6EA3628364F54CED4C1E9F
+  - Setup 80.2 MB / Portable 112.0 MB.
+- 서명 상태: 설치본과 앱 실행 파일 모두 미서명이다(기존과 동일).
+
+### 2026-09-27 (v2.2.2)
 
 - Version: 2.2.1 → 2.2.2
 - Release/build date: 2026-09-27

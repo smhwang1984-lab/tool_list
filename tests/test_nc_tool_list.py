@@ -4937,7 +4937,8 @@ H90.
     @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
     def test_lathe_c_rotation_moves_are_drawn_as_arcs_not_chords(self):
         """v2.2.2(사용자 요청 "C축 회전 급속을 직선 대신 원호로"): C만 도는 급속은 반경을 유지하는 원호,
-        X와 C가 함께 바뀌면 반경이 선형으로 변하는 나선으로 그린다. 방향은 지령 그대로(C0 → C270은 +270°)."""
+        X와 C가 함께 바뀌면 반경이 선형으로 변하는 나선으로 그린다. v2.2.3: 절대 C는 롤오버(최단 경로) —
+        C0 → C270은 -90°."""
         qapp = app.QApplication.instance() or app.QApplication([])
         viewer, original = self._lathe_viewer(qapp)
         source = """T0100
@@ -4960,10 +4961,38 @@ C270.
             self.assertTrue(all(b < a for a, b in zip(radii, radii[1:])))      # 반경이 고르게 줄어든다
             self.assertAlmostEqual(radii[-1], 30.0, places=6)
             self.assertTrue(all(p['type'] == 'G01' for p in points if p['src_line'] == 3))
-            full = line_points(points, 4)                                       # C0 → C270: +270° 쪽으로 54점
-            self.assertEqual(len(full), 54)
-            self.assertAlmostEqual(full[17][1], 30.0, places=6)                 # 18번째 점 = +90°(월드 +Y)를 지난다
-            self.assertEqual([round(v, 6) for v in full[-1]], [5.0, -30.0, 0.0])
+            short = line_points(points, 4)                                      # C0 → C270: 최단 -90°로 18점
+            self.assertEqual(len(short), 18)
+            self.assertTrue(all(pt[1] <= 1e-9 for pt in short))                # +Y 쪽(반대 방향)으로 돌지 않는다
+            self.assertEqual([round(v, 6) for v in short[-1]], [5.0, -30.0, 0.0])
+        finally:
+            self._restore(viewer, original, qapp)
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_lathe_absolute_c_crossing_zero_takes_the_short_way(self):
+        """v2.2.3 실사례(TurnMill Test.nc 3·4공정): X·C 동시 윤곽 가공에서 C355.23 → C0. → C4.771처럼 0°를 건너
+        이어지면 롤오버로 +4.77°만 돈다 — v2.2.2는 -355.23°(거의 한 바퀴) 역회전해 축 반대편을 가로질렀다.
+        H(증분)는 지령 그대로(H-180. = -180°)."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        viewer, original = self._lathe_viewer(qapp)
+        source = """T0300
+M35
+G0 X100. Z5. C350.
+G1 X84.354 C355.23 F300.
+X84.404 C0.
+X84.354 C4.771
+H-180.
+"""
+        try:
+            viewer.set_source_text(source, {'T03': 'BALL EN'})
+            points = viewer.tool_paths[list(viewer.tool_paths)[0]]
+            for line in (4, 5):
+                pts = line_points(points, line)
+                self.assertEqual(len(pts), 1, '5° 미만 회전은 점 하나(최단 경로)')
+            for line in (3, 4, 5):
+                for pt in line_points(points, line):
+                    self.assertGreater(float((pt[1] ** 2 + pt[2] ** 2) ** 0.5), 42.0)   # 축 쪽으로 가로지르지 않는다
+            self.assertEqual(len(line_points(points, 6)), 36)                  # H-180. = 지령 그대로 180°
         finally:
             self._restore(viewer, original, qapp)
 

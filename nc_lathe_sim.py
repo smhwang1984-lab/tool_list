@@ -248,8 +248,13 @@ def mill_tool_shape(geometry):
     if not so:
         so = UNLIMITED_LENGTH
         notes.append('날장 최대(SO) 없음 — 무제한으로 계산')
-    shape = nc_sim.tool_shape_from_values(mill_type, diameter, fl=None, r=geometry.get('nose_r'),
-                                          sig=None, pl=None, so=so)
+    if mill_type == 'CHAMF':
+        # 챔퍼밀 = 끝 각도(기본 90°)의 원뿔 — 드릴 원뿔 형상으로 만든다(v2.2.3, TurnMill Test T06 D2X90X6)
+        angle = geometry.get('chamfer_angle') or 90.0
+        shape = nc_sim.tool_shape_from_values('DRILL', diameter, fl=None, r=None, sig=angle, pl=None, so=so)
+    else:
+        shape = nc_sim.tool_shape_from_values(mill_type, diameter, fl=None, r=geometry.get('nose_r'),
+                                              sig=None, pl=None, so=so)
     if shape is None:
         raise ToolShapeError('공구 형상을 만들 수 없음')
     return shape, notes

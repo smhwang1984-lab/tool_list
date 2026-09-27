@@ -182,7 +182,8 @@ def lathe_c_arc_points(start_local, end_local, start_c, end_c, step_deg=LATHE_C_
 
     실제 기계는 공구가 제자리(또는 X/Z 직선 이동)에 있고 소재가 돌므로, 소재 좌표계에서 본 공구 경로는
     주축 둘레의 원호(X/Z가 함께 바뀌면 나선)다. 로컬(회전 전) 좌표는 선형으로 옮기고 C는 선형으로 돌린다.
-    회전 방향·크기는 지령 그대로(end_c - start_c) — 롤오버(최단 경로) 설정은 가정하지 않는다."""
+    회전 방향·크기는 end_c - start_c 그대로 — 절대 C 지령의 롤오버(최단 경로)는 호출부가
+    lathe_c_rollover_end()로 end_c를 먼저 맞춘다(v2.2.3)."""
     delta = float(end_c) - float(start_c)
     steps = max(1, int(np.ceil(abs(delta) / float(step_deg))))
     start = np.asarray(start_local, dtype=np.float64)
@@ -192,6 +193,14 @@ def lathe_c_arc_points(start_local, end_local, start_c, end_c, step_deg=LATHE_C_
         t = k / steps
         points.append(lathe_rotate_c((start + (end - start) * t).tolist(), float(start_c) + delta * t))
     return points
+
+
+def lathe_c_rollover_end(start_c, end_c):
+    """v2.2.3: 절대 C 지령의 실제 회전 끝 각도 — C축 롤오버(최단 경로, ±180° 이내).
+    TurnMill Test.nc 3·4공정처럼 C355.23 → C0.으로 0°를 건너 이어지는 C축 윤곽 가공에서, 지령 차이
+    그대로(-355.23°) 돌면 거의 한 바퀴를 거꾸로 돌아 축 반대편을 가로질렀다(실제 기계는 +4.77°)."""
+    delta = (float(end_c) - float(start_c) + 180.0) % 360.0 - 180.0
+    return float(start_c) + delta
 
 
 def lathe_c_arc_angles(start_c, end_c, step_deg=LATHE_C_ARC_STEP_DEG):
@@ -5174,6 +5183,7 @@ class NCViewerWidget(QWidget):
                     start_local = lathe_local_point(cz, cx, cy_lathe)
                     start_pt = lathe_rotate_c(start_local, cc_deg)
                     start_cc = cc_deg          # v2.2.2: C 회전 이동을 원호로 그리기 위한 시작 각도
+                    c_absolute = c_match is not None   # v2.2.3: 절대 C는 롤오버(최단 경로), H(증분)는 지령 그대로
                     if x_match:
                         cx = float(x_match.group(1))
                     if z_match:
@@ -5310,8 +5320,9 @@ class NCViewerWidget(QWidget):
                             approach_local = lathe_local_point(start_local[0], cx)
                         else:
                             approach_local = lathe_local_point(cz, start_local[2] * 2.0)
-                        arc = zip(lathe_c_arc_points(start_local, approach_local, start_cc, cc_deg),
-                                  lathe_c_arc_angles(start_cc, cc_deg))
+                        arc_end = lathe_c_rollover_end(start_cc, cc_deg) if c_absolute else cc_deg
+                        arc = zip(lathe_c_arc_points(start_local, approach_local, start_cc, arc_end),
+                                  lathe_c_arc_angles(start_cc, arc_end))
                         for arc_pt, arc_c in list(arc)[:-1]:
                             self.tool_paths[current_tool].append({"pt": arc_pt, "type": "G00", "valid": True, "src_line": idx, "seq": seq_pos, "c": arc_c})
                     self.tool_paths[current_tool].append({"pt": approach_pt, "type": "G00", "valid": True, "src_line": idx, "seq": seq_pos})
@@ -5439,8 +5450,9 @@ class NCViewerWidget(QWidget):
                     # v2.2.2: C축이 도는 선반 이동(G0 C90. / H-180. / G1 X.. C..)은 직선(현)이 아니라 주축 둘레
                     # 원호(X/Z가 함께 바뀌면 나선)로 그린다 — 직선이면 반경 방향으로 축을 가로지르는 경로가 되어
                     # 형상 시뮬레이션이 공구가 소재를 관통한 것으로 계산했다.
-                    for arc_pt, arc_c in zip(lathe_c_arc_points(start_local, target_local, start_cc, cc_deg),
-                                             lathe_c_arc_angles(start_cc, cc_deg)):
+                    arc_end = lathe_c_rollover_end(start_cc, cc_deg) if c_absolute else cc_deg
+                    for arc_pt, arc_c in zip(lathe_c_arc_points(start_local, target_local, start_cc, arc_end),
+                                             lathe_c_arc_angles(start_cc, arc_end)):
                         self.tool_paths[current_tool].append({
                             "pt": arc_pt, "type": current_motion, "valid": True,
                             "src_line": idx, "seq": seq_pos, "c": arc_c,
