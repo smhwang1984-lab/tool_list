@@ -42,7 +42,15 @@ Last updated: 2026-10-06 (NC_Tool_List v2.2.4 — 체험판 만료 예정 안내
   (`_maybe_show_license_expiry_notice`) 오류 창이 뜨고 확인 시 프로그램이 닫히던 문제 수정. 체험판은 라이선스 파일이 없어
   `status.license`가 None인데 `valid_until`을 읽었다. 체험판이면 남은 일수로 종료일을 계산해 "체험판 만료 예정" 안내를 띄운다.
 - Open source software: 변경 없음.
-- Installer/package status: 아래 갱신 참조.
+- Verification: `python -m pytest` → 549 passed, 60 skipped (새 빌드 환경 Python 3.12 venv, `C:\dev\nc_build_venv`: PyQt5 5.15.11, pyqtgraph 0.14.0,
+  PyOpenGL 3.1.10, numpy 2.5.3, numba 0.68.0 / llvmlite 0.50.0, reportlab 5.0.1, PyInstaller 6.22.3).
+- Installer/package status: **생성 완료**. `installer\NC_Tool_List_Setup_v2.2.4.exe`, `installer\NC_Tool_List_Portable_v2.2.4.zip`.
+  dist exe를 `USERNAME`을 바꿔 기동해 12초 뒤에도 실행 중임을 확인(파일 버전 2.2.4.0). 빌드는 numba 0.68 / llvmlite 0.50 포함.
+  - Setup EXE SHA-256: 591A48EC049B089D49E89895D227CF566C21D7177BED1A1814DAAAC43BC9FB8A
+  - Portable ZIP SHA-256: 384214DA5E115ACA41119CDD47B44482DCB9FB01EAE94C634D75083FAB685FC5
+  - App EXE SHA-256: 23CCE96DDB61F232203A84B9E1966F77BC1EAA0594129F51004AB5E6CCC5D63B
+  - Setup 77.9 MB / Portable 109.3 MB.
+- 서명 상태: 설치본과 앱 실행 파일 모두 미서명이다(기존과 동일).
 
 ### 2026-09-27 (v2.2.3)
 
