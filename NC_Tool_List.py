@@ -29,7 +29,7 @@ import lathe_insert_spec
 import sumpath_license
 
 
-APP_VERSION = '2.2.3'
+APP_VERSION = '2.2.4'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-09-27'
 APP_CREATOR = 'Hwang.seonmun'
@@ -2381,12 +2381,20 @@ else:
             today_str = date.today().isoformat()
             if state.get('last_notice_date') == today_str:
                 return
-            QMessageBox.information(
-                self, '라이선스 만료 예정',
-                '라이선스 사용 기한이 %d일 남았습니다. (사용 기한: %s)' % (
+            # 체험판은 라이선스 파일이 없어 status.license가 None이다 —
+            # 종료일은 남은 일수로 계산한다.
+            if status.license is None:
+                trial_until = date.fromordinal(date.today().toordinal() + status.days_left)
+                title = '체험판 만료 예정'
+                text = '체험 기간이 %d일 남았습니다. (체험 종료일: %s)' % (
+                    status.days_left, trial_until.isoformat(),
+                )
+            else:
+                title = '라이선스 만료 예정'
+                text = '라이선스 사용 기한이 %d일 남았습니다. (사용 기한: %s)' % (
                     status.days_left, status.license.get('valid_until'),
-                ),
-            )
+                )
+            QMessageBox.information(self, title, text)
             state['last_notice_date'] = today_str
             sumpath_license.save_license_state(state)
 

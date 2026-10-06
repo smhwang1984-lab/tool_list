@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-09-27 (NC_Tool_List v2.2.2 — C축 회전 이동 원호, 밀링만 있는 턴밀 가공)
+Last updated: 2026-10-06 (NC_Tool_List v2.2.4 — 체험판 만료 예정 안내 오류 수정)
 
 ## About button requirements
 
@@ -34,7 +34,17 @@ Last updated: 2026-09-27 (NC_Tool_List v2.2.2 — C축 회전 이동 원호, 밀
 
 ## Version history
 
-### 2026-09-27 (latest, v2.2.3)
+### 2026-10-06 (latest, v2.2.4)
+
+- Version: 2.2.3 → 2.2.4
+- Release/build date: 2026-10-06
+- Summary: 체험판 남은 기간이 7일 이하일 때 시작 직후 `AttributeError: 'NoneType' object has no attribute 'get'`
+  (`_maybe_show_license_expiry_notice`) 오류 창이 뜨고 확인 시 프로그램이 닫히던 문제 수정. 체험판은 라이선스 파일이 없어
+  `status.license`가 None인데 `valid_until`을 읽었다. 체험판이면 남은 일수로 종료일을 계산해 "체험판 만료 예정" 안내를 띄운다.
+- Open source software: 변경 없음.
+- Installer/package status: 아래 갱신 참조.
+
+### 2026-09-27 (v2.2.3)
 
 - Version: 2.2.2 → 2.2.3
 - Release/build date: 2026-09-27
