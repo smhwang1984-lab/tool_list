@@ -29,9 +29,9 @@ import lathe_insert_spec
 import sumpath_license
 
 
-APP_VERSION = '2.2.4'
+APP_VERSION = '2.2.5'
 APP_NAME = 'Sum Path'
-APP_BUILD_DATE = '2026-09-27'
+APP_BUILD_DATE = '2026-10-08'
 APP_CREATOR = 'Hwang.seonmun'
 APP_PURPOSE = 'NC 프로그램에서 공구 리스트를 산출하고 NC 경로를 Viewer로 확인하는 도구'
 OPEN_SOURCE_COMPONENTS = (
@@ -2304,6 +2304,9 @@ else:
             self.play_timer.timeout.connect(self._playback_tick)
             self.play_speed = self._load_playback_speed()
             self._play_carry = 0.0
+            # v2.2.5: G4 휴즈 줄에서 실제로 멈춰 있을 남은 시간(초). 배속과
+            # 무관하게 지령 시간 그대로 멈춘다(G4 X1.0/P1000 = 1초, P500 = 0.5초).
+            self._dwell_remaining = 0.0
             # v1.7.6: 재생/방향키가 실제로 진행 중인 "실행 순서(seq)" 위치.
             # M98/M99 서브프로그램 확장이 있으면 문서 줄번호와 더 이상
             # 같지 않다(플랜 §3.2). _goto_seq()가 이 값과 에디터 커서를
@@ -3649,6 +3652,9 @@ else:
             total = self.viewer.sequence_length()
             seq = max(0, min(int(seq), total - 1)) if total else max(0, int(seq))
             self.playback_seq = seq
+            # v2.2.5: 다른 위치로 옮기면 진행 중이던 휴즈 대기는 끝난다
+            # (재생 틱은 이 호출 뒤에 새 휴즈를 건다).
+            self._dwell_remaining = 0.0
             line_index = self.viewer.line_at_seq(seq)
             block = self.src.document().findBlockByNumber(max(0, int(line_index)))
             if block.isValid():
@@ -3743,6 +3749,7 @@ else:
             if self.current_mode != 'viewer' or not getattr(self.viewer, 'pg_match_mode', False):
                 return
             self._play_carry = 0.0
+            self._dwell_remaining = 0.0
             # v1.7.6: 재생을 이어갈 seq 기준점을 지금 커서 위치로 맞춘다 —
             # 정지 상태에서 사용자가 필터/방향키/클릭으로 다른 곳에 커서를
             # 두고 다시 재생을 누르면 그 자리에서부터 이어져야 한다.
@@ -3758,6 +3765,7 @@ else:
 
         def pause_playback(self):
             self.play_timer.stop()
+            self._dwell_remaining = 0.0
             bar = getattr(self.viewer, 'playback_bar', None)
             if bar is not None:
                 bar.set_playing(False)
@@ -3789,7 +3797,16 @@ else:
                 self.pause_playback()
                 return
             current_seq = self.playback_seq
-            self._play_carry += self.play_speed * (self.play_timer.interval() / 1000.0)
+            interval_sec = self.play_timer.interval() / 1000.0
+            if self._dwell_remaining > 0.0:
+                # v2.2.5: G4 휴즈 중 — 그 줄에 머문다.
+                self._dwell_remaining -= interval_sec
+                if self._dwell_remaining > 1e-9:
+                    return
+                self._dwell_remaining = 0.0
+                self._play_carry = 0.0
+                return
+            self._play_carry += self.play_speed * interval_sec
             steps = int(self._play_carry)
             if steps <= 0:
                 return
@@ -3800,7 +3817,9 @@ else:
             stop_m00 = self.stop_m00_check.isChecked()
             stop_m01 = self.stop_m01_check.isChecked()
             document = self.src.document()
+            dwell_at = getattr(self.viewer, 'dwell_seconds_at_seq', None)
             stop_seq = None
+            dwell_seq = None
             for seq in range(current_seq + 1, target_seq + 1):
                 block = document.findBlockByNumber(self.viewer.line_at_seq(seq))
                 if block.isValid() and line_stops_playback(
@@ -3808,11 +3827,22 @@ else:
                 ):
                     stop_seq = seq
                     break
-            destination = stop_seq if stop_seq is not None else target_seq
+                if dwell_at is not None and dwell_at(seq) > 0.0:
+                    dwell_seq = seq
+                    break
+            if stop_seq is not None:
+                destination = stop_seq
+            elif dwell_seq is not None:
+                destination = dwell_seq
+            else:
+                destination = target_seq
             if destination != current_seq:
                 self._goto_seq(destination)
             if stop_seq is not None or destination >= total - 1:
                 self.pause_playback()
+            elif dwell_seq is not None:
+                self._dwell_remaining = dwell_at(dwell_seq)
+                self._play_carry = 0.0
 
         def playback_rewind(self):
             """현재 커서가 속한 공정의 시작 지점(seq)으로 되감고 정지한다."""

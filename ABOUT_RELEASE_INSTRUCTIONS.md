@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-10-06 (NC_Tool_List v2.2.4 — 체험판 만료 예정 안내 오류 수정)
+Last updated: 2026-10-08 (NC_Tool_List v2.2.5 — G4 휴즈(드웰) 지원)
 
 ## About button requirements
 
@@ -34,7 +34,31 @@ Last updated: 2026-10-06 (NC_Tool_List v2.2.4 — 체험판 만료 예정 안내
 
 ## Version history
 
-### 2026-10-06 (latest, v2.2.4)
+### 2026-10-08 (latest, v2.2.5)
+
+- Version: 2.2.4 → 2.2.5
+- Release/build date: 2026-10-08
+- Summary: 사용자 요청 "PLAN_stock_simulation.md 바탕으로 시뮬레이션 개선 및 G4 휴즈 기능 — G4 X1.0 또는 G4 P1000이면 1초, P500이면 0.5초".
+  1. **G4 휴즈 해석**(`nc_viewer_widget.parse_dwell`): 이전에는 `G4 X1.0`의 X를 좌표로 읽어 공구가 X1.0(선반은 지름 1, 반경 0.5)으로
+     움직였고, 툴패스와 소재 절삭 시뮬레이션이 그만큼 틀렸다. 이제 G4/G04 블록의 시간 워드는 좌표로 읽지 않는다.
+     P=밀리초(P1000=1초, P500=0.5초), X/U=소수점 있으면 초(X1.0·X1.=1초)·없으면 밀리초(X1000=1초), F=초, 워드 없음=0초.
+  2. **가공시간**: 휴즈 시간을 공정 시간과 전체 시간에 더한다(그 공정 안, 휴즈 뒤 첫 이동 전에). 경로 없는 구간의 휴즈는 다음 공정에 붙인다.
+  3. **PG 매칭 자동 재생**: 휴즈 줄을 건너뛰지 않고 그 줄에서 멈춘 뒤 지령 시간(배속과 무관한 실제 초)만큼 기다렸다가 이어간다.
+     일시정지, 방향키 이동, 되감기를 하면 대기가 풀린다.
+- 코드 리뷰(`/code-review medium`)에서 반영한 것: `X1.`처럼 소수점으로 끝나는 값, 시간 워드 하나만 지우기(`M98P..` 보존), `G4 F`가 이송속도로
+  오인되는 문제, 경로 없는 구간 휴즈의 누적 시간, 위치 이동 시 휴즈 대기 해제.
+  반영하지 않은 것: 배속 비례 대기(요청대로 실제 시간), 휴즈 줄 표시 시간(이동 줄과 같이 "줄 완료 시점" 기준), 공구 교체와 같은 줄의 G4 공정 귀속(드문 경우).
+- Open source software: 변경 없음.
+- Verification: `python -m pytest` → 562 passed, 60 skipped (신규 `tests/test_dwell.py` 13개 — 수정 전 코드에서는 경로 테스트가 실패함을 확인).
+- Installer/package status: **생성 완료**. `installer\NC_Tool_List_Setup_v2.2.5.exe`, `installer\NC_Tool_List_Portable_v2.2.5.zip`.
+  dist exe를 기동해 12초 뒤에도 실행 중임을 확인(파일 버전 2.2.5.0). 빌드는 numba / llvmlite 포함.
+  - Setup EXE SHA-256: 0FC65F4664D0BFE9A16178728465F138CBDA22B6FD50B6278215002B6D4A3D57
+  - Portable ZIP SHA-256: 41C8F99B71EA4332568AA4C31684FEFA2F06693FD53F85E6764777E957F134D6
+  - App EXE SHA-256: 20A4673DA24C2EFB6FF1AC9534DEEE853FE04C6B7099893D4A3BEC077BD8C7CB
+  - Setup 77.9 MB / Portable 109.3 MB.
+- 서명 상태: 설치본과 앱 실행 파일 모두 미서명이다(기존과 동일).
+
+### 2026-10-06 (v2.2.4)
 
 - Version: 2.2.3 → 2.2.4
 - Release/build date: 2026-10-06
