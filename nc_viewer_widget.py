@@ -274,6 +274,46 @@ def effective_feed_mm_per_min(motion, feed_mm_per_min, distance_mm):
     return feed
 
 
+# v2.2.5: G4(G04) 휴즈(드웰). 비모달 1회성 코드라 같은 줄의 X/U/P는 좌표가
+# 아니라 정지 시간이다. 이 블록에서 축 이동은 없다.
+DWELL_RE = re.compile(r"G0?4(?![\d.])")
+# 값은 "1." 처럼 소수점으로 끝나는 Fanuc 표기도 받는다. F는 일부 컨트롤러의
+# 초 단위 휴즈(G4 F2.5)라 이송속도로 오인되지 않게 함께 읽는다.
+DWELL_WORD_RE = re.compile(r"([XUPF])([+-]?(?:\d+\.?\d*|\.\d+))")
+
+
+def parse_dwell(code_upper):
+    """주석을 뗀 대문자·공백 제거 블록에서 G4 휴즈를 읽는다(v2.2.5).
+
+    돌려줌: (휴즈 초 | None, 휴즈 워드를 지운 블록). G4가 없으면 (None, 그대로).
+    Fanuc 규칙:
+      - P: 밀리초(정수) — G4 P1000 = 1초, G4 P500 = 0.5초
+      - X/U: 소수점이 있으면 초(G4 X1.0 / X1. = 1초), 없으면 밀리초(G4 X1000 = 1초)
+      - F: 초(일부 컨트롤러 표기, G4 F2.5 = 2.5초)
+      - 시간 워드가 없으면 0초
+    지운 블록에는 G4와 X/U/P 워드가 없어서, 뒤따르는 경로 계산이 휴즈 시간을
+    X 좌표(선반은 지름)로 잘못 읽어 공구가 움직이는 일이 없다."""
+    match = DWELL_RE.search(code_upper or "")
+    if not match:
+        return None, code_upper
+    rest = code_upper[:match.start()] + code_upper[match.end():]
+    seconds = 0.0
+    word = DWELL_WORD_RE.search(rest)
+    if word:
+        letter, text = word.group(1), word.group(2)
+        try:
+            value = abs(float(text))
+        except ValueError:
+            value = 0.0
+        if letter == "P" or (letter != "F" and "." not in text):
+            seconds = value / 1000.0
+        else:
+            seconds = value
+        # 시간 워드 하나만 지운다(같은 줄의 다른 워드는 그대로).
+        rest = rest[:word.start()] + rest[word.end():]
+    return seconds, rest
+
+
 def lathe_spindle_rpm(spindle_mode, spindle_value, diameter_mm, max_rpm):
     """선반 주축 회전수(rev/min)를 돌려준다(v1.6.7).
 
@@ -2229,6 +2269,9 @@ class NCViewerWidget(QWidget):
         self._elapsed_seq_keys = []
         self.process_time_sec = {}
         self.total_time_sec = 0.0
+        # v2.2.5: seq -> G4 휴즈 시간(초). 가공시간에 더하고, 자동 재생이 그
+        # 줄에서 이 시간만큼 멈춘다.
+        self.seq_to_dwell_sec = {}
         self.dynamic_trace_items = []
         self.current_cursor_line = 0
         # "PG 매칭" 모드: 정적 경로를 모두 감추고, 커서가 위치한 공정의 실시간
@@ -4508,6 +4551,7 @@ class NCViewerWidget(QWidget):
         self._elapsed_seq_keys = []
         self.process_time_sec.clear()
         self.total_time_sec = 0.0
+        self.seq_to_dwell_sec.clear()
 
         machine_type = self.current_machine_type
         is_lathe = is_lathe_machine(machine_type)
@@ -4717,6 +4761,10 @@ class NCViewerWidget(QWidget):
         for seq_pos, (idx, line) in enumerate(line_sequence):
             line_upper_with_comments = line.upper().replace(" ", "")
             line_upper = self._code_without_comments(line).upper().replace(" ", "")
+            # v2.2.5: G4 휴즈 — 시간 워드를 지워 좌표로 읽히지 않게 한다.
+            dwell_sec, line_upper = parse_dwell(line_upper)
+            if dwell_sec is not None:
+                self.seq_to_dwell_sec[seq_pos] = dwell_sec
 
             for pos, pattern in enumerate((x_pattern, y_pattern, z_pattern, a_pattern, b_pattern, c_pattern)):
                 match = pattern.search(line_upper)
@@ -5499,16 +5547,41 @@ class NCViewerWidget(QWidget):
         self.process_time_sec.clear()
         self.total_time_sec = 0.0
 
+        # v2.2.5: G4 휴즈 시간은 그 줄이 속한 공정에서, 휴즈 뒤 첫 이동보다
+        # 먼저 더한다(휴즈 줄 자체에는 경로 점이 없다). 경로가 없는 구간
+        # (선반 M01~다음 N 사이 등)의 휴즈는 다음에 실행되는 공정에 붙여
+        # 누적 시간과 전체 시간이 어긋나지 않게 한다.
+        process_starts = []
+        for process_key, points in self.tool_paths.items():
+            seqs = [p.get("seq") for p in points if p.get("seq") is not None]
+            if seqs:
+                process_starts.append((min(seqs), process_key))
+        process_starts.sort()
+        start_seqs = [start for start, _ in process_starts]
+        dwells_by_process = {}
+        for dwell_seq in sorted(self.seq_to_dwell_sec):
+            owner = self.seq_to_tool_map.get(dwell_seq)
+            if owner not in self.tool_paths and process_starts:
+                position = bisect.bisect_right(start_seqs, dwell_seq)
+                owner = process_starts[min(position, len(process_starts) - 1)][1]
+            dwells_by_process.setdefault(owner, []).append(dwell_seq)
+
         elapsed = 0.0
         for process_key, points in self.tool_paths.items():
             process_start = elapsed
             prev_pt = None
+            dwell_seqs = dwells_by_process.pop(process_key, [])
+            dwell_pos = 0
             for point in points:
                 pt = point.get("pt")
                 if pt is None or len(pt) < 3:
                     continue
                 src_line = point.get("src_line")
                 seq = point.get("seq")
+                while seq is not None and dwell_pos < len(dwell_seqs) and dwell_seqs[dwell_pos] < seq:
+                    elapsed += self.seq_to_dwell_sec[dwell_seqs[dwell_pos]]
+                    self.seq_to_elapsed_sec[dwell_seqs[dwell_pos]] = elapsed
+                    dwell_pos += 1
                 if prev_pt is not None:
                     distance = float(np.linalg.norm(np.array(pt, dtype=float) - prev_pt))
                     if distance > 0.0:
@@ -5545,7 +5618,15 @@ class NCViewerWidget(QWidget):
                     # 들고 있어야 한다(process_nc_lines가 항상 채운다).
                     self.seq_to_elapsed_sec[src_line] = elapsed
                 prev_pt = np.array(pt, dtype=float)
+            # 공정 마지막 이동 뒤의 휴즈(예: 이동 없이 끝나는 휴즈 줄)
+            for dwell_seq in dwell_seqs[dwell_pos:]:
+                elapsed += self.seq_to_dwell_sec[dwell_seq]
+                self.seq_to_elapsed_sec[dwell_seq] = elapsed
             self.process_time_sec[process_key] = elapsed - process_start
+        # 경로가 없는 공정에 속한 휴즈(방어적) — 전체 시간에만 더한다.
+        for dwell_seqs in dwells_by_process.values():
+            for dwell_seq in dwell_seqs:
+                elapsed += self.seq_to_dwell_sec[dwell_seq]
         self.total_time_sec = elapsed
         self._elapsed_seq_keys = sorted(self.seq_to_elapsed_sec)
 
@@ -5918,6 +5999,10 @@ class NCViewerWidget(QWidget):
         if position == 0:
             return 0.0
         return self.seq_to_elapsed_sec[self._elapsed_seq_keys[position - 1]]
+
+    def dwell_seconds_at_seq(self, seq):
+        """v2.2.5: 그 seq 줄의 G4 휴즈 시간(초). 휴즈 줄이 아니면 0."""
+        return self.seq_to_dwell_sec.get(seq, 0.0)
 
     def elapsed_seconds_at_line(self, line_index):
         """v1.6.7: 그 줄까지의 누적 가공시간(초).
