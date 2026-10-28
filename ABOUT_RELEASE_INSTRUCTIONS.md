@@ -43,7 +43,12 @@ Last updated: 2026-10-28 (NC_Tool_List v2.2.9 — 소재 설정 STOCK SIZE 주�
   2. 소재 설정 창(밀링): 열 때 주석 값으로 T/W/L 칸을 채우고 `NC 주석에서 가져옴` 안내 + `주석 값 다시 불러오기` 버튼. 같은 프로그램에서 고친 값은 유지, 프로그램(주석 값)이 바뀌면 다시 채움. [적용]은 사용자가 누른다. 주석 값 그대로면 QSettings에 치수를 저장하지 않는다. 주석이 없으면 이전과 동일. 선반 창은 변경 없음.
 - Open source software: 변경 없음.
 - Verification: `python -m pytest` (빌드 venv) -> 669 passed, 1 failed(이 PC 저장 장비 설정 의존 `test_switching_to_lathe_changes_table_schema_and_machine`, 기존과 동일), 60 skipped. 신규 테스트 `StockSizeCommentTests` 4개 + 소재 창 5개 통과.
-- Installer/package: 아직 만들지 않음(코드 커밋까지).
+- Installer/package status: **생성 완료**. `installer\NC_Tool_List_Setup_v2.2.9.exe`, `installer\NC_Tool_List_Portable_v2.2.9.zip`.
+  `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` → `ISCC.exe NC_Tool_List.iss`, 포터블은 dist 폴더 압축. dist exe를 기동해 12초 뒤에도 실행 중임을 확인.
+  - Setup EXE SHA-256: 42F2D8FEE895FB64638AEC91AE030DB284451EEE6E1CE50341EF3E8FDB74480B
+  - Portable ZIP SHA-256: 8120DE38616EC3F9CC5748F76F8A9B348E9AD97FFB38439E8BF86484F2015D88
+  - App EXE SHA-256: 09EDE46CE6BF30DFB4DFF6628E3D1DD8C0608C4BDB97EF8C907CCC415F4C50E4
+  - Setup 77.9 MB / Portable 109.4 MB.
 
 ### 2026-10-28 (v2.2.8)
 
