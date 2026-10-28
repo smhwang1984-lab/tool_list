@@ -583,5 +583,31 @@ class StlExportTests(unittest.TestCase):
             self.assertEqual(count, faces.shape[0])
 
 
+class StockSizeCommentTests(unittest.TestCase):
+    """v2.2.9: 프로그램 상단 `(STOCK SIZE : T W L)` 주석 해석."""
+
+    def parse(self, *lines):
+        return sim.parse_stock_size_comment(list(lines))
+
+    def test_keyed_values(self):
+        self.assertEqual(self.parse('(STOCK SIZE : T50 W95 L385)'), {'T': 50.0, 'W': 95.0, 'L': 385.0})
+        self.assertEqual(self.parse('(stock size t=20.5, w=50, l=100)'), {'T': 20.5, 'W': 50.0, 'L': 100.0})
+
+    def test_plain_numbers_are_t_w_l_order(self):
+        self.assertEqual(self.parse('(STOCK SIZE : 20 X 50 X 100)'), {'T': 20.0, 'W': 50.0, 'L': 100.0})
+        self.assertEqual(self.parse('(STOCKSIZE 20*50*100)'), {'T': 20.0, 'W': 50.0, 'L': 100.0})
+
+    def test_missing_or_nonpositive_is_none(self):
+        self.assertIsNone(self.parse('(STOCK SIZE : T50 W95)'))
+        self.assertIsNone(self.parse('(STOCK SIZE : T0 W95 L385)'))
+        self.assertIsNone(self.parse('(STOCK SPEC : AL6061)'))
+        self.assertIsNone(self.parse('G0 G90'))
+
+    def test_only_header_is_searched(self):
+        self.assertIsNone(self.parse('N1 M6 T1', '(STOCK SIZE : T5 W5 L5)'))
+        self.assertIsNone(self.parse('G0 X1. Y1.', '(STOCK SIZE : T5 W5 L5)'))
+        self.assertEqual(self.parse('G0 G90 G49 G17', '(STOCK SIZE : T5 W5 L5)'), {'T': 5.0, 'W': 5.0, 'L': 5.0})
+
+
 if __name__ == '__main__':
     unittest.main()

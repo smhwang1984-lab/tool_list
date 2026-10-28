@@ -21,6 +21,7 @@ Qt에 의존하지 않는 순수 numpy 모듈이다. STOCK을 Z-map(XY 격자마
 from __future__ import annotations
 
 import os
+import re
 import struct
 
 import numpy as np
@@ -155,6 +156,41 @@ def tool_shape_from_values(tool_type, d, fl=None, r=None, sig=None, pl=None, so=
 _AXES = ('X', 'Y', 'Z')
 _HORIZONTAL_REFS = {'center', 'neg', 'pos'}
 _VERTICAL_REFS = {'top', 'bottom', 'center'}
+
+
+_STOCK_SIZE_RE = re.compile(r'\(\s*STOCK\s*SIZE([^)]*)\)', re.IGNORECASE)
+_STOCK_KEYED_RE = re.compile(r'([TWL])\s*=?\s*(\d+(?:\.\d*)?|\.\d+)', re.IGNORECASE)
+_STOCK_NUMBER_RE = re.compile(r'\d+(?:\.\d*)?|\.\d+')
+_STOCK_HEADER_MAX_LINES = 200
+_STOCK_BODY_RE = re.compile(
+    r'^(?:N\d+\s*)?(?:M0?6|T\d+|G0?[0-3].*[XYZ]\s*-?[\d.])', re.IGNORECASE)
+
+
+def parse_stock_size_comment(lines):
+    """프로그램 상단 주석 `(STOCK SIZE : T50 W95 L385)`에서 소재 치수를 읽는다 (v2.2.9).
+
+    첫 이동/공구 교환 줄이나 200줄 앞까지만 찾는다. `T/W/L` 글자가 없으면
+    숫자 세 개를 T, W, L 순서로 읽는다. 못 읽거나 0 이하이면 None."""
+    for index, raw in enumerate(lines):
+        if index >= _STOCK_HEADER_MAX_LINES:
+            break
+        text = raw.strip()
+        if text.startswith('('):
+            match = _STOCK_SIZE_RE.match(text)
+            if match:
+                body = match.group(1)
+                keyed = {k.upper(): v for k, v in _STOCK_KEYED_RE.findall(body)}
+                if set(keyed) >= {'T', 'W', 'L'}:
+                    values = {k: float(keyed[k]) for k in 'TWL'}
+                else:
+                    numbers = _STOCK_NUMBER_RE.findall(body)
+                    if len(numbers) < 3:
+                        return None
+                    values = dict(zip('TWL', (float(n) for n in numbers[:3])))
+                return values if all(v > 0 for v in values.values()) else None
+        elif _STOCK_BODY_RE.match(text):
+            break
+    return None
 
 
 class StockSpec:

@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-10-28 (NC_Tool_List v2.2.8 — UI 개편: 아이콘 툴바 + 설정 창 + 툴패스 선 굵기)
+Last updated: 2026-10-28 (NC_Tool_List v2.2.9 — 소재 설정 STOCK SIZE 주석 연동)
 
 ## About button requirements
 
@@ -34,7 +34,18 @@ Last updated: 2026-10-28 (NC_Tool_List v2.2.8 — UI 개편: 아이콘 툴바 + 
 
 ## Version history
 
-### 2026-10-28 (latest, v2.2.8)
+### 2026-10-28 (latest, v2.2.9)
+
+- Version: 2.2.8 -> 2.2.9
+- Release/build date: 2026-10-28
+- Summary: 사용자 요청 "Viewer 소재 설정에서 프로그램 상단 주석 STOCK SIZE(T W L)의 값을 가져오고, 없으면 기존대로 입력". 상세는 `v2.2.9_PLAN.md`(D-2~D-4 추천안 승인, D-1 실제 주석 `(STOCK SIZE : T50 W95 L385)`).
+  1. `nc_sim.parse_stock_size_comment()`: 첫 공구 교환/이동 전(최대 200줄)의 `(STOCK SIZE ...)` 주석에서 T/W/L을 읽는다. T/W/L 글자 또는 숫자 3개(T,W,L 순서). 못 읽거나 0 이하면 None. `STOCK SPEC` 주석은 무시.
+  2. 소재 설정 창(밀링): 열 때 주석 값으로 T/W/L 칸을 채우고 `NC 주석에서 가져옴` 안내 + `주석 값 다시 불러오기` 버튼. 같은 프로그램에서 고친 값은 유지, 프로그램(주석 값)이 바뀌면 다시 채움. [적용]은 사용자가 누른다. 주석 값 그대로면 QSettings에 치수를 저장하지 않는다. 주석이 없으면 이전과 동일. 선반 창은 변경 없음.
+- Open source software: 변경 없음.
+- Verification: `python -m pytest` (빌드 venv) -> 669 passed, 1 failed(이 PC 저장 장비 설정 의존 `test_switching_to_lathe_changes_table_schema_and_machine`, 기존과 동일), 60 skipped. 신규 테스트 `StockSizeCommentTests` 4개 + 소재 창 5개 통과.
+- Installer/package: 아직 만들지 않음(코드 커밋까지).
+
+### 2026-10-28 (v2.2.8)
 
 - Version: 2.2.7 → 2.2.8
 - Release/build date: 2026-10-28
