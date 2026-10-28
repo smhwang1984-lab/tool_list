@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-10-28 (NC_Tool_List v2.2.6 — 주석 SO 기준 + 불일치 강조)
+Last updated: 2026-10-28 (NC_Tool_List v2.2.7 — 편집 모드 + NC 코드 색)
 
 ## About button requirements
 
@@ -34,7 +34,32 @@ Last updated: 2026-10-28 (NC_Tool_List v2.2.6 — 주석 SO 기준 + 불일치 �
 
 ## Version history
 
-### 2026-10-28 (latest, v2.2.6)
+### 2026-10-28 (latest, v2.2.7)
+
+- Version: 2.2.6 → 2.2.7
+- Release/build date: 2026-10-28
+- Summary: 사용자 요청 "편집 모드(비밀번호) + NC 코드 색 표시 + 수정 즉시 반영, 앱 시작은 항상 읽기 모드". 상세는 `v2.2.7_PLAN.md`.
+  1. **편집 모드**: 프로그램 입력창 위 `편집 모드` 토글 → 비밀번호(기본 1234). 새 비밀번호는 PBKDF2-SHA256(+salt) 해시로 `%APPDATA%\NC Tool List\app_settings.json`의 `edit_password`에 저장
+     (키를 지우면 1234로 초기화). 앱은 어떤 경로로 시작해도 읽기 모드이며 상태를 저장하지 않는다. 저장(Ctrl+S)은 원래 인코딩(UTF-8/BOM/CP949)·줄바꿈을 유지하고 `.bak`을 남긴다.
+     저장 안 한 변경이 있으면 끄기/파일 열기/종료 때 저장·저장 안 함·취소를 묻는다. 비밀번호 변경은 편집 모드 안에서만 가능.
+  2. **즉시 반영**: 편집 모드에서 입력이 0.4초 멈추면 툴리스트(표/공구 수/출력 정보)와 공구 패스(Viewer 모드)를 다시 만든다. 재생 중이면 먼저 멈춘다. 표에서 직접 고친 내용이 있으면 사라진다고 먼저 묻는다.
+  3. **NC 코드 색**: G0 빨강/G1 초록/G2 파랑/G3 보라/사이클 갈색은 다음 색 코드(또는 G80·M30·%)까지 줄을 넘어 이어진다. 스핀들(S, M3/4/5/19) 노랑, M8/M9 주황은 그 글자만. 주석은 색 없음.
+     라이트/다크 테마별 색, 편집창 배경·현재 줄 배경 모두에서 대비 4.5 이상(라이트 스핀들은 가독성 때문에 계획의 #8a6d00 대신 #7a6000). 6만 줄 하이라이트 0.23초.
+  4. **파일 읽기**: UTF-8(BOM 포함)/CP949를 구분해 읽는다(이전에는 CP949 한글이 깨져 보였다). 화면 표시는 UTF-8 파일에서 변함없다.
+- Open source software: 변경 없음(표준 라이브러리 hashlib/hmac 사용).
+- Verification: `python -m pytest` (빌드 venv) → 631 passed, 2 failed, 60 skipped. 신규 `tests/test_edit_mode.py`, `tests/test_nc_highlight.py` 61개 통과.
+  실패 2건은 이번 변경과 무관한 환경 의존 테스트: `test_switching_to_lathe_changes_table_schema_and_machine`(저장된 장비 설정, v2.2.6부터 동일),
+  `test_handoff_returns_false_when_no_instance_is_running`(이 PC에서 NC_Tool_List.exe가 실행 중이라 핸드오프가 True).
+  offscreen 환경에는 글꼴이 없어 글자 색은 화면 캡처로 못 봤고, 서식은 하이라이터 단위 테스트로 확인했다. 실제 화면 확인은 설치 후 필요.
+- Installer/package status: **생성 완료**. `installer\NC_Tool_List_Setup_v2.2.7.exe`, `installer\NC_Tool_List_Portable_v2.2.7.zip`.
+  `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` → `ISCC.exe NC_Tool_List.iss`. 이 PC에 앱이 이미 실행 중이라 단일 인스턴스 때문에 dist exe 기동 확인은 하지 못했다.
+  - Setup EXE SHA-256: 6CE3FF0E318B3502A7A9D68C5120ACE438C771830132A622689228A5E3BFF656
+  - Portable ZIP SHA-256: EA5CF4F10C3873F6F944A3349CD71738EA98D1B0CE2A3B42FC4F0BFBE1E062BA
+  - App EXE SHA-256: 4BCAB791B662D2F2A120316E162D39DC63DCE4A864D657982181E4B85D83F80D
+  - Setup 81.7 MB / Portable 117.3 MB.
+- 서명 상태: 설치본과 앱 실행 파일 모두 미서명이다(기존과 동일).
+
+### 2026-10-28 (v2.2.6)
 
 - Version: 2.2.5 → 2.2.6
 - Release/build date: 2026-10-28

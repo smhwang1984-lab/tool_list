@@ -4,6 +4,8 @@ NC 공구 리스트 생성기
 - 왼쪽: NC 프로그램(G코드) 입력
 - 오른쪽: 공구 리스트 산출 화면과 3D Viewer 화면을 같은 창 안에서 교환
 """
+import hashlib
+import hmac
 import json
 import importlib.util
 import os
@@ -29,9 +31,9 @@ import lathe_insert_spec
 import sumpath_license
 
 
-APP_VERSION = '2.2.6'
+APP_VERSION = '2.2.7'
 APP_NAME = 'Sum Path'
-APP_BUILD_DATE = '2026-10-08'
+APP_BUILD_DATE = '2026-10-28'
 APP_CREATOR = 'Hwang.seonmun'
 APP_PURPOSE = 'NC 프로그램에서 공구 리스트를 산출하고 NC 경로를 Viewer로 확인하는 도구'
 OPEN_SOURCE_COMPONENTS = (
@@ -107,6 +109,9 @@ THEMES = {
         'info_bg': '#eaf1f8', 'info_text': '#40536b', 'error': '#b03a2e',
         'mode_active_bg': '#34577f', 'mode_active_text': '#ffffff',
         'mode_inactive_bg': '#f0f4f8', 'mode_inactive_text': '#1f3a5f',
+        # v2.2.7: NC 코드 색(편집창 배경 #fff / 현재 줄 #dbe7f5 모두에서 대비 4.5 이상)
+        'nc_g0': '#b71c1c', 'nc_g1': '#256b29', 'nc_g2': '#1565c0', 'nc_g3': '#7b1fa2',
+        'nc_cycle': '#8d4e1f', 'nc_spindle': '#7a6000', 'nc_coolant': '#a84300',
     },
     'dark': {
         'window_bg': '#1b1f27', 'panel_bg': '#242a35', 'text': '#e4e8f0',
@@ -121,6 +126,8 @@ THEMES = {
         'info_bg': '#233047', 'info_text': '#b7c8e6', 'error': '#e06a5a',
         'mode_active_bg': '#3f7fc9', 'mode_active_text': '#ffffff',
         'mode_inactive_bg': '#2a2f3a', 'mode_inactive_text': '#c7d0e0',
+        'nc_g0': '#ff7b7b', 'nc_g1': '#5fd068', 'nc_g2': '#6bb2ff', 'nc_g3': '#c792ff',
+        'nc_cycle': '#d9a066', 'nc_spindle': '#ffd84d', 'nc_coolant': '#ffa040',
     },
 }
 
@@ -1251,6 +1258,155 @@ def save_app_settings(settings):
         json.dump(settings, fp, ensure_ascii=False, indent=2)
 
 
+# ---------- 편집 모드 비밀번호 (v2.2.7) ----------
+# 기본값은 1234. 새로 설정하면 PBKDF2-SHA256 해시(+salt)만 app_settings.json에 저장한다.
+# 키가 없거나 깨졌으면 기본값으로 되돌아간다(관리자가 키를 지우면 초기화).
+EDIT_PASSWORD_DEFAULT = '1234'
+EDIT_PASSWORD_ITERATIONS = 200000
+_EDIT_PASSWORD_DEFAULT_SALT = b'NCToolList-edit-default'
+
+
+def _edit_password_hash(password, salt, iterations):
+    return hashlib.pbkdf2_hmac('sha256', str(password).encode('utf-8'), salt, iterations)
+
+
+def verify_edit_password(password):
+    entry = load_app_settings().get('edit_password')
+    try:
+        if isinstance(entry, dict) and entry.get('algo') == 'pbkdf2_sha256':
+            iterations = int(entry['iter'])
+            salt = bytes.fromhex(entry['salt'])
+            expected = bytes.fromhex(entry['hash'])
+            return hmac.compare_digest(_edit_password_hash(password, salt, iterations), expected)
+    except (KeyError, ValueError, TypeError):
+        pass
+    return hmac.compare_digest(
+        _edit_password_hash(password, _EDIT_PASSWORD_DEFAULT_SALT, 1000),
+        _edit_password_hash(EDIT_PASSWORD_DEFAULT, _EDIT_PASSWORD_DEFAULT_SALT, 1000),
+    )
+
+
+def set_edit_password(password):
+    salt = os.urandom(16)
+    settings = load_app_settings()
+    settings['edit_password'] = {
+        'algo': 'pbkdf2_sha256', 'iter': EDIT_PASSWORD_ITERATIONS,
+        'salt': salt.hex(),
+        'hash': _edit_password_hash(password, salt, EDIT_PASSWORD_ITERATIONS).hex(),
+    }
+    save_app_settings(settings)
+
+
+# ---------- 프로그램 파일 읽기/저장: 인코딩·줄바꿈 보존 (v2.2.7) ----------
+def decode_program_bytes(raw):
+    """바이트 -> (텍스트, 인코딩, 줄바꿈, 손실여부). 텍스트의 줄바꿈은 LF로 통일한다."""
+    lossy = False
+    for encoding in ('utf-8-sig', 'cp949'):
+        try:
+            text = raw.decode(encoding)
+            break
+        except UnicodeDecodeError:
+            continue
+    else:
+        encoding, lossy = 'utf-8', True
+        text = raw.decode('utf-8', errors='replace')
+    if encoding == 'utf-8-sig' and not raw.startswith(b'\xef\xbb\xbf'):
+        encoding = 'utf-8'
+    newline = '\r\n' if b'\r\n' in raw else '\n'
+    return text.replace('\r\n', '\n').replace('\r', '\n'), encoding, newline, lossy
+
+
+def save_program_text(path, text, encoding='utf-8', newline='\n'):
+    """원래 인코딩/줄바꿈으로 저장한다. 기존 파일은 '<이름>.bak'으로 한 번 남긴다.
+    인코딩할 수 없는 글자가 있으면 아무것도 쓰기 전에 UnicodeEncodeError를 낸다."""
+    data = text.replace('\n', newline).encode(encoding)
+    path = Path(path)
+    if path.exists():
+        shutil.copy2(str(path), str(path) + '.bak')
+    temp = Path(str(path) + '.tmp')
+    temp.write_bytes(data)
+    os.replace(str(temp), str(path))
+
+
+# ---------- NC 코드 색 (v2.2.7) ----------
+# 모달 색: G0~G3/사이클을 만나면 다음 모달 색 코드(또는 G80/M30/%)까지 뒤 글자가 그 색이다.
+# 스핀들(S, M3/4/5/19)·냉각(M8/M9)은 그 글자만 칠하고 모달 색은 바꾸지 않는다.
+NC_COLOR_CODE_RE = re.compile(r'(?<![A-Za-z])(?:([GM])\s*0*(\d+)(?!\d)|(S\s*[-+]?(?:\d+\.?\d*|\.\d+))|(%))', re.I)
+NC_MODAL_BY_G = {0: 'nc_g0', 1: 'nc_g1', 2: 'nc_g2', 3: 'nc_g3'}
+NC_CYCLE_G_MILL = frozenset([73, 74, 76] + list(range(81, 90)))
+NC_CYCLE_G_LATHE = frozenset(list(range(70, 77)) + [90, 92, 94])
+NC_SPINDLE_M = frozenset([3, 4, 5, 19])
+NC_COOLANT_M = frozenset([8, 9])
+NC_RESET_M = frozenset([2, 30])
+_NC_MODE_KEYS = (None, 'nc_g0', 'nc_g1', 'nc_g2', 'nc_g3', 'nc_cycle')
+
+
+def nc_color_line(line, state, lathe=False):
+    """한 줄의 색 구간 계산. state는 (모달 색 번호 0~5) + 8*(괄호 주석 안 여부).
+    반환: ([(시작, 끝, 테마 색 키)], 다음 줄 state). 순수 함수라 Qt 없이 시험한다."""
+    state = 0 if state is None or state < 0 else state
+    mode = state & 7
+    in_paren = bool(state & 8)
+    cycles = NC_CYCLE_G_LATHE if lathe else NC_CYCLE_G_MILL
+    spans = []
+
+    def emit(start, end, mode_index):
+        if end > start and mode_index:
+            spans.append((start, end, _NC_MODE_KEYS[mode_index]))
+
+    pos = 0
+    length = len(line)
+    while pos < length:
+        if in_paren:
+            close = line.find(')', pos)
+            if close < 0:
+                pos = length
+                break
+            pos = close + 1
+            in_paren = False
+            continue
+        # 코드 구간: 다음 '(' 또는 ';' 까지
+        stops = [i for i in (line.find('(', pos), line.find(';', pos)) if i >= 0]
+        end = min(stops) if stops else length
+        cursor = pos
+        for match in NC_COLOR_CODE_RE.finditer(line, pos, end):
+            emit(cursor, match.start(), mode)
+            token_mode, token_key = mode, None
+            if match.group(4):
+                token_mode = 0
+            elif match.group(3):
+                token_key = 'nc_spindle'
+            else:
+                number = int(match.group(2))
+                if match.group(1).upper() == 'G':
+                    if number in NC_MODAL_BY_G:
+                        token_mode = _NC_MODE_KEYS.index(NC_MODAL_BY_G[number])
+                    elif number in cycles:
+                        token_mode = 5
+                    elif number == 80:
+                        token_mode = 0
+                elif number in NC_SPINDLE_M:
+                    token_key = 'nc_spindle'
+                elif number in NC_COOLANT_M:
+                    token_key = 'nc_coolant'
+                elif number in NC_RESET_M:
+                    token_mode = 0
+            mode = token_mode
+            if token_key:
+                spans.append((match.start(), match.end(), token_key))
+            else:
+                emit(match.start(), match.end(), mode)
+            cursor = match.end()
+        emit(cursor, end, mode)
+        pos = end
+        if pos < length:
+            if line[pos] == ';':
+                break
+            in_paren = True
+            pos += 1
+    return spans, mode | (8 if in_paren else 0)
+
+
 def update_root_setting():
     """PC별로 지정한 업데이트 경로. 지정된 값이 없으면 기본 공유 경로를 사용."""
     value = str(load_app_settings().get('update_root') or '').strip()
@@ -1934,12 +2090,12 @@ try:
     from PyQt5.QtCore import Qt, QSettings, QSize, QTimer, QSignalBlocker, pyqtSignal, QEvent
     from PyQt5.QtGui import (
         QAbstractTextDocumentLayout, QColor, QFont, QFontMetrics, QIcon, QKeySequence,
-        QPalette, QTextCursor, QTextDocument, QTextFormat,
+        QPalette, QSyntaxHighlighter, QTextCharFormat, QTextCursor, QTextDocument, QTextFormat,
     )
     from PyQt5.QtWidgets import (
         QApplication, QAbstractItemView, QCheckBox, QComboBox, QDialog,
         QDialogButtonBox, QFileDialog, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout,
-        QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
+        QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
         QPlainTextEdit, QPushButton, QShortcut, QSplitter, QStackedWidget, QStyle,
         QStyledItemDelegate, QStyleOptionViewItem, QTableWidget, QTableWidgetItem, QTextEdit,
         QVBoxLayout, QWidget,
@@ -2020,6 +2176,37 @@ else:
             chunks.append(escape(text[pos:]))
             return ''.join(chunks)
 
+    class NcSyntaxHighlighter(QSyntaxHighlighter):
+        """v2.2.7: NC 코드 모달 색 표시(글자색만 바꾼다). 계산은 nc_color_line()이 한다."""
+        _KEYS = ('nc_g0', 'nc_g1', 'nc_g2', 'nc_g3', 'nc_cycle', 'nc_spindle', 'nc_coolant')
+
+        def __init__(self, document, theme, lathe=False):
+            super().__init__(document)
+            self.lathe = bool(lathe)
+            self._formats = {}
+            self.set_theme(theme, rehighlight=False)
+
+        def set_theme(self, theme, rehighlight=True):
+            self._formats = {}
+            for key in self._KEYS:
+                fmt = QTextCharFormat()
+                fmt.setForeground(QColor(theme[key]))
+                self._formats[key] = fmt
+            if rehighlight:
+                self.rehighlight()
+
+        def set_lathe(self, lathe):
+            lathe = bool(lathe)
+            if lathe != self.lathe:
+                self.lathe = lathe
+                self.rehighlight()
+
+        def highlightBlock(self, text):
+            spans, state = nc_color_line(text, self.previousBlockState(), self.lathe)
+            for start, end, key in spans:
+                self.setFormat(start, end - start, self._formats[key])
+            self.setCurrentBlockState(state)
+
     class ProgramTextEdit(QPlainTextEdit):
         # QTextEdit(리치 텍스트)이 아닌 QPlainTextEdit을 쓴다 — 3만 줄대의 NoWrap
         # 문서를 실제 레이아웃(스플리터)에 얹은 채 setExtraSelections()를 호출하면
@@ -2062,6 +2249,7 @@ else:
             # 마우스 클릭 등 다른 이동 수단은 그대로 둔다.
             if (
                 self.seq_step_enabled
+                and self.isReadOnly()  # v2.2.7: 편집 모드에서는 방향키가 일반 줄 이동
                 and event.key() in (Qt.Key_Down, Qt.Key_Up)
                 and event.modifiers() == Qt.NoModifier
             ):
@@ -2327,6 +2515,18 @@ else:
             # 보다 길어 말줄임이 나던 문제 — 실제 표시 중인 행 내용 폭을 재서
             # 그때그때 넓힌다(run()에서 갱신). 비어 있으면 고정폭으로 되돌아감.
             self._lathe_dynamic_col_width = {}
+            # v2.2.7: 편집 모드. 앱은 항상 읽기 모드로 시작한다(상태를 저장하지 않는다).
+            self.edit_mode = False
+            self._file_encoding = 'utf-8'
+            self._file_newline = '\n'
+            self._file_lossy = False
+            self._edit_merged = False
+            self._saved_text = ''
+            self._table_manually_edited = False
+            self._edit_refresh_paused = False
+            self.edit_refresh_timer = QTimer(self)
+            self.edit_refresh_timer.setSingleShot(True)
+            self.edit_refresh_timer.timeout.connect(self._apply_edit_refresh)
             self.viewer_update_timer = QTimer(self)
             self.viewer_update_timer.setSingleShot(True)
             self.viewer_update_timer.timeout.connect(self.sync_viewer_from_source)
@@ -2537,6 +2737,9 @@ else:
             if hasattr(self, 'viewer') and hasattr(self.viewer, 'set_dark_mode'):
                 self.viewer.set_dark_mode(name == 'dark')
             self._highlight_current_line()
+            if hasattr(self, 'nc_highlighter'):
+                self.nc_highlighter.set_theme(self.theme)
+            self._apply_edit_mode_style()
 
         @staticmethod
         def _build_global_stylesheet(t):
@@ -2733,7 +2936,17 @@ else:
             label = QLabel('① 프로그램 입력')
             label.setFont(QFont('맑은 고딕', 10, QFont.Bold))
             lbar.addWidget(label)
+            self.edit_mode_label = QLabel('✎ 편집 중')
+            self.edit_mode_label.setFont(QFont('맑은 고딕', 10, QFont.Bold))
+            self.edit_mode_label.hide()
+            lbar.addWidget(self.edit_mode_label)
             lbar.addStretch()
+            self.btn_edit_password = self._add_button(lbar, '비밀번호 변경', self.change_edit_password, kfont)
+            self.btn_edit_password.hide()
+            self.btn_edit_save = self._add_button(lbar, '저장 (Ctrl+S)', self.save_edit, kfont)
+            self.btn_edit_save.hide()
+            self.btn_edit_mode = self._add_button(lbar, '편집 모드', self.toggle_edit_mode, kfont)
+            self.btn_edit_mode.setCheckable(True)
             left_layout.addLayout(lbar)
 
             # 지우기/예제/파일 열기/PG ADD/Tool List를 한 줄로 배치한다
@@ -2781,6 +2994,8 @@ else:
             self._restore_program_font_size()
             self.src.setLineWrapMode(QPlainTextEdit.NoWrap)
             self.src.setReadOnly(True)
+            self.nc_highlighter = NcSyntaxHighlighter(
+                self.src.document(), self.theme, lathe=self.is_lathe_program())
             self.src.setAcceptDrops(True)
             self.src.filesDropped.connect(self.drop_file)
             self.src.textChanged.connect(self.source_changed)
@@ -2933,8 +3148,11 @@ else:
             shortcut_toggle_play.activated.connect(self.toggle_playback)
             shortcut_next_tool = QShortcut(QKeySequence('F8'), self)
             shortcut_next_tool.activated.connect(self.playback_next_tool)
+            shortcut_save = QShortcut(QKeySequence('Ctrl+S'), self)
+            shortcut_save.activated.connect(lambda: self.edit_mode and self.save_edit())
             self._shortcuts = (
                 shortcut_reset, shortcut_prev_tool, shortcut_toggle_play, shortcut_next_tool,
+                shortcut_save,
             )
 
         HELP_TEXT = (
@@ -2952,6 +3170,18 @@ else:
             '  파일 열기 / PG ADD(여러 파일을 이어붙여 추가) / 예제 / 지우기.\n'
             '  프로그램 입력창에 NC 파일을 드래그&드롭해도 열리거나 추가됩니다.\n'
             '  탐색기에서 연결된 확장자(.nc/.mpf/.tap) 파일을 더블클릭해도 바로 열립니다.\n'
+            '\n'
+            '■ 편집 모드\n'
+            '  앱은 항상 읽기 모드로 시작합니다. "편집 모드" 버튼 → 비밀번호(기본 1234) 입력 시 프로그램을\n'
+            '  직접 고칠 수 있고, 고친 내용은 잠시 뒤 툴리스트와 공구 패스에 바로 반영됩니다.\n'
+            '  저장(Ctrl+S)은 원래 인코딩·줄바꿈을 유지하고 기존 파일을 .bak로 남깁니다.\n'
+            '  "비밀번호 변경"으로 바꾼 비밀번호는 해시로 저장됩니다. 잊었으면 관리자가\n'
+            '  %APPDATA%\\NC Tool List\\app_settings.json 의 "edit_password" 항목을 지우면 1234로 돌아갑니다.\n'
+            '\n'
+            '■ 코드 색 (프로그램 입력창)\n'
+            '  G0 빨강 / G1 초록 / G2 파랑 / G3 보라 / 사이클(G73·G74·G76·G81~G89) 갈색은 다음 색 코드\n'
+            '  (또는 G80·M30·%)까지 이어집니다. 스핀들(S, M3/4/5/19)은 노랑, M8/M9는 주황으로 그 글자만\n'
+            '  칠하고 주석은 색이 없습니다. 선반은 G70~G76·G90/92/94가 사이클 색입니다.\n'
             '\n'
             '■ 검색\n'
             '  이전공구검색 / 다음공구검색: 공구 교체 지점을 위/아래 방향으로 찾습니다(밀링 M6T, 선반\n'
@@ -3461,6 +3691,9 @@ else:
             self.save_splitter_settings()
 
         def closeEvent(self, event):
+            if not self._confirm_discard_edits():
+                event.ignore()
+                return
             self.save_layout_settings()
             super().closeEvent(event)
 
@@ -3603,12 +3836,30 @@ else:
             self.btn_viewer_mode.setStyleSheet(active if self.current_mode == 'viewer' else inactive)
 
         def source_changed(self):
+            if self.edit_mode:
+                # v2.2.7: 편집 내용을 툴리스트/공구 패스에 즉시 반영한다(입력이 멈춘 뒤 디바운스).
+                if self.play_timer.isActive():
+                    self.pause_playback()
+                if self._table_manually_edited and not self._edit_refresh_paused:
+                    if not self._confirm_table_loss():
+                        self._edit_refresh_paused = True
+                if self._edit_refresh_paused:
+                    # 표는 그대로 두고 공구 패스만 갱신한다.
+                    if self.current_mode == 'viewer':
+                        self.viewer_update_timer.start(450)
+                else:
+                    self.edit_refresh_timer.start(400)
+                return
             if self.current_mode == 'viewer':
                 self.viewer_update_timer.start(450)
 
         def source_cursor_changed(self):
             if self.current_mode != 'viewer':
                 return
+            if self.edit_mode and (
+                self.edit_refresh_timer.isActive() or self.viewer_update_timer.isActive()
+            ):
+                return  # v2.2.7: 아직 반영 전인 낡은 경로 기준으로 커서를 해석하지 않는다
             if self._seq_driven:
                 # v1.7.6: _goto_seq()가 옮긴 커서다 — 이미 seq 기준으로
                 # 정확히 갱신했으므로 여기서 다시 줄 기준으로 해석하면
@@ -4016,6 +4267,8 @@ else:
         def parsed_program_data(self, source_text=None):
             source_text = self.src.toPlainText() if source_text is None else source_text
             lathe = self.is_lathe_program()
+            if hasattr(self, 'nc_highlighter'):
+                self.nc_highlighter.set_lathe(lathe)
             # 장비를 바꾸면 같은 원문이라도 공구 교체 기준/열 양식이 달라지므로
             # 캐시 키에 선반 여부도 함께 넣는다.
             if source_text != self._last_parsed_source or lathe != self._last_parsed_lathe:
@@ -4160,6 +4413,7 @@ else:
                 return
             for row in sorted(selected_rows, reverse=True):
                 self.table.removeRow(row)
+            self._table_manually_edited = True
             self.update_count()
             if self.current_mode == 'viewer':
                 self.sync_viewer_from_source()
@@ -4262,6 +4516,7 @@ else:
                     target = self.table.rowCount()
                     self.table.insertRow(target)
                 self.set_table_row(target, row)
+                self._table_manually_edited = True
                 if lathe:
                     self._propagate_lathe_specs(target, values, row, changed)
                 self.table.selectRow(target)
@@ -4476,6 +4731,8 @@ else:
 
         def run(self):
             source_text = self.src.toPlainText()
+            self._table_manually_edited = False
+            self._edit_refresh_paused = False
             self.metadata, rows = self.parsed_program_data(source_text)
             # v1.6.5: 밀링<->선반 전환으로 표 열 스키마 자체가 바뀌었으면
             # 다시 만든다(열 개수/헤더/폭이 다르므로 재사용할 수 없다).
@@ -4555,6 +4812,183 @@ else:
                 if not (self.windowState() & Qt.WindowMinimized):
                     self._restore_maximized = bool(self.windowState() & Qt.WindowMaximized)
 
+        # ---------- 편집 모드 (v2.2.7) ----------
+        def toggle_edit_mode(self, checked):
+            if checked:
+                self._enter_edit_mode()
+            else:
+                self._leave_edit_mode()
+
+        def _enter_edit_mode(self):
+            password, ok = QInputDialog.getText(
+                self, '편집 모드', '비밀번호를 입력하세요.', QLineEdit.Password)
+            if not ok:
+                self.btn_edit_mode.setChecked(False)
+                return
+            if not verify_edit_password(password):
+                QMessageBox.warning(self, '편집 모드', '비밀번호가 올바르지 않습니다.')
+                self.btn_edit_mode.setChecked(False)
+                return
+            if self._table_manually_edited and not self._confirm_table_loss():
+                self.btn_edit_mode.setChecked(False)
+                return
+            self.pause_playback()
+            self._saved_text = self.src.toPlainText()
+            self.src.document().setModified(False)
+            self._set_edit_mode(True)
+
+        def _leave_edit_mode(self):
+            if self.src.document().isModified():
+                choice = self._ask_save_changes()
+                if choice == QMessageBox.Cancel:
+                    self.btn_edit_mode.setChecked(True)
+                    return
+                if choice == QMessageBox.Save and not self.save_edit():
+                    self.btn_edit_mode.setChecked(True)
+                    return
+                if choice == QMessageBox.Discard:
+                    self._restore_saved_text()
+            self._set_edit_mode(False)
+
+        def _set_edit_mode(self, enabled):
+            self.edit_mode = bool(enabled)
+            self.edit_refresh_timer.stop()
+            self._edit_refresh_paused = False
+            self.src.setReadOnly(not self.edit_mode)
+            self.btn_edit_mode.setChecked(self.edit_mode)
+            self.edit_mode_label.setVisible(self.edit_mode)
+            self.btn_edit_save.setVisible(self.edit_mode)
+            self.btn_edit_password.setVisible(self.edit_mode)
+            self._apply_edit_mode_style()
+            if self.edit_mode:
+                self.src.setFocus()
+
+        def _apply_edit_mode_style(self):
+            if not hasattr(self, 'btn_edit_mode'):
+                return
+            t = self.theme
+            if self.edit_mode:
+                self.btn_edit_mode.setStyleSheet(
+                    'background: %s; color: %s; padding: 4px 8px;' % (t['accent'], t['accent_text']))
+                self.src.setStyleSheet('QPlainTextEdit { border: 2px solid %s; }' % t['accent'])
+                self.edit_mode_label.setStyleSheet('color: %s;' % t['accent'])
+            else:
+                self.btn_edit_mode.setStyleSheet('')
+                self.src.setStyleSheet('')
+
+        def _ask_save_changes(self):
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Question)
+            box.setWindowTitle('편집 내용')
+            box.setText('저장하지 않은 변경이 있습니다. 저장할까요?')
+            box.setStandardButtons(QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel)
+            box.setDefaultButton(QMessageBox.Save)
+            box.button(QMessageBox.Save).setText('저장')
+            box.button(QMessageBox.Discard).setText('저장 안 함')
+            box.button(QMessageBox.Cancel).setText('취소')
+            return box.exec_()
+
+        def _confirm_discard_edits(self):
+            """편집 중 저장하지 않은 변경이 있으면 저장/버림/취소를 묻는다. 계속해도 되면 True."""
+            if not (self.edit_mode and self.src.document().isModified()):
+                return True
+            choice = self._ask_save_changes()
+            if choice == QMessageBox.Cancel:
+                return False
+            if choice == QMessageBox.Save:
+                return self.save_edit()
+            self._restore_saved_text()
+            return True
+
+        def _restore_saved_text(self):
+            with QSignalBlocker(self.src):
+                self.src.setPlainText(self._saved_text)
+            self.src.document().setModified(False)
+            self.invalidate_parse_cache()
+            self.run()
+
+        def _confirm_table_loss(self):
+            reply = QMessageBox.question(
+                self, '편집 모드',
+                '프로그램을 고치면 툴리스트가 다시 만들어져 표에서 직접 수정한 내용이 사라집니다.\n계속할까요?',
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            return reply == QMessageBox.Yes
+
+        def _apply_edit_refresh(self):
+            try:
+                self.run()
+            except Exception as error:
+                write_startup_log('Edit refresh failed: %s\n%s' % (error, traceback.format_exc()))
+                self.set_search_status('편집 내용 반영 실패: %s' % error, True)
+
+        def save_edit(self):
+            """편집 내용을 파일에 저장한다(.bak 백업 + 원래 인코딩/줄바꿈). 저장했으면 True."""
+            text = self.src.toPlainText()
+            path = self.current_file_path
+            if path and self._edit_merged:
+                reply = QMessageBox.question(
+                    self, '저장', '여러 파일을 합친 내용이 모두 "%s" 한 파일에 저장됩니다.\n계속할까요?'
+                    % Path(path).name, QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+                if reply != QMessageBox.Yes:
+                    return False
+            if path and self._file_lossy:
+                QMessageBox.information(
+                    self, '저장',
+                    '원본에 읽을 수 없는 글자가 있어 덮어쓰면 그 글자가 손상됩니다.\n다른 이름으로 저장하세요.')
+                path = None
+            if not path:
+                path, _filter = QFileDialog.getSaveFileName(
+                    self, '다른 이름으로 저장', os.getcwd(),
+                    'NC/텍스트 파일 (*.nc *.mpf *.txt *.tap *.min *.prg);;모든 파일 (*.*)')
+                if not path:
+                    return False
+                self._file_lossy = False
+            try:
+                save_program_text(path, text, self._file_encoding, self._file_newline)
+            except UnicodeEncodeError:
+                QMessageBox.critical(
+                    self, '저장 실패',
+                    '현재 인코딩(%s)으로 표현할 수 없는 글자가 있어 저장하지 않았습니다.' % self._file_encoding)
+                return False
+            except OSError as error:
+                QMessageBox.critical(self, '저장 실패', str(error))
+                return False
+            self.current_file_path = path
+            self._edit_merged = False
+            self._saved_text = text
+            self.src.document().setModified(False)
+            self._flash_count_message('저장했습니다: %s' % Path(path).name)
+            return True
+
+        def change_edit_password(self):
+            current, ok = QInputDialog.getText(
+                self, '비밀번호 변경', '현재 비밀번호', QLineEdit.Password)
+            if not ok:
+                return
+            if not verify_edit_password(current):
+                QMessageBox.warning(self, '비밀번호 변경', '현재 비밀번호가 올바르지 않습니다.')
+                return
+            new, ok = QInputDialog.getText(
+                self, '비밀번호 변경', '새 비밀번호 (4자 이상)', QLineEdit.Password)
+            if not ok:
+                return
+            if len(new) < 4:
+                QMessageBox.warning(self, '비밀번호 변경', '비밀번호는 4자 이상이어야 합니다.')
+                return
+            again, ok = QInputDialog.getText(
+                self, '비밀번호 변경', '새 비밀번호 확인', QLineEdit.Password)
+            if not ok:
+                return
+            if again != new:
+                QMessageBox.warning(self, '비밀번호 변경', '새 비밀번호가 서로 다릅니다.')
+                return
+            try:
+                set_edit_password(new)
+            except OSError as error:
+                QMessageBox.critical(self, '비밀번호 변경', '저장하지 못했습니다.\n%s' % error)
+                return
+            QMessageBox.information(self, '비밀번호 변경', '비밀번호를 변경했습니다.')
+
         def open_file(self):
             path, _filter = QFileDialog.getOpenFileName(
                 self,
@@ -4576,23 +5010,32 @@ else:
                 self.add_program_files(paths)
 
         def read_program_file(self, path):
-            with open(path, 'r', encoding='utf-8', errors='replace') as fp:
-                return fp.read()
+            # v2.2.7: UTF-8(BOM 포함)/CP949를 구분해 읽고, 저장할 때 같은 형식으로 쓰도록 기억한다.
+            raw = Path(path).read_bytes()
+            text, self._file_encoding, self._file_newline, self._file_lossy = decode_program_bytes(raw)
+            return text
 
         def load_file(self, path):
+            if not self._confirm_discard_edits():
+                return
             try:
                 data = self.read_program_file(path)
             except Exception as error:
                 QMessageBox.critical(self, '열기 실패', str(error))
                 return
             self.current_file_path = path
+            self._edit_merged = False
             with QSignalBlocker(self.src):
                 self.src.setPlainText(data)
+            self.src.document().setModified(False)
+            self._saved_text = data
             self._highlight_current_line()
             self.invalidate_parse_cache()
             self.run()
 
         def add_program_files(self, paths):
+            if not self._confirm_discard_edits():
+                return
             additions = []
             last_path = None
             for path in paths:
@@ -4605,6 +5048,7 @@ else:
             if not additions:
                 return
             self.current_file_path = last_path or self.current_file_path
+            self._edit_merged = True
             append_text = '\n\n'.join(text.strip() for text in additions if text.strip())
             if not append_text:
                 return
@@ -4630,13 +5074,22 @@ else:
                 self.add_program_files(paths[1:])
 
         def load_example(self):
+            if not self._confirm_discard_edits():
+                return
+            self._edit_merged = False
+            self.current_file_path = None
             with QSignalBlocker(self.src):
                 self.src.setPlainText(EXAMPLE)
             self.invalidate_parse_cache()
             self.run()
 
         def clear(self):
+            if not self._confirm_discard_edits():
+                return
+            self._edit_merged = False
             self.src.clear()
+            self.src.document().setModified(False)
+            self._saved_text = ''
             self.table.setRowCount(0)
             self.update_count()
             self.metadata = {key: '' for key in METADATA_ALIASES}
