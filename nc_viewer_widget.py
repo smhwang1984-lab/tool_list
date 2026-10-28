@@ -44,6 +44,7 @@ from PyQt5.QtWidgets import (
 import nc_sim
 import nc_sim3d
 import nc_lathe_sim
+import ui_icons
 
 
 # 96 DPI(윈도우 100% 배율) 기준 1cm의 픽셀 근사값. 오버레이 여백을 "몇 cm"
@@ -84,6 +85,42 @@ TOOL_COLOR_MAPS = [
 
 RAPID_MOVE_COLOR = [1.0, 0.0, 0.0]
 RAPID_MOVE_ALPHA = 1.0
+
+# v2.2.8: 툴패스 선 굵기(설정 창 드롭다운). 아래 기준 굵기가 "90%"다.
+# OpenGL은 1px보다 가늘게 그리지 못하므로 10%를 1px에 두고 90%까지 고르게
+# 나눈다(10단계가 모두 눈에 다르게 보이도록, 사용자 승인 D-1 (a)). 100%는
+# 기준의 1.1배다.
+TOOLPATH_LINE_WIDTH_STEPS = tuple(range(10, 101, 10))
+TOOLPATH_LINE_WIDTH_DEFAULT_PCT = 90
+TOOLPATH_LINE_WIDTH_MIN_PX = 1.0
+RAPID_LINE_BASE_WIDTH = 1.5
+CUT_LINE_BASE_WIDTH = 2.5
+TRACE_CUT_LINE_BASE_WIDTH = 3.5
+
+# 마우스 감도·방향 큐브 크기 기본값(설정 창의 "기본값으로"도 이 값을 쓴다).
+DEFAULT_NAVIGATION_SENSITIVITY = 0.4
+DEFAULT_VIEW_CUBE_SIZE = 160
+
+
+def clamp_line_width_pct(value):
+    """저장값/입력값을 10~100 사이 10 단위로 맞춘다. 읽을 수 없으면 기본값."""
+    try:
+        pct = int(round(float(value) / 10.0)) * 10
+    except (TypeError, ValueError):
+        return TOOLPATH_LINE_WIDTH_DEFAULT_PCT
+    return max(TOOLPATH_LINE_WIDTH_STEPS[0], min(TOOLPATH_LINE_WIDTH_STEPS[-1], pct))
+
+
+def toolpath_line_width(base_width, pct):
+    """기준 굵기(=90%)를 pct(10~100)에 맞춘 실제 픽셀 굵기."""
+    pct = clamp_line_width_pct(pct)
+    base = float(base_width)
+    default = TOOLPATH_LINE_WIDTH_DEFAULT_PCT
+    if pct >= default:
+        return base * (1.0 + 0.1 * (pct - default) / (100.0 - default))
+    low = TOOLPATH_LINE_WIDTH_STEPS[0]
+    floor = min(TOOLPATH_LINE_WIDTH_MIN_PX, base)
+    return floor + (base - floor) * (pct - low) / float(default - low)
 
 # G17/G18/G19 arc-plane axis mapping: (u_axis_idx, v_axis_idx, w_axis_idx, u_offset_letter, v_offset_letter)
 # u/v span the arc plane, w is interpolated linearly (helical move); letters pick which of I/J/K
@@ -1241,6 +1278,8 @@ class ProjectionOverlayWidget(QWidget):
             # v1.6.5: 선반 뷰 전용 — 드래그로 그린 사각형만큼 한 번에
             # 확대하는 토글 버튼(밀링에는 없음, 기존 오빗/휠줌 그대로).
             drag_zoom_button = QPushButton("드래그줌")
+            drag_zoom_button.setIcon(ui_icons.icon("drag_zoom", "#e4e8f0", 14))
+            drag_zoom_button.setIconSize(QSize(14, 14))
             drag_zoom_button.setCheckable(True)
             drag_zoom_button.setFocusPolicy(Qt.NoFocus)
             drag_zoom_button.toggled.connect(self.drag_zoom_toggled.emit)
@@ -2281,24 +2320,26 @@ class NCViewerWidget(QWidget):
         # 마우스 감도는 PC/마우스마다 맞는 값이 달라 PG 매칭과 달리 저장한다.
         self._initial_sensitivity = self._load_navigation_sensitivity()
         self._initial_cube_size = self._load_view_cube_size()
+        # v2.2.8: 툴패스 선 굵기(%) — 설정 창에서 바꾸고 PC마다 저장한다.
+        self.toolpath_line_width_pct = self._load_toolpath_line_width_pct()
 
         self._build_ui()
         self.set_machine_type(self.current_machine_type, init_camera=True)
 
     def _load_navigation_sensitivity(self):
-        raw = self.settings.value("navigation_sensitivity", 0.4)
+        raw = self.settings.value("navigation_sensitivity", DEFAULT_NAVIGATION_SENSITIVITY)
         try:
             value = float(raw)
         except (TypeError, ValueError):
-            value = 0.4
+            value = DEFAULT_NAVIGATION_SENSITIVITY
         return max(0.05, min(2.0, value))
 
     def _load_view_cube_size(self):
-        raw = self.settings.value("view_cube_size", 160)
+        raw = self.settings.value("view_cube_size", DEFAULT_VIEW_CUBE_SIZE)
         try:
             value = int(float(raw))
         except (TypeError, ValueError):
-            value = 160
+            value = DEFAULT_VIEW_CUBE_SIZE
         return max(60, min(240, value))
 
     def _load_machine_specs(self):
@@ -2409,7 +2450,12 @@ class NCViewerWidget(QWidget):
         # 옮겨 배치한다(v1.5.9 요청) — 그룹 뒤에 고정폭 여백을 둬서 패널
         # 오른쪽 가장자리에서 살짝 띄운다.
         view_bar.addSpacing(round(2 * PX_PER_CM))
-        layout.addLayout(view_bar)
+        # v2.2.8: 감도·큐브 줄은 3D 화면 위에서 빼고 앱의 ⚙ 설정 창이 대신
+        # 보여 준다(사용자 승인 D-2). 슬라이더 자체는 그대로 두고(저장·복원·
+        # Alt+휠 연동이 이 위젯에 걸려 있다) 숨긴 컨테이너에만 담는다.
+        self.view_controls = QWidget(self)
+        self.view_controls.setLayout(view_bar)
+        self.view_controls.hide()
 
         # v1.6.3: "좌표"를 별도 행(QGroupBox, 불투명 배경)이 아니라 3D 화면
         # 왼쪽 위의 반투명 오버레이로 옮긴다 — 그 박스 배경이 3D 화면을
@@ -5739,11 +5785,14 @@ class NCViewerWidget(QWidget):
         pts = np.array(pts_list, dtype=np.float32)
         if motion_type == "G00":
             color = RAPID_MOVE_COLOR + [RAPID_MOVE_ALPHA]
-            width = 1.5
+            base_width = RAPID_LINE_BASE_WIDTH
         else:
             color = [base_color[0], base_color[1], base_color[2], 1.0]
-            width = 2.5
+            base_width = CUT_LINE_BASE_WIDTH
+        width = toolpath_line_width(base_width, self.toolpath_line_width_pct)
         line_item = gl.GLLinePlotItem(pos=pts, color=color, width=width, antialias=True, mode="lines")
+        # v2.2.8: 선 굵기 설정을 바꿀 때 다시 계산하려고 기준 굵기를 붙여 둔다.
+        line_item.sp_base_width = base_width
         self.gl_view.addItem(line_item)
         self.plot_items[tool].append(line_item)
 
@@ -5831,10 +5880,11 @@ class NCViewerWidget(QWidget):
         pts = np.array(pts_list, dtype=np.float32)
         if motion_type == "G00":
             color = RAPID_MOVE_COLOR + [RAPID_MOVE_ALPHA]
-            width = 1.5
+            base_width = RAPID_LINE_BASE_WIDTH
         else:
             color = [base_color[0], base_color[1], base_color[2], 1.0]
-            width = 3.5
+            base_width = TRACE_CUT_LINE_BASE_WIDTH
+        width = toolpath_line_width(base_width, self.toolpath_line_width_pct)
         if index < len(self.dynamic_trace_items):
             item = self.dynamic_trace_items[index]
             item.setData(pos=pts, color=color, width=width)
@@ -5844,7 +5894,29 @@ class NCViewerWidget(QWidget):
             item.setVisible(self._toolpath_visible)
             self.gl_view.addItem(item)
             self.dynamic_trace_items.append(item)
+        item.sp_base_width = base_width
         return True
+
+    def set_toolpath_line_width_pct(self, pct):
+        """v2.2.8: 툴패스 선 굵기(10~100%, 기본 90%)를 바꾸고 저장한다.
+
+        경로를 다시 계산하지 않고, 이미 그린 정적 경로와 재생 궤적의 굵기만
+        바꾼다(축 화살표·STOCK 모서리선은 툴패스가 아니라 그대로 둔다)."""
+        pct = clamp_line_width_pct(pct)
+        self.toolpath_line_width_pct = pct
+        self.settings.setValue("toolpath_line_width_pct", pct)
+        items = [item for plot_item_list in self.plot_items.values() for item in plot_item_list]
+        items.extend(self.dynamic_trace_items)
+        for item in items:
+            base_width = getattr(item, "sp_base_width", None)
+            if base_width is not None:
+                item.setData(width=toolpath_line_width(base_width, pct))
+        return pct
+
+    def _load_toolpath_line_width_pct(self):
+        return clamp_line_width_pct(
+            self.settings.value("toolpath_line_width_pct", TOOLPATH_LINE_WIDTH_DEFAULT_PCT)
+        )
 
     def _hide_dynamic_trace_from(self, start_index=0):
         empty = np.empty((0, 3), dtype=np.float32)

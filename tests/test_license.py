@@ -1102,7 +1102,8 @@ class LicenseSealTests(unittest.TestCase):
 
     def test_main_shows_trial_notice_and_updates_title_after_window_shown(self):
         source = inspect.getsource(app.main)
-        show_index = source.index('window.show()')
+        # v2.2.8: 처음부터 최대화로 띄운다(show() → showMaximized()).
+        show_index = source.index('window.showMaximized()')
         title_index = source.index('update_title_for_license(license_status)')
         trial_index = source.index("license_status.reason == 'trial_started'")
         self.assertLess(show_index, title_index)

@@ -31,7 +31,7 @@ import lathe_insert_spec
 import sumpath_license
 
 
-APP_VERSION = '2.2.7'
+APP_VERSION = '2.2.8'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-10-28'
 APP_CREATOR = 'Hwang.seonmun'
@@ -69,6 +69,9 @@ TOP_BAR_EDGE_GAP_PX = 8
 # 창이 실제로 화면에 올라온 다음에 재야 의미가 있고, 이 시간이 그대로
 # 그래픽 안전 모드의 crash 감시 구간 길이가 되므로 짧게 잡는다.
 GL_HEALTH_CHECK_DELAY_MS = 400
+
+# v2.2.8: 시작 후 이 시간 뒤에 창이 실제로 최대화됐는지 한 번 더 확인한다.
+STARTUP_MAXIMIZE_RECHECK_MS = 300
 
 # v1.6.2: 1920x1080에서 필터 영역(텍스트 정지~PG 매칭 전체/해제) 레이아웃과
 # 폰트를 15% 키운다.
@@ -112,6 +115,9 @@ THEMES = {
         # v2.2.7: NC 코드 색(편집창 배경 #fff / 현재 줄 #dbe7f5 모두에서 대비 4.5 이상)
         'nc_g0': '#b71c1c', 'nc_g1': '#256b29', 'nc_g2': '#1565c0', 'nc_g3': '#7b1fa2',
         'nc_cycle': '#8d4e1f', 'nc_spindle': '#7a6000', 'nc_coolant': '#a84300',
+        # v2.2.8: 상단 툴바와 아이콘 색
+        'toolbar_bg': '#e3e9f0', 'toolbar_sep': '#b9c4d0', 'toolbar_hover': '#d2dce8',
+        'icon': '#34577f',
     },
     'dark': {
         'window_bg': '#1b1f27', 'panel_bg': '#242a35', 'text': '#e4e8f0',
@@ -128,6 +134,8 @@ THEMES = {
         'mode_inactive_bg': '#2a2f3a', 'mode_inactive_text': '#c7d0e0',
         'nc_g0': '#ff7b7b', 'nc_g1': '#5fd068', 'nc_g2': '#6bb2ff', 'nc_g3': '#c792ff',
         'nc_cycle': '#d9a066', 'nc_spindle': '#ffd84d', 'nc_coolant': '#ffa040',
+        'toolbar_bg': '#222936', 'toolbar_sep': '#3a4250', 'toolbar_hover': '#2f3949',
+        'icon': '#c7d0e0',
     },
 }
 
@@ -2098,8 +2106,9 @@ try:
         QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
         QPlainTextEdit, QPushButton, QShortcut, QSplitter, QStackedWidget, QStyle,
         QStyledItemDelegate, QStyleOptionViewItem, QTableWidget, QTableWidgetItem, QTextEdit,
-        QVBoxLayout, QWidget,
+        QVBoxLayout, QWidget, QFrame, QSlider, QToolButton,
     )
+    import ui_icons
 except ImportError as error:
     QT_IMPORT_ERROR = error
 
@@ -2494,6 +2503,154 @@ else:
             self.set_machine_type(str(machine_type))
 
 
+    class SettingsDialog(QDialog):
+        """v2.2.8: ⚙ 설정 창 — 툴패스 선 굵기, 마우스 감도, 방향 큐브 크기.
+
+        값은 뷰어가 들고 저장한다. 감도·큐브는 뷰어의 기존 슬라이더(숨김)를
+        그대로 움직여서, 저장·Alt+휠 연동 같은 기존 동작을 하나도 바꾸지 않는다.
+        뷰어를 못 쓰는 환경(대체 위젯)에서는 항목을 끄고 이유를 보여 준다."""
+
+        def __init__(self, app_window):
+            super().__init__(app_window)
+            self.app_window = app_window
+            self.setWindowTitle('설정')
+            self.setModal(False)
+            self.setMinimumWidth(420)
+            try:
+                import nc_viewer_widget as viewer_module
+            except Exception:  # noqa: BLE001 - 뷰어 의존 패키지가 없는 환경
+                viewer_module = None
+            self.viewer_module = viewer_module
+
+            layout = QVBoxLayout(self)
+            group = QGroupBox('Viewer 표시')
+            form = QFormLayout(group)
+            form.setSpacing(10)
+
+            # 굵기별 미리보기 선을 붙인 드롭다운(사용자 요청: 굵기를 보고 고른다)
+            self.line_width_combo = QComboBox()
+            self.line_width_combo.setIconSize(QSize(64, 16))
+            self.line_width_combo.setToolTip('Viewer 모드 툴패스 선 굵기 (기본 90% = 이전 버전 굵기)')
+            steps = viewer_module.TOOLPATH_LINE_WIDTH_STEPS if viewer_module else ()
+            default_pct = viewer_module.TOOLPATH_LINE_WIDTH_DEFAULT_PCT if viewer_module else 90
+            for pct in steps:
+                label = '%d%%' % pct + ('  (기본)' if pct == default_pct else '')
+                self.line_width_combo.addItem(label, pct)
+            self.line_width_combo.currentIndexChanged.connect(self._on_line_width_changed)
+            form.addRow('툴패스 선 굵기', self.line_width_combo)
+
+            self.sensitivity_slider, self.sensitivity_label = self._slider_row(
+                form, '마우스 감도', 5, 200, '%d%%', self._on_sensitivity_changed)
+            self.cube_slider, self.cube_label = self._slider_row(
+                form, '방향 큐브 크기', 60, 240, '%dpx', self._on_cube_changed)
+            layout.addWidget(group)
+
+            self.unavailable_label = QLabel('3D Viewer를 사용할 수 없어 이 항목들을 바꿀 수 없습니다.')
+            self.unavailable_label.setWordWrap(True)
+            self.unavailable_label.hide()
+            layout.addWidget(self.unavailable_label)
+
+            buttons = QHBoxLayout()
+            self.reset_button = QPushButton('기본값으로')
+            self.reset_button.clicked.connect(self.reset_defaults)
+            buttons.addWidget(self.reset_button)
+            buttons.addStretch()
+            close_button = QPushButton('닫기')
+            close_button.clicked.connect(self.close)
+            buttons.addWidget(close_button)
+            layout.addLayout(buttons)
+
+            viewer = self._viewer()
+            if viewer is not None:
+                # Alt+휠처럼 설정 창 밖에서 바뀐 값도 열린 창에 따라오게 한다.
+                viewer.sensitivity_slider.valueChanged.connect(self._sync_sensitivity_from_viewer)
+                viewer.view_cube_size_slider.valueChanged.connect(self._sync_cube_from_viewer)
+            self.refresh_previews()
+            self.load_from_viewer()
+
+        @staticmethod
+        def _slider_row(form, title, minimum, maximum, value_format, slot):
+            row = QHBoxLayout()
+            slider = QSlider(Qt.Horizontal)
+            slider.setRange(minimum, maximum)
+            label = QLabel(value_format % minimum)
+            label.setMinimumWidth(48)
+            slider.valueChanged.connect(lambda value: label.setText(value_format % value))
+            slider.valueChanged.connect(slot)
+            row.addWidget(slider, 1)
+            row.addWidget(label)
+            form.addRow(title, row)
+            return slider, label
+
+        def _viewer(self):
+            viewer = getattr(self.app_window, 'viewer', None)
+            if self.viewer_module is None or not hasattr(viewer, 'set_toolpath_line_width_pct'):
+                return None
+            return viewer
+
+        def refresh_previews(self):
+            """드롭다운 미리보기 선을 현재 테마 글자색으로 다시 그린다."""
+            if self.viewer_module is None:
+                return
+            color = self.app_window.theme['text']
+            base = self.viewer_module.CUT_LINE_BASE_WIDTH
+            for index in range(self.line_width_combo.count()):
+                pct = self.line_width_combo.itemData(index)
+                width = self.viewer_module.toolpath_line_width(base, pct)
+                self.line_width_combo.setItemIcon(
+                    index, QIcon(ui_icons.line_width_pixmap(width, color)))
+
+        def load_from_viewer(self):
+            viewer = self._viewer()
+            enabled = viewer is not None
+            for widget in (self.line_width_combo, self.sensitivity_slider, self.cube_slider, self.reset_button):
+                widget.setEnabled(enabled)
+            self.unavailable_label.setVisible(not enabled)
+            if not enabled:
+                return
+            with QSignalBlocker(self.line_width_combo):
+                index = self.line_width_combo.findData(viewer.toolpath_line_width_pct)
+                self.line_width_combo.setCurrentIndex(max(0, index))
+            self._sync_sensitivity_from_viewer(viewer.sensitivity_slider.value())
+            self._sync_cube_from_viewer(viewer.view_cube_size_slider.value())
+
+        def _sync_sensitivity_from_viewer(self, value):
+            with QSignalBlocker(self.sensitivity_slider):
+                self.sensitivity_slider.setValue(value)
+            self.sensitivity_label.setText('%d%%' % value)
+
+        def _sync_cube_from_viewer(self, value):
+            with QSignalBlocker(self.cube_slider):
+                self.cube_slider.setValue(value)
+            self.cube_label.setText('%dpx' % value)
+
+        def _on_line_width_changed(self, _index):
+            viewer = self._viewer()
+            pct = self.line_width_combo.currentData()
+            if viewer is not None and pct is not None:
+                viewer.set_toolpath_line_width_pct(pct)
+
+        def _on_sensitivity_changed(self, value):
+            viewer = self._viewer()
+            if viewer is not None:
+                viewer.sensitivity_slider.setValue(value)
+
+        def _on_cube_changed(self, value):
+            viewer = self._viewer()
+            if viewer is not None:
+                viewer.view_cube_size_slider.setValue(value)
+
+        def reset_defaults(self):
+            viewer = self._viewer()
+            if viewer is None:
+                return
+            module = self.viewer_module
+            self.line_width_combo.setCurrentIndex(
+                self.line_width_combo.findData(module.TOOLPATH_LINE_WIDTH_DEFAULT_PCT))
+            self.sensitivity_slider.setValue(round(module.DEFAULT_NAVIGATION_SENSITIVITY * 100))
+            self.cube_slider.setValue(module.DEFAULT_VIEW_CUBE_SIZE)
+
+
     class App(QMainWindow):
         def __init__(self, _root=None):
             super().__init__()
@@ -2567,6 +2724,8 @@ else:
             self.setWindowTitle('%s v%s' % (APP_NAME, APP_VERSION))
             self.resize(sum(MAIN_SPLITTER_INITIAL_SIZES), 760)
             self.set_window_icon()
+            # v2.2.8: ⚙ 설정 창(모달 아님) — 처음 열 때 만들고 다시 쓴다.
+            self._settings_dialog = None
             self._build_ui()
             self._install_shortcuts()
             self.apply_theme(self.theme_name)
@@ -2577,6 +2736,9 @@ else:
             # 뒤이어 예약한다.
             self.restore_layout_settings()
             QTimer.singleShot(0, self.showMaximized)
+            # v2.2.8: Windows는 프로세스의 첫 ShowWindow에 바로가기/실행 측의 창 상태를
+            # 덮어쓸 수 있다. 창이 뜬 직후 실제 상태를 한 번 더 보고 최대화를 확정한다.
+            QTimer.singleShot(STARTUP_MAXIMIZE_RECHECK_MS, self._ensure_maximized_on_start)
             # 창이 실제로 화면에 올라온 뒤 GL 컨텍스트를 확정한다. 이 호출이
             # 돌아오면 그래픽 안전 모드 감시 구간이 닫힌다(confirm_gl_healthy).
             QTimer.singleShot(GL_HEALTH_CHECK_DELAY_MS, self.confirm_gl_healthy)
@@ -2740,6 +2902,26 @@ else:
             if hasattr(self, 'nc_highlighter'):
                 self.nc_highlighter.set_theme(self.theme)
             self._apply_edit_mode_style()
+            if self._settings_dialog is not None:
+                self._settings_dialog.refresh_previews()
+            self._update_program_pane_min_width()
+
+        def _update_program_pane_min_width(self):
+            """v2.2.8: 공정 필터 줄 버튼에 아이콘이 붙어, 화면 배율이 크면(150% 등) 고정
+            최소 폭(520px)에서 버튼 글자가 잘렸다. 실제로 필요한 폭을 재서 최소 폭을
+            그만큼 늘린다(100% 배율에서는 520px 그대로).
+
+            버튼 여백은 전역 스타일시트가 정하므로 테마를 적용한 뒤에 잰다. 필터 패널은
+            툴리스트 모드에서 숨겨지지만, 모드를 바꿀 때 패널 폭이 튀지 않게 항상 기준으로 쓴다."""
+            filter_layout = self.filter_panel.layout()
+            for index in range(filter_layout.count()):
+                row = filter_layout.itemAt(index).layout()
+                if row is not None:
+                    row.invalidate()
+            filter_layout.invalidate()
+            margins = self.program_panel.layout().contentsMargins()
+            needed = filter_layout.minimumSize().width() + margins.left() + margins.right()
+            self.program_panel.setMinimumWidth(max(PROGRAM_PANE_MIN_WIDTH, needed))
 
         @staticmethod
         def _build_global_stylesheet(t):
@@ -2778,6 +2960,9 @@ else:
         def _apply_widget_themes(self):
             """하드코딩된 인라인 색을 쓰던 각 위젯을 현재 self.theme 값으로 다시 칠한다."""
             self._style_header_bar(self.top_bar)
+            for button in (self.btn_settings, self.btn_help, self.btn_about):
+                self._style_header_tool_button(button)
+            self._style_toolbar(self.main_toolbar)
             self._style_accent_button(self.run_button)
             self._style_accent_button_large(self.copy_button)
             self._style_success_button_large(self.pdf_button)
@@ -2875,49 +3060,83 @@ else:
             self.program_no_label.setFont(QFont('맑은 고딕', 12))
             top_layout.addWidget(self.program_no_label)
 
-            # About/모드 전환 버튼은 창 오른쪽 끝(addStretch 뒤)이 아니라 제목
-            # 바로 옆(왼쪽)에 붙도록 배치하고, 폰트를 기존의 1.3배로 키운다
-            # (v1.5.9 요청) — 9pt → 12pt. 패딩은 _style_mode_buttons에서
-            # 함께 적용하며, v1.6.2부터 도움말/About과 같은 4px 8px이다.
-            top_bar_button_font = QFont('맑은 고딕', 12, QFont.Bold)
-            self.btn_about = QPushButton('About')
-            self.btn_about.clicked.connect(self.show_about)
-            self.btn_about.setFont(top_bar_button_font)
-            top_layout.addWidget(self.btn_about)
+            # v2.2.8: 테마가 바뀌면 다시 그릴 아이콘 목록 —
+            # (버튼, 아이콘 이름, 테마 색 키, 크기). _refresh_icons()가 쓴다.
+            self._themed_icons = []
 
+            # v2.2.8: 제목 줄 오른쪽 끝에는 보조 버튼(설정/도움말/About/다크모드)만
+            # 둔다. 이 줄은 테마와 무관하게 항상 어두운 header_bg라 아이콘도
+            # header_text(밝은 색)로 그린다.
+            top_layout.addStretch()
+            utility_font = QFont('맑은 고딕', 10, QFont.Bold)
+            self.btn_settings = self._make_tool_button(
+                '설정', 'gear', self.show_settings, '설정 — 툴패스 선 굵기, 마우스 감도, 방향 큐브 크기',
+                font=utility_font, icon_size=self.HEADER_ICON_PX, style=Qt.ToolButtonTextBesideIcon, color_key='header_text',
+            )
             # v1.6.1: 단축키 및 유용한 기능을 설명하는 도움말 팝업.
-            self.btn_help = QPushButton('도움말')
-            self.btn_help.clicked.connect(self.show_help)
-            self.btn_help.setFont(top_bar_button_font)
-            top_layout.addWidget(self.btn_help)
-
-            # 장비 패널의 ▶/▼ 접기 버튼과 시각적으로 구분되도록, 모드 전환
-            # 버튼 2개를 About 버튼 끝에서 약 5cm 정도 띄워서 배치한다
-            # (96DPI 가정, v1.6.0 요청).
-            MODE_BUTTON_GAP_PX = round(5 * 96.0 / 2.54)
-            top_layout.addSpacing(MODE_BUTTON_GAP_PX)
-
-            self.btn_tool_mode = QPushButton('툴리스트 산출 모드')
-            self.btn_tool_mode.setCheckable(True)
-            self.btn_tool_mode.clicked.connect(lambda: self.set_mode('tool'))
-            self.btn_viewer_mode = QPushButton('Viewer 모드')
-            self.btn_viewer_mode.setCheckable(True)
-            self.btn_viewer_mode.clicked.connect(lambda: self.set_mode('viewer'))
-            for button in (self.btn_tool_mode, self.btn_viewer_mode):
-                button.setFont(top_bar_button_font)
+            self.btn_help = self._make_tool_button(
+                '도움말', 'help', self.show_help, '단축키와 기능 설명',
+                font=utility_font, icon_size=self.HEADER_ICON_PX, style=Qt.ToolButtonTextBesideIcon, color_key='header_text',
+            )
+            self.btn_about = self._make_tool_button(
+                'About', 'info', self.show_about, '프로그램 정보, 업데이트, 라이선스',
+                font=utility_font, icon_size=self.HEADER_ICON_PX, style=Qt.ToolButtonTextBesideIcon, color_key='header_text',
+            )
+            for button in (self.btn_settings, self.btn_help, self.btn_about):
                 top_layout.addWidget(button)
-            # v1.6.2: 다크모드 버튼(원래 뷰어 안 감도/큐브 바 옆)을 이 상단
-            # 바의 맨 끝(오른쪽)으로 옮긴다 — self.viewer가 만들어진 뒤에야
-            # 그 버튼을 가져올 수 있으므로, 이 자리를 표시만 해 두고 실제
-            # addStretch()/버튼 배치는 아래에서 self.viewer 생성 직후에 한다.
             root_layout.addWidget(self.top_bar)
+
+            # v2.2.8: 제목 줄 아래 아이콘 툴바 — 파일 / 편집 / 산출 / 화면 모드
+            # 묶음을 세로 구분선으로 나눈다. 버튼이 부르는 함수는 예전 그대로다.
+            self.main_toolbar = QWidget()
+            self.main_toolbar.setObjectName('mainToolbar')
+            toolbar_layout = QHBoxLayout(self.main_toolbar)
+            toolbar_layout.setContentsMargins(8, 3, 8, 3)
+            toolbar_layout.setSpacing(2)
+            self._toolbar_layout = toolbar_layout  # 테스트에서 버튼 순서를 확인하는 용도
+
+            self.btn_open_file = self._make_tool_button('파일 열기', 'folder_open', self.open_file,
+                                                        'NC 프로그램 파일 열기')
+            self.btn_add_program = self._make_tool_button('PG ADD', 'folder_add', self.open_add_program_files,
+                                                          '여러 프로그램 파일을 지금 프로그램 뒤에 이어 붙이기')
+            self.btn_example = self._make_tool_button('예제', 'document', self.load_example, '예제 프로그램 불러오기')
+            self.btn_clear = self._make_tool_button('지우기', 'eraser', self.clear, '프로그램과 공구 리스트 지우기')
+            self._add_toolbar_group(toolbar_layout, (
+                self.btn_open_file, self.btn_add_program, self.btn_example, self.btn_clear,
+            ))
+
+            self.btn_edit_mode = self._make_tool_button(
+                '편집 모드', 'pencil', self.toggle_edit_mode, '편집 모드 켜기/끄기 (비밀번호)', checkable=True)
+            self.btn_edit_save = self._make_tool_button('저장', 'save', self.save_edit, '저장 (Ctrl+S)')
+            self.btn_edit_save.hide()
+            self.btn_edit_password = self._make_tool_button(
+                '비밀번호', 'key', self.change_edit_password, '편집 모드 비밀번호 변경')
+            self.btn_edit_password.hide()
+            self._add_toolbar_group(toolbar_layout, (
+                self.btn_edit_mode, self.btn_edit_save, self.btn_edit_password,
+            ))
+
+            self.run_button = self._make_tool_button(
+                'Tool List', 'run', self.run, '공구 리스트 산출', color_key='accent_text')
+            self.run_button.setMinimumWidth(84)
+            self._add_toolbar_group(toolbar_layout, (self.run_button,))
+
+            self.btn_tool_mode = self._make_tool_button(
+                '툴리스트 산출', 'table', lambda: self.set_mode('tool'), '툴리스트 산출 모드', checkable=True)
+            self.btn_viewer_mode = self._make_tool_button(
+                'Viewer', 'toolpath', lambda: self.set_mode('viewer'), 'Viewer 모드 (3D 공구 경로)',
+                checkable=True)
+            self._add_toolbar_group(toolbar_layout, (self.btn_tool_mode, self.btn_viewer_mode), separator=False)
+            toolbar_layout.addStretch()
+            root_layout.addWidget(self.main_toolbar)
 
             self.main_splitter = QSplitter(Qt.Horizontal)
             self.main_splitter.setChildrenCollapsible(False)
             root_layout.addWidget(self.main_splitter, 1)
             self.viewer = self._create_viewer()
 
-            top_layout.addStretch()
+            # v1.6.2: 다크모드 버튼(원래 뷰어 안 감도/큐브 바 옆)을 상단 바의
+            # 맨 끝(오른쪽)으로 옮긴다 — self.viewer가 만들어진 뒤에야 가져올 수 있다.
             if hasattr(self.viewer, 'take_dark_mode_button'):
                 self.btn_dark_mode = self.viewer.take_dark_mode_button(self.top_bar)
                 top_layout.addWidget(self.btn_dark_mode)
@@ -2941,26 +3160,8 @@ else:
             self.edit_mode_label.hide()
             lbar.addWidget(self.edit_mode_label)
             lbar.addStretch()
-            self.btn_edit_password = self._add_button(lbar, '비밀번호 변경', self.change_edit_password, kfont)
-            self.btn_edit_password.hide()
-            self.btn_edit_save = self._add_button(lbar, '저장 (Ctrl+S)', self.save_edit, kfont)
-            self.btn_edit_save.hide()
-            self.btn_edit_mode = self._add_button(lbar, '편집 모드', self.toggle_edit_mode, kfont)
-            self.btn_edit_mode.setCheckable(True)
+            # v2.2.8: 지우기/예제/파일 열기/PG ADD/Tool List와 편집 버튼들은 상단 툴바로 옮겼다.
             left_layout.addLayout(lbar)
-
-            # 지우기/예제/파일 열기/PG ADD/Tool List를 한 줄로 배치한다
-            # (원래 2줄로 요청했던 것을 v1.5.9에서 1줄로 재배치).
-            program_button_row = QHBoxLayout()
-            program_button_row.setSpacing(6)
-            self._add_button(program_button_row, '지우기', self.clear, kfont).setMinimumWidth(70)
-            self._add_button(program_button_row, '예제', self.load_example, kfont).setMinimumWidth(70)
-            self._add_button(program_button_row, '파일 열기', self.open_file, kfont).setMinimumWidth(88)
-            self._add_button(program_button_row, 'PG ADD', self.open_add_program_files, kfont).setMinimumWidth(112)
-            self.run_button = self._add_button(program_button_row, 'Tool List', self.run, kfont)
-            self.run_button.setMinimumWidth(128)
-            program_button_row.addStretch()
-            left_layout.addLayout(program_button_row)
 
             # 장비 타입 및 스펙 설정 패널을 다음공구검색 행보다 위쪽에
             # 배치한다(v1.6.0 요청 — 두 행의 상하 순서 교체).
@@ -2969,18 +3170,25 @@ else:
 
             search_bar = QHBoxLayout()
             self._search_bar_layout = search_bar  # 테스트에서 버튼 순서를 확인하는 용도
+            # v2.2.8: 아이콘 버튼. 글자는 짧게 줄이고 원래 이름은 툴팁에 둔다.
             self.btn_prev_tool_search = self._add_button(
-                search_bar, '이전공구검색', self.find_prev_tool_change, kfont
+                search_bar, '이전 공구', self.find_prev_tool_change, kfont
             )
+            self._set_button_icon(self.btn_prev_tool_search, 'tool_prev', '이전공구검색 — 위쪽 공구 교체 지점')
             self.btn_next_tool_search = self._add_button(
-                search_bar, '다음공구검색', self.find_next_tool_change, kfont
+                search_bar, '다음 공구', self.find_next_tool_change, kfont
             )
-            search_bar.addWidget(QLabel('문자 검색'))
+            self._set_button_icon(self.btn_next_tool_search, 'tool_next', '다음공구검색 — 아래쪽 공구 교체 지점')
             self.search_text = QLineEdit()
             self.search_text.setFont(kfont)
+            self.search_text.setPlaceholderText('문자 검색')
+            self.search_text.setToolTip('문자 검색 — 입력한 문자열이 있는 다음 줄 (Enter)')
+            self._search_text_action = self.search_text.addAction(QIcon(), QLineEdit.LeadingPosition)
+            self._themed_icons.append((self._search_text_action, 'search', 'faint_text', 16))
             self.search_text.returnPressed.connect(self.find_next_text)
             search_bar.addWidget(self.search_text, 1)
-            self._add_button(search_bar, '검색', self.find_next_text, kfont)
+            self.btn_search = self._add_button(search_bar, '검색', self.find_next_text, kfont)
+            self._set_button_icon(self.btn_search, 'search', '다음 일치 줄 찾기 (Enter)')
             self.search_status = QLabel('')
             search_bar.addWidget(self.search_status)
             left_layout.addLayout(search_bar)
@@ -3056,7 +3264,10 @@ else:
 
             filter_bar = QHBoxLayout()
             filter_bar.setSpacing(scaled(6))
-            filter_label = QLabel('공정별 경로 필터 선택')
+            # v2.2.8: 버튼에 아이콘이 붙어 줄이 넓어졌다 — 프로그램 패널 최소 폭에서도
+            # 전체/해제 글자가 잘리지 않도록 라벨을 줄이고, 원래 이름은 툴팁에 둔다.
+            filter_label = QLabel('공정 필터')
+            filter_label.setToolTip('공정별 경로 필터 선택 — 아래 목록에서 3D 화면에 그릴 공정을 고릅니다.')
             filter_label_font = QFont('맑은 고딕', weight=QFont.Bold)
             filter_label_font.setPointSizeF(9 * FILTER_SECTION_SCALE)
             filter_label.setFont(filter_label_font)
@@ -3065,8 +3276,8 @@ else:
             self.reset_program_button = self._add_button(
                 filter_bar, 'Reset', lambda: self.jump_to_process_line(0), filter_kfont
             )
-            self.reset_program_button.setToolTip(
-                '프로그램 커서를 맨 상단(첫 줄)으로 이동합니다. (F5)'
+            self._set_button_icon(
+                self.reset_program_button, 'home', '프로그램 커서를 맨 상단(첫 줄)으로 이동합니다. (F5)'
             )
             self.pg_match_check = QCheckBox('PG 매칭')
             self.pg_match_check.setFont(filter_kfont)
@@ -3077,12 +3288,16 @@ else:
             )
             self.pg_match_check.toggled.connect(self.toggle_pg_match_mode)
             filter_bar.addWidget(self.pg_match_check)
-            self._add_button(filter_bar, '전체', lambda: self.viewer.select_all_tools(True), filter_kfont)
-            self._add_button(filter_bar, '해제', lambda: self.viewer.select_all_tools(False), filter_kfont)
+            self.btn_select_all_tools = self._add_button(
+                filter_bar, '전체', lambda: self.viewer.select_all_tools(True), filter_kfont)
+            self._set_button_icon(self.btn_select_all_tools, 'check_all', '모든 공정 경로 표시')
+            self.btn_select_no_tools = self._add_button(
+                filter_bar, '해제', lambda: self.viewer.select_all_tools(False), filter_kfont)
+            self._set_button_icon(self.btn_select_no_tools, 'check_none', '모든 공정 경로 숨기기')
             # v1.9.0: 밀링 3축 형상 가공 시뮬레이션 — 소재 설정 팝업. v2.2.0부터 선반도
             # 같은 버튼으로 선반 소재 창(지름·길이·앞면 Z·내경)을 연다.
             self.stock_button = self._add_button(filter_bar, '소재', self.open_stock_dialog, filter_kfont)
-            self.stock_button.setToolTip('소재(STOCK) 설정과 가공 형상 시뮬레이션')
+            self._set_button_icon(self.stock_button, 'stock', '소재(STOCK) 설정과 가공 형상 시뮬레이션')
             filter_layout.addLayout(filter_bar)
             self.tool_filter = QListWidget()
             self.tool_filter.setSelectionMode(QAbstractItemView.MultiSelection)
@@ -3134,6 +3349,83 @@ else:
             layout.addWidget(button)
             return button
 
+        # ---------- v2.2.8: 아이콘 툴바 ----------
+        TOOLBAR_ICON_PX = 26
+        HEADER_ICON_PX = 20
+        PANEL_ICON_PX = 16
+
+        def _make_tool_button(self, text, icon_name, slot, tooltip, checkable=False, font=None,
+                              icon_size=None, style=None, color_key='icon'):
+            """아이콘 + 글자 툴바 버튼(기본은 아이콘 위·글자 아래, 사용자 승인 D-3 (a))."""
+            button = QToolButton()
+            button.setText(text)
+            button.setToolTip(tooltip)
+            button.setFont(font or QFont('맑은 고딕', 9))
+            button.setToolButtonStyle(style if style is not None else Qt.ToolButtonTextUnderIcon)
+            size = icon_size or self.TOOLBAR_ICON_PX
+            button.setIconSize(QSize(size, size))
+            button.setCheckable(checkable)
+            button.setAutoRaise(True)
+            # 툴바 버튼이 포커스를 가져가면 프로그램 창 방향키 이동이 끊긴다.
+            button.setFocusPolicy(Qt.NoFocus)
+            if style is None:
+                button.setMinimumWidth(62)
+            button.clicked.connect(slot)
+            self._themed_icons.append((button, icon_name, color_key, size))
+            return button
+
+        def _add_toolbar_group(self, layout, buttons, separator=True):
+            for button in buttons:
+                layout.addWidget(button)
+            if separator:
+                line = QFrame()
+                line.setObjectName('toolbarSeparator')
+                line.setFrameShape(QFrame.VLine)
+                line.setFixedWidth(9)
+                layout.addWidget(line)
+
+        def _set_button_icon(self, button, icon_name, tooltip=None, color_key='icon'):
+            """기존 QPushButton에 아이콘을 붙인다(글자는 그대로 둔다)."""
+            size = self.PANEL_ICON_PX
+            button.setIconSize(QSize(size, size))
+            if tooltip:
+                button.setToolTip(tooltip)
+            self._themed_icons.append((button, icon_name, color_key, size))
+
+        def _refresh_icons(self):
+            """테마 색으로 아이콘을 다시 그린다(apply_theme이 부른다)."""
+            t = self.theme
+            for target, icon_name, color_key, size in self._themed_icons:
+                color = t[color_key]
+                # 켜져 있는(강조색 배경) 토글 버튼은 아이콘도 배경 위 글자색으로 바꾼다.
+                if color_key == 'icon' and isinstance(target, QToolButton) and target.isChecked():
+                    color = t['accent_text']
+                if isinstance(target, QLabel):
+                    target.setPixmap(ui_icons.icon_pixmap(icon_name, color, size))
+                else:
+                    target.setIcon(ui_icons.icon(icon_name, color, size))
+
+        def _style_toolbar(self, widget):
+            t = self.theme
+            widget.setStyleSheet(
+                '#mainToolbar { background: %(toolbar_bg)s; border-bottom: 1px solid %(toolbar_sep)s; }'
+                '#mainToolbar QToolButton { background: transparent; color: %(text)s; border: 1px solid transparent;'
+                ' border-radius: 4px; padding: 2px 6px; }'
+                '#mainToolbar QToolButton:hover { background: %(toolbar_hover)s; border-color: %(toolbar_sep)s; }'
+                '#mainToolbar QToolButton:disabled { color: %(faint_text)s; }'
+                '#mainToolbar QFrame#toolbarSeparator { color: %(toolbar_sep)s; }'
+                % t
+            )
+
+        def _style_header_tool_button(self, widget):
+            t = self.theme
+            widget.setStyleSheet(
+                'QToolButton { background: transparent; color: %s; border: 1px solid transparent;'
+                ' border-radius: 4px; padding: 3px 7px; }'
+                'QToolButton:hover { background: rgba(255, 255, 255, 30); border-color: rgba(255, 255, 255, 60); }'
+                % t['header_text']
+            )
+
         def _install_shortcuts(self):
             """v1.6.1: F5 리셋 / F6 이전 공구 / F7 재생·정지 / F8 다음 공구.
             기본 컨텍스트(Qt.WindowShortcut)를 그대로 쓴다 — 뷰어의 돋보기
@@ -3163,19 +3455,28 @@ else:
             '  F8   다음 공구(선택된 공정 중 뒤쪽)로 이동\n'
             '  Esc  뷰어의 돋보기(우클릭으로 열림) 닫기\n'
             '\n'
+            '■ 화면 배치 (v2.2.8)\n'
+            '  제목 줄 오른쪽: 설정 / 도움말 / About / 다크모드.\n'
+            '  아래 툴바: [파일 열기 · PG ADD · 예제 · 지우기] [편집 모드 · 저장 · 비밀번호]\n'
+            '  [Tool List] [툴리스트 산출 · Viewer]. 버튼에 마우스를 올리면 설명이 나옵니다.\n'
+            '\n'
             '■ 화면 모드\n'
-            '  상단의 "툴리스트 산출 모드" / "Viewer 모드" 버튼으로 전환합니다.\n'
+            '  툴바의 "툴리스트 산출" / "Viewer" 버튼으로 전환합니다.\n'
+            '\n'
+            '■ 설정 (제목 줄의 톱니 버튼)\n'
+            '  툴패스 선 굵기: 10%~100%(10% 단위, 기본 90% = 이전 버전 굵기). 바로 반영되고 저장됩니다.\n'
+            '  마우스 감도 / 방향 큐브 크기: 3D 화면 위에 있던 슬라이더를 이 창으로 옮겼습니다.\n'
             '\n'
             '■ 프로그램 입력\n'
-            '  파일 열기 / PG ADD(여러 파일을 이어붙여 추가) / 예제 / 지우기.\n'
+            '  툴바의 파일 열기 / PG ADD(여러 파일을 이어붙여 추가) / 예제 / 지우기.\n'
             '  프로그램 입력창에 NC 파일을 드래그&드롭해도 열리거나 추가됩니다.\n'
             '  탐색기에서 연결된 확장자(.nc/.mpf/.tap) 파일을 더블클릭해도 바로 열립니다.\n'
             '\n'
             '■ 편집 모드\n'
-            '  앱은 항상 읽기 모드로 시작합니다. "편집 모드" 버튼 → 비밀번호(기본 1234) 입력 시 프로그램을\n'
+            '  앱은 항상 읽기 모드로 시작합니다. 툴바 "편집 모드" → 비밀번호(기본 1234) 입력 시 프로그램을\n'
             '  직접 고칠 수 있고, 고친 내용은 잠시 뒤 툴리스트와 공구 패스에 바로 반영됩니다.\n'
             '  저장(Ctrl+S)은 원래 인코딩·줄바꿈을 유지하고 기존 파일을 .bak로 남깁니다.\n'
-            '  "비밀번호 변경"으로 바꾼 비밀번호는 해시로 저장됩니다. 잊었으면 관리자가\n'
+            '  툴바 "비밀번호"로 바꾼 비밀번호는 해시로 저장됩니다. 잊었으면 관리자가\n'
             '  %APPDATA%\\NC Tool List\\app_settings.json 의 "edit_password" 항목을 지우면 1234로 돌아갑니다.\n'
             '\n'
             '■ 코드 색 (프로그램 입력창)\n'
@@ -3184,7 +3485,7 @@ else:
             '  칠하고 주석은 색이 없습니다. 선반은 G70~G76·G90/92/94가 사이클 색입니다.\n'
             '\n'
             '■ 검색\n'
-            '  이전공구검색 / 다음공구검색: 공구 교체 지점을 위/아래 방향으로 찾습니다(밀링 M6T, 선반\n'
+            '  이전 공구 / 다음 공구: 공구 교체 지점을 위/아래 방향으로 찾습니다(밀링 M6T, 선반\n'
             '  Tnn00). 끝에 닿으면 반대쪽 끝에서 이어서 찾습니다.\n'
             '  문자 검색: 입력한 문자열이 있는 다음 줄을 찾습니다(끝까지 가면 처음부터 재검색).\n'
             '\n'
@@ -3193,17 +3494,17 @@ else:
             '\n'
             '■ 공구 리스트\n'
             '  행을 더블클릭하면 바로 수정할 수 있습니다.\n'
-            '  삭제 / 수정 / ＋ 행 추가 / 이름 경우의 수(이름→TYPE 변환표 편집) / 머리글 포함 /\n'
+            '  삭제 / 수정 / 행 추가 / 이름 경우의 수(이름→TYPE 변환표 편집) / 머리글 포함 /\n'
             '  PDF 출력(기본 PDF 프로그램으로 바로 열림) / 표 복사(엑셀에 Ctrl+V로 붙여넣기).\n'
             '\n'
             '■ 3D 뷰어 조작\n'
             '  좌클릭 드래그: 카메라 회전 / 휠: 확대·축소\n'
-            '  Ctrl+휠: 원근감(FOV) 조절 / Alt+휠: 감도 슬라이더 조절\n'
+            '  Ctrl+휠: 원근감(FOV) 조절 / Alt+휠: 마우스 감도 조절(설정 창의 감도 값과 같음)\n'
             '  우클릭: 돋보기(3배 확대) 열기·닫기 — 돋보기가 열려 있을 때만 좌클릭으로\n'
             '  가장 가까운 경로 라인의 프로그램 줄로 커서가 이동합니다.\n'
             '  방향 큐브: 면을 클릭하면 해당 뷰(ISO/XY/XZ/YZ)로 즉시 전환되고,\n'
             '  큐브를 감싼 고리를 드래그하면 스냅 없이 부드럽게 회전합니다.\n'
-            '  큐브 크기 슬라이더를 조절하면 원점 화살표 크기도 함께 바뀝니다.\n'
+            '  설정 창에서 큐브 크기를 바꾸면 원점 화살표 크기도 함께 바뀝니다.\n'
             '\n'
             '■ PG 매칭 자동 재생 (Viewer 모드에서 "PG 매칭" 체크 시)\n'
             '  속도 슬라이더(1x~5000x)로 재생 속도를 조절합니다.\n'
@@ -3235,6 +3536,16 @@ else:
             buttons.rejected.connect(dialog.reject)
             layout.addWidget(buttons)
             dialog.exec_()
+
+        def show_settings(self):
+            """v2.2.8: ⚙ 설정 창. 모달이 아니라 열어 둔 채 3D 화면을 보며 바꿀 수 있다."""
+            if self._settings_dialog is None:
+                self._settings_dialog = SettingsDialog(self)
+            self._settings_dialog.load_from_viewer()
+            self._settings_dialog.show()
+            self._settings_dialog.raise_()
+            self._settings_dialog.activateWindow()
+            return self._settings_dialog
 
         def show_about(self):
             dialog = QDialog(self)
@@ -3741,21 +4052,28 @@ else:
             self.tool_mode_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
             self.tool_mode_combo.currentIndexChanged.connect(self._tool_mode_combo_changed)
             rbar.addWidget(self.tool_mode_combo)
+            # v2.2.8: 버튼마다 기능 아이콘을 붙인다(글자는 그대로).
             btn_delete = self._add_button(rbar, '삭제', self.delete_selected, row_button_font)
             btn_delete.setStyleSheet(row_button_style)
+            self._set_button_icon(btn_delete, 'trash', '선택한 행 삭제')
             btn_edit = self._add_button(rbar, '수정', self.edit_selected, row_button_font)
             btn_edit.setStyleSheet(row_button_style)
-            btn_add_row = self._add_button(rbar, '＋ 행 추가', self.add_row, row_button_font)
+            self._set_button_icon(btn_edit, 'pencil', '선택한 행 수정 (더블클릭)')
+            btn_add_row = self._add_button(rbar, '행 추가', self.add_row, row_button_font)
             btn_add_row.setStyleSheet(row_button_style)
+            self._set_button_icon(btn_add_row, 'plus', '빈 행 추가')
             btn_type_list = self._add_button(rbar, '이름 경우의 수', self.show_type_list, row_button_font)
             btn_type_list.setStyleSheet(row_button_style)
+            self._set_button_icon(btn_type_list, 'list', '공구 이름 → TYPE 변환표 편집')
             self.with_header = QCheckBox('머리글 포함')
             self.with_header.setFont(row_button_font)
             rbar.addWidget(self.with_header)
             self.pdf_button = self._add_button(rbar, 'PDF 출력', self.export_pdf, row_button_font)
             self._style_success_button_large(self.pdf_button)
+            self._set_button_icon(self.pdf_button, 'pdf', 'PDF로 저장하고 바로 열기', color_key='success_text')
             self.copy_button = self._add_button(rbar, '표 복사', self.copy_table, row_button_font)
             self._style_accent_button_large(self.copy_button)
+            self._set_button_icon(self.copy_button, 'copy', '표를 복사 (엑셀에 Ctrl+V)', color_key='accent_text')
             rbar.addStretch()
             layout.addLayout(rbar)
 
@@ -3834,6 +4152,7 @@ else:
             )
             self.btn_tool_mode.setStyleSheet(active if self.current_mode == 'tool' else inactive)
             self.btn_viewer_mode.setStyleSheet(active if self.current_mode == 'viewer' else inactive)
+            self._refresh_icons()
 
         def source_changed(self):
             if self.edit_mode:
@@ -4801,6 +5120,12 @@ else:
             super().resizeEvent(event)
             self._relayout_tool_table()
 
+        def _ensure_maximized_on_start(self):
+            """시작 직후 한 번: 보이는데 최대화가 아니면(최소화 제외) 최대화한다."""
+            if not self.isVisible() or self.isMaximized() or self.isMinimized():
+                return
+            self.showMaximized()
+
         def changeEvent(self, event):
             super().changeEvent(event)
             if event.type() == QEvent.WindowStateChange:
@@ -4875,6 +5200,7 @@ else:
             else:
                 self.btn_edit_mode.setStyleSheet('')
                 self.src.setStyleSheet('')
+            self._refresh_icons()
 
         def _ask_save_changes(self):
             box = QMessageBox(self)
@@ -5382,7 +5708,11 @@ def main():
         start_single_instance_server(window)
         if initial_file:
             QTimer.singleShot(0, lambda path=initial_file: window.load_file(path))
-        window.show()
+        # v2.2.8: 처음부터 최대화로 띄운다. 예전에는 show()(보통 크기)로 먼저 띄우고
+        # App.__init__이 예약한 showMaximized에 맡겼는데, 실행 경로(바로가기, 설치 직후
+        # 실행, 파일 더블클릭)에 따라 보통 크기로 남는 경우가 있었다(사용자 보고).
+        # 예약 호출은 그대로 둬 이중 안전장치로 쓴다.
+        window.showMaximized()
         window.update_title_for_license(license_status)
         # v1.8.1: 30일 체험판이 이번 실행에서 막 시작됐으면 한 번만 안내한다(결정 E).
         if license_status.reason == 'trial_started':

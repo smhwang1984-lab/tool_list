@@ -284,7 +284,8 @@ X60 Y10 Z0
             window.showNormal()
             window.resize(sum(app.MAIN_SPLITTER_INITIAL_SIZES), 760)
             qapp.processEvents()
-            self.assertEqual(window.program_panel.minimumWidth(), app.PROGRAM_PANE_MIN_WIDTH)
+            # v2.2.8: 화면 배율이 크면 공정 필터 줄이 들어가도록 최소 폭이 더 커질 수 있다.
+            self.assertGreaterEqual(window.program_panel.minimumWidth(), app.PROGRAM_PANE_MIN_WIDTH)
             self.assertEqual(app.MAIN_SPLITTER_INITIAL_SIZES[0], app.PROGRAM_PANE_MIN_WIDTH)
             window.main_splitter.setSizes([120, 1000])
             qapp.processEvents()
@@ -329,20 +330,22 @@ X60 Y10 Z0
             self.assertFalse(window.machine_panel_toggle.isChecked())
             self.assertTrue(window.machine_settings_body.isHidden())
 
-            program_layout = window.program_panel.layout()
-            # v1.5.9: 원래 2줄이던 프로그램 버튼들을 1줄로 재배치했다.
-            row = program_layout.itemAt(1).layout()
+            # v2.2.8: 프로그램 버튼(파일/편집/산출/모드)은 왼쪽 패널이 아니라
+            # 제목 줄 아래 아이콘 툴바에 있다.
+            row = window._toolbar_layout
 
             def button_texts(layout):
                 texts = []
                 for index in range(layout.count()):
                     widget = layout.itemAt(index).widget()
-                    if isinstance(widget, app.QPushButton):
+                    if isinstance(widget, app.QToolButton):
                         texts.append(widget.text())
                 return texts
 
             self.assertEqual(
-                button_texts(row), ['지우기', '예제', '파일 열기', 'PG ADD', 'Tool List']
+                button_texts(row),
+                ['파일 열기', 'PG ADD', '예제', '지우기', '편집 모드', '저장', '비밀번호',
+                 'Tool List', '툴리스트 산출', 'Viewer'],
             )
         finally:
             window.deleteLater()
@@ -351,9 +354,10 @@ X60 Y10 Z0
 
     @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
     def test_top_caption_removed_and_top_bar_buttons_left_aligned(self):
-        """"NC 프로그램을 넣고 공구 리스트를 생성하세요" 안내 문구는 제거되고,
-        About/모드 버튼은 오른쪽 끝이 아니라 제목 바로 옆(왼쪽)에 배치되어야
-        한다(v1.5.9 요청)."""
+        """"NC 프로그램을 넣고 공구 리스트를 생성하세요" 안내 문구는 제거되어 있다.
+
+        v2.2.8: 제목 줄은 [제목][프로그램 번호] … [설정][도움말][About][다크모드]이고,
+        모드 전환 버튼은 아래 아이콘 툴바의 마지막 묶음에 있다."""
         qapp = app.QApplication.instance() or app.QApplication([])
         settings_dir = tempfile.TemporaryDirectory()
         window = app.App(_root=settings_dir.name)
@@ -362,16 +366,15 @@ X60 Y10 Z0
             top_layout = window.top_bar.layout()
             widgets = [top_layout.itemAt(i).widget() for i in range(top_layout.count())]
             widgets = [w for w in widgets if w is not None]
-            # title, program_no_label(v1.7.3: 좌상단 프로그램 번호 표시) 다음
-            # 곧바로 About/도움말/툴리스트/뷰어 버튼이 와야 하고(stretch는
-            # addStretch()라 itemAt().widget()이 None이라 widgets 리스트에는
-            # 나타나지 않는다), 안내 문구 QLabel은 더 이상 없다.
-            # v1.6.1: About 다음에 도움말 버튼이 추가되었다.
             self.assertEqual(widgets[1], window.program_no_label)
             self.assertEqual(
-                widgets[2:6],
-                [window.btn_about, window.btn_help, window.btn_tool_mode, window.btn_viewer_mode],
+                widgets[2:5], [window.btn_settings, window.btn_help, window.btn_about],
             )
+            toolbar = window._toolbar_layout
+            self.assertEqual(
+                toolbar.indexOf(window.btn_viewer_mode), toolbar.indexOf(window.btn_tool_mode) + 1
+            )
+            self.assertGreater(toolbar.indexOf(window.btn_tool_mode), toolbar.indexOf(window.run_button))
         finally:
             window.deleteLater()
             settings_dir.cleanup()

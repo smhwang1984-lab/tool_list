@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-10-28 (NC_Tool_List v2.2.7 — 편집 모드 + NC 코드 색)
+Last updated: 2026-10-28 (NC_Tool_List v2.2.8 — UI 개편: 아이콘 툴바 + 설정 창 + 툴패스 선 굵기)
 
 ## About button requirements
 
@@ -34,7 +34,38 @@ Last updated: 2026-10-28 (NC_Tool_List v2.2.7 — 편집 모드 + NC 코드 색)
 
 ## Version history
 
-### 2026-10-28 (latest, v2.2.7)
+### 2026-10-28 (latest, v2.2.8)
+
+- Version: 2.2.7 → 2.2.8
+- Release/build date: 2026-10-28
+- Summary: 사용자 요청 "UI 전면 개편(기능·코드 유지, 버튼 위치 조정 허용, CAM 툴패스 뷰어 참고, 버튼에 기능 아이콘) + Viewer 툴패스 선 굵기 설정". 상세는 `v2.2.8_PLAN.md`(D-1~D-4 추천안 승인).
+  1. **제목 줄**: [제목][프로그램 번호] … [설정][도움말][About][다크모드]. 보조 버튼은 아이콘+글자.
+  2. **아이콘 툴바(신설)**: 제목 줄 아래 한 줄에 [파일 열기·PG ADD·예제·지우기] | [편집 모드·저장·비밀번호] | [Tool List] | [툴리스트 산출·Viewer]. 아이콘 위·글자 아래, 묶음은 세로 구분선.
+     왼쪽 패널의 버튼 줄과 편집 버튼은 이 툴바로 옮겼다. 연결 함수·위젯 속성 이름은 그대로.
+  3. **아이콘**: 신규 `ui_icons.py` — 외부 이미지·아이콘 세트 없이 QPainter로 일반 기호만 직접 그린다(라이선스 문제 없음, 설치 자원 증가 없음). 테마를 바꾸면 테마 색으로 다시 그린다.
+     검색 줄(이전 공구/다음 공구/문자 검색/검색), 공정 필터(Reset/전체/해제/소재), 공구 리스트(삭제/수정/행 추가/이름 경우의 수/PDF 출력/표 복사), 선반 드래그줌에 아이콘.
+     (1차 빌드에서 전체/해제를 아이콘만 뒀다가, 사용자 요청으로 글자를 되살렸다 — 아래 6번.)
+  4. **⚙ 설정 창(신설, 모달 아님)**: 툴패스 선 굵기 드롭다운 10~100%(10% 단위, 굵기별 미리보기 선, 기본 90% = 이전 굵기). 10% = 1px, 90% = 이전 굵기, 100% = 1.1배로 10단계가 모두 다르게 보인다.
+     경로를 다시 계산하지 않고 정적 경로·재생 궤적 굵기만 바꾸며 PC별로 저장(`toolpath_line_width_pct`). 3D 화면 위에 있던 마우스 감도·방향 큐브 크기 슬라이더를 이 창으로 옮겼다(저장 키·Alt+휠 연동 그대로). "기본값으로" 버튼.
+  6. **수정 요청 반영(같은 2.2.8)**: (a) 공정 필터 `전체`/`해제`에 글자를 되살리고(아이콘+글자), 줄 라벨을 `공정 필터`로 줄였다(원래 이름은 툴팁).
+     화면 배율이 크면(150%) 고정 최소 폭 520px에 이 줄이 안 들어가 버튼 글자가 잘렸으므로, 프로그램 패널 최소 폭을 실제 필요한 폭으로 늘린다(100% 배율은 520px 그대로).
+     (b) 시작은 처음부터 최대화: `main()`이 `show()` 대신 `showMaximized()`로 띄우고, 0.3초 뒤 실제로 최대화됐는지 한 번 더 확인한다(바로가기/설치 직후 실행 등 Windows가 첫 창 상태를 덮어쓰는 경우 대비).
+  5. 테스트 인프라: `tests/conftest.py`에서 GL 안전 모드 카운터를 끈다. 한 파일만 돌리면 사용자의 실제 `viewer_gl_unsafe.flag`가 올라가 앱이 안전 모드로 떨어지던 문제(개발 중 실측, 플래그는 삭제해 원복).
+- Open source software: 변경 없음.
+- Verification: `python -m pytest` (빌드 venv) → 659 passed, 2 failed, 60 skipped. 신규 `tests/test_ui_refresh.py` 28개 통과. 옛 배치를 고정한 테스트 2개(`test_v142_ui_layout_defaults_and_machine_settings_panel`,
+  `test_top_caption_removed_and_top_bar_buttons_left_aligned`)와 최소 폭 단언(같음 → 이상), `main()` 소스 검사(`window.showMaximized()`)를 고쳤다.
+  실패 2건은 v2.2.7과 같은 환경 의존 테스트: `test_switching_to_lathe_changes_table_schema_and_machine`(저장된 장비 설정), `test_handoff_returns_false_when_no_instance_is_running`(이 PC에서 설치본이 실행 중).
+  실제 창(라이트/다크, 툴리스트/Viewer, 설정 창·드롭다운)을 캡처해 확인했다.
+- Installer/package status: **생성 완료**. `installer\NC_Tool_List_Setup_v2.2.8.exe`, `installer\NC_Tool_List_Portable_v2.2.8.zip`.
+  `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` → `ISCC.exe NC_Tool_List.iss`. 1차 빌드 dist exe는 기동해 OpenGL 초기화(Intel Iris Plus)를 확인했다.
+  수정 반영 재빌드는 설치본이 실행 중이라(단일 인스턴스 핸드오프) dist exe 기동 확인을 하지 못했다. 빌드는 numba / llvmlite 포함.
+  - Setup EXE SHA-256: FD190CE369E755A53EF03802C92A0FF8BB75F212000E8AEB97DB10EDA184047C
+  - Portable ZIP SHA-256: B69156EB77AF19D66B076F0CCC0601328ECCFE97EA93CCA52A7097969056B6E5
+  - App EXE SHA-256: 36FDF7525E21E0670517B26BD5AFDDDBA5C462B611A6422877F05C8B2B28F6A6
+  - Setup 77.9 MB / Portable 109.3 MB(압축 해제 합계는 v2.2.7과 같은 284.1 MB — 폴더 항목 수와 압축 차이).
+- 서명 상태: 설치본과 앱 실행 파일 모두 미서명이다(기존과 동일).
+
+### 2026-10-28 (v2.2.7)
 
 - Version: 2.2.6 → 2.2.7
 - Release/build date: 2026-10-28
