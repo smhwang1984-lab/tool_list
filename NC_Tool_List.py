@@ -29,7 +29,7 @@ import lathe_insert_spec
 import sumpath_license
 
 
-APP_VERSION = '2.2.5'
+APP_VERSION = '2.2.6'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-10-08'
 APP_CREATOR = 'Hwang.seonmun'
@@ -125,7 +125,12 @@ THEMES = {
 }
 
 # ---------- 파싱 로직 ----------
-TOOL_RE = re.compile(r'\(\s*T(\d+)\s*//\s*(.*?)\s*\[SO\s*([\d.]+)\]\s*//\s*T\d+\s*([^)]*?)\s*\)', re.I)
+# v2.2.6: 공구명 뒤 "[SO nn]"은 있어도 되고 없어도 된다(없으면 NAME/HOLDER는 그대로 읽고
+# SO는 아래 주석 "(SO nn ...)"에서 가져온다). 그룹 3(SO)은 없으면 None.
+# 홀더 앞 "T번호"도 선택 항목이다(지워도 NAME/HOLDER를 읽는다).
+TOOL_RE = re.compile(r'\(\s*T(\d+)\s*//\s*(.*?)\s*(?:\[SO\s*([\d.]+)\]\s*)?//\s*(?:T\d+\s*)?([^)]*?)\s*\)', re.I)
+# v2.2.6: 공구 정보 주석의 "(SO    90.000000 GL ...)" 줄에서 SO 값만 읽는다. 이 값이 실제 출력 기준이다.
+COMMENT_SO_RE = re.compile(r'^\s*\(\s*SO\s+(-?\d+(?:\.\d+)?)', re.I | re.M)
 N_RE    = re.compile(r'^\s*N(\d+)\s*\(\s*#\d+\s*:\s*Tool\s*Change', re.I)
 M6_RE   = re.compile(r'^\s*M0?6\s*T0*(\d+)\b', re.I)
 M6_SEARCH_RE = re.compile(r'^\s*M0?6\s*T0*\d+\b', re.I | re.M)
@@ -681,6 +686,7 @@ PDF_INFO_BLUE = colors.HexColor('#BDDDEE')
 PDF_HEADER_GRAY = colors.HexColor('#BFBFBF')
 PDF_ALT_GRAY = colors.HexColor('#D9D9D9')
 PDF_FONT_BLUE = colors.HexColor('#002F60')
+PDF_ALERT_RED = colors.HexColor('#D00000')
 PDF_GRID_GRAY = colors.HexColor('#9A9A9A')
 PDF_FONT_REGULAR = 'NCMalgun'
 PDF_FONT_BOLD = 'NCMalgunBold'
@@ -818,15 +824,20 @@ def make_pdf_table(rows, metadata, available_width, fonts):
     data = [make_pdf_metadata_row(metadata, regular_font)]
     data.append([label for _key, label in COLUMNS])
     data.extend([_pdf_row_cells(row, COLUMNS, regular_font, bold_font) for row in page_rows])
-    return style_pdf_table(data, available_width, regular_font, bold_font)
+    # v2.2.6: 공구명 SO와 주석 SO가 다른 행은 SO 칸 글자를 붉은색으로 강조한다(데이터 행은 표의 3번째 줄부터).
+    so_col = [key for key, _label in COLUMNS].index('SO')
+    alerts = [(so_col, 2 + i) for i, row in enumerate(page_rows) if row.get('_SO_ALERT')]
+    return style_pdf_table(data, available_width, regular_font, bold_font, alerts)
 
 
-def style_pdf_table(data, available_width, regular_font, bold_font):
+def style_pdf_table(data, available_width, regular_font, bold_font, so_alerts=()):
     heights = [16, 20] + [15.5] * PDF_ROWS_PER_PAGE
     table = Table(data, colWidths=pdf_column_widths(available_width), rowHeights=heights)
     commands = base_pdf_table_style(regular_font, bold_font)
     commands.extend(pdf_table_spans())
     commands.extend(pdf_table_row_backgrounds())
+    for col, table_row in so_alerts:
+        commands.append(('TEXTCOLOR', (col, table_row), (col, table_row), PDF_ALERT_RED))
     table.setStyle(TableStyle(commands))
     return table
 
@@ -1416,6 +1427,22 @@ def derive_d(name):
     return m.group(1) if m else ''
 
 
+def _same_number(a, b):
+    try:
+        return abs(float(a) - float(b)) < 1e-9
+    except (TypeError, ValueError):
+        return str(a).strip() == str(b).strip()
+
+
+def so_alert_text(name_so, comment_so):
+    """공구명 SO와 주석 SO가 둘 다 있고 값이 다르면 안내 문구, 아니면 빈 문자열."""
+    if name_so in (None, '') or comment_so in (None, ''):
+        return ''
+    if _same_number(name_so, comment_so):
+        return ''
+    return '공구명 SO %s / 주석 SO %s' % (name_so, comment_so)
+
+
 def parse_program(text, name_types=None, lathe=False):
     """N번호 ~ 공구 교체 사이의 괄호 주석만 읽어서 공구별로 정리해 행 목록 반환.
 
@@ -1436,8 +1463,15 @@ def parse_program(text, name_types=None, lathe=False):
         tm = TOOL_RE.search(block)
         if tm:
             t['f'].setdefault('NAME', tm.group(2).strip())
-            t['f'].setdefault('SO', tm.group(3).strip())
+            if tm.group(3):
+                t['f'].setdefault('SO_NAME', tm.group(3).strip())
             t['f'].setdefault('HOLDER', tm.group(4).strip())
+        sm = COMMENT_SO_RE.search(block)
+        if sm:
+            t['f'].setdefault('SO_CMT', fmt_num(sm.group(1)))
+        # 같은 공구가 여러 번 나올 때 어느 블록에서든 어긋나면 강조한다.
+        if tm and tm.group(3) and sm and not t.get('alert'):
+            t['alert'] = so_alert_text(tm.group(3).strip(), fmt_num(sm.group(1)))
         for m in KV_RE.finditer(block):
             key = m.group(1).upper()
             t['f'].setdefault(key, fmt_num(m.group(2)))
@@ -1502,12 +1536,16 @@ def parse_program(text, name_types=None, lathe=False):
             'R': r,
             'SIG': f.get('SIG', ''),
             'PL': f.get('PL', ''),
-            'SO': f.get('SO', ''),
+            # v2.2.6: 주석 SO가 있으면 그 값이 기준, 없으면 공구명 뒤 [SO] (이전 프로그램 그대로)
+            'SO': f.get('SO_CMT') or f.get('SO_NAME', ''),
             'GL': f.get('GL', ''),
             'HOLDER': f.get('HOLDER', ''),
             'SPINDL': f.get('SPINDL', ''),
             'FEED': f.get('FEED', ''),
             'REMARK': _format_remark(tools[n]['remarks'], radius_comp),
+            'SO_NAME': f.get('SO_NAME', ''),
+            'SO_CMT': f.get('SO_CMT', ''),
+            'SO_ALERT': tools[n].get('alert', ''),
         })
     return rows
 
@@ -4400,6 +4438,25 @@ else:
                 return '%s\n비어 있음 — [수정]에서 입력하세요' % hint
             return ''
 
+        def _style_mill_so_item(self, item, row_index, column, row):
+            """v2.2.6: 밀링 SO 칸 — 공구명 SO와 주석 SO가 다르면 붉은색 + 툴팁.
+            주석 SO는 셀(UserRole+1)에 보관해 두었다가 [수정]으로 SO를 바꿀 때 다시 비교한다."""
+            if 'SO_CMT' in row:
+                comment_so = str(row.get('SO_CMT') or '')
+                alert = str(row.get('SO_ALERT') or '')
+            else:
+                old = self.table.item(row_index, column)
+                comment_so = str((old.data(Qt.UserRole + 1) if old else '') or '')
+                alert = ''
+                shown = str(row.get('SO', '')).strip()
+                if comment_so and shown and not _same_number(shown, comment_so):
+                    alert = '주석 SO %s / 표 SO %s' % (comment_so, shown)
+            item.setData(Qt.UserRole + 1, comment_so)
+            item.setData(Qt.UserRole, alert)
+            if alert:
+                item.setForeground(QColor(self.theme['error']))
+                item.setToolTip(alert)
+
         def set_table_row(self, row_index, row):
             lathe = self.is_lathe_program()
             sources = getattr(row, 'sources', None) or {}
@@ -4413,6 +4470,8 @@ else:
                     tip = self._lathe_cell_tooltip(key, row, sources)
                     if tip:
                         item.setToolTip(tip)
+                elif key == 'SO':
+                    self._style_mill_so_item(item, row_index, column, row)
                 self.table.setItem(row_index, column, item)
 
         def run(self):
@@ -4727,7 +4786,13 @@ else:
             columns = self.active_columns()
             rows = []
             for row_index in range(self.table.rowCount()):
-                rows.append({key: self.table_text(row_index, key) for key, _label in columns})
+                row = {key: self.table_text(row_index, key) for key, _label in columns}
+                if not self.is_lathe_program():
+                    so_col = [key for key, _label in columns].index('SO')
+                    so_item = self.table.item(row_index, so_col)
+                    if so_item and so_item.data(Qt.UserRole):
+                        row['_SO_ALERT'] = so_item.data(Qt.UserRole)
+                rows.append(row)
             return rows
 
         def tool_name_map(self, rows):

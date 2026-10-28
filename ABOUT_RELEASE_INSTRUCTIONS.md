@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-10-08 (NC_Tool_List v2.2.5 — G4 휴즈(드웰) 지원)
+Last updated: 2026-10-28 (NC_Tool_List v2.2.6 — 주석 SO 기준 + 불일치 강조)
 
 ## About button requirements
 
@@ -34,7 +34,27 @@ Last updated: 2026-10-08 (NC_Tool_List v2.2.5 — G4 휴즈(드웰) 지원)
 
 ## Version history
 
-### 2026-10-08 (latest, v2.2.5)
+### 2026-10-28 (latest, v2.2.6)
+
+- Version: 2.2.5 → 2.2.6
+- Release/build date: 2026-10-28
+- Summary: 사용자 요청 "공구 번호는 M6 Tn, SO는 공구 정보 주석 `(SO nn ...)`을 기준으로, 공구명 뒤 [SO]와 다르면 붉은색 강조".
+  1. **주석 SO 기준**(`parse_program`, 밀링): 공구 정보 주석의 `(SO 90.000000 GL ...)` 값을 SO로 쓴다. 주석 SO가 없으면 공구명 뒤 `[SO nn]`를 그대로 쓴다(이전 프로그램 출력 불변).
+  2. **불일치 강조**: 공구명 SO와 주석 SO가 둘 다 있고 숫자로 다르면 주석 SO를 표시하고 화면 표 SO 칸을 붉은색(+툴팁 "공구명 SO 80 / 주석 SO 85")으로,
+     PDF는 해당 행 SO 칸 글자를 붉은색으로 출력한다. 같은 공구가 여러 블록에 나오면 어느 한 블록이라도 어긋날 때 강조한다. [수정]으로 SO를 바꾸면 주석 SO와 다시 비교한다.
+  3. **공구명 줄 형식 완화**(`TOOL_RE`): 공구명 뒤 `[SO nn]`와 홀더 앞 `T번호`를 선택 항목으로 바꿨다. 이전에는 둘 중 하나라도 없으면 NAME/HOLDER가 모두 비었다.
+- Open source software: 변경 없음.
+- Verification: `python -m pytest` → 571 passed, 1 failed, 60 skipped (빌드 환경 Python 3.12 venv, `C:\dev\nc_build_venv`). 신규 `tests/test_so_comment.py` 10개 통과.
+  실패 1건(`test_switching_to_lathe_changes_table_schema_and_machine`)은 이번 변경과 무관하다 — 변경 전 코드에서도 동일하게 실패하며, 저장된 장비 설정 때문에 '5축 MCT'가 선택되는 환경 의존 테스트다.
+- Installer/package status: **생성 완료**. `installer\NC_Tool_List_Setup_v2.2.6.exe`, `installer\NC_Tool_List_Portable_v2.2.6.zip`.
+  `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` → `ISCC.exe NC_Tool_List.iss`. dist exe를 기동해 12초 뒤에도 실행 중임을 확인(파일 버전 2.2.6.0).
+  - Setup EXE SHA-256: DC0559F39F2751B12862DA28F734A5712E56756B18D382803303E1F90AE1D5F2
+  - Portable ZIP SHA-256: 9FF58718A0CB47D53A2A12FE42A871DBBBD95DF3FF56038CC5F67609022399A0
+  - App EXE SHA-256: 40255DB0D94F138B80D1BC21D6113CA9F6BA731FE87C2C96288E4DBAB80781E1
+  - Setup 77.9 MB / Portable 109.3 MB.
+- 서명 상태: 설치본과 앱 실행 파일 모두 미서명이다(기존과 동일).
+
+### 2026-10-08 (v2.2.5)
 
 - Version: 2.2.4 → 2.2.5
 - Release/build date: 2026-10-08
