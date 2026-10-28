@@ -7,8 +7,15 @@
 살아 있는 창 수를 일정하게 유지한다.
 """
 import gc
+import os
 
 import pytest
+
+# 테스트가 App/뷰어를 만들 때마다 사용자의 실제 GL 안전 모드 카운터
+# (%LOCALAPPDATA%\NC_Tool_List\viewer_gl_unsafe.flag)가 올라가지 않게 끈다. 지금까지는
+# 일부 테스트 파일만 import 때 이 값을 넣어서, 그 파일 없이 한 파일만 돌리면 카운터가
+# 올라가 실제 앱이 안전 모드로 떨어졌다(v2.2.8 개발 중 실측).
+os.environ.setdefault('NC_TOOL_LIST_GL_SAFE_MODE', '0')
 
 
 @pytest.fixture(autouse=True)
