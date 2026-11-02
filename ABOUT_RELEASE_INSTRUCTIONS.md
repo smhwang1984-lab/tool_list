@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-10-06 (NC_Tool_List v2.2.4 — 체험판 만료 예정 안내 오류 수정)
+Last updated: 2026-10-28 (NC_Tool_List v2.2.8 — UI 개편: 아이콘 툴바 + 설정 창 + 툴패스 선 굵기)
 
 ## About button requirements
 
@@ -34,7 +34,107 @@ Last updated: 2026-10-06 (NC_Tool_List v2.2.4 — 체험판 만료 예정 안내
 
 ## Version history
 
-### 2026-10-06 (latest, v2.2.4)
+### 2026-10-28 (latest, v2.2.8)
+
+- Version: 2.2.7 → 2.2.8
+- Release/build date: 2026-10-28
+- Summary: 사용자 요청 "UI 전면 개편(기능·코드 유지, 버튼 위치 조정 허용, CAM 툴패스 뷰어 참고, 버튼에 기능 아이콘) + Viewer 툴패스 선 굵기 설정". 상세는 `v2.2.8_PLAN.md`(D-1~D-4 추천안 승인).
+  1. **제목 줄**: [제목][프로그램 번호] … [설정][도움말][About][다크모드]. 보조 버튼은 아이콘+글자.
+  2. **아이콘 툴바(신설)**: 제목 줄 아래 한 줄에 [파일 열기·PG ADD·예제·지우기] | [편집 모드·저장·비밀번호] | [Tool List] | [툴리스트 산출·Viewer]. 아이콘 위·글자 아래, 묶음은 세로 구분선.
+     왼쪽 패널의 버튼 줄과 편집 버튼은 이 툴바로 옮겼다. 연결 함수·위젯 속성 이름은 그대로.
+  3. **아이콘**: 신규 `ui_icons.py` — 외부 이미지·아이콘 세트 없이 QPainter로 일반 기호만 직접 그린다(라이선스 문제 없음, 설치 자원 증가 없음). 테마를 바꾸면 테마 색으로 다시 그린다.
+     검색 줄(이전 공구/다음 공구/문자 검색/검색), 공정 필터(Reset/전체/해제/소재), 공구 리스트(삭제/수정/행 추가/이름 경우의 수/PDF 출력/표 복사), 선반 드래그줌에 아이콘.
+     (1차 빌드에서 전체/해제를 아이콘만 뒀다가, 사용자 요청으로 글자를 되살렸다 — 아래 6번.)
+  4. **⚙ 설정 창(신설, 모달 아님)**: 툴패스 선 굵기 드롭다운 10~100%(10% 단위, 굵기별 미리보기 선, 기본 90% = 이전 굵기). 10% = 1px, 90% = 이전 굵기, 100% = 1.1배로 10단계가 모두 다르게 보인다.
+     경로를 다시 계산하지 않고 정적 경로·재생 궤적 굵기만 바꾸며 PC별로 저장(`toolpath_line_width_pct`). 3D 화면 위에 있던 마우스 감도·방향 큐브 크기 슬라이더를 이 창으로 옮겼다(저장 키·Alt+휠 연동 그대로). "기본값으로" 버튼.
+  6. **수정 요청 반영(같은 2.2.8)**: (a) 공정 필터 `전체`/`해제`에 글자를 되살리고(아이콘+글자), 줄 라벨을 `공정 필터`로 줄였다(원래 이름은 툴팁).
+     화면 배율이 크면(150%) 고정 최소 폭 520px에 이 줄이 안 들어가 버튼 글자가 잘렸으므로, 프로그램 패널 최소 폭을 실제 필요한 폭으로 늘린다(100% 배율은 520px 그대로).
+     (b) 시작은 처음부터 최대화: `main()`이 `show()` 대신 `showMaximized()`로 띄우고, 0.3초 뒤 실제로 최대화됐는지 한 번 더 확인한다(바로가기/설치 직후 실행 등 Windows가 첫 창 상태를 덮어쓰는 경우 대비).
+  5. 테스트 인프라: `tests/conftest.py`에서 GL 안전 모드 카운터를 끈다. 한 파일만 돌리면 사용자의 실제 `viewer_gl_unsafe.flag`가 올라가 앱이 안전 모드로 떨어지던 문제(개발 중 실측, 플래그는 삭제해 원복).
+- Open source software: 변경 없음.
+- Verification: `python -m pytest` (빌드 venv) → 659 passed, 2 failed, 60 skipped. 신규 `tests/test_ui_refresh.py` 28개 통과. 옛 배치를 고정한 테스트 2개(`test_v142_ui_layout_defaults_and_machine_settings_panel`,
+  `test_top_caption_removed_and_top_bar_buttons_left_aligned`)와 최소 폭 단언(같음 → 이상), `main()` 소스 검사(`window.showMaximized()`)를 고쳤다.
+  실패 2건은 v2.2.7과 같은 환경 의존 테스트: `test_switching_to_lathe_changes_table_schema_and_machine`(저장된 장비 설정), `test_handoff_returns_false_when_no_instance_is_running`(이 PC에서 설치본이 실행 중).
+  실제 창(라이트/다크, 툴리스트/Viewer, 설정 창·드롭다운)을 캡처해 확인했다.
+- Installer/package status: **생성 완료**. `installer\NC_Tool_List_Setup_v2.2.8.exe`, `installer\NC_Tool_List_Portable_v2.2.8.zip`.
+  `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` → `ISCC.exe NC_Tool_List.iss`. 1차 빌드 dist exe는 기동해 OpenGL 초기화(Intel Iris Plus)를 확인했다.
+  수정 반영 재빌드는 설치본이 실행 중이라(단일 인스턴스 핸드오프) dist exe 기동 확인을 하지 못했다. 빌드는 numba / llvmlite 포함.
+  - Setup EXE SHA-256: FD190CE369E755A53EF03802C92A0FF8BB75F212000E8AEB97DB10EDA184047C
+  - Portable ZIP SHA-256: B69156EB77AF19D66B076F0CCC0601328ECCFE97EA93CCA52A7097969056B6E5
+  - App EXE SHA-256: 36FDF7525E21E0670517B26BD5AFDDDBA5C462B611A6422877F05C8B2B28F6A6
+  - Setup 77.9 MB / Portable 109.3 MB(압축 해제 합계는 v2.2.7과 같은 284.1 MB — 폴더 항목 수와 압축 차이).
+- 서명 상태: 설치본과 앱 실행 파일 모두 미서명이다(기존과 동일).
+
+### 2026-10-28 (v2.2.7)
+
+- Version: 2.2.6 → 2.2.7
+- Release/build date: 2026-10-28
+- Summary: 사용자 요청 "편집 모드(비밀번호) + NC 코드 색 표시 + 수정 즉시 반영, 앱 시작은 항상 읽기 모드". 상세는 `v2.2.7_PLAN.md`.
+  1. **편집 모드**: 프로그램 입력창 위 `편집 모드` 토글 → 비밀번호(기본 1234). 새 비밀번호는 PBKDF2-SHA256(+salt) 해시로 `%APPDATA%\NC Tool List\app_settings.json`의 `edit_password`에 저장
+     (키를 지우면 1234로 초기화). 앱은 어떤 경로로 시작해도 읽기 모드이며 상태를 저장하지 않는다. 저장(Ctrl+S)은 원래 인코딩(UTF-8/BOM/CP949)·줄바꿈을 유지하고 `.bak`을 남긴다.
+     저장 안 한 변경이 있으면 끄기/파일 열기/종료 때 저장·저장 안 함·취소를 묻는다. 비밀번호 변경은 편집 모드 안에서만 가능.
+  2. **즉시 반영**: 편집 모드에서 입력이 0.4초 멈추면 툴리스트(표/공구 수/출력 정보)와 공구 패스(Viewer 모드)를 다시 만든다. 재생 중이면 먼저 멈춘다. 표에서 직접 고친 내용이 있으면 사라진다고 먼저 묻는다.
+  3. **NC 코드 색**: G0 빨강/G1 초록/G2 파랑/G3 보라/사이클 갈색은 다음 색 코드(또는 G80·M30·%)까지 줄을 넘어 이어진다. 스핀들(S, M3/4/5/19) 노랑, M8/M9 주황은 그 글자만. 주석은 색 없음.
+     라이트/다크 테마별 색, 편집창 배경·현재 줄 배경 모두에서 대비 4.5 이상(라이트 스핀들은 가독성 때문에 계획의 #8a6d00 대신 #7a6000). 6만 줄 하이라이트 0.23초.
+  4. **파일 읽기**: UTF-8(BOM 포함)/CP949를 구분해 읽는다(이전에는 CP949 한글이 깨져 보였다). 화면 표시는 UTF-8 파일에서 변함없다.
+- Open source software: 변경 없음(표준 라이브러리 hashlib/hmac 사용).
+- Verification: `python -m pytest` (빌드 venv) → 631 passed, 2 failed, 60 skipped. 신규 `tests/test_edit_mode.py`, `tests/test_nc_highlight.py` 61개 통과.
+  실패 2건은 이번 변경과 무관한 환경 의존 테스트: `test_switching_to_lathe_changes_table_schema_and_machine`(저장된 장비 설정, v2.2.6부터 동일),
+  `test_handoff_returns_false_when_no_instance_is_running`(이 PC에서 NC_Tool_List.exe가 실행 중이라 핸드오프가 True).
+  offscreen 환경에는 글꼴이 없어 글자 색은 화면 캡처로 못 봤고, 서식은 하이라이터 단위 테스트로 확인했다. 실제 화면 확인은 설치 후 필요.
+- Installer/package status: **생성 완료**. `installer\NC_Tool_List_Setup_v2.2.7.exe`, `installer\NC_Tool_List_Portable_v2.2.7.zip`.
+  `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` → `ISCC.exe NC_Tool_List.iss`. 이 PC에 앱이 이미 실행 중이라 단일 인스턴스 때문에 dist exe 기동 확인은 하지 못했다.
+  - Setup EXE SHA-256: 6CE3FF0E318B3502A7A9D68C5120ACE438C771830132A622689228A5E3BFF656
+  - Portable ZIP SHA-256: EA5CF4F10C3873F6F944A3349CD71738EA98D1B0CE2A3B42FC4F0BFBE1E062BA
+  - App EXE SHA-256: 4BCAB791B662D2F2A120316E162D39DC63DCE4A864D657982181E4B85D83F80D
+  - Setup 81.7 MB / Portable 117.3 MB.
+- 서명 상태: 설치본과 앱 실행 파일 모두 미서명이다(기존과 동일).
+
+### 2026-10-28 (v2.2.6)
+
+- Version: 2.2.5 → 2.2.6
+- Release/build date: 2026-10-28
+- Summary: 사용자 요청 "공구 번호는 M6 Tn, SO는 공구 정보 주석 `(SO nn ...)`을 기준으로, 공구명 뒤 [SO]와 다르면 붉은색 강조".
+  1. **주석 SO 기준**(`parse_program`, 밀링): 공구 정보 주석의 `(SO 90.000000 GL ...)` 값을 SO로 쓴다. 주석 SO가 없으면 공구명 뒤 `[SO nn]`를 그대로 쓴다(이전 프로그램 출력 불변).
+  2. **불일치 강조**: 공구명 SO와 주석 SO가 둘 다 있고 숫자로 다르면 주석 SO를 표시하고 화면 표 SO 칸을 붉은색(+툴팁 "공구명 SO 80 / 주석 SO 85")으로,
+     PDF는 해당 행 SO 칸 글자를 붉은색으로 출력한다. 같은 공구가 여러 블록에 나오면 어느 한 블록이라도 어긋날 때 강조한다. [수정]으로 SO를 바꾸면 주석 SO와 다시 비교한다.
+  3. **공구명 줄 형식 완화**(`TOOL_RE`): 공구명 뒤 `[SO nn]`와 홀더 앞 `T번호`를 선택 항목으로 바꿨다. 이전에는 둘 중 하나라도 없으면 NAME/HOLDER가 모두 비었다.
+- Open source software: 변경 없음.
+- Verification: `python -m pytest` → 571 passed, 1 failed, 60 skipped (빌드 환경 Python 3.12 venv, `C:\dev\nc_build_venv`). 신규 `tests/test_so_comment.py` 10개 통과.
+  실패 1건(`test_switching_to_lathe_changes_table_schema_and_machine`)은 이번 변경과 무관하다 — 변경 전 코드에서도 동일하게 실패하며, 저장된 장비 설정 때문에 '5축 MCT'가 선택되는 환경 의존 테스트다.
+- Installer/package status: **생성 완료**. `installer\NC_Tool_List_Setup_v2.2.6.exe`, `installer\NC_Tool_List_Portable_v2.2.6.zip`.
+  `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` → `ISCC.exe NC_Tool_List.iss`. dist exe를 기동해 12초 뒤에도 실행 중임을 확인(파일 버전 2.2.6.0).
+  - Setup EXE SHA-256: DC0559F39F2751B12862DA28F734A5712E56756B18D382803303E1F90AE1D5F2
+  - Portable ZIP SHA-256: 9FF58718A0CB47D53A2A12FE42A871DBBBD95DF3FF56038CC5F67609022399A0
+  - App EXE SHA-256: 40255DB0D94F138B80D1BC21D6113CA9F6BA731FE87C2C96288E4DBAB80781E1
+  - Setup 77.9 MB / Portable 109.3 MB.
+- 서명 상태: 설치본과 앱 실행 파일 모두 미서명이다(기존과 동일).
+
+### 2026-10-08 (v2.2.5)
+
+- Version: 2.2.4 → 2.2.5
+- Release/build date: 2026-10-08
+- Summary: 사용자 요청 "PLAN_stock_simulation.md 바탕으로 시뮬레이션 개선 및 G4 휴즈 기능 — G4 X1.0 또는 G4 P1000이면 1초, P500이면 0.5초".
+  1. **G4 휴즈 해석**(`nc_viewer_widget.parse_dwell`): 이전에는 `G4 X1.0`의 X를 좌표로 읽어 공구가 X1.0(선반은 지름 1, 반경 0.5)으로
+     움직였고, 툴패스와 소재 절삭 시뮬레이션이 그만큼 틀렸다. 이제 G4/G04 블록의 시간 워드는 좌표로 읽지 않는다.
+     P=밀리초(P1000=1초, P500=0.5초), X/U=소수점 있으면 초(X1.0·X1.=1초)·없으면 밀리초(X1000=1초), F=초, 워드 없음=0초.
+  2. **가공시간**: 휴즈 시간을 공정 시간과 전체 시간에 더한다(그 공정 안, 휴즈 뒤 첫 이동 전에). 경로 없는 구간의 휴즈는 다음 공정에 붙인다.
+  3. **PG 매칭 자동 재생**: 휴즈 줄을 건너뛰지 않고 그 줄에서 멈춘 뒤 지령 시간(배속과 무관한 실제 초)만큼 기다렸다가 이어간다.
+     일시정지, 방향키 이동, 되감기를 하면 대기가 풀린다.
+- 코드 리뷰(`/code-review medium`)에서 반영한 것: `X1.`처럼 소수점으로 끝나는 값, 시간 워드 하나만 지우기(`M98P..` 보존), `G4 F`가 이송속도로
+  오인되는 문제, 경로 없는 구간 휴즈의 누적 시간, 위치 이동 시 휴즈 대기 해제.
+  반영하지 않은 것: 배속 비례 대기(요청대로 실제 시간), 휴즈 줄 표시 시간(이동 줄과 같이 "줄 완료 시점" 기준), 공구 교체와 같은 줄의 G4 공정 귀속(드문 경우).
+- Open source software: 변경 없음.
+- Verification: `python -m pytest` → 562 passed, 60 skipped (신규 `tests/test_dwell.py` 13개 — 수정 전 코드에서는 경로 테스트가 실패함을 확인).
+- Installer/package status: **생성 완료**. `installer\NC_Tool_List_Setup_v2.2.5.exe`, `installer\NC_Tool_List_Portable_v2.2.5.zip`.
+  dist exe를 기동해 12초 뒤에도 실행 중임을 확인(파일 버전 2.2.5.0). 빌드는 numba / llvmlite 포함.
+  - Setup EXE SHA-256: 0FC65F4664D0BFE9A16178728465F138CBDA22B6FD50B6278215002B6D4A3D57
+  - Portable ZIP SHA-256: 41C8F99B71EA4332568AA4C31684FEFA2F06693FD53F85E6764777E957F134D6
+  - App EXE SHA-256: 20A4673DA24C2EFB6FF1AC9534DEEE853FE04C6B7099893D4A3BEC077BD8C7CB
+  - Setup 77.9 MB / Portable 109.3 MB.
+- 서명 상태: 설치본과 앱 실행 파일 모두 미서명이다(기존과 동일).
+
+### 2026-10-06 (v2.2.4)
 
 - Version: 2.2.3 → 2.2.4
 - Release/build date: 2026-10-06

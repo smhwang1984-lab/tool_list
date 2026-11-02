@@ -34,6 +34,8 @@ viewer_hiddenimports = [
     'lathe_insert_spec',
     # v2.2.0: 선반 형상 시뮬레이션 엔진(선삭 축대칭 + 턴밀 하이브리드, Qt 비의존).
     'nc_lathe_sim',
+    # v2.2.8: 툴바·버튼 아이콘(QPainter로 직접 그림, 이미지 파일 없음).
+    'ui_icons',
 ] + numba_imports + collect_submodules('pyqtgraph.opengl') + collect_submodules('OpenGL')
 
 a = Analysis(
