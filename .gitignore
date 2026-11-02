@@ -9,3 +9,6 @@ __pycache__/
 # v1.8.0: 라이선스 서명 개인키/발급 파일. 절대 저장소에 넣지 않는다.
 *.pem
 *.lic
+
+# 홍보영상 생성물(promo/build/는 위 build/ 규칙으로 제외)
+promo/output/

@@ -1,0 +1,12 @@
+# 홍보영상 생성용 (앱 실행 패키지에 더해)
+PyQt5
+pyqtgraph
+PyOpenGL
+numpy
+numba
+reportlab
+Pillow
+# ffmpeg 실행 파일이 PATH에 없으면 아래 패키지가 대신 제공한다
+imageio-ffmpeg
+# 나레이션(선택, 인터넷 필요): python promo\make_video.py --all --tts
+edge-tts
