@@ -31,9 +31,9 @@ import lathe_insert_spec
 import sumpath_license
 
 
-APP_VERSION = '2.2.8'
+APP_VERSION = '2.2.9'
 APP_NAME = 'Sum Path'
-APP_BUILD_DATE = '2026-10-28'
+APP_BUILD_DATE = '2026-11-05'
 APP_CREATOR = 'Hwang.seonmun'
 APP_PURPOSE = 'NC 프로그램에서 공구 리스트를 산출하고 NC 경로를 Viewer로 확인하는 도구'
 OPEN_SOURCE_COMPONENTS = (
@@ -2759,7 +2759,7 @@ else:
 
 
         def _recheck_license(self):
-            status = sumpath_license.ensure_license()
+            status = current_license_status()
             if not status.ok:
                 QMessageBox.critical(self, '라이선스 만료', status.message)
                 QApplication.instance().quit()
@@ -3588,17 +3588,26 @@ else:
                         '영구' if status.days_left is None else '남은 %d일' % status.days_left
                     )
                     valid_until_text = lic_data.get('valid_until') or '영구'
-                    return '사용자: %s\n기간: %s\n사용 기한: %s (%s)' % (
+                    text = '사용자: %s\n기간: %s\n사용 기한: %s (%s)' % (
                         lic_data.get('licensee', ''),
                         sumpath_license.plan_label(lic_data.get('plan_days')),
                         valid_until_text,
                         days_left_text,
                     )
+                    # v2.2.9: 로컬/서버 라이선스 구분
+                    if getattr(status, 'source', '') == 'server':
+                        text = '방식: 서버 라이선스 (%s, 좌석 %s대)\n%s\n%s' % (
+                            sumpath_license.get_license_server_url(), lic_data.get('seats', '?'),
+                            text, status.message,
+                        )
+                    else:
+                        text = '방식: 로컬 라이선스 (이 PC 전용)\n' + text
+                    return text
                 # 체험판(ok=True, license=None)과 실패 사유 모두 미리 사람이
                 # 읽을 문구가 status.message에 들어 있다(§ evaluate_trial).
                 return status.message
 
-            license_info_label.setText(describe_license(sumpath_license.ensure_license()))
+            license_info_label.setText(describe_license(current_license_status()))
             license_layout.addWidget(license_info_label)
 
             license_code_row = QHBoxLayout()
@@ -3624,8 +3633,38 @@ else:
                 if outcome.ok:
                     QMessageBox.information(dialog, '라이선스', '라이선스를 교체했습니다.')
 
+            def configure_license_server():
+                # v2.2.9: 서버 라이선스 연결/변경/해제. 빈 값 = 서버 라이선스 해제.
+                url, ok = QInputDialog.getText(
+                    dialog, '라이선스 서버',
+                    '라이선스 서버 주소 (예: 192.168.0.210 또는 http://NAS주소:8765)\n'
+                    '비워 두고 확인하면 서버 라이선스 연결을 해제합니다.',
+                    QLineEdit.Normal, sumpath_license.get_license_server_url(),
+                )
+                if not ok:
+                    return
+                if not url.strip():
+                    if not sumpath_license.get_license_server_url():
+                        return
+                    answer = QMessageBox.question(
+                        dialog, '라이선스 서버', '서버 라이선스 연결을 해제할까요?\n'
+                        '(로컬 라이선스나 체험판이 없으면 다음 실행부터 사용할 수 없습니다.)',
+                    )
+                    if answer != QMessageBox.Yes:
+                        return
+                    sumpath_license.set_license_server_url('')
+                    license_info_label.setText(describe_license(current_license_status()))
+                    return
+                outcome = sumpath_license.connect_license_server(url, client_info=license_client_info())
+                if outcome.ok:
+                    license_info_label.setText(describe_license(current_license_status()))
+                    QMessageBox.information(dialog, '라이선스 서버', '라이선스 서버에 연결했습니다.\n' + outcome.message)
+                else:
+                    QMessageBox.warning(dialog, '라이선스 서버', outcome.message)
+
             license_button_row = QHBoxLayout()
             self._add_button(license_button_row, '라이선스 파일 등록/교체...', replace_license_file)
+            self._add_button(license_button_row, '라이선스 서버 설정...', configure_license_server)
             license_layout.addLayout(license_button_row)
             layout.addWidget(license_group)
 
@@ -5609,6 +5648,16 @@ def _add_dialog_button(layout, text, slot):
     return button
 
 
+def license_client_info():
+    """v2.2.9: 라이선스 서버에 함께 보내는 정보(관리 화면 표시용)."""
+    return {'app_version': APP_VERSION}
+
+
+def current_license_status():
+    """v2.2.9: 로컬 → 서버 → 체험판 순으로 판정한다(sumpath_license.ensure_license)."""
+    return sumpath_license.ensure_license(client_info=license_client_info())
+
+
 def show_license_registration_dialog(status):
     """라이선스가 없거나 무효일 때 뜨는 등록 창(v1.8.0). App 창을 만들기
     전에 호출되므로 부모 없이 최상위 창으로 띄운다. 유효한 라이선스를
@@ -5633,7 +5682,10 @@ def show_license_registration_dialog(status):
     _add_dialog_button(code_row, '복사', lambda: QApplication.clipboard().setText(code or ''))
     layout.addLayout(code_row)
 
-    hint_label = QLabel('위 PC 코드를 관리자에게 보내 라이선스 파일(.lic)을 받으세요.')
+    hint_label = QLabel(
+        '위 PC 코드를 관리자에게 보내 라이선스 파일(.lic)을 받거나, '
+        '사내 라이선스 서버(NAS)가 있으면 [라이선스 서버 연결]로 서버 주소를 입력하세요.'
+    )
     hint_label.setWordWrap(True)
     hint_label.setStyleSheet('color: #5a6577;')
     layout.addWidget(hint_label)
@@ -5653,8 +5705,24 @@ def show_license_registration_dialog(status):
         else:
             message_label.setText(outcome.message)
 
+    def connect_server():
+        url, ok = QInputDialog.getText(
+            dialog, '라이선스 서버 연결',
+            '라이선스 서버 주소 (예: 192.168.0.210 또는 http://NAS주소:8765)',
+            QLineEdit.Normal, sumpath_license.get_license_server_url(),
+        )
+        if not ok or not url.strip():
+            return
+        outcome = sumpath_license.connect_license_server(url, client_info=license_client_info())
+        if outcome.ok:
+            result['accepted'] = True
+            dialog.accept()
+        else:
+            message_label.setText(outcome.message)
+
     button_row = QHBoxLayout()
     _add_dialog_button(button_row, '라이선스 파일 등록...', register)
+    _add_dialog_button(button_row, '라이선스 서버 연결...', connect_server)
     _add_dialog_button(button_row, '종료', dialog.reject)
     layout.addLayout(button_row)
 
@@ -5667,11 +5735,11 @@ def run_license_gate():
     돌려준다. 없거나 무효면 등록 창을 띄우고, 사용자가 유효한 라이선스를
     등록하면 그 결과를, [종료]를 누르면 원래의 실패 상태를 돌려준다.
     main()은 돌아온 status.ok로 계속 진행할지 결정한다."""
-    status = sumpath_license.ensure_license()
+    status = current_license_status()
     if status.ok:
         return status
     if show_license_registration_dialog(status):
-        return sumpath_license.ensure_license()
+        return current_license_status()
     return status
 
 

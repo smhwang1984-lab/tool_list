@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-SumPath License Maker (v1.3.0)
+SumPath License Maker (v1.4.0)
 
 Sum Path 라이선스 파일(.lic) 발급 프로그램. **발급자(관리자) PC에만** 두고,
 Sum Path 설치본/포터블/업데이트 공유 폴더에는 절대 포함하지 않는다
@@ -15,6 +15,9 @@ v1.3.0: **포터블(USB) 모드** — 이 exe와 같은 폴더에 `signing_key.p
 매번 저장 위치를 묻지 않고 exe와 같은 폴더의 `발급된 라이선스\\`
 하위에 자동으로 쌓인다(`issued_license_dir()`) — 폴더째 USB에 있으니
 발급 결과도 그 자리에 남는다.
+
+v1.4.0(Sum Path v2.2.9): **서버 라이선스** 탭 — NAS 라이선스 서버(`license_server/`)의
+관리 화면에 표시되는 서버 ID와 좌석 수(PC 대수)로 서버용 .lic을 발급한다. 같은 서명 키를 쓴다.
 
 형식/기간 규칙은 `sumpath_license.py`(본 앱과 공유)를 그대로 쓴다.
 """
@@ -33,7 +36,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from PyQt5.QtCore import QDate
 from PyQt5.QtWidgets import (
-    QApplication, QButtonGroup, QDateEdit, QFileDialog, QGroupBox, QHBoxLayout,
+    QApplication, QButtonGroup, QDateEdit, QSpinBox, QFileDialog, QGroupBox, QHBoxLayout,
     QLabel, QLineEdit, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton,
     QRadioButton, QTabWidget, QVBoxLayout, QWidget,
 )
@@ -42,7 +45,7 @@ import sumpath_license as lic
 
 
 MAKER_APP_NAME = 'SumPath License Maker'
-MAKER_VERSION = '1.3.0'
+MAKER_VERSION = '1.4.0'
 ISSUED_LOG_FIELDS = (
     'license_id', 'licensee', 'machine', 'plan_days', 'starts',
     'valid_until', 'issued_at', 'memo',
@@ -162,6 +165,41 @@ def build_license(licensee, machine, plan_days, starts, memo=''):
     }
 
 
+def build_server_license(licensee, server_id, seats, plan_days, starts, memo=''):
+    """v1.4.0: NAS 라이선스 서버용 라이선스. machine 대신 server_id + seats(좌석 수)."""
+    plan_days = int(plan_days)
+    if plan_days == lic.PERPETUAL_PLAN_DAYS:
+        valid_until = None
+    else:
+        valid_until = lic.compute_valid_until(starts, plan_days).isoformat()
+    code = lic.normalize_machine_code(server_id)
+    return {
+        'format': lic.LICENSE_FORMAT,
+        'product': lic.PRODUCT_NAME,
+        'kind': lic.SERVER_LICENSE_KIND,
+        'license_id': str(uuid.uuid4()),
+        'licensee': licensee,
+        'server_id': '-'.join(code[i:i + 4] for i in range(0, len(code), 4)),
+        'seats': int(seats),
+        'plan_days': plan_days,
+        'starts': starts.isoformat(),
+        'valid_until': valid_until,
+        'issued_at': datetime.now().isoformat(timespec='seconds'),
+        'memo': memo or '',
+    }
+
+
+def default_server_license_filename(data):
+    def clean(value):
+        value = re.sub(r'[\\/:*?"<>|]+', '_', str(value or '').strip())
+        return value or 'unknown'
+    return 'SumPath_SERVER_%s_%s대_%s.lic' % (
+        clean(data.get('licensee')),
+        data.get('seats'),
+        clean(data.get('valid_until') or '영구'),
+    )
+
+
 def sign_license(data, private_key):
     payload = lic.canonical_payload(data)
     signature = private_key.sign(payload)
@@ -191,7 +229,11 @@ def append_issued_log(data):
         writer = csv.DictWriter(fp, fieldnames=ISSUED_LOG_FIELDS)
         if is_new:
             writer.writeheader()
-        writer.writerow({key: data.get(key, '') for key in ISSUED_LOG_FIELDS})
+        row = {key: data.get(key, '') for key in ISSUED_LOG_FIELDS}
+        if data.get('kind') == lic.SERVER_LICENSE_KIND:
+            # v1.4.0: 기존 CSV 열을 바꾸지 않고 machine 칸에 서버 ID·좌석 수를 적는다.
+            row['machine'] = 'SERVER %s (%s대)' % (data.get('server_id'), data.get('seats'))
+        writer.writerow(row)
 
 
 # ---------- UI ----------
@@ -205,6 +247,7 @@ class LicenseMakerWindow(QMainWindow):
         tabs = QTabWidget()
         self.setCentralWidget(tabs)
         tabs.addTab(self._build_issue_tab(), '발급')
+        tabs.addTab(self._build_server_tab(), '서버 라이선스')
         tabs.addTab(self._build_verify_tab(), '확인')
 
     # ----- 발급 탭 -----
@@ -457,6 +500,122 @@ class LicenseMakerWindow(QMainWindow):
             '발급 완료(자동 저장): %s\n사용 기한: %s (%s)' % (dest_path, valid_until_text, days_left_text)
         )
 
+    # ----- 서버 라이선스 탭 (v1.4.0) -----
+    def _build_server_tab(self):
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        hint = QLabel(
+            'NAS 라이선스 서버 관리 화면(http://NAS주소:8765)에 표시된 서버 ID와 좌석 수(PC 대수)로 '
+            '서버 라이선스를 발급합니다. 발급한 파일은 관리 화면의 [서버 라이선스 등록]으로 올리세요. '
+            '서명 키는 [발급] 탭의 키를 그대로 씁니다.'
+        )
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+        form_group = QGroupBox('서버 라이선스 정보')
+        form_layout = QVBoxLayout(form_group)
+
+        licensee_row = QHBoxLayout()
+        licensee_row.addWidget(QLabel('사용자(회사/부서)'))
+        self.server_licensee_edit = QLineEdit()
+        licensee_row.addWidget(self.server_licensee_edit, 1)
+        form_layout.addLayout(licensee_row)
+
+        server_row = QHBoxLayout()
+        server_row.addWidget(QLabel('서버 ID'))
+        self.server_id_edit = QLineEdit()
+        self.server_id_edit.setPlaceholderText('XXXX-XXXX-XXXX-XXXX')
+        server_row.addWidget(self.server_id_edit, 1)
+        form_layout.addLayout(server_row)
+
+        seats_row = QHBoxLayout()
+        seats_row.addWidget(QLabel('좌석 수(PC 대수)'))
+        self.seats_spin = QSpinBox()
+        self.seats_spin.setRange(1, 999)
+        self.seats_spin.setValue(5)
+        seats_row.addWidget(self.seats_spin)
+        seats_row.addStretch(1)
+        form_layout.addLayout(seats_row)
+
+        plan_row = QHBoxLayout()
+        plan_row.addWidget(QLabel('기간'))
+        self.server_plan_group = QButtonGroup(self)
+        for days, label in lic.ISSUABLE_PLANS:
+            radio = QRadioButton(label)
+            radio.setProperty('plan_days', days)
+            if days == 365:
+                radio.setChecked(True)
+            self.server_plan_group.addButton(radio, days)
+            plan_row.addWidget(radio)
+        form_layout.addLayout(plan_row)
+
+        start_row = QHBoxLayout()
+        start_row.addWidget(QLabel('시작일'))
+        self.server_start_date_edit = QDateEdit(QDate.currentDate())
+        self.server_start_date_edit.setCalendarPopup(True)
+        start_row.addWidget(self.server_start_date_edit)
+        start_row.addStretch(1)
+        form_layout.addLayout(start_row)
+
+        memo_row = QHBoxLayout()
+        memo_row.addWidget(QLabel('메모(선택)'))
+        self.server_memo_edit = QLineEdit()
+        memo_row.addWidget(self.server_memo_edit, 1)
+        form_layout.addLayout(memo_row)
+        layout.addWidget(form_group)
+
+        self.server_issue_button = QPushButton('서버 라이선스 발급')
+        self.server_issue_button.clicked.connect(self._issue_server_license)
+        layout.addWidget(self.server_issue_button)
+
+        self.server_issue_status_label = QLabel('')
+        self.server_issue_status_label.setWordWrap(True)
+        layout.addWidget(self.server_issue_status_label)
+        layout.addStretch(1)
+        return widget
+
+    def _issue_server_license(self):
+        licensee = self.server_licensee_edit.text().strip()
+        if not licensee:
+            QMessageBox.warning(self, '입력 필요', '사용자를 입력하세요.')
+            return
+        server_id = lic.normalize_machine_code(self.server_id_edit.text())
+        if len(server_id) != 16:
+            QMessageBox.warning(self, '입력 필요', '서버 ID 형식이 올바르지 않습니다. (예: XXXX-XXXX-XXXX-XXXX)')
+            return
+        if self.signing_key is None or not public_key_matches_app(self.signing_key):
+            QMessageBox.warning(self, '발급 불가', '서명 키가 없거나 앱과 일치하지 않습니다.')
+            return
+        button = self.server_plan_group.checkedButton()
+        plan_days = button.property('plan_days') if button else lic.ISSUABLE_PLANS[0][0]
+        starts = self.server_start_date_edit.date().toPyDate()
+        data = build_server_license(
+            licensee, server_id, self.seats_spin.value(), plan_days, starts, self.server_memo_edit.text().strip(),
+        )
+        signed = sign_license(data, self.signing_key)
+        check = lic.verify_server_license(signed, server_id=server_id, today=starts)
+        if not check.ok:
+            QMessageBox.critical(self, '발급 실패', '발급한 서버 라이선스 자체 검증에 실패했습니다: %s' % check.message)
+            return
+        try:
+            dest_dir = issued_license_dir()
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            dest_path = dest_dir / default_server_license_filename(signed)
+            if dest_path.exists():
+                dest_path = dest_dir / ('%s_%s%s' % (dest_path.stem, signed['license_id'][:8], dest_path.suffix))
+            with dest_path.open('w', encoding='utf-8') as fp:
+                json.dump(signed, fp, ensure_ascii=False, indent=2)
+            append_issued_log(signed)
+        except OSError as error:
+            QMessageBox.critical(self, '발급 실패', '파일을 저장하지 못했습니다.\n%s' % error)
+            return
+        self.server_issue_status_label.setText(
+            '발급 완료(자동 저장): %s\n서버 ID: %s / 좌석 %d대 / 사용 기한: %s' % (
+                dest_path, signed['server_id'], signed['seats'], signed.get('valid_until') or '영구',
+            )
+        )
+
     # ----- 확인 탭 -----
     def _build_verify_tab(self):
         widget = QWidget()
@@ -484,9 +643,15 @@ class LicenseMakerWindow(QMainWindow):
             return
         # 발급자는 대상 PC가 아닐 수 있으므로 PC 코드 일치는 확인하지 않고
         # 형식/서명/기간만 본다(PC 코드는 아래에 정보로만 표시).
-        status = lic.verify_license(data)
+        if data.get('kind') == lic.SERVER_LICENSE_KIND:
+            status = lic.verify_server_license(data)
+            keys = ('kind', 'license_id', 'licensee', 'server_id', 'seats', 'plan_days', 'starts',
+                    'valid_until', 'issued_at', 'memo')
+        else:
+            status = lic.verify_license(data)
+            keys = ('license_id', 'licensee', 'machine', 'plan_days', 'starts', 'valid_until', 'issued_at', 'memo')
         lines = ['파일: %s' % path, '']
-        for key in ('license_id', 'licensee', 'machine', 'plan_days', 'starts', 'valid_until', 'issued_at', 'memo'):
+        for key in keys:
             value = data.get(key, '')
             if key == 'valid_until' and value is None:
                 value = '영구'
