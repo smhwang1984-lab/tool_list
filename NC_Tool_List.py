@@ -33,7 +33,7 @@ import lathe_insert_spec
 import sumpath_license
 
 
-APP_VERSION = '2.3.1'
+APP_VERSION = '2.3.2'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-11-05'
 APP_CREATOR = 'Hwang.seonmun'
@@ -844,6 +844,11 @@ def make_pdf_table(rows, metadata, available_width, fonts):
     # v2.2.6: 공구명 SO와 주석 SO가 다른 행은 SO 칸 글자를 붉은색으로 강조한다(데이터 행은 표의 3번째 줄부터).
     so_col = [key for key, _label in COLUMNS].index('SO')
     alerts = [(so_col, 2 + i) for i, row in enumerate(page_rows) if row.get('_SO_ALERT')]
+    # v2.3.2: S값(SPINDL)·T↔H(NO) 불일치 칸도 붉은색
+    keys = [key for key, _label in COLUMNS]
+    for check_key in ('SPINDL', 'NO'):
+        col = keys.index(check_key)
+        alerts.extend((col, 2 + i) for i, row in enumerate(page_rows) if row.get('_%s_ALERT' % check_key))
     return style_pdf_table(data, available_width, regular_font, bold_font, alerts)
 
 
@@ -1600,6 +1605,52 @@ def _same_number(a, b):
         return str(a).strip() == str(b).strip()
 
 
+# v2.3.2: 밀링 — 공구 블록(M6 Tn ~ 다음 M6)의 `S… M3/M4` 회전수와 SPINDL 주석, G43 H번호와 T번호 비교.
+MILL_SPINDLE_M_RE = re.compile(r'(?<![A-Z])M0?[34](?!\d)', re.I)
+MILL_S_WORD_RE = re.compile(r'(?<![A-Z])S\s*(\d+(?:\.\d*)?)', re.I)
+MILL_G43_RE = re.compile(r'(?<![A-Z])G43(?:\.[0-9])?(?![0-9])', re.I)
+MILL_H_WORD_RE = re.compile(r'(?<![A-Z])H\s*(\d+)(?![\d.])', re.I)
+SPINDLE_TOLERANCE_RPM = 1.0  # D-3 (a): 1rpm 미만 차이는 같은 값(반올림 차이 무시)
+ALERT_MAX_LINES = 4
+
+
+def _line_list_text(line_numbers):
+    shown = ', '.join(str(n) for n in line_numbers[:ALERT_MAX_LINES])
+    extra = len(line_numbers) - ALERT_MAX_LINES
+    return shown + ('행 외 %d곳' % extra if extra > 0 else '행')
+
+
+def spindle_alert_text(checks, table_spindle):
+    """v2.3.2: 공구 하나의 S 검사 목록 → 불일치 안내 문구(일치하면 '').
+
+    checks: [(줄번호, 프로그램 S, 블록 SPINDL 주석 또는 None)] — None이면 표의 SPINDL 값과 비교한다
+    (그 공구의 첫 SPINDL 블록, 또는 SPINDL 주석이 없는 블록). D-1 (a)."""
+    groups = {}
+    for line_no, program_s, block_ref in checks or ():
+        ref = table_spindle if block_ref in (None, '') else block_ref
+        try:
+            if abs(float(program_s) - float(ref)) < SPINDLE_TOLERANCE_RPM:
+                continue
+        except (TypeError, ValueError):
+            continue  # 비교할 SPINDL 값이 없음
+        groups.setdefault((fmt_num(program_s), fmt_num(ref)), []).append(line_no)
+    lines = ['프로그램 S%s (%s) / SPINDL %s' % (program_s, _line_list_text(nums), ref)
+             for (program_s, ref), nums in groups.items()]
+    if lines and table_spindle not in (None, '') and any(ref != fmt_num(table_spindle) for _s, ref in groups):
+        lines.append('(툴리스트 SPINDL %s)' % fmt_num(table_spindle))
+    return '\n'.join(lines)
+
+
+def h_number_alert_text(tool_number, h_checks):
+    """v2.3.2: T번호와 다른 G43 H번호가 있으면 안내 문구. h_checks: [(줄번호, H번호)]. G43 H가 없으면 ''(D-4 a)."""
+    groups = {}
+    for line_no, h_number in h_checks or ():
+        if h_number != tool_number:
+            groups.setdefault(h_number, []).append(line_no)
+    return '\n'.join('T%02d 블록에서 H%02d 사용 (%s)' % (tool_number, h, _line_list_text(nums))
+                     for h, nums in groups.items())
+
+
 def so_alert_text(name_so, comment_so):
     """공구명 SO와 주석 SO가 둘 다 있고 값이 다르면 안내 문구, 아니면 빈 문자열."""
     if name_so in (None, '') or comment_so in (None, ''):
@@ -1617,15 +1668,25 @@ def parse_program(text, name_types=None, lathe=False):
     tools = {}          # 공구번호 -> {'f': {필드}, 'remarks': [...]}
     cur_n = [None]      # 리스트로 감싸 클로저에서 갱신값 참조
     buf = []
+    # v2.3.2(밀링): 지금 공구 블록 — [공구번호, 이 블록 SPINDL 주석(표 값과 같으면 None)]
+    cur_block = [None, None]
 
     def ensure(n):
         if n not in tools:
-            tools[n] = {'f': {}, 'remarks': []}
+            tools[n] = {'f': {}, 'remarks': [], 's_checks': [], 'h_checks': []}
         return tools[n]
 
     def flush(num):
         t = ensure(num)
         block = '\n'.join(buf)
+        if not lathe:
+            spm = re.search(r'\bSPINDL\s+(-?\d+(?:\.\d+)?)', block, re.I)
+            block_spindle = fmt_num(spm.group(1)) if spm else None
+            # 표 SPINDL은 처음 SPINDL이 나온 블록 값이다 — 그 블록은 표 값과 비교(None)해야
+            # [수정]으로 표 SPINDL을 고쳤을 때 다시 비교된다.
+            if 'SPINDL' not in t['f']:
+                block_spindle = None
+            cur_block[0], cur_block[1] = num, block_spindle
         tm = TOOL_RE.search(block)
         if tm:
             t['f'].setdefault('NAME', tm.group(2).strip())
@@ -1645,7 +1706,9 @@ def parse_program(text, name_types=None, lathe=False):
             t['remarks'].append(cur_n[0])
 
     lines = text.splitlines()
-    for line in lines:
+    for line_no, line in enumerate(lines, 1):
+        if not lathe and cur_block[0] is not None and not M6_RE.match(line):
+            _collect_mill_block_checks(tools[cur_block[0]], cur_block, line_no, line)
         m = N_RE.match(line)
         if m:
             cur_n[0] = 'N' + m.group(1)
@@ -1665,6 +1728,8 @@ def parse_program(text, name_types=None, lathe=False):
             if m:
                 flush(int(m.group(1)))
                 buf = []
+                # 같은 줄에 S/M3·G43 H가 함께 있어도 새 블록 기준으로 본다.
+                _collect_mill_block_checks(tools[cur_block[0]], cur_block, line_no, line[m.end():])
                 continue
         if '(' in line:
             buf.append(line)
@@ -1712,8 +1777,25 @@ def parse_program(text, name_types=None, lathe=False):
             'SO_NAME': f.get('SO_NAME', ''),
             'SO_CMT': f.get('SO_CMT', ''),
             'SO_ALERT': tools[n].get('alert', ''),
+            # v2.3.2: S값·H번호 일치성(밀링). 검사 목록은 [수정] 후 다시 비교할 때 쓴다.
+            'SPINDL_CHECKS': list(tools[n]['s_checks']),
+            'SPINDL_ALERT': spindle_alert_text(tools[n]['s_checks'], f.get('SPINDL', '')),
+            'NO_ALERT': h_number_alert_text(n, tools[n]['h_checks']),
         })
     return rows
+
+
+def _collect_mill_block_checks(tool, cur_block, line_no, line):
+    """v2.3.2: 밀링 공구 블록 안 한 줄에서 `S… M3/M4`(D-2 a)와 `G43 … H`를 모은다(괄호 주석 제외)."""
+    code = code_without_comments(line)
+    if 'S' in code.upper() and MILL_SPINDLE_M_RE.search(code):
+        sm = MILL_S_WORD_RE.search(code)
+        if sm:
+            tool['s_checks'].append((line_no, fmt_num(sm.group(1)), cur_block[1]))
+    if MILL_G43_RE.search(code):
+        hm = MILL_H_WORD_RE.search(code)
+        if hm:
+            tool['h_checks'].append((line_no, int(hm.group(1))))
 
 
 def tool_name_map_from_rows(rows):
@@ -4784,8 +4866,32 @@ else:
             seq = self.viewer.set_cursor_line(self.src.textCursor().blockNumber())
             self.playback_seq = seq if seq is not None else 0
 
+        def mill_check_counts(self):
+            """v2.3.2: (S값 불일치 공구 수, H번호 불일치 공구 수). 선반은 (0, 0)."""
+            if self.is_lathe_program():
+                return 0, 0
+            keys = [key for key, _label in self.active_columns()]
+            counts = []
+            for key in ('SPINDL', 'NO'):
+                col = keys.index(key)
+                counts.append(sum(
+                    1 for r in range(self.table.rowCount())
+                    if self.table.item(r, col) is not None and self.table.item(r, col).data(Qt.UserRole)
+                ))
+            return tuple(counts)
+
         def update_count(self):
-            self.count.setText('공구 %d개' % self.table.rowCount())
+            text = '공구 %d개' % self.table.rowCount()
+            s_bad, h_bad = self.mill_check_counts()
+            if s_bad or h_bad:
+                # v2.3.2: 불일치 안내 — 붉은 칸에 마우스를 올리면 줄 번호가 보인다.
+                text += ' · S값 불일치 %d · H번호 불일치 %d' % (s_bad, h_bad)
+                self.count.setStyleSheet('color: %s; font-weight: bold;' % self.theme['error'])
+                self.count.setToolTip('붉은 SPINDL/NO 칸에 마우스를 올리면 프로그램 위치(행)가 보입니다.')
+            else:
+                self._style_muted(self.count)
+                self.count.setToolTip('')
+            self.count.setText(text)
 
         def update_metadata_summary(self):
             values = []
@@ -5192,6 +5298,29 @@ else:
                 item.setForeground(QColor(self.theme['error']))
                 item.setToolTip(alert)
 
+        def _style_mill_check_item(self, item, row_index, column, row, key):
+            """v2.3.2: 밀링 SPINDL 칸(프로그램 S… M3 ↔ SPINDL)과 NO 칸(T ↔ G43 H) — 다르면 붉은색 + 툴팁.
+            SPINDL 검사 목록은 셀(UserRole+1)에 보관해 [수정]으로 SPINDL을 바꾸면 다시 비교한다."""
+            old = self.table.item(row_index, column) if row_index < self.table.rowCount() else None
+            if key == 'SPINDL':
+                if 'SPINDL_CHECKS' in row:
+                    checks = list(row.get('SPINDL_CHECKS') or [])
+                else:
+                    checks = list((old.data(Qt.UserRole + 1) if old else None) or [])
+                item.setData(Qt.UserRole + 1, checks)
+                alert = spindle_alert_text(checks, str(row.get('SPINDL', '')).strip())
+            else:
+                if 'NO_ALERT' in row:
+                    alert = str(row.get('NO_ALERT') or '')
+                elif old is not None and old.text() == item.text():
+                    alert = str(old.data(Qt.UserRole) or '')
+                else:
+                    alert = ''
+            item.setData(Qt.UserRole, alert)
+            if alert:
+                item.setForeground(QColor(self.theme['error']))
+                item.setToolTip(alert)
+
         def set_table_row(self, row_index, row):
             lathe = self.is_lathe_program()
             sources = getattr(row, 'sources', None) or {}
@@ -5207,7 +5336,11 @@ else:
                         item.setToolTip(tip)
                 elif key == 'SO':
                     self._style_mill_so_item(item, row_index, column, row)
+                elif key in ('SPINDL', 'NO'):
+                    self._style_mill_check_item(item, row_index, column, row, key)
                 self.table.setItem(row_index, column, item)
+            if not lathe:
+                self.update_count()
 
         def run(self):
             source_text = self.src.toPlainText()
@@ -5732,6 +5865,11 @@ else:
                     so_item = self.table.item(row_index, so_col)
                     if so_item and so_item.data(Qt.UserRole):
                         row['_SO_ALERT'] = so_item.data(Qt.UserRole)
+                    # v2.3.2: S값·H번호 불일치도 PDF에 붉은색(D-5 a)
+                    for check_key in ('SPINDL', 'NO'):
+                        check_item = self.table.item(row_index, [key for key, _label in columns].index(check_key))
+                        if check_item and check_item.data(Qt.UserRole):
+                            row['_%s_ALERT' % check_key] = check_item.data(Qt.UserRole)
                 rows.append(row)
             return rows
 

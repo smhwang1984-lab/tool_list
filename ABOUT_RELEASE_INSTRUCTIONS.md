@@ -47,7 +47,29 @@ Last updated: 2026-11-05 (NC_Tool_List v2.3.0 — 로컬 v2.2.9(STOCK SIZE)와 G
 
 ## Version history
 
-### 2026-11-05 (latest, v2.3.1 + 라이선스 서버 v1.1.0)
+### 2026-11-05 (latest, v2.3.2)
+
+- Version: 2.3.1 → 2.3.2 (라이선스 서버 v1.1.0, 발급 프로그램 v1.4.2 그대로)
+- Release/build date: 2026-11-05
+- Summary: 사용자 요청 — 밀링 툴리스트 일치성 확인. 상세는 `v2.3.2_PLAN.md`(D-1~D-5 모두 (a) 승인). **밀링만**, 선반은 다음에 따로 정한다.
+  1. **S값**: 공구 블록(`M6 Tn` ~ 다음 `M6`)의 `M3`/`M4` 줄 S값을 그 블록 SPINDL 주석과 비교(같은 공구를 다른 회전수로 다시 쓰는 경우 블록별 비교,
+     1rpm 미만 차이는 같음). 다르면 **SPINDL 칸 붉은색** + 툴팁 `프로그램 S300 (22, 28행) / SPINDL 1500`. [수정]으로 SPINDL을 고치면 다시 비교.
+  2. **T ↔ H**: `G43`(`G43.4`/`G43.5` 포함) 줄의 H번호가 T번호와 다르면 **NO 칸 붉은색** + 툴팁 `T03 블록에서 H04 사용 (7행)`.
+     `G28 … H0.` 등 다른 줄의 H는 보지 않고, `G43 H`가 없는 공구는 표시하지 않는다.
+  3. 표 위 공구 개수 옆에 `S값 불일치 n · H번호 불일치 m`(붉은 글씨), PDF 출력에도 같은 칸을 붉은색으로 표시.
+  샘플 점검: `K10M41017…O1017.NC` T11(SPINDL 1500 / S300), `5ax-A To C.nc` 두 번째 T4(3800 / S10000), `O3210.NC` T2·T3 불일치 발견, H 불일치는 없음.
+- Open source software: 변경 없음.
+- Verification: `python -m pytest tests` → 795 passed, 1 failed, 2 skipped. 실패는 기존과 같은 이 PC 장비 설정 의존
+  `test_switching_to_lathe_changes_table_schema_and_machine`. 신규 `tests/test_spindle_h_check.py` 21개(일치/불일치, M4·`G97S900M3`·M30 구분,
+  반올림, 블록별 비교, 첫 M6 이전 무시, G43.4/G43.5·G28 H0·G49, 선반 제외, 실제 샘플 4개, PDF, 화면 붉은색·개수·[수정] 재비교).
+  실제 화면: `K10M41017…O1017.NC`를 열어 T11 SPINDL 붉은색, "S값 불일치 1 · H번호 불일치 0" 확인. dist exe 기동 12초 뒤 실행 중(파일 버전 2.3.2.0).
+- Installer/package status: **생성 완료**. `installer\NC_Tool_List_Setup_v2.3.2.exe`.
+  `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` → `ISCC.exe NC_Tool_List.iss`.
+  - Setup EXE SHA-256: 6E5D497810462AE6DC3399C27A4849C7F73B9C3FAF4A481EB517BAED303022E7 (78.2 MB)
+  배포: NAS `\\192.168.0.210\docker\SumPath_License_Server\updates`에 넣으면 v2.3.1 PC는 시작 시 업데이트 권장 창이 뜬다.
+- 서명 상태: 미서명(기존과 동일).
+
+### 2026-11-05 (v2.3.1 + 라이선스 서버 v1.1.0)
 
 - Version: 2.3.0 → 2.3.1, 라이선스 서버 1.0.0 → 1.1.0 (발급 프로그램 v1.4.2 그대로)
 - Release/build date: 2026-11-05
