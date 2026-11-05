@@ -676,7 +676,15 @@ class LicenseRegistrationDialogUiTests(unittest.TestCase):
         app.QFileDialog.getOpenFileName = self._orig_open_dialog
 
     def _write_license(self, path):
-        data = _sign(_license_data(), self.private_key)
+        # 등록 창은 실제 오늘 날짜로 검사하므로 오늘 시작하는 라이선스를 만든다
+        # (고정 날짜 2026-09-01 픽스처는 2026-10-01부터 만료로 거부되어
+        # dialog.accept()가 불리지 않고 exec_()가 영원히 멈췄다).
+        starts = date.today()
+        data = _sign(_license_data(
+            starts=starts.isoformat(),
+            valid_until=lic.compute_valid_until(starts, 30).isoformat(),
+            issued_at=datetime.combine(starts, datetime.min.time()).isoformat(timespec='seconds'),
+        ), self.private_key)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8')
 

@@ -16,6 +16,7 @@ import os
 import secrets
 import sqlite3
 import threading
+from contextlib import contextmanager
 from datetime import datetime, time, timedelta
 from pathlib import Path
 
@@ -113,10 +114,17 @@ class LicenseServer:
         return bool(token) and hmac.compare_digest(str(token), self.admin_token)
 
     # ---------- DB ----------
+    @contextmanager
     def _connect(self):
+        # sqlite3 연결의 `with`는 commit/rollback만 하고 닫지 않는다 — 직접 닫는다
+        # (안 닫으면 Windows에서 DB 파일이 잠긴 채 남는다).
         cx = sqlite3.connect(str(self.db_path), timeout=10)
         cx.row_factory = sqlite3.Row
-        return cx
+        try:
+            with cx:
+                yield cx
+        finally:
+            cx.close()
 
     def _init_db(self):
         with self._connect() as cx:
