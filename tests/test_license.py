@@ -970,6 +970,59 @@ class LicenseMakerPortableModeTests(unittest.TestCase):
 
 
 @unittest.skipIf(MAKER_IMPORT_ERROR is not None, 'SumPath_License_Maker를 불러올 수 없음: %r' % MAKER_IMPORT_ERROR)
+class LicenseMakerGenerateKeyGuardUiTests(unittest.TestCase):
+    """v1.4.1: 키 없는 폴더에서 [새 서명 키 생성]을 눌러도 경고(기본 '아니요')를 거치고,
+    만들면 %APPDATA%가 아니라 exe 폴더에 만든다(키 없는 다른 복사본이 잡지 않게)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.portable = Path(self.tmp.name) / 'program'
+        self.appdata = Path(self.tmp.name) / 'appdata'
+        self.portable.mkdir()
+        self._orig = (maker.portable_dir, maker.appdata_dir, maker.QMessageBox.warning,
+                      maker.QMessageBox.information)
+        maker.portable_dir = lambda: self.portable
+        maker.appdata_dir = lambda: self.appdata
+        maker.QMessageBox.information = staticmethod(lambda *a, **k: None)
+        self.addCleanup(self._restore)
+
+    def _restore(self):
+        (maker.portable_dir, maker.appdata_dir, maker.QMessageBox.warning,
+         maker.QMessageBox.information) = self._orig
+
+    def _run_generate(self, answer):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        asked = []
+
+        def fake_warning(*args, **kwargs):
+            asked.append(args)
+            return answer
+        maker.QMessageBox.warning = staticmethod(fake_warning)
+        window = maker.LicenseMakerWindow()
+        try:
+            self.assertTrue(window.generate_key_button.isEnabled())
+            window._generate_key()
+        finally:
+            window.deleteLater()
+            qapp.processEvents()
+        return asked
+
+    def test_declining_warning_creates_no_key_anywhere(self):
+        asked = self._run_generate(maker.QMessageBox.No)
+        self.assertEqual(len(asked), 1)
+        self.assertFalse((self.portable / 'signing_key.pem').exists())
+        self.assertFalse((self.appdata / 'signing_key.pem').exists())
+
+    def test_accepting_creates_key_in_program_folder_not_appdata(self):
+        asked = self._run_generate(maker.QMessageBox.Yes)
+        self.assertEqual(len(asked), 1)
+        self.assertTrue((self.portable / 'signing_key.pem').is_file())
+        self.assertFalse((self.appdata / 'signing_key.pem').exists())
+        self.assertEqual(maker.maker_dir(), self.portable)
+
+
+@unittest.skipIf(MAKER_IMPORT_ERROR is not None, 'SumPath_License_Maker를 불러올 수 없음: %r' % MAKER_IMPORT_ERROR)
 class LicenseMakerAutoSaveIssuedFileUiTests(unittest.TestCase):
     """v1.3.0: 발급 버튼을 누르면 저장 대화상자 없이 exe와 같은 폴더 밑
     ISSUED_LICENSE_SUBDIR에 자동으로 저장된다."""

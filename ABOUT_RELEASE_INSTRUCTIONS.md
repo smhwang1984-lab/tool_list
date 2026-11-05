@@ -47,7 +47,27 @@ Last updated: 2026-11-05 (NC_Tool_List v2.3.0 — 로컬 v2.2.9(STOCK SIZE)와 G
 
 ## Version history
 
-### 2026-11-05 (latest, v2.3.0)
+### 2026-11-05 (latest, SumPath License Maker v1.4.1 — 앱은 v2.3.0 그대로)
+
+- Version: License Maker 1.4.0 → 1.4.1 (NC_Tool_List 앱 변경 없음, v2.3.0 설치본 그대로 유효)
+- Release/build date: 2026-11-05
+- Summary: 사용자 보고 "서명키 생성 시 동일 폴더로 연결되어 다시 동일 현상(공개키 불일치)".
+  키 없는 폴더(USB 키 옆이 아닌 곳)에 v1.4.0을 풀어 실행하면 `%APPDATA%`로 넘어가고, [새 서명 키 생성]이 확인 없이
+  `%APPDATA%`에 앱과 맞지 않는 새 키를 만들었다. 그 뒤로 키 없는 복사본은 모두 그 키를 잡아 "공개키와 일치하지 않습니다"가 떴다.
+  1. [새 서명 키 생성]은 키가 있든 없든 항상 경고(기본값 '아니요') — 새 키로 발급한 라이선스는 현재 앱에서 통과되지 않음을 알린다.
+  2. 새 키는 `%APPDATA%`가 아니라 이 exe 폴더에 만든다(`generate_signing_key(path)`, 기본 `portable_dir()`).
+  3. 키가 없을 때 안내: "signing_key.pem이 있는 USB 폴더에 exe + _internal을 복사해 실행 / 외부 키 불러오기"를 먼저 보여 준다.
+  서명 방식·키 파일 이름·포터블 인식(`maker_dir()`)·앱 공개키(`98325d41…`)는 그대로.
+  테스트 격리: 발급 프로그램 테스트가 실제 `%APPDATA%\SumPath License Maker`에 발급 기록을 남기던 문제를 `tests/conftest.py`에서 막았다.
+- Open source software: 변경 없음.
+- Verification: `tests/test_license.py` 87 passed(신규 `LicenseMakerGenerateKeyGuardUiTests` 2개: 경고에서 '아니요' → 어디에도 키 없음, '예' → exe 폴더에만 생성).
+  USB 원래 폴더(`signing_key.pem` 옆)에서 실행해 "서명 키 준비됨(현재 앱의 공개키와 일치) · 포터블 모드" 확인.
+- Installer/package status: **생성 완료**. `installer\SumPath_License_Maker_v1.4.1.zip`(빌드 venv, cryptography 44.0.0).
+  - Maker v1.4.1 ZIP SHA-256: 5AF3AC5695963D8D338BBEAFB7725BF24FAB3075F64BCD5FA34E424DA042CBE0 (39.3 MB)
+  - Maker v1.4.1 EXE SHA-256: EBD957169214F47797576589AF5AFCF049D2C73F85E195539790A09B429F3516
+- 서명 상태: 미서명(기존과 동일).
+
+### 2026-11-05 (v2.3.0)
 
 - Version: 2.2.9 → 2.3.0 (새 번호 규칙)
 - Release/build date: 2026-11-05

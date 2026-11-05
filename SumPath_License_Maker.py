@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-SumPath License Maker (v1.4.0)
+SumPath License Maker (v1.4.1)
 
 Sum Path 라이선스 파일(.lic) 발급 프로그램. **발급자(관리자) PC에만** 두고,
 Sum Path 설치본/포터블/업데이트 공유 폴더에는 절대 포함하지 않는다
@@ -18,6 +18,11 @@ v1.3.0: **포터블(USB) 모드** — 이 exe와 같은 폴더에 `signing_key.p
 
 v1.4.0(Sum Path v2.2.9): **서버 라이선스** 탭 — NAS 라이선스 서버(`license_server/`)의
 관리 화면에 표시되는 서버 ID와 좌석 수(PC 대수)로 서버용 .lic을 발급한다. 같은 서명 키를 쓴다.
+
+v1.4.1(Sum Path v2.3.0): 키 없는 폴더에서 실행해 [새 서명 키 생성]을 누르면 확인 없이
+`%APPDATA%`에 앱과 맞지 않는 키가 생기고, 그 뒤로 키 없는 복사본이 모두 그 키를 잡던 문제를 막는다.
+새 키 생성은 항상 경고(기본값 '아니요')를 거치고 `%APPDATA%`가 아니라 이 exe 폴더에 만든다.
+키가 없을 때 안내는 "키가 있는 USB 폴더에서 실행 / 외부 키 불러오기"를 먼저 알린다.
 
 형식/기간 규칙은 `sumpath_license.py`(본 앱과 공유)를 그대로 쓴다.
 """
@@ -45,7 +50,7 @@ import sumpath_license as lic
 
 
 MAKER_APP_NAME = 'SumPath License Maker'
-MAKER_VERSION = '1.4.0'
+MAKER_VERSION = '1.4.1'
 ISSUED_LOG_FIELDS = (
     'license_id', 'licensee', 'machine', 'plan_days', 'starts',
     'valid_until', 'issued_at', 'memo',
@@ -112,8 +117,12 @@ def load_signing_key():
         return None
 
 
-def generate_signing_key():
-    path = signing_key_path()
+def generate_signing_key(path=None):
+    """새 Ed25519 서명 키를 `path`(기본: 이 exe 폴더의 signing_key.pem)에 만든다.
+
+    v1.4.1: 기본 위치를 %APPDATA%가 아니라 exe 폴더(portable_dir())로 바꿨다 —
+    %APPDATA%에 만들면 키 없는 다른 복사본이 모두 그 (앱과 맞지 않는) 키를 잡는다."""
+    path = Path(path) if path is not None else portable_dir() / 'signing_key.pem'
     path.parent.mkdir(parents=True, exist_ok=True)
     key = Ed25519PrivateKey.generate()
     pem = key.private_bytes(
@@ -362,12 +371,14 @@ class LicenseMakerWindow(QMainWindow):
         추가로 보여줄 한 줄(또는 여러 줄)."""
         if self.signing_key is None:
             self.key_status_label.setText(
-                '서명 키가 없습니다. 라이선스를 발급하려면 먼저 키를 생성하거나,\n'
-                '기존 키 파일을 이 PC의 %s 에 놓거나,\n'
-                '이 프로그램(exe)과 같은 폴더에 signing_key.pem을 두거나(USB 등,\n'
-                '포터블 모드 — %s 폴더에 놓으면 이 PC/저 PC 상관없이 자동 인식),\n'
-                '"USB 등 외부 파일에서 키 불러오기..."로 불러오세요.'
-                % (appdata_dir(), portable_dir())
+                '⚠ 서명 키가 없습니다 — 이 프로그램 폴더에 signing_key.pem이 없습니다.\n'
+                '  %s\n'
+                '기존 키로 발급하려면(보통 이 경우):\n'
+                '  · signing_key.pem이 있는 USB 폴더에 이 프로그램(exe + _internal)을\n'
+                '    복사해 거기서 실행하거나\n'
+                '  · 아래 "USB 등 외부 파일에서 키 불러오기..."로 그 키를 불러오세요.\n'
+                '"새 서명 키 생성"은 앱을 새 공개키로 다시 빌드할 때만 씁니다.'
+                % portable_dir()
             )
             self.generate_key_button.setEnabled(True)
             self.generate_key_button.setText('새 서명 키 생성...')
@@ -419,24 +430,31 @@ class LicenseMakerWindow(QMainWindow):
         )
 
     def _generate_key(self):
-        if signing_key_path().is_file():
-            confirm = QMessageBox.warning(
-                self, '서명 키 교체',
-                '이미 서명 키가 있습니다. 새로 만들면 이전 키로 발급한 라이선스와는\n'
-                '다른 새 키 체계가 시작되어, 본 앱도 새 공개키로 다시 빌드해야\n'
-                '기존/신규 라이선스가 통과됩니다. 정말 새로 만들까요?',
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
-            )
-            if confirm != QMessageBox.Yes:
-                return
-        key = generate_signing_key()
+        # v1.4.1: 키가 있든 없든 항상 경고하고 기본값은 '아니요'. 새 키로 발급한
+        # 라이선스는 지금 배포된 앱(내장 공개키)에서 통과되지 않는다.
+        target = portable_dir() / 'signing_key.pem'
+        exists_note = ('이 폴더에 이미 서명 키가 있습니다 — 새로 만들면 덮어씁니다.\n\n'
+                       if target.is_file() else '')
+        confirm = QMessageBox.warning(
+            self, '새 서명 키 생성 — 주의',
+            exists_note
+            + '새 서명 키로 발급한 라이선스는 지금 쓰는 Sum Path 앱에서 통과되지 않습니다.\n'
+            '앱의 공개키(sumpath_license.py)를 새 키로 바꿔 다시 빌드할 때만 만드세요.\n\n'
+            '기존 키로 발급하려는 것이면 [아니요]를 누르고, signing_key.pem이 있는\n'
+            'USB 폴더에서 이 프로그램을 실행하거나 "외부 파일에서 키 불러오기"를 쓰세요.\n\n'
+            '저장 위치: %s\n\n정말 새 키를 만들까요?' % target,
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if confirm != QMessageBox.Yes:
+            return
+        key = generate_signing_key(target)
         QMessageBox.information(
             self, '서명 키 생성 완료',
             '새 서명 키를 만들었습니다.\n\n'
             '공개키(sumpath_license.py의 LICENSE_PUBLIC_KEY에 반영하고 앱을\n'
             '다시 빌드해야 이 키로 만든 라이선스를 인식합니다):\n%s\n\n'
             '개인키 위치(반드시 안전한 곳에 백업하세요. 잃어버리면 새 라이선스를\n'
-            '더는 만들 수 없습니다):\n%s' % (public_key_hex(key), signing_key_path()),
+            '더는 만들 수 없습니다):\n%s' % (public_key_hex(key), target),
         )
         self._refresh_key_status()
 
