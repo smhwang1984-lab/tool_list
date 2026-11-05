@@ -22,6 +22,12 @@ Last updated: 2026-11-05 (NC_Tool_List v2.2.9 — 서버 라이선스(NAS) + 로
 - Prefer TSERP-style installation under `C:\NC_Tool_List` when matching existing accepted plant PC deployment behavior.
 - As of v1.5.0, the user explicitly asked for `.nc`/`.mpf`/`.tap` to be registered as this app's default program, so the installer now writes HKCR file-association registry entries (`ChangesAssociations=yes`) with `uninsdeletekey`/`uninsdeletevalue` so they're removed cleanly on uninstall. Do not revert this without the user asking.
 
+## Git sync rule (항상 적용, 2026-11-05~)
+
+- 메인 브랜치는 `master`. 작업이 끝나면 매번 commit → push → `master`에 병합 → push까지 끝내고,
+  GitHub 기본 브랜치 `agent/drag-drop-installer`도 `master`와 같은 커밋으로 맞춘다. GitHub와 Windows 로컬의 Git 데이터는 항상 같아야 한다.
+- Windows: 시작 전 `git_sync.bat`, 끝낼 때 `git_publish.bat "메시지"`. 자세한 규칙은 `CLAUDE.md`, 한 번 맞추는 절차는 `GIT_SYNC_PLAN.md`.
+
 ## Version numbering rule (v2.2.9~)
 
 - Version is `MAJOR.MINOR.PATCH`, each digit 0–9. When a digit would become 10 it resets to 0 and the next digit up increments:
@@ -61,6 +67,9 @@ Last updated: 2026-11-05 (NC_Tool_List v2.2.9 — 서버 라이선스(NAS) + 로
 - Installer/package status: **미생성** — 이 작업 환경이 Linux라 PyInstaller/Inno Setup 빌드를 하지 못했다. Windows 빌드 PC에서
   `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` → `ISCC.exe NC_Tool_List.iss`로 `NC_Tool_List_Setup_v2.2.9.exe`를 만든다.
   발급 프로그램은 `SumPath_License_Maker.spec`으로 v1.4.0 재빌드. 라이선스 서버는 NAS에서 Container Manager가 빌드한다.
+- Git: `master`(메인)와 GitHub 기본 브랜치 `agent/drag-drop-installer`가 갈라져 있던 것(#34 홍보영상은 기본 브랜치에만, #35는 master에만)을
+  이 버전에서 하나로 합쳤다 — v2.2.9를 `master`에 병합하고 기본 브랜치를 같은 커밋으로 맞췄다. 같은 날 Git 동기화 규칙(`CLAUDE.md`)과
+  Windows용 `git_sync.bat` / `git_publish.bat`, 1회 정리·빌드 절차 `GIT_SYNC_PLAN.md`를 추가했다.
 - 서명 상태: 미서명(기존과 동일).
 
 ### 2026-10-28 (v2.2.8)
