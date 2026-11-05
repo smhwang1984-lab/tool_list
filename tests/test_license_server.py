@@ -275,6 +275,52 @@ class LicenseServerCoreTests(ServerTestBase):
         self.assertEqual(self.server.info()['seats'], 5)
 
 
+class UpdateDistributionTests(ServerTestBase):
+    """v1.1.0: updates 폴더의 최고 버전 설치 파일 배포."""
+
+    def make_server(self, files):
+        updates = Path(self.tmp.name) / 'updates'
+        updates.mkdir(exist_ok=True)
+        for name, data in files.items():
+            (updates / name).write_bytes(data)
+        return server_core.LicenseServer(Path(self.tmp.name) / 'data2', updates_dir=updates), updates
+
+    def test_default_seat_idle_days_is_100(self):
+        srv = server_core.LicenseServer(Path(self.tmp.name) / 'data3')
+        self.assertEqual(srv.seat_idle_days, 100)
+        self.assertEqual(server_core.DEFAULT_SEAT_IDLE_DAYS, 100)
+
+    def test_latest_update_picks_highest_version_with_sha(self):
+        import hashlib
+        srv, _ = self.make_server({
+            'NC_Tool_List_Setup_v2.3.0.exe': b'old',
+            'NC_Tool_List_Setup_v2.3.1.exe': b'new-installer',
+            'NC_Tool_List_Setup_v2.10.0.exe.part': b'x',
+            'readme.txt': b'x',
+        })
+        info = srv.latest_update()
+        self.assertEqual(info['version'], '2.3.1')
+        self.assertEqual(info['file'], 'NC_Tool_List_Setup_v2.3.1.exe')
+        self.assertEqual(info['size'], len(b'new-installer'))
+        self.assertEqual(info['sha256'], hashlib.sha256(b'new-installer').hexdigest())
+        self.assertEqual(srv.info()['update']['version'], '2.3.1')
+
+    def test_no_updates_folder_or_empty(self):
+        self.assertIsNone(self.server.latest_update())
+        srv, _ = self.make_server({})
+        self.assertIsNone(srv.latest_update())
+        missing = server_core.LicenseServer(Path(self.tmp.name) / 'data4',
+                                            updates_dir=Path(self.tmp.name) / 'nope')
+        self.assertIsNone(missing.latest_update())
+
+    def test_update_file_path_rejects_traversal_and_other_names(self):
+        srv, updates = self.make_server({'NC_Tool_List_Setup_v2.3.1.exe': b'x'})
+        self.assertEqual(srv.update_file_path('NC_Tool_List_Setup_v2.3.1.exe'),
+                         updates / 'NC_Tool_List_Setup_v2.3.1.exe')
+        for bad in ('../data/server_key.pem', 'readme.txt', 'NC_Tool_List_Setup_v9.9.9.exe', ''):
+            self.assertIsNone(srv.update_file_path(bad), bad)
+
+
 class ClientHybridTests(ServerTestBase):
     def test_server_mode_then_offline_then_denied(self):
         self.install(seats=1)
@@ -306,9 +352,8 @@ class ClientHybridTests(ServerTestBase):
         self.assertEqual(denied.reason, 'device_blocked')
         self.assertIsNone(lic.load_server_lease_cache())
 
-    def test_local_license_wins_without_contacting_server(self):
-        calls = self.connect_client_directly()
-        lic.set_license_server_url('nas.local')
+    # ---- v2.3.1: 서버 > 로컬 ----
+    def _write_local(self, path=None):
         starts = date(2026, 11, 1)
         local = _sign({
             'format': 1, 'product': 'SumPath', 'license_id': 'local-1', 'licensee': '개인',
@@ -316,12 +361,83 @@ class ClientHybridTests(ServerTestBase):
             'valid_until': lic.compute_valid_until(starts, 365).isoformat(),
             'issued_at': '2026-11-01T09:00:00', 'memo': '',
         }, self.issuer)
-        lic.license_file_path().parent.mkdir(parents=True, exist_ok=True)
-        lic.license_file_path().write_text(json.dumps(local, ensure_ascii=False), encoding='utf-8')
+        path = path or lic.license_file_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(local, ensure_ascii=False), encoding='utf-8')
+        return path
+
+    def test_server_wins_over_local_and_releases_local_license(self):
+        self.install(seats=2)
+        calls = self.connect_client_directly()
+        lic.set_license_server_url('nas.local')
+        self._write_local()
         status = lic.ensure_license(now=datetime(2026, 11, 5, 9, 0, 0))
-        self.assertTrue(status.ok)
-        self.assertEqual(status.source, 'local')
+        self.assertTrue(status.ok, status.message)
+        self.assertEqual((status.source, status.reason), ('server', 'server'))
+        self.assertEqual(calls['n'], 1)
+        self.assertFalse(lic.license_file_path().exists())
+        self.assertTrue(lic.released_license_path().is_file())
+        self.assertTrue(lic.local_license_released())
+
+    def test_connect_releases_local_and_disconnect_restores_it(self):
+        self.install(seats=2)
+        self.connect_client_directly()
+        self._write_local()
+        status = lic.connect_license_server('nas.local', now=self.clock['now'].replace(tzinfo=None))
+        self.assertTrue(status.ok, status.message)
+        self.assertTrue(lic.released_license_path().is_file())
+        lic.set_license_server_url('')
+        self.assertTrue(lic.license_file_path().is_file())
+        self.assertFalse(lic.local_license_released())
+        after = lic.ensure_license(now=datetime(2026, 11, 5, 9, 0, 0))
+        self.assertEqual((after.ok, after.source), (True, 'local'))
+
+    def test_server_denial_does_not_fall_back_to_local(self):
+        self.install(seats=2)
+        self.connect_client_directly()
+        lic.set_license_server_url('nas.local')
+        self._write_local()
+        self.registry['value'] = date(2026, 9, 1)  # 체험판도 이미 끝남
+        self.server.set_device(PC, 'block')
+        status = lic.ensure_license(now=datetime(2026, 11, 5, 9, 0, 0))
+        self.assertFalse(status.ok)
+        self.assertEqual(status.reason, 'device_blocked')
+
+    def test_unreachable_server_uses_kept_local_license_as_emergency(self):
+        self.install(seats=2)
+        calls = self.connect_client_directly()
+        lic.set_license_server_url('nas.local')
+        self._write_local()
+        self.assertTrue(lic.ensure_license(now=datetime(2026, 11, 5, 9, 0, 0)).ok)  # 로컬 해제됨
+        self.registry['value'] = date(2026, 9, 1)
+        calls['down'] = True
+        within = lic.ensure_license(now=datetime(2026, 11, 8, 9, 0, 0))
+        self.assertEqual((within.ok, within.reason), (True, 'server_offline'))
+        later = lic.ensure_license(now=datetime(2026, 11, 20, 9, 0, 0))  # 사용권(7일) 지남
+        self.assertTrue(later.ok, later.message)
+        self.assertEqual(later.source, 'local')
+        self.assertIn('보관된 로컬 라이선스', later.message)
+        self.assertTrue(lic.released_license_path().is_file(), '비상 사용은 보관본을 되살리지 않는다')
+
+    def test_bundled_license_is_flagged_released_not_renamed(self):
+        self.install(seats=2)
+        self.connect_client_directly()
+        lic.set_license_server_url('nas.local')
+        bundled = self._write_local(lic.bundled_license_path())
+        self.assertTrue(lic.ensure_license(now=datetime(2026, 11, 5, 9, 0, 0)).ok)
+        self.assertTrue(bundled.is_file())
+        self.assertTrue(lic.local_license_released())
+        lic.set_license_server_url('')
+        self.assertFalse(lic.local_license_released())
+        self.assertEqual(lic.ensure_license(now=datetime(2026, 11, 5, 9, 0, 0)).source, 'local')
+
+    def test_pc_without_server_keeps_local_first_behavior(self):
+        calls = self.connect_client_directly()
+        self._write_local()
+        status = lic.ensure_license(now=datetime(2026, 11, 5, 9, 0, 0))
+        self.assertEqual((status.ok, status.source), (True, 'local'))
         self.assertEqual(calls['n'], 0)
+        self.assertTrue(lic.license_file_path().is_file())
 
     def test_failed_connect_keeps_previous_setting(self):
         self.connect_client_directly()
@@ -376,6 +492,11 @@ class HttpRoundTripTests(ServerTestBase):
 
         os.environ['SUMPATH_DATA_DIR'] = str(self.server.data_dir)
         os.environ['SUMPATH_ADMIN_TOKEN'] = 'test-token'
+        updates = Path(self.tmp.name) / 'updates'
+        updates.mkdir()
+        installer_bytes = os.urandom(300 * 1024 + 7)
+        (updates / 'NC_Tool_List_Setup_v9.0.0.exe').write_bytes(installer_bytes)
+        os.environ['SUMPATH_UPDATES_DIR'] = str(updates)
         try:
             if 'app' in sys.modules and getattr(sys.modules['app'], '__file__', '').startswith(str(SERVER_DIR)):
                 server_app = importlib.reload(sys.modules['app'])
@@ -385,6 +506,7 @@ class HttpRoundTripTests(ServerTestBase):
         finally:
             del os.environ['SUMPATH_DATA_DIR']
             del os.environ['SUMPATH_ADMIN_TOKEN']
+            del os.environ['SUMPATH_UPDATES_DIR']
         self.assertEqual(server_app.server.server_id, self.server.server_id)
 
         port = _free_port()
@@ -427,6 +549,20 @@ class HttpRoundTripTests(ServerTestBase):
         self.assertEqual(devices['info']['seats_used'], 1)
         # 입력 크기 제한
         self.assertEqual(call('/api/v1/lease', {'machine': 'x' * 500})[0], 422)
+        # v1.1.0: 업데이트 배포 — 앱 쪽 실제 경로(app_update)로 감지·다운로드·SHA-256 확인
+        import app_update
+        self.assertEqual(server_app.server.seat_idle_days, 100)
+        code, upd = call('/api/v1/update')
+        self.assertEqual((code, upd['update']['version']), (200, '9.0.0'))
+        self.assertEqual(call('/api/v1/update/download/readme.txt')[0], 404)
+        candidate = app_update.find_update('2.3.1', server_url=base)
+        self.assertEqual((candidate['source'], candidate['version_text']), ('server', '9.0.0'))
+        seen = []
+        path = app_update.download_server_update(candidate, dest_dir=Path(self.tmp.name) / 'dl',
+                                                 progress=lambda d, t: seen.append(d))
+        self.assertEqual(path.read_bytes(), installer_bytes)
+        self.assertEqual(seen[-1], len(installer_bytes))
+        self.assertIsNone(app_update.find_update('9.0.0', server_url=base))
         # 관리 화면
         with opener.open(base + '/', timeout=5) as resp:
             self.assertIn('Sum Path 라이선스 서버', resp.read().decode('utf-8'))

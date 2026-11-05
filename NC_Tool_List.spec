@@ -26,6 +26,8 @@ viewer_hiddenimports = [
     'pyqtgraph', 'pyqtgraph.opengl',
     # v1.8.0: 라이선스 검증 공용 모듈(순수 파이썬, 외부 의존성 없음).
     'sumpath_license',
+    # v2.3.1: 시작할 때 업데이트 감지(라이선스 서버 배포 + 공유 폴더, 순수 파이썬).
+    'app_update',
     # v1.9.0: 밀링 3축 형상 가공 시뮬레이션 엔진(순수 numpy, Qt 비의존).
     'nc_sim',
     # v1.10.0: 3D 소재(복셀) 엔진 — 경사면/동시 5축 가공 시뮬레이션.

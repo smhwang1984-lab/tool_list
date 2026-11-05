@@ -119,6 +119,7 @@
       ['사용 기한', i.valid_until ? esc(i.valid_until + (i.days_left != null ? ' (남은 ' + i.days_left + '일)' : '')) : (i.licensed ? '영구' : '')],
       ['오프라인 허용', esc(i.lease_days + '일')],
       ['자동 회수', i.seat_idle_days ? esc(i.seat_idle_days + '일 미접속 PC') : '끔'],
+      ['배포 중인 업데이트', i.update ? esc('v' + i.update.version + ' (' + (i.update.size / 1048576).toFixed(1) + ' MB, ' + i.update.file + ')') : '없음 (updates 폴더에 설치 파일을 넣으세요)'],
       ['서버 버전', esc(i.server_version)]
     ];
     document.getElementById('info').innerHTML = rows.map(function (r) { return '<dt>' + r[0] + '</dt><dd>' + r[1] + '</dd>'; }).join('');
