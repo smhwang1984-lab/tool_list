@@ -19,6 +19,20 @@ os.environ.setdefault('NC_TOOL_LIST_GL_SAFE_MODE', '0')
 
 
 @pytest.fixture(autouse=True)
+def _isolate_license_maker_dirs(tmp_path, monkeypatch):
+    """발급 프로그램 테스트가 이 PC의 실제 %APPDATA%\\SumPath License Maker 나 저장소 폴더에
+    서명 키·발급 기록·발급 파일을 남기지 않게 한다. 예전에는 일부 테스트가 portable_dir만 바꿔서
+    발급 기록이 실제 %APPDATA%에 쌓였고, 거기 키가 생기면 USB 키가 없는 발급 프로그램이 그 키를
+    잡았다(v2.3.0, 2026-11-05 실측). 각 테스트가 다시 바꾸는 값은 그 테스트 것이 우선한다."""
+    import sys
+    maker = sys.modules.get('SumPath_License_Maker')
+    if maker is not None:
+        monkeypatch.setattr(maker, 'appdata_dir', lambda: tmp_path / 'maker_appdata')
+        monkeypatch.setattr(maker, 'portable_dir', lambda: tmp_path / 'maker_program')
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _flush_deferred_qt_deletes():
     yield
     try:
