@@ -56,9 +56,24 @@ Last updated: 2026-11-05 (NC_Tool_List v2.3.0 — 로컬 v2.2.9(STOCK SIZE)와 G
   2. GitHub v2.2.9(11-05, 서버 라이선스 겸용·버전 규칙·홍보영상 생성기·Git 동기화 규칙 — 아래 v2.2.9 기록)
   코드는 자동 병합(겹치는 파일 없음), 문서 충돌만 정리. 기능 변경 없음. GitHub v2.2.9 설치본은 만들지 않고 v2.3.0으로 바로 낸다.
   10-28 로컬 v2.2.9 설치본(SHA `42F2D8FE…`)은 서버 라이선스가 없는 내부 빌드로, v2.3.0이 대체한다.
-- Open source software: 변경 없음(라이선스 서버 컨테이너 전용 패키지는 v2.2.9 기록과 같음).
-- Verification: (빌드 후 기입)
-- Installer/package status: (빌드 후 기입)
+  병합 후 Windows 테스트에서 찾아 고친 것(앱 동작 변경 없음):
+  - `license_server/core.py`: `with sqlite3.connect(...)`는 commit/rollback만 하고 연결을 닫지 않는다 → `_connect()`를 닫는 컨텍스트 매니저로.
+    Windows에서 DB 파일이 잠겨 `tests/test_license_server.py` 16개가 실패했다(Linux 컨테이너에서는 증상 없음, 연결 누수만).
+  - `tests/test_license.py` 등록 창 테스트: 고정 날짜(2026-09-01, 30일) 라이선스가 10-01부터 만료로 거부돼 `exec_()`가 멈췄다
+    (v2.2.9 기록의 "Linux에서 모달 창에서 멈춤"의 실제 원인) → 오늘 시작 라이선스로 만든다.
+- Open source software: 변경 없음(라이선스 서버 컨테이너 전용 패키지는 v2.2.9 기록과 같음). 발급 프로그램은 cryptography 44.0.0 포함(기존과 같음).
+- Verification: `python -m pytest tests` (빌드 venv `C:\dev\nc_build_venv` + 테스트용으로 cryptography/fastapi/uvicorn/httpx를 임시 경로에 설치, 빌드 venv는 변경 없음)
+  → 751 passed, 1 failed, 1 skipped. 실패는 기존과 같은 이 PC 장비 설정 의존 `test_switching_to_lathe_changes_table_schema_and_machine`.
+  서버 라이선스 20개, 라이선스 85개(등록 창 UI 4개 포함), STOCK SIZE 9개, bump_version 3개 통과.
+- Installer/package status: **생성 완료**. `installer\NC_Tool_List_Setup_v2.3.0.exe`, `installer\NC_Tool_List_Portable_v2.3.0.zip`, `installer\SumPath_License_Maker_v1.4.0.zip`.
+  `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` → `ISCC.exe NC_Tool_List.iss`, 포터블은 dist 폴더 압축.
+  발급 프로그램: 빌드 venv에 cryptography가 없어 `PYTHONPATH=<cryptography 설치 경로>`로 `SumPath_License_Maker.spec` 빌드(없으면 PyInstaller가 ed25519 hidden import 오류를 내고 깨진 exe를 만든다).
+  dist exe 둘 다 기동해 12초 뒤에도 실행 중 확인(앱: 파일 버전 2.3.0.0, 이 PC는 라이선스가 없어 등록 창 표시 / 발급 프로그램: 창 제목 `SumPath License Maker v1.4.0`).
+  - Setup EXE SHA-256: 890C0E2BF46682760F66B3675A432B84B378A54A0B7B80AC4ACB1936B3D1B1DF (78.0 MB)
+  - Portable ZIP SHA-256: D5F77B18A74000252338358D8A9DA16828E7C677C4770920D9906299E57A6E4D (109.4 MB)
+  - App EXE SHA-256: 348B8A07677C580389B5197D6DA45DEC999072B8FD3B2628F522ED3411A79C74
+  - Maker v1.4.0 ZIP SHA-256: 44EB6B25CDB2BDF5AD148AF9A246DE0878196D69F82B9B1F7FBC40028D0F5E4A (39.3 MB)
+  - Maker v1.4.0 EXE SHA-256: 5B7E70936E0D270E429537E888F56F8F4E51203A57E036DCC74E62AE9BFE9CD3
 - 서명 상태: 미서명(기존과 동일).
 
 ### 2026-11-05 (v2.2.9)
