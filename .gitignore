@@ -12,3 +12,7 @@ __pycache__/
 
 # 홍보영상 생성물(promo/build/는 위 build/ 규칙으로 제외)
 promo/output/
+
+# v2.2.9: 라이선스 서버 데이터(서버 개인키·좌석 DB·관리 토큰)와 환경 설정
+license_server/data/
+license_server/.env

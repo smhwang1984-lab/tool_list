@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sum Path 라이선스 서버</title>
+<style>
+  :root { --bg:#f5f6f8; --card:#fff; --text:#1d2430; --muted:#5a6577; --line:#d9dee6; --accent:#1f6feb; --bad:#c62828; --good:#2e7d32; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#14171c; --card:#1d2229; --text:#e6e9ee; --muted:#9aa4b2; --line:#323a45; --accent:#4c8dff; --bad:#ef5350; --good:#66bb6a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 "Malgun Gothic", system-ui, sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 20px; margin: 8px 0 16px; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:14px 16px; margin-bottom:14px; }
+  h2 { font-size: 15px; margin: 0 0 10px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  input[type=password], input[type=text] { flex:1; min-width:200px; padding:7px 9px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--text); }
+  button { padding:7px 12px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--text); cursor:pointer; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button.danger { color:var(--bad); }
+  dl { display:grid; grid-template-columns: max-content 1fr; gap:4px 16px; margin:0; }
+  dt { color:var(--muted); }
+  dd { margin:0; word-break: break-all; }
+  .code { font-family: Consolas, monospace; font-size: 15px; letter-spacing: .5px; }
+  .ok { color:var(--good); } .bad { color:var(--bad); }
+  .msg { margin-top:8px; white-space:pre-wrap; }
+  .table-wrap { overflow-x:auto; }
+  table { width:100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { color:var(--muted); font-weight:600; }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Sum Path 라이선스 서버</h1>
+
+  <section>
+    <h2>서버 정보</h2>
+    <dl id="info"><dt>상태</dt><dd>불러오는 중…</dd></dl>
+    <div class="row" style="margin-top:10px">
+      <button id="copyId">서버 ID 복사</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>관리자 로그인</h2>
+    <div class="row">
+      <input id="token" type="password" placeholder="관리 토큰 (data/admin_token.txt 또는 SUMPATH_ADMIN_TOKEN)">
+      <button class="primary" id="login">확인</button>
+    </div>
+    <div class="msg" id="loginMsg"></div>
+  </section>
+
+  <div id="admin" class="hidden">
+    <section>
+      <h2>서버 라이선스 등록/교체</h2>
+      <div class="row">
+        <input id="licFile" type="file" accept=".lic,application/json">
+        <button class="primary" id="upload">등록</button>
+      </div>
+      <div class="msg" id="uploadMsg"></div>
+    </section>
+
+    <section>
+      <h2>등록 PC (좌석)</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>PC 코드</th><th>PC 이름</th><th>IP</th><th>앱 버전</th><th>상태</th><th>처음 접속</th><th>마지막 접속</th><th>사용권 기한</th><th></th></tr></thead>
+          <tbody id="devices"></tbody>
+        </table>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <input id="blockCode" type="text" placeholder="미리 차단할 PC 코드 (XXXX-XXXX-XXXX-XXXX)">
+        <button class="danger" id="blockNew">차단</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>최근 이력</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>시각</th><th>PC 코드</th><th>동작</th><th>내용</th></tr></thead>
+          <tbody id="events"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</main>
+<script>
+(function () {
+  var serverId = '';
+  var ACTION_LABEL = { registered:'등록', auto_reclaimed:'자동 회수', denied_no_seat:'거부(좌석 없음)', denied_blocked:'거부(차단)',
+    admin_release:'관리자 해제', admin_block:'관리자 차단', admin_unblock:'차단 해제', license_installed:'서버 라이선스 등록' };
+
+  function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+  function fmt(v) { return v ? String(v).replace('T', ' ').slice(0, 16) : ''; }
+  function getToken() { try { return sessionStorage.getItem('sumpath_admin_token') || ''; } catch (e) { return ''; } }
+  function setToken(t) { try { sessionStorage.setItem('sumpath_admin_token', t); } catch (e) {} }
+
+  function api(path, opts) {
+    opts = opts || {};
+    var headers = { 'Content-Type': 'application/json' };
+    if (opts.admin) headers['X-Admin-Token'] = getToken();
+    return fetch(path, { method: opts.body ? 'POST' : 'GET', headers: headers, body: opts.body ? JSON.stringify(opts.body) : undefined })
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.detail || ('HTTP ' + r.status)); return j; }); });
+  }
+
+  function renderInfo(i) {
+    serverId = i.server_id;
+    var rows = [
+      ['서버 ID', '<span class="code">' + esc(i.server_id) + '</span>'],
+      ['라이선스', i.licensed ? '<span class="ok">유효</span>' : '<span class="bad">' + esc(i.license_message || '미등록') + '</span>'],
+      ['사용자', esc(i.licensee)],
+      ['좌석', i.seats ? esc(i.seats_used + ' / ' + i.seats + '대 사용 중') : esc(i.seats_used + '대 등록')],
+      ['기간', esc(i.plan)],
+      ['사용 기한', i.valid_until ? esc(i.valid_until + (i.days_left != null ? ' (남은 ' + i.days_left + '일)' : '')) : (i.licensed ? '영구' : '')],
+      ['오프라인 허용', esc(i.lease_days + '일')],
+      ['자동 회수', i.seat_idle_days ? esc(i.seat_idle_days + '일 미접속 PC') : '끔'],
+      ['서버 버전', esc(i.server_version)]
+    ];
+    document.getElementById('info').innerHTML = rows.map(function (r) { return '<dt>' + r[0] + '</dt><dd>' + r[1] + '</dd>'; }).join('');
+  }
+
+  function loadInfo() { return api('/api/v1/info').then(renderInfo).catch(function (e) { document.getElementById('info').innerHTML = '<dt>오류</dt><dd class="bad">' + esc(e.message) + '</dd>'; }); }
+
+  function loadAdmin() {
+    return api('/api/v1/admin/devices', { admin: true }).then(function (d) {
+      document.getElementById('admin').classList.remove('hidden');
+      document.getElementById('loginMsg').textContent = '';
+      renderInfo(d.info);
+      document.getElementById('devices').innerHTML = d.devices.map(function (x) {
+        var blocked = x.status === 'blocked';
+        var code = x.machine.replace(/(.{4})(?=.)/g, '$1-');
+        return '<tr><td class="code">' + esc(code) + '</td><td>' + esc(x.pc_name) + '</td><td>' + esc(x.ip) + '</td><td>' + esc(x.app_version) +
+          '</td><td class="' + (blocked ? 'bad' : 'ok') + '">' + (blocked ? '차단' : '사용') + '</td><td>' + fmt(x.first_seen) + '</td><td>' + fmt(x.last_seen) +
+          '</td><td>' + fmt(x.lease_until) + '</td><td>' +
+          (blocked ? '<button data-act="unblock" data-m="' + esc(x.machine) + '">차단 해제</button>'
+                   : '<button data-act="release" data-m="' + esc(x.machine) + '">좌석 해제</button> <button class="danger" data-act="block" data-m="' + esc(x.machine) + '">차단</button>') +
+          '</td></tr>';
+      }).join('') || '<tr><td colspan="9">등록된 PC가 없습니다.</td></tr>';
+      document.getElementById('events').innerHTML = d.events.map(function (e) {
+        return '<tr><td>' + fmt(e.at) + '</td><td class="code">' + esc(e.machine || '') + '</td><td>' + esc(ACTION_LABEL[e.action] || e.action) + '</td><td>' + esc(e.detail) + '</td></tr>';
+      }).join('');
+    }).catch(function (e) {
+      document.getElementById('admin').classList.add('hidden');
+      document.getElementById('loginMsg').innerHTML = '<span class="bad">' + esc(e.message) + '</span>';
+    });
+  }
+
+  function deviceAction(machine, action) {
+    var label = { release: '좌석을 해제', block: '차단', unblock: '차단을 해제' }[action];
+    if (!confirm(machine + ' PC의 ' + label + '할까요?' + (action === 'release' ? '\n(해제해도 그 PC가 다시 접속하면 좌석이 남아 있을 때 다시 등록됩니다. 완전히 막으려면 차단하세요.)' : ''))) return;
+    api('/api/v1/admin/devices/action', { admin: true, body: { machine: machine, action: action } })
+      .then(function (r) { if (!r.ok) alert(r.message); loadAdmin(); }).catch(function (e) { alert(e.message); });
+  }
+
+  document.getElementById('devices').addEventListener('click', function (ev) {
+    var b = ev.target.closest('button[data-act]');
+    if (b) deviceAction(b.getAttribute('data-m'), b.getAttribute('data-act'));
+  });
+  document.getElementById('blockNew').addEventListener('click', function () {
+    var code = document.getElementById('blockCode').value.trim();
+    if (code) deviceAction(code, 'block');
+  });
+  document.getElementById('login').addEventListener('click', function () { setToken(document.getElementById('token').value.trim()); loadAdmin(); });
+  document.getElementById('token').addEventListener('keydown', function (e) { if (e.key === 'Enter') document.getElementById('login').click(); });
+  document.getElementById('copyId').addEventListener('click', function () {
+    if (navigator.clipboard && serverId) navigator.clipboard.writeText(serverId);
+  });
+  document.getElementById('upload').addEventListener('click', function () {
+    var f = document.getElementById('licFile').files[0];
+    var out = document.getElementById('uploadMsg');
+    if (!f) { out.textContent = '파일을 선택하세요.'; return; }
+    f.text().then(function (text) { return api('/api/v1/admin/license', { admin: true, body: { text: text } }); })
+      .then(function (r) { out.innerHTML = '<span class="' + (r.ok ? 'ok' : 'bad') + '">' + esc(r.message) + '</span>'; loadAdmin(); })
+      .catch(function (e) { out.innerHTML = '<span class="bad">' + esc(e.message) + '</span>'; });
+  });
+
+  loadInfo();
+  if (getToken()) loadAdmin();
+})();
+</script>
+</body>
+</html>

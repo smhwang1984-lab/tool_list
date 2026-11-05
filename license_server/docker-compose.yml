@@ -1,0 +1,21 @@
+# Sum Path 라이선스 서버 (Synology Container Manager → 프로젝트 → 이 파일 선택)
+# NAS 폴더 예: /volume1/docker/SumPath_License_Server  (이 폴더 안에 data 폴더를 먼저 만든다)
+services:
+  sumpath-license:
+    build:
+      context: .
+      network: host            # 빌드 중 PyPI 접속(Synology DNS 문제 회피, TSERP와 같은 방식)
+    image: sumpath-license:1.0.0
+    container_name: sumpath-license
+    ports:
+      - "8765:8765"
+    environment:
+      - TZ=Asia/Seoul
+      - SUMPATH_DATA_DIR=/data
+      - SUMPATH_ADMIN_TOKEN=${SUMPATH_ADMIN_TOKEN:-}
+      - SUMPATH_LEASE_DAYS=${SUMPATH_LEASE_DAYS:-7}
+      - SUMPATH_SEAT_IDLE_DAYS=${SUMPATH_SEAT_IDLE_DAYS:-30}
+    volumes:
+      # ★ 서버 키·서버 라이선스·좌석 DB. 이 폴더를 지우면 서버 ID가 바뀐다 → 백업 대상.
+      - ./data:/data
+    restart: unless-stopped

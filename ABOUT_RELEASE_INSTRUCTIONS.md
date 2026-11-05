@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-10-28 (NC_Tool_List v2.2.8 — UI 개편: 아이콘 툴바 + 설정 창 + 툴패스 선 굵기)
+Last updated: 2026-11-05 (NC_Tool_List v2.2.9 — 서버 라이선스(NAS) + 로컬 라이선스 겸용, 버전 번호 규칙)
 
 ## About button requirements
 
@@ -22,6 +22,13 @@ Last updated: 2026-10-28 (NC_Tool_List v2.2.8 — UI 개편: 아이콘 툴바 + 
 - Prefer TSERP-style installation under `C:\NC_Tool_List` when matching existing accepted plant PC deployment behavior.
 - As of v1.5.0, the user explicitly asked for `.nc`/`.mpf`/`.tap` to be registered as this app's default program, so the installer now writes HKCR file-association registry entries (`ChangesAssociations=yes`) with `uninsdeletekey`/`uninsdeletevalue` so they're removed cleanly on uninstall. Do not revert this without the user asking.
 
+## Version numbering rule (v2.2.9~)
+
+- Version is `MAJOR.MINOR.PATCH`, each digit 0–9. When a digit would become 10 it resets to 0 and the next digit up increments:
+  `2.2.8 → 2.2.9 → 2.3.0`, `2.9.9 → 3.0.0`. Two-digit patches like v1.5.10 / v1.6.10 are no longer used.
+- Use `python bump_version.py` (or `py bump_version.py` on Windows) to bump. It updates `NC_Tool_List.py` (`APP_VERSION`, `APP_BUILD_DATE`),
+  `NC_Tool_List.iss` (`MyAppVersion`) and `version_info.txt` together. `--check` only prints; `--set X.Y.Z` sets a specific valid version.
+
 ## Version history maintenance
 
 - Every time a new version is created, append a record here.
@@ -34,7 +41,29 @@ Last updated: 2026-10-28 (NC_Tool_List v2.2.8 — UI 개편: 아이콘 툴바 + 
 
 ## Version history
 
-### 2026-10-28 (latest, v2.2.8)
+### 2026-11-05 (latest, v2.2.9)
+
+- Version: 2.2.8 → 2.2.9 (새 번호 규칙: 다음은 2.3.0)
+- Release/build date: 2026-11-05
+- Summary: 사용자 요청 "업데이트 규칙: 0.0.0 단위에서 10이 되면 다음으로" + "TSERP 서버 라이선스 방식과 로컬 라이선스 방식 겸용". 상세는 `v2.2.9_PLAN.md`.
+  1. **서버 라이선스(신규)**: NAS 컨테이너 `license_server/`(FastAPI + SQLite, 포트 8765)가 좌석 수만큼 PC에 서명된 사용권을 준다.
+     서버는 처음 기동 때 자기 Ed25519 키를 만들고 그 공개키에서 서버 ID를 계산한다. 발급 프로그램이 서버 ID·좌석 수로 서버 라이선스를 서명하고,
+     앱은 서버 라이선스 → 서버 ID ↔ 서버 키 → 사용권 서명 → PC 코드 → 기한을 오프라인으로 검증한다(공유 비밀 없음).
+     오프라인 7일 허용, 30일 미접속 PC 좌석 자동 회수, 관리 화면(`http://NAS:8765`)에서 좌석 해제/차단/서버 라이선스 등록. 배포: `license_server/DEPLOY_Synology.md`.
+  2. **겸용 판정 순서**: 로컬 `.lic`(유효하면 서버에 묻지 않음) → 서버 라이선스 → 30일 체험판. 서버가 명시적으로 거부하면 저장된 사용권을 지운다.
+  3. **앱 UI**: 등록 창에 [라이선스 서버 연결...], About 라이선스 묶음에 [라이선스 서버 설정...](빈 값 = 해제)과 방식(로컬/서버) 표시.
+     서버 주소는 `%PROGRAMDATA%\NC Tool List\license_server.json`(또는 exe 옆 `license_server.json`, 환경변수 `SUMPATH_LICENSE_SERVER`).
+  4. **발급 프로그램 v1.4.0**: '서버 라이선스' 탭(서버 ID + 좌석 수), 확인 탭이 서버 라이선스도 표시. 서버 라이선스를 PC에 등록하려 하면 안내 후 거부.
+  5. **버전 규칙**: 신규 `bump_version.py`(위 Version numbering rule).
+- Open source software: 앱 변경 없음(표준 라이브러리 urllib/socket). 라이선스 서버 컨테이너 전용: FastAPI 0.115.6, Uvicorn 0.34.0, cryptography 44.0.0(python:3.12-slim).
+- Verification (Linux 작업 환경, offscreen Qt): 신규 `tests/test_license_server.py` 20개(실제 uvicorn HTTP 왕복 포함), `tests/test_bump_version.py` 3개 통과.
+  기존 `tests/test_license.py` 81개 통과 — `LicenseRegistrationDialogUiTests` 4개는 이 Linux 환경에서 v2.2.8 원본 코드로도 모달 창에서 멈춰 제외했다(Windows에서 재확인 필요).
+- Installer/package status: **미생성** — 이 작업 환경이 Linux라 PyInstaller/Inno Setup 빌드를 하지 못했다. Windows 빌드 PC에서
+  `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` → `ISCC.exe NC_Tool_List.iss`로 `NC_Tool_List_Setup_v2.2.9.exe`를 만든다.
+  발급 프로그램은 `SumPath_License_Maker.spec`으로 v1.4.0 재빌드. 라이선스 서버는 NAS에서 Container Manager가 빌드한다.
+- 서명 상태: 미서명(기존과 동일).
+
+### 2026-10-28 (v2.2.8)
 
 - Version: 2.2.7 → 2.2.8
 - Release/build date: 2026-10-28
