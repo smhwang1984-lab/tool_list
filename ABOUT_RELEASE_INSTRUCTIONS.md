@@ -68,6 +68,9 @@ Last updated: 2026-11-05 (NC_Tool_List v2.3.0 — 로컬 v2.2.9(STOCK SIZE)와 G
 - Installer/package status: **생성 완료**. `installer\NC_Tool_List_Setup_v2.3.0.exe`, `installer\NC_Tool_List_Portable_v2.3.0.zip`, `installer\SumPath_License_Maker_v1.4.0.zip`.
   `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` → `ISCC.exe NC_Tool_List.iss`, 포터블은 dist 폴더 압축.
   발급 프로그램: 빌드 venv에 cryptography가 없어 `PYTHONPATH=<cryptography 설치 경로>`로 `SumPath_License_Maker.spec` 빌드(없으면 PyInstaller가 ed25519 hidden import 오류를 내고 깨진 exe를 만든다).
+  같은 날 빌드 venv에 `cryptography==44.0.0`을 설치했다 — 다음부터는 `python -m PyInstaller SumPath_License_Maker.spec --noconfirm --clean`만 하면 된다
+  (앱 `NC_Tool_List.spec` 빌드는 cryptography를 쓰지 않아 영향 없음). 발급 프로그램의 서명 키·서명 방식·포터블(USB) 동작은 v1.3.0과 같다:
+  exe 옆에 `signing_key.pem`이 있으면 그 폴더(USB)를 쓰고, 앱 공개키 `98325d41…`도 그대로다. 배포 zip에는 키/발급 기록이 들어 있지 않다.
   dist exe 둘 다 기동해 12초 뒤에도 실행 중 확인(앱: 파일 버전 2.3.0.0, 이 PC는 라이선스가 없어 등록 창 표시 / 발급 프로그램: 창 제목 `SumPath License Maker v1.4.0`).
   - Setup EXE SHA-256: 890C0E2BF46682760F66B3675A432B84B378A54A0B7B80AC4ACB1936B3D1B1DF (78.0 MB)
   - Portable ZIP SHA-256: D5F77B18A74000252338358D8A9DA16828E7C677C4770920D9906299E57A6E4D (109.4 MB)
