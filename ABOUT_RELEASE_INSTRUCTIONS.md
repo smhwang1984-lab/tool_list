@@ -1,6 +1,6 @@
 ﻿# About / Release Instructions
 
-Last updated: 2026-11-05 (NC_Tool_List v2.2.9 — 서버 라이선스(NAS) + 로컬 라이선스 겸용, 버전 번호 규칙)
+Last updated: 2026-11-05 (NC_Tool_List v2.3.0 — 로컬 v2.2.9(STOCK SIZE)와 GitHub v2.2.9(서버 라이선스) 병합)
 
 ## About button requirements
 
@@ -47,7 +47,21 @@ Last updated: 2026-11-05 (NC_Tool_List v2.2.9 — 서버 라이선스(NAS) + 로
 
 ## Version history
 
-### 2026-11-05 (latest, v2.2.9)
+### 2026-11-05 (latest, v2.3.0)
+
+- Version: 2.2.9 → 2.3.0 (새 번호 규칙)
+- Release/build date: 2026-11-05
+- Summary: v2.2.8에서 따로 만들어진 두 "v2.2.9"를 하나로 합쳤다. 상세는 `v2.3.0_PLAN.md`.
+  1. Windows 로컬 v2.2.9(10-28, 소재 설정 STOCK SIZE 주석 연동 — 아래 내부 빌드 기록)
+  2. GitHub v2.2.9(11-05, 서버 라이선스 겸용·버전 규칙·홍보영상 생성기·Git 동기화 규칙 — 아래 v2.2.9 기록)
+  코드는 자동 병합(겹치는 파일 없음), 문서 충돌만 정리. 기능 변경 없음. GitHub v2.2.9 설치본은 만들지 않고 v2.3.0으로 바로 낸다.
+  10-28 로컬 v2.2.9 설치본(SHA `42F2D8FE…`)은 서버 라이선스가 없는 내부 빌드로, v2.3.0이 대체한다.
+- Open source software: 변경 없음(라이선스 서버 컨테이너 전용 패키지는 v2.2.9 기록과 같음).
+- Verification: (빌드 후 기입)
+- Installer/package status: (빌드 후 기입)
+- 서명 상태: 미서명(기존과 동일).
+
+### 2026-11-05 (v2.2.9)
 
 - Version: 2.2.8 → 2.2.9 (새 번호 규칙: 다음은 2.3.0)
 - Release/build date: 2026-11-05
@@ -71,6 +85,22 @@ Last updated: 2026-11-05 (NC_Tool_List v2.2.9 — 서버 라이선스(NAS) + 로
   이 버전에서 하나로 합쳤다 — v2.2.9를 `master`에 병합하고 기본 브랜치를 같은 커밋으로 맞췄다. 같은 날 Git 동기화 규칙(`CLAUDE.md`)과
   Windows용 `git_sync.bat` / `git_publish.bat`, 1회 정리·빌드 절차 `GIT_SYNC_PLAN.md`를 추가했다.
 - 서명 상태: 미서명(기존과 동일).
+
+### 2026-10-28 (v2.2.9 내부 빌드 — STOCK SIZE, v2.3.0으로 대체)
+
+- Version: 2.2.8 -> 2.2.9
+- Release/build date: 2026-10-28
+- Summary: 사용자 요청 "Viewer 소재 설정에서 프로그램 상단 주석 STOCK SIZE(T W L)의 값을 가져오고, 없으면 기존대로 입력". 상세는 `v2.3.0_PLAN.md` 부록 A(D-2~D-4 추천안 승인, D-1 실제 주석 `(STOCK SIZE : T50 W95 L385)`).
+  1. `nc_sim.parse_stock_size_comment()`: 첫 공구 교환/이동 전(최대 200줄)의 `(STOCK SIZE ...)` 주석에서 T/W/L을 읽는다. T/W/L 글자 또는 숫자 3개(T,W,L 순서). 못 읽거나 0 이하면 None. `STOCK SPEC` 주석은 무시.
+  2. 소재 설정 창(밀링): 열 때 주석 값으로 T/W/L 칸을 채우고 `NC 주석에서 가져옴` 안내 + `주석 값 다시 불러오기` 버튼. 같은 프로그램에서 고친 값은 유지, 프로그램(주석 값)이 바뀌면 다시 채움. [적용]은 사용자가 누른다. 주석 값 그대로면 QSettings에 치수를 저장하지 않는다. 주석이 없으면 이전과 동일. 선반 창은 변경 없음.
+- Open source software: 변경 없음.
+- Verification: `python -m pytest` (빌드 venv) -> 669 passed, 1 failed(이 PC 저장 장비 설정 의존 `test_switching_to_lathe_changes_table_schema_and_machine`, 기존과 동일), 60 skipped. 신규 테스트 `StockSizeCommentTests` 4개 + 소재 창 5개 통과.
+- Installer/package status: **생성 완료**. `installer\NC_Tool_List_Setup_v2.2.9.exe`, `installer\NC_Tool_List_Portable_v2.2.9.zip`.
+  `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` → `ISCC.exe NC_Tool_List.iss`, 포터블은 dist 폴더 압축. dist exe를 기동해 12초 뒤에도 실행 중임을 확인.
+  - Setup EXE SHA-256: 42F2D8FEE895FB64638AEC91AE030DB284451EEE6E1CE50341EF3E8FDB74480B
+  - Portable ZIP SHA-256: 8120DE38616EC3F9CC5748F76F8A9B348E9AD97FFB38439E8BF86484F2015D88
+  - App EXE SHA-256: 09EDE46CE6BF30DFB4DFF6628E3D1DD8C0608C4BDB97EF8C907CCC415F4C50E4
+  - Setup 77.9 MB / Portable 109.4 MB.
 
 ### 2026-10-28 (v2.2.8)
 

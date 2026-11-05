@@ -1644,6 +1644,21 @@ class StockDialog(QDialog):
         self.enable_check = QCheckBox('소재 / 가공 시뮬레이션 표시')
         layout.addWidget(self.enable_check)
 
+        # v2.2.9: 프로그램 상단 주석 `(STOCK SIZE : T.. W.. L..)`에서 치수를 가져온다
+        self._comment_dims = None        # 지금 프로그램의 주석 값 {'T','W','L'} 또는 None
+        self._comment_seen = None        # 마지막으로 칸을 채운 주석 값(프로그램이 바뀌었는지 판단)
+        self._from_comment = False       # 칸이 주석 값 그대로인가(True면 QSettings에 저장하지 않음)
+        comment_bar = QHBoxLayout()
+        self.comment_label = QLabel('')
+        self.comment_label.setVisible(False)
+        comment_bar.addWidget(self.comment_label)
+        self.comment_reload_button = QPushButton('주석 값 다시 불러오기')
+        self.comment_reload_button.setVisible(False)
+        self.comment_reload_button.clicked.connect(self._reload_comment_dims)
+        comment_bar.addWidget(self.comment_reload_button)
+        comment_bar.addStretch()
+        layout.addLayout(comment_bar)
+
         grid = QGridLayout()
         grid.addWidget(QLabel(''), 0, 0)
         grid.addWidget(QLabel('치수(mm)'), 0, 1)
@@ -1750,6 +1765,8 @@ class StockDialog(QDialog):
 
         for spin in list(self.dim_spins.values()) + list(self.offset_spins.values()):
             spin.valueChanged.connect(self._update_bounds_preview)
+        for spin in self.dim_spins.values():
+            spin.valueChanged.connect(self._on_dim_edited)
         for combo in list(self.ref_combos.values()):
             combo.currentIndexChanged.connect(self._update_bounds_preview)
         self.toolpath_check.toggled.connect(self._on_toolpath_toggled)
@@ -1757,6 +1774,57 @@ class StockDialog(QDialog):
 
         self._load_settings()
         self._update_bounds_preview()
+
+    # -- v2.2.9: NC 주석 STOCK SIZE -------------------------------------------
+    def _set_dims_from_comment(self, dims):
+        self._updating = True
+        for key in self._DIM_KEYS:
+            self.dim_spins[key].setValue(dims[key])
+        self._updating = False
+        self._from_comment = True
+        self._show_comment_note()
+        self._update_bounds_preview()
+
+    def _show_comment_note(self):
+        dims = self._comment_dims
+        if dims is None:
+            self.comment_label.setVisible(False)
+            self.comment_reload_button.setVisible(False)
+            return
+        text = 'T%g / W%g / L%g' % (dims['T'], dims['W'], dims['L'])
+        if self._from_comment:
+            self.comment_label.setText('NC 주석에서 가져옴: ' + text)
+        else:
+            self.comment_label.setText('NC 주석 값(%s)에서 바꿈' % text)
+        self.comment_label.setVisible(True)
+        self.comment_reload_button.setVisible(True)
+
+    def _on_dim_edited(self, _value):
+        if self._updating or not self._from_comment:
+            return
+        if self._comment_dims is not None and self._dims() != self._comment_dims:
+            self._from_comment = False
+            self._show_comment_note()
+
+    def _reload_comment_dims(self):
+        if self._comment_dims is not None:
+            self._set_dims_from_comment(self._comment_dims)
+
+    def _sync_comment_dims(self):
+        """창을 열 때 프로그램 주석을 다시 읽는다. 프로그램(주석 값)이 바뀌었을 때만
+        칸을 채우고, 같은 프로그램에서 고친 값은 그대로 둔다."""
+        dims = nc_sim.parse_stock_size_comment(self.viewer.raw_lines)
+        self._comment_dims = dims
+        if dims is None:
+            self._comment_seen = None
+            self._from_comment = False
+            self._show_comment_note()
+            return
+        if dims != self._comment_seen:
+            self._comment_seen = dims
+            self._set_dims_from_comment(dims)
+        else:
+            self._show_comment_note()
 
     # -- 축 배정 스왑 -----------------------------------------------------
     def _on_axis_changed(self, changed_key):
@@ -1927,6 +1995,8 @@ class StockDialog(QDialog):
 
     def refresh_from_viewer(self):
         self.enable_check.setChecked(self.viewer.sim_enabled)
+        if hasattr(self, '_sync_comment_dims'):    # 선반 창은 STOCK SIZE 주석을 쓰지 않는다
+            self._sync_comment_dims()
         self.refresh_status()
 
     # -- QSettings 저장(전역 하나만 기억, F 결정) ------------------------------
@@ -1937,7 +2007,8 @@ class StockDialog(QDialog):
         settings = self.viewer.settings
         settings.beginGroup(self._SETTINGS_GROUP)
         for key in self._DIM_KEYS:
-            settings.setValue('dim_%s' % key, self.dim_spins[key].value())
+            if not self._from_comment:     # v2.2.9: 주석에서 가져온 치수는 저장하지 않는다
+                settings.setValue('dim_%s' % key, self.dim_spins[key].value())
             settings.setValue('axis_%s' % key, self.axis_combos[key].currentText())
         for axis in self._AXES:
             settings.setValue('ref_%s' % axis, self.ref_combos[axis].currentData())

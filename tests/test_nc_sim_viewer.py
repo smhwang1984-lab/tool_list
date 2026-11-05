@@ -393,6 +393,57 @@ M30
             self.assertEqual(settings.value('stock/color_mode'), 'tool', mode)
             self.assertTrue(settings.value('stock/color_mode_migrated_v2', False, type=bool))
 
+    # -- NC 주석 STOCK SIZE (v2.2.9) ---------------------------------------------
+    COMMENT_PROGRAM = '(STOCK SIZE : T12 W34 L56)\n' + PROGRAM
+
+    def _dims_of(self, dialog):
+        return {key: dialog.dim_spins[key].value() for key in 'TWL'}
+
+    def test_dialog_fills_dims_from_stock_size_comment(self):
+        viewer = self.make_viewer(program=self.COMMENT_PROGRAM)
+        dialog = self._isolated_dialog(viewer)
+        dialog.refresh_from_viewer()
+        self.assertEqual(self._dims_of(dialog), {'T': 12.0, 'W': 34.0, 'L': 56.0})
+        self.assertFalse(dialog.comment_label.isHidden())
+        self.assertIn('주석에서 가져옴', dialog.comment_label.text())
+
+    def test_dialog_without_comment_keeps_manual_values(self):
+        viewer = self.make_viewer()
+        dialog = self._isolated_dialog(viewer)
+        dialog.refresh_from_viewer()
+        self.assertEqual(self._dims_of(dialog), {'T': 50.0, 'W': 100.0, 'L': 100.0})
+        self.assertTrue(dialog.comment_label.isHidden())
+        self.assertTrue(dialog.comment_reload_button.isHidden())
+
+    def test_edited_dims_survive_reopen_and_reload_button_restores(self):
+        viewer = self.make_viewer(program=self.COMMENT_PROGRAM)
+        dialog = self._isolated_dialog(viewer)
+        dialog.refresh_from_viewer()
+        dialog.dim_spins['T'].setValue(20.0)
+        self.assertIn('바꿈', dialog.comment_label.text())
+        dialog.refresh_from_viewer()                       # 같은 프로그램 — 고친 값 유지
+        self.assertEqual(dialog.dim_spins['T'].value(), 20.0)
+        dialog._reload_comment_dims()
+        self.assertEqual(dialog.dim_spins['T'].value(), 12.0)
+
+    def test_new_program_refills_from_its_comment(self):
+        viewer = self.make_viewer(program=self.COMMENT_PROGRAM)
+        dialog = self._isolated_dialog(viewer)
+        dialog.refresh_from_viewer()
+        viewer.set_source_text('(STOCK SIZE : T7 W8 L9)\n' + PROGRAM, NAMES, SHAPES)
+        dialog.refresh_from_viewer()
+        self.assertEqual(self._dims_of(dialog), {'T': 7.0, 'W': 8.0, 'L': 9.0})
+
+    def test_comment_dims_are_not_saved_but_edited_dims_are(self):
+        viewer = self.make_viewer(program=self.COMMENT_PROGRAM)
+        dialog = self._isolated_dialog(viewer)
+        dialog.refresh_from_viewer()
+        dialog._save_settings()
+        self.assertIsNone(viewer.settings.value('stock/dim_T', None))
+        dialog.dim_spins['T'].setValue(20.0)
+        dialog._save_settings()
+        self.assertEqual(float(viewer.settings.value('stock/dim_T')), 20.0)
+
     def test_color_mode_chosen_after_migration_is_kept(self):
         viewer, dialog, settings = self._dialog_with_saved_mode('solid')
         dialog.color_mode_combo.setCurrentIndex(dialog.color_mode_combo.findData('solid'))
