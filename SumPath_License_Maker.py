@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-SumPath License Maker (v1.4.1)
+SumPath License Maker (v1.4.2)
 
 Sum Path 라이선스 파일(.lic) 발급 프로그램. **발급자(관리자) PC에만** 두고,
 Sum Path 설치본/포터블/업데이트 공유 폴더에는 절대 포함하지 않는다
@@ -23,6 +23,10 @@ v1.4.1(Sum Path v2.3.0): 키 없는 폴더에서 실행해 [새 서명 키 생�
 `%APPDATA%`에 앱과 맞지 않는 키가 생기고, 그 뒤로 키 없는 복사본이 모두 그 키를 잡던 문제를 막는다.
 새 키 생성은 항상 경고(기본값 '아니요')를 거치고 `%APPDATA%`가 아니라 이 exe 폴더에 만든다.
 키가 없을 때 안내는 "키가 있는 USB 폴더에서 실행 / 외부 키 불러오기"를 먼저 알린다.
+
+v1.4.2: 그래도 새 폴더에 풀어 [새 서명 키 생성]을 눌러 같은 문제가 반복됐다 → 화면에서 그 버튼을 없애고
+(`--new-key` 명령줄로만), exe 옆에 앱과 맞는 키가 없으면 USB·상위 폴더·%APPDATA%에서 **앱 공개키와
+일치하는** 기존 키를 찾아 복사 없이 그 자리에서 쓴다(`key_location()`). 발급 기록·발급 파일도 그 폴더에.
 
 형식/기간 규칙은 `sumpath_license.py`(본 앱과 공유)를 그대로 쓴다.
 """
@@ -50,7 +54,7 @@ import sumpath_license as lic
 
 
 MAKER_APP_NAME = 'SumPath License Maker'
-MAKER_VERSION = '1.4.1'
+MAKER_VERSION = '1.4.2'
 ISSUED_LOG_FIELDS = (
     'license_id', 'licensee', 'machine', 'plan_days', 'starts',
     'valid_until', 'issued_at', 'memo',
@@ -76,18 +80,119 @@ def appdata_dir():
     return Path(base) / MAKER_APP_NAME
 
 
-def maker_dir():
-    """서명 키/발급 이력/발급 결과 저장 위치를 정한다.
+KEY_SEARCH_MAX_DEPTH = 3
+_KEY_SEARCH_SKIP_DIRS = {
+    '_internal', 'windows', 'program files', 'program files (x86)', 'programdata',
+    '$recycle.bin', 'system volume information', 'node_modules', '.git',
+}
 
-    exe와 같은 폴더(`portable_dir()`)에 이미 `signing_key.pem`이 있으면
-    그 폴더를 그대로 쓴다(포터블/USB 모드) — USB를 다른 PC에 꽂아도
-    항상 자기 키를 쓰고, %APPDATA%는 전혀 건드리지 않는다. 없으면
-    기존처럼 `%APPDATA%\\SumPath License Maker\\`를 쓴다(v1.2.0까지의
-    동작과 동일 — 이미 그렇게 설치돼 있는 PC는 아무 변화가 없다)."""
+
+def _key_file_matches_app(path):
+    try:
+        with open(path, 'rb') as fp:
+            key = serialization.load_pem_private_key(fp.read(), password=None)
+    except (ValueError, TypeError, OSError):
+        return False
+    return public_key_matches_app(key)
+
+
+def key_search_roots():
+    """v1.4.2: exe 옆에 앱과 맞는 키가 없을 때 기존 키를 찾아볼 곳.
+
+    exe 폴더의 상위 3단계(예: USB의 F:\\Licenser), 시스템 드라이브가 아닌 로컬/이동식
+    드라이브 루트(USB), 기존 %APPDATA% 폴더. 네트워크 드라이브는 느려서 뺀다."""
+    parents = list(portable_dir().parents)[:3]
+    roots = parents[:1]  # exe 폴더 바로 위(같은 곳에 풀어 둔 옆 폴더)
+    if os.name == 'nt':
+        import ctypes
+        import string
+        system_drive = (os.environ.get('SystemDrive') or 'C:').upper()
+        mask = ctypes.windll.kernel32.GetLogicalDrives()
+        for i, letter in enumerate(string.ascii_uppercase):
+            if not mask & (1 << i):
+                continue
+            root = '%s:\\' % letter
+            if root[:2] == system_drive:
+                continue
+            # 2 = 이동식(USB), 3 = 고정 디스크. 4 = 네트워크, 5 = CD-ROM은 뺀다.
+            if ctypes.windll.kernel32.GetDriveTypeW(root) in (2, 3):
+                roots.append(Path(root))
+    roots.extend(parents[1:])  # 그다음 더 위 폴더(OneDrive 등은 넓어서 뒤로)
+    roots.append(appdata_dir())
+    unique = []
+    for root in roots:
+        if root not in unique:
+            unique.append(root)
+    return unique
+
+
+def find_app_matching_key(roots=None, max_depth=KEY_SEARCH_MAX_DEPTH):
+    """roots 아래(최대 max_depth 단계)에서 **앱 공개키와 일치하는** signing_key.pem을 찾는다.
+    맞지 않는 키(새로 만든 키 등)는 건너뛴다. 못 찾으면 None."""
+    for root in (key_search_roots() if roots is None else roots):
+        stack = [(Path(root), 0)]
+        while stack:
+            folder, depth = stack.pop()
+            candidate = folder / 'signing_key.pem'
+            try:
+                if candidate.is_file() and _key_file_matches_app(candidate):
+                    return candidate
+            except OSError:
+                pass
+            if depth >= max_depth:
+                continue
+            try:
+                entries = sorted(os.scandir(folder), key=lambda e: e.name.lower())
+            except OSError:
+                continue
+            for entry in reversed(entries):
+                try:
+                    if entry.is_dir(follow_symlinks=False) and entry.name.lower() not in _KEY_SEARCH_SKIP_DIRS:
+                        stack.append((Path(entry.path), depth + 1))
+                except OSError:
+                    continue
+    return None
+
+
+_key_location_cache = {}
+
+
+def reset_key_location_cache():
+    _key_location_cache.clear()
+
+
+def key_location():
+    """(폴더, 종류)를 정한다. 종류: 'portable'(exe 옆 키가 앱과 일치), 'found'(다른 곳에서
+    앱과 맞는 기존 키를 찾음 — 복사하지 않고 그 자리에서 씀), 'portable_mismatch'(exe 옆에
+    키가 있지만 앱과 다르고 맞는 키도 못 찾음), 'appdata'(기존 방식)."""
     portable = portable_dir()
-    if (portable / 'signing_key.pem').is_file():
-        return portable
-    return appdata_dir()
+    cache_key = (str(portable), str(appdata_dir()))
+    if cache_key in _key_location_cache:
+        return _key_location_cache[cache_key]
+    portable_key = portable / 'signing_key.pem'
+    if portable_key.is_file() and _key_file_matches_app(portable_key):
+        result = (portable, 'portable')
+    else:
+        found = find_app_matching_key()
+        if found is not None:
+            result = (found.parent, 'found')
+        elif portable_key.is_file():
+            result = (portable, 'portable_mismatch')
+        else:
+            result = (appdata_dir(), 'appdata')
+    _key_location_cache[cache_key] = result
+    return result
+
+
+def maker_dir():
+    """서명 키/발급 이력 저장 위치.
+
+    v1.3.0: exe와 같은 폴더에 `signing_key.pem`이 있으면 그 폴더(포터블/USB 모드), 없으면
+    `%APPDATA%\\SumPath License Maker\\`.
+    v1.4.2: exe 옆 키가 없거나 앱과 맞지 않으면, 앱 공개키와 **일치하는** 기존 키를 USB·상위
+    폴더·%APPDATA%에서 찾아 그 폴더를 쓴다(`key_location()`). 압축을 새 폴더에 풀어 실행해도
+    USB의 기존 키·발급 기록을 그대로 쓴다."""
+    return key_location()[0]
 
 
 def signing_key_path():
@@ -102,7 +207,13 @@ def issued_license_dir():
     """발급된 .lic 파일이 자동으로 쌓이는 폴더 — 항상 exe와 같은 폴더
     (`portable_dir()`) 밑의 하위 폴더다. 포터블 모드 여부와 무관하게
     항상 프로그램이 있는 위치를 기준으로 한다 — "발급하면 프로그램
-    폴더로 이동"이라는 사용자 요구를 그대로 따른 것."""
+    폴더로 이동"이라는 사용자 요구를 그대로 따른 것.
+
+    v1.4.2: 다른 곳(USB)에서 찾은 키를 쓰는 중이면 그 키 폴더 밑에 쌓는다 — 발급 기록과
+    발급 파일이 기존 USB 폴더에 함께 남게."""
+    folder, kind = key_location()
+    if kind == 'found':
+        return folder / ISSUED_LICENSE_SUBDIR
     return portable_dir() / ISSUED_LICENSE_SUBDIR
 
 
@@ -268,9 +379,12 @@ class LicenseMakerWindow(QMainWindow):
         self.key_status_label.setWordWrap(True)
         layout.addWidget(self.key_status_label)
 
-        self.generate_key_button = QPushButton('새 서명 키 생성...')
-        self.generate_key_button.clicked.connect(self._generate_key)
-        layout.addWidget(self.generate_key_button)
+        # v1.4.2: '새 서명 키 생성' 버튼을 없앴다 — 새 폴더에 풀어 실행한 뒤 이 버튼을 누르면
+        # 앱과 맞지 않는 새 키가 생겨 발급이 막혔다(2026-11-05 세 번 실측). 새 키는 앱을 다시
+        # 빌드할 때만 필요하므로 명령줄 `SumPath_License_Maker.exe --new-key <경로>`로만 만든다.
+        self.find_key_button = QPushButton('기존 서명 키 다시 찾기 (USB 등)')
+        self.find_key_button.clicked.connect(self._refresh_key_status)
+        layout.addWidget(self.find_key_button)
 
         # USB 등 외부 매체에 보관해 둔 개인키를 그때그때 불러와 쓸 수 있게
         # 한다 — PC 디스크(signing_key_path())에는 저장하지 않고 이 창이
@@ -356,11 +470,20 @@ class LicenseMakerWindow(QMainWindow):
             self.valid_until_label.setText('사용 기한: %s' % valid_until.isoformat())
 
     def _refresh_key_status(self):
+        reset_key_location_cache()
         self.signing_key = load_signing_key()
+        folder, kind = key_location()
         note = None
         if self.signing_key is not None:
-            if maker_dir() == portable_dir():
+            if kind == 'portable':
                 note = '포터블 모드 — 이 프로그램과 같은 폴더의 키를 자동으로 사용 중\n%s' % signing_key_path()
+            elif kind == 'found':
+                note = ('자동 연결 — 앱과 일치하는 기존 키를 찾아 그 자리에서 사용 중(복사하지 않음)\n%s\n'
+                        '발급 기록·발급된 라이선스도 이 폴더에 저장됩니다.' % signing_key_path())
+            elif kind == 'portable_mismatch':
+                note = ('이 프로그램 폴더의 키: %s\n'
+                        '앱과 일치하는 기존 키(USB 등)를 찾지 못했습니다. USB를 꽂고 [기존 서명 키 다시 찾기]를\n'
+                        '누르거나 "USB 등 외부 파일에서 키 불러오기..."로 기존 키를 고르세요.' % signing_key_path())
             else:
                 note = '위치: %s' % signing_key_path()
         self._apply_key_state(note)
@@ -371,17 +494,12 @@ class LicenseMakerWindow(QMainWindow):
         추가로 보여줄 한 줄(또는 여러 줄)."""
         if self.signing_key is None:
             self.key_status_label.setText(
-                '⚠ 서명 키가 없습니다 — 이 프로그램 폴더에 signing_key.pem이 없습니다.\n'
-                '  %s\n'
-                '기존 키로 발급하려면(보통 이 경우):\n'
-                '  · signing_key.pem이 있는 USB 폴더에 이 프로그램(exe + _internal)을\n'
-                '    복사해 거기서 실행하거나\n'
-                '  · 아래 "USB 등 외부 파일에서 키 불러오기..."로 그 키를 불러오세요.\n'
-                '"새 서명 키 생성"은 앱을 새 공개키로 다시 빌드할 때만 씁니다.'
-                % portable_dir()
+                '⚠ 앱과 일치하는 서명 키를 찾지 못했습니다.\n'
+                '  (이 프로그램 폴더, 상위 폴더, USB 등 다른 드라이브, %%APPDATA%%를 찾아봤습니다)\n'
+                '· 기존 키가 든 USB를 꽂고 [기존 서명 키 다시 찾기]를 누르거나\n'
+                '· "USB 등 외부 파일에서 키 불러오기..."로 signing_key.pem을 고르세요.\n'
+                '프로그램 폴더: %s' % portable_dir()
             )
-            self.generate_key_button.setEnabled(True)
-            self.generate_key_button.setText('새 서명 키 생성...')
             self.issue_button.setEnabled(False)
             return
         if public_key_matches_app(self.signing_key):
@@ -400,8 +518,6 @@ class LicenseMakerWindow(QMainWindow):
                 text += '\n' + note
             self.key_status_label.setText(text)
             self.issue_button.setEnabled(False)
-        self.generate_key_button.setEnabled(False)
-        self.generate_key_button.setText('서명 키 있음')
 
     def _load_external_key(self):
         """USB 등 임의 위치의 .pem 키 파일을 선택해 그 자리에서 서명에
@@ -428,35 +544,6 @@ class LicenseMakerWindow(QMainWindow):
             '키를 불러오면 사라지며, 다시 쓰려면 이 버튼으로 다시 불러와야 합니다.)'
             % path
         )
-
-    def _generate_key(self):
-        # v1.4.1: 키가 있든 없든 항상 경고하고 기본값은 '아니요'. 새 키로 발급한
-        # 라이선스는 지금 배포된 앱(내장 공개키)에서 통과되지 않는다.
-        target = portable_dir() / 'signing_key.pem'
-        exists_note = ('이 폴더에 이미 서명 키가 있습니다 — 새로 만들면 덮어씁니다.\n\n'
-                       if target.is_file() else '')
-        confirm = QMessageBox.warning(
-            self, '새 서명 키 생성 — 주의',
-            exists_note
-            + '새 서명 키로 발급한 라이선스는 지금 쓰는 Sum Path 앱에서 통과되지 않습니다.\n'
-            '앱의 공개키(sumpath_license.py)를 새 키로 바꿔 다시 빌드할 때만 만드세요.\n\n'
-            '기존 키로 발급하려는 것이면 [아니요]를 누르고, signing_key.pem이 있는\n'
-            'USB 폴더에서 이 프로그램을 실행하거나 "외부 파일에서 키 불러오기"를 쓰세요.\n\n'
-            '저장 위치: %s\n\n정말 새 키를 만들까요?' % target,
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
-        )
-        if confirm != QMessageBox.Yes:
-            return
-        key = generate_signing_key(target)
-        QMessageBox.information(
-            self, '서명 키 생성 완료',
-            '새 서명 키를 만들었습니다.\n\n'
-            '공개키(sumpath_license.py의 LICENSE_PUBLIC_KEY에 반영하고 앱을\n'
-            '다시 빌드해야 이 키로 만든 라이선스를 인식합니다):\n%s\n\n'
-            '개인키 위치(반드시 안전한 곳에 백업하세요. 잃어버리면 새 라이선스를\n'
-            '더는 만들 수 없습니다):\n%s' % (public_key_hex(key), target),
-        )
-        self._refresh_key_status()
 
     def _issue_license(self):
         licensee = self.licensee_edit.text().strip()
@@ -687,7 +774,26 @@ class LicenseMakerWindow(QMainWindow):
         self.verify_output.setPlainText('\n'.join(lines))
 
 
+def _new_key_cli(argv):
+    """`--new-key <경로>`: 앱을 새 공개키로 다시 빌드할 때만 쓰는 새 서명 키 생성(화면 버튼 없음).
+    이미 파일이 있으면 덮어쓰지 않는다. 공개키(hex)를 출력한다."""
+    idx = argv.index('--new-key')
+    if idx + 1 >= len(argv):
+        print('사용법: SumPath_License_Maker --new-key <새 signing_key.pem 경로>')
+        return 2
+    path = Path(argv[idx + 1])
+    if path.exists():
+        print('이미 있습니다(덮어쓰지 않음): %s' % path)
+        return 1
+    key = generate_signing_key(path)
+    print('새 서명 키: %s' % path)
+    print('공개키(sumpath_license.py LICENSE_PUBLIC_KEY에 넣고 앱을 다시 빌드): %s' % public_key_hex(key))
+    return 0
+
+
 def main():
+    if '--new-key' in sys.argv:
+        sys.exit(_new_key_cli(sys.argv))
     app = QApplication(sys.argv)
     window = LicenseMakerWindow()
     window.show()

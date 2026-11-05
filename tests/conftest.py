@@ -29,7 +29,12 @@ def _isolate_license_maker_dirs(tmp_path, monkeypatch):
     if maker is not None:
         monkeypatch.setattr(maker, 'appdata_dir', lambda: tmp_path / 'maker_appdata')
         monkeypatch.setattr(maker, 'portable_dir', lambda: tmp_path / 'maker_program')
+        # v1.4.2 기존 키 자동 찾기가 실제 USB/드라이브/%APPDATA%를 뒤지지 않게 한다.
+        monkeypatch.setattr(maker, 'key_search_roots', lambda: [])
+        maker.reset_key_location_cache()
     yield
+    if maker is not None:
+        maker.reset_key_location_cache()
 
 
 @pytest.fixture(autouse=True)

@@ -970,56 +970,99 @@ class LicenseMakerPortableModeTests(unittest.TestCase):
 
 
 @unittest.skipIf(MAKER_IMPORT_ERROR is not None, 'SumPath_License_Maker를 불러올 수 없음: %r' % MAKER_IMPORT_ERROR)
-class LicenseMakerGenerateKeyGuardUiTests(unittest.TestCase):
-    """v1.4.1: 키 없는 폴더에서 [새 서명 키 생성]을 눌러도 경고(기본 '아니요')를 거치고,
-    만들면 %APPDATA%가 아니라 exe 폴더에 만든다(키 없는 다른 복사본이 잡지 않게)."""
+class LicenseMakerFindExistingKeyTests(unittest.TestCase):
+    """v1.4.2: 압축을 새 폴더에 풀어 실행해도(exe 옆에 키가 없거나 앱과 다른 키) USB 등에서
+    앱 공개키와 일치하는 기존 키를 찾아 복사 없이 쓴다. 새 키 생성 버튼은 화면에 없다."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.portable = Path(self.tmp.name) / 'program'
-        self.appdata = Path(self.tmp.name) / 'appdata'
-        self.portable.mkdir()
-        self._orig = (maker.portable_dir, maker.appdata_dir, maker.QMessageBox.warning,
-                      maker.QMessageBox.information)
-        maker.portable_dir = lambda: self.portable
-        maker.appdata_dir = lambda: self.appdata
-        maker.QMessageBox.information = staticmethod(lambda *a, **k: None)
+        root = Path(self.tmp.name)
+        self.program = root / 'onedrive' / 'SumPath_License_Maker_v1.4.2' / 'SumPath_License_Maker'
+        self.usb = root / 'usb'
+        self.usb_key_dir = self.usb / 'Licenser' / 'Sum Path_License Maker'
+        self.program.mkdir(parents=True)
+        self.usb_key_dir.mkdir(parents=True)
+        self.app_key = Ed25519PrivateKey.generate()
+        self._orig = (lic.LICENSE_PUBLIC_KEY, maker.portable_dir, maker.appdata_dir, maker.key_search_roots)
+        lic.LICENSE_PUBLIC_KEY = _raw_public_key(self.app_key)
+        maker.portable_dir = lambda: self.program
+        maker.appdata_dir = lambda: root / 'appdata'
+        maker.key_search_roots = lambda: [self.usb]
+        maker.reset_key_location_cache()
         self.addCleanup(self._restore)
 
     def _restore(self):
-        (maker.portable_dir, maker.appdata_dir, maker.QMessageBox.warning,
-         maker.QMessageBox.information) = self._orig
+        (lic.LICENSE_PUBLIC_KEY, maker.portable_dir, maker.appdata_dir, maker.key_search_roots) = self._orig
+        maker.reset_key_location_cache()
 
-    def _run_generate(self, answer):
+    @staticmethod
+    def _write_key(path, key):
+        path.write_bytes(key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        ))
+
+    def test_finds_matching_key_on_usb_and_ignores_wrong_keys(self):
+        # 새 폴더에 잘못 만든 키 + USB의 다른 폴더에도 잘못된 키 — 둘 다 건너뛴다.
+        self._write_key(self.program / 'signing_key.pem', Ed25519PrivateKey.generate())
+        wrong_dir = self.usb / 'Licenser' / 'AAA_new_copy'
+        wrong_dir.mkdir(parents=True)
+        self._write_key(wrong_dir / 'signing_key.pem', Ed25519PrivateKey.generate())
+        self._write_key(self.usb_key_dir / 'signing_key.pem', self.app_key)
+
+        self.assertEqual(maker.key_location(), (self.usb_key_dir, 'found'))
+        self.assertEqual(maker.signing_key_path(), self.usb_key_dir / 'signing_key.pem')
+        self.assertEqual(maker.issued_log_path(), self.usb_key_dir / 'issued_licenses.csv')
+        self.assertEqual(maker.issued_license_dir(), self.usb_key_dir / maker.ISSUED_LICENSE_SUBDIR)
+        self.assertTrue(maker.public_key_matches_app(maker.load_signing_key()))
+        # 복사하지 않는다 — 새 폴더의 (잘못된) 키 파일은 그대로, 새 파일도 없다.
+        self.assertEqual(sorted(p.name for p in self.program.iterdir()), ['signing_key.pem'])
+
+    def test_matching_key_next_to_exe_wins_without_searching(self):
+        self._write_key(self.program / 'signing_key.pem', self.app_key)
+        maker.key_search_roots = lambda: self.fail('exe 옆 키가 맞으면 찾지 않아야 한다')
+        self.assertEqual(maker.key_location(), (self.program, 'portable'))
+        self.assertEqual(maker.issued_license_dir(), self.program / maker.ISSUED_LICENSE_SUBDIR)
+
+    def test_no_matching_key_anywhere(self):
+        self.assertEqual(maker.key_location()[1], 'appdata')
+        self.assertIsNone(maker.load_signing_key())
+
+    def test_window_has_no_generate_button_and_uses_found_key(self):
+        self._write_key(self.usb_key_dir / 'signing_key.pem', self.app_key)
         qapp = app.QApplication.instance() or app.QApplication([])
-        asked = []
-
-        def fake_warning(*args, **kwargs):
-            asked.append(args)
-            return answer
-        maker.QMessageBox.warning = staticmethod(fake_warning)
         window = maker.LicenseMakerWindow()
         try:
-            self.assertTrue(window.generate_key_button.isEnabled())
-            window._generate_key()
+            texts = [b.text() for b in window.findChildren(app.QPushButton)]
+            self.assertFalse(any('생성' in t for t in texts), texts)
+            self.assertTrue(any('다시 찾기' in t for t in texts), texts)
+            self.assertTrue(window.issue_button.isEnabled())
+            self.assertIn('자동 연결', window.key_status_label.text())
+            self.assertIn(str(self.usb_key_dir), window.key_status_label.text())
         finally:
             window.deleteLater()
             qapp.processEvents()
-        return asked
 
-    def test_declining_warning_creates_no_key_anywhere(self):
-        asked = self._run_generate(maker.QMessageBox.No)
-        self.assertEqual(len(asked), 1)
-        self.assertFalse((self.portable / 'signing_key.pem').exists())
-        self.assertFalse((self.appdata / 'signing_key.pem').exists())
+    def test_find_again_button_picks_up_usb_inserted_later(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        window = maker.LicenseMakerWindow()
+        try:
+            self.assertFalse(window.issue_button.isEnabled())
+            self._write_key(self.usb_key_dir / 'signing_key.pem', self.app_key)  # USB를 나중에 꽂음
+            window.find_key_button.click()
+            self.assertTrue(window.issue_button.isEnabled())
+        finally:
+            window.deleteLater()
+            qapp.processEvents()
 
-    def test_accepting_creates_key_in_program_folder_not_appdata(self):
-        asked = self._run_generate(maker.QMessageBox.Yes)
-        self.assertEqual(len(asked), 1)
-        self.assertTrue((self.portable / 'signing_key.pem').is_file())
-        self.assertFalse((self.appdata / 'signing_key.pem').exists())
-        self.assertEqual(maker.maker_dir(), self.portable)
+    def test_new_key_cli_creates_once_and_never_overwrites(self):
+        target = Path(self.tmp.name) / 'rebuild' / 'signing_key.pem'
+        self.assertEqual(maker._new_key_cli(['x', '--new-key', str(target)]), 0)
+        first = target.read_bytes()
+        self.assertEqual(maker._new_key_cli(['x', '--new-key', str(target)]), 1)
+        self.assertEqual(target.read_bytes(), first)
 
 
 @unittest.skipIf(MAKER_IMPORT_ERROR is not None, 'SumPath_License_Maker를 불러올 수 없음: %r' % MAKER_IMPORT_ERROR)

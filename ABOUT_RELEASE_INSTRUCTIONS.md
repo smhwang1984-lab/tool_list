@@ -47,7 +47,31 @@ Last updated: 2026-11-05 (NC_Tool_List v2.3.0 — 로컬 v2.2.9(STOCK SIZE)와 G
 
 ## Version history
 
-### 2026-11-05 (latest, SumPath License Maker v1.4.1 — 앱은 v2.3.0 그대로)
+### 2026-11-05 (latest, SumPath License Maker v1.4.2 — 앱은 v2.3.0 그대로)
+
+- Version: License Maker 1.4.1 → 1.4.2 (NC_Tool_List 앱 변경 없음)
+- Release/build date: 2026-11-05
+- Summary: 사용자 보고 "동일해 — 문제 파악 후 새 빌드". v1.4.1의 경고 창으로도 막지 못했다: zip을 새 폴더
+  (USB의 `SumPath_License_Maker_v1.4.1`, OneDrive 문서)에 풀면 키가 없고, 화면의 [새 서명 키 생성]이 그 폴더를 쓰려면
+  눌러야 하는 버튼처럼 보여 눌렀다 → 앱과 맞지 않는 새 키가 그 폴더에 생겨 발급이 막혔다(이날 같은 경로로 새 키 3개 생성,
+  앱과 맞는 키는 USB `F:\Licenser\Sum Path_License Maker\signing_key.pem` 하나뿐).
+  1. **기존 키 자동 찾기**(`key_location()` / `find_app_matching_key()`): exe 옆에 앱과 맞는 키가 없으면 exe 상위 폴더,
+     시스템 드라이브가 아닌 로컬/이동식 드라이브(USB, 3단계까지), 기존 `%APPDATA%`에서 **앱 공개키와 일치하는** `signing_key.pem`을 찾아
+     복사 없이 그 자리에서 쓴다(OneDrive 등에 개인키가 복사되지 않음). 맞지 않는 키는 건너뛴다. 발급 기록·발급 파일도 그 키 폴더에 쌓인다.
+     화면: "자동 연결 — 앱과 일치하는 기존 키를 찾아 그 자리에서 사용 중(복사하지 않음)". 이 PC에서 OneDrive/USB 새 폴더 모두 0.03초에 찾음.
+  2. **[새 서명 키 생성] 버튼 제거** → [기존 서명 키 다시 찾기 (USB 등)](USB를 나중에 꽂았을 때). 새 키는 앱을 다시 빌드할 때만 필요하므로
+     명령줄 `SumPath_License_Maker.exe --new-key <경로>`로만 만든다(이미 있으면 덮어쓰지 않음, 공개키 출력).
+  서명 방식·키 파일 이름·앱 공개키(`98325d41…`)는 그대로. exe 옆 키가 앱과 맞으면 이전처럼 그 키를 쓴다(찾지 않음).
+- Open source software: 변경 없음.
+- Verification: `tests/test_license.py` 91 passed(신규 `LicenseMakerFindExistingKeyTests` 6개: USB에서 맞는 키 찾기·잘못된 키 무시·복사 안 함,
+  exe 옆 맞는 키 우선, 키 없음, 생성 버튼 없음, 다시 찾기, `--new-key` 덮어쓰기 금지). 테스트 중에는 실제 드라이브를 찾지 않는다(`tests/conftest.py`).
+  빌드한 exe를 키 없는 새 폴더 / 잘못된 키가 있는 새 폴더에서 실행 → 둘 다 USB 키를 자동 연결, "서명 키 준비됨(현재 앱의 공개키와 일치)".
+- Installer/package status: **생성 완료**. `installer\SumPath_License_Maker_v1.4.2.zip`. USB `F:\Licenser\Sum Path_License Maker\`에 배포(v1.4.1은 `_old_v1.4.1`로 보관).
+  - Maker v1.4.2 ZIP SHA-256: 160E1D38F5EF7A4B9E7FECFB8BC44DBDA9692B8C600E4659401DC33C96BC4BD1 (39.4 MB)
+  - Maker v1.4.2 EXE SHA-256: 1FA8CD059B1E23F404821015FD0E0497BD517145E2C6E070DF2A0F5E2C024619
+- 서명 상태: 미서명(기존과 동일).
+
+### 2026-11-05 (SumPath License Maker v1.4.1 — 앱은 v2.3.0 그대로)
 
 - Version: License Maker 1.4.0 → 1.4.1 (NC_Tool_List 앱 변경 없음, v2.3.0 설치본 그대로 유효)
 - Release/build date: 2026-11-05
