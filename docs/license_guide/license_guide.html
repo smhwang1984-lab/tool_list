@@ -54,12 +54,12 @@
     <li>서버 라이선스 — NAS 서버 구축</li>
     <li>서버 라이선스 — 발급 · 등록</li>
     <li>서버 라이선스 — 각 PC 연결</li>
-    <li>서버 운영 (좌석 관리 · 연장 · 백업)</li>
+    <li>서버 운영 (좌석 관리 · 연장 · 업데이트 배포 · 백업)</li>
     <li>발급 프로그램(USB) 관리</li>
     <li>문제 해결 · 파일 위치</li>
   </ol>
   <div class="meta">
-    적용 버전: Sum Path(NC Tool List) <b>v2.3.0</b> · SumPath License Maker <b>v1.4.2</b> · 라이선스 서버 <b>v1.0.0</b><br>
+    적용 버전: Sum Path(NC Tool List) <b>v2.3.1</b> · SumPath License Maker <b>v1.4.2</b> · 라이선스 서버 <b>v1.1.0</b><br>
     작성일: 2026-11-05 · 화면의 회사명·PC 코드·서버 ID는 설명용 예시입니다.
   </div>
 </section>
@@ -75,13 +75,23 @@
   </table>
 
   <h3>앱이 라이선스를 확인하는 순서</h3>
+  <p><b>서버 > 로컬</b> (v2.3.1부터) — 서버 주소가 설정된 PC는 서버 라이선스를 먼저 씁니다.</p>
   <div class="flow">
-    <div><b>① 로컬 라이선스</b><br>유효하면 바로 사용<br>(서버에 묻지 않음)</div><div class="arrow">→</div>
-    <div><b>② 서버 라이선스</b><br>서버 주소가 설정된 PC<br>NAS에서 사용권 받음</div><div class="arrow">→</div>
-    <div><b>③ 체험판</b><br>30일 이내면 사용</div><div class="arrow">→</div>
-    <div><b>등록 창</b><br>셋 다 없으면 표시</div>
+    <div><b>서버 주소 있는 PC</b><br>① 서버 라이선스<br>NAS에서 사용권 받음</div><div class="arrow">→</div>
+    <div><b>② 체험판</b><br>30일 이내면 사용</div><div class="arrow">→</div>
+    <div><b>등록 창</b><br>둘 다 없으면 표시</div>
   </div>
-  <p>한 PC에 로컬 라이선스와 서버 설정이 함께 있어도 됩니다. 로컬 라이선스가 유효한 동안은 좌석을 쓰지 않습니다.</p>
+  <div class="flow">
+    <div><b>서버 주소 없는 PC</b><br>① 로컬 라이선스<br>이 PC 전용</div><div class="arrow">→</div>
+    <div><b>② 체험판</b><br>30일 이내면 사용</div><div class="arrow">→</div>
+    <div><b>등록 창</b><br>둘 다 없으면 표시</div>
+  </div>
+  <ul class="compact">
+    <li>서버에서 사용권을 받으면 그 PC의 <b>로컬 라이선스는 해제(보관)</b>됩니다. About에 "로컬 라이선스: 해제됨 (서버 라이선스 사용 중)"으로 표시됩니다.</li>
+    <li>서버가 <b>거부</b>하면(차단 · 좌석 없음 · 서버 라이선스 만료) 로컬 라이선스로 돌아가지 않습니다.</li>
+    <li>NAS 장애로 <b>연결할 수 없고</b> 저장된 사용권(7일)까지 끝났을 때만 보관된 로컬 라이선스를 비상용으로 씁니다.</li>
+    <li>About에서 서버 연결을 <b>해제</b>하면 보관된 로컬 라이선스가 자동으로 되살아납니다.</li>
+  </ul>
 
   <h3>기간 종류 (발급 프로그램에서 선택)</h3>
   <table>
@@ -95,7 +105,7 @@
   <h3>준비물</h3>
   <ul>
     <li><b>발급 PC + USB</b>: <code>F:\Licenser\Sum Path_License Maker\</code> (발급 프로그램 + 서명 키 <code>signing_key.pem</code>)</li>
-    <li><b>사용 PC</b>: Sum Path v2.3.0 설치 (<code>NC_Tool_List_Setup_v2.3.0.exe</code>)</li>
+    <li><b>사용 PC</b>: Sum Path v2.3.1 설치 (<code>NC_Tool_List_Setup_v2.3.1.exe</code>)</li>
     <li><b>서버 라이선스를 쓸 때만</b>: Synology NAS (Container Manager), 사내 LAN</li>
   </ul>
 </section>
@@ -156,7 +166,7 @@
 ├── app.py  core.py  sumpath_license.py  admin.html
 ├── Dockerfile  docker-compose.yml  requirements.txt  .env.example
 └── data/        ← 빈 폴더를 직접 먼저 만든다 (없으면 컨테이너가 시작되지 않음)</pre>
-  <p>저장소의 <code>license_server\</code> 폴더 내용을 <b>최신 master(v2.3.0)</b>에서 그대로 복사하고 <code>data</code> 폴더만 새로 만듭니다.</p>
+  <p>저장소의 <code>license_server\</code> 폴더 내용을 <b>최신 master(v2.3.1)</b>에서 그대로 복사하고 <code>data</code> 폴더만 새로 만듭니다.</p>
 
   <h3><span class="step">2</span>컨테이너 빌드 (Container Manager)</h3>
   <ol>
@@ -211,7 +221,7 @@
     </div>
     <div>
       <h3>B. 이미 쓰고 있는 PC (About)</h3>
-      <p><b>About → 라이선스 → [라이선스 서버 설정...]</b> → NAS 주소 입력. 주소를 비우고 [OK]를 누르면 서버 연결을 해제합니다.</p>
+      <p><b>About → 라이선스 → [라이선스 서버 설정...]</b> → NAS 주소 입력. 주소를 비우고 [OK]를 누르면 서버 연결을 해제합니다(보관된 로컬 라이선스가 있으면 되살아남).</p>
       <p>주소만 넣으면 <code>http://…:8765</code>가 자동으로 붙습니다. <b>연결에 성공해야만</b> 설정이 저장됩니다.</p>
     </div>
   </div>
@@ -230,13 +240,13 @@
     <tr><td>재확인</td><td>시작 시 + 1시간마다</td><td>그때마다 사용권을 7일로 갱신</td></tr>
     <tr><td>오프라인 허용</td><td>7일</td><td>NAS가 꺼져도 마지막 연결 후 7일까지 사용 (서버 라이선스 만료일은 넘지 않음)</td></tr>
     <tr><td>좌석</td><td>라이선스의 좌석 수</td><td>사용권을 받은 PC 1대 = 1좌석 (동시 실행 수가 아님)</td></tr>
-    <tr><td>자동 회수</td><td>30일</td><td>좌석이 꽉 찼을 때, 30일 넘게 접속 없는 PC의 좌석을 새 PC에 넘김</td></tr>
+    <tr><td>자동 회수</td><td>100일</td><td>좌석이 꽉 찼을 때, 100일 넘게 접속 없는 PC의 좌석을 새 PC에 넘김 (서버 v1.1.0에서 30일 → 100일)</td></tr>
   </table>
 </section>
 
 <!-- 6 -->
 <section class="page">
-  <h2>6. 서버 운영 (좌석 관리 · 연장 · 백업)</h2>
+  <h2>6. 서버 운영 (좌석 관리 · 연장 · 업데이트 배포 · 백업)</h2>
   <div class="fig tall"><img src="img/09_admin_logged_in.png"><div class="cap">그림 9. 관리자 로그인 후 — 등록 PC(좌석) 목록, 미리 차단, 최근 이력</div></div>
   <table>
     <tr><th style="width:22%">버튼</th><th>동작</th></tr>
@@ -256,6 +266,13 @@
   </ol>
   <div class="note">좌석 수를 줄인 라이선스로 바꿔도 이미 등록된 PC는 계속 씁니다. 관리 화면에서 <b>좌석 해제</b>를 해야 줄어듭니다.</div>
 
+  <h3>앱 업데이트 배포 (서버 v1.1.0)</h3>
+  <ol>
+    <li>새 설치 파일 <code>NC_Tool_List_Setup_vX.Y.Z.exe</code>를 <code>\\192.168.0.210\docker\SumPath_License_Server\updates</code>에 복사합니다(이름 그대로). 가장 높은 버전이 배포되고, 관리 화면 "배포 중인 업데이트"에 바로 표시됩니다.</li>
+    <li>서버 주소가 설정된 PC는 <b>앱을 시작할 때</b> 새 버전을 감지해 <b>업데이트 권장</b> 창을 띄웁니다. [지금 업데이트] → 내려받기 · 크기/SHA-256 확인 → 설치 마법사 실행(앱 종료). [나중에] → 다음 시작 때 다시 물음.</li>
+    <li>서버 주소가 없는 PC는 기존처럼 About의 업데이트 경로(공유 폴더)를 봅니다.</li>
+  </ol>
+
   <h3>백업 (중요)</h3>
   <p>NAS의 <code>data/</code> 폴더 전체를 <b>Hyper Backup</b> 대상에 넣습니다.</p>
   <table>
@@ -268,7 +285,7 @@
   <p>NAS를 바꿀 때는 <code>data/</code> 폴더를 그대로 옮기면 서버 ID와 좌석이 유지됩니다(NAS 주소가 바뀌면 각 PC About에서 주소만 다시 설정).</p>
 
   <h3>상태 점검 주소</h3>
-  <pre>http://NAS주소:8765/api/v1/health   → {"ok": true, "server_version": "1.0.0", "server_id": "..."}
+  <pre>http://NAS주소:8765/api/v1/health   → {"ok": true, "server_version": "1.1.0", "server_id": "..."}
 http://NAS주소:8765/api/v1/info     → 라이선스 · 좌석 요약</pre>
 </section>
 
@@ -327,6 +344,7 @@ http://NAS주소:8765/api/v1/info     → 라이선스 · 좌석 요약</pre>
     <tr><td><code>C:\NC_Tool_List\license.lic / license_server.json</code></td><td>(선택) 미리 넣어 두는 파일</td></tr>
     <tr><td rowspan="2">NAS</td><td><code>/docker/SumPath_License_Server/</code></td><td>서버 프로그램 · docker-compose.yml</td></tr>
     <tr><td><code>/docker/SumPath_License_Server/data/</code></td><td>서버 키 · 서버 라이선스 · 좌석 DB · 관리 토큰 (백업)</td></tr>
+    <tr><td><code>/docker/SumPath_License_Server/updates/</code></td><td>배포할 앱 설치 파일 (<code>\\192.168.0.210\docker\SumPath_License_Server\updates</code>)</td></tr>
     <tr><td>발급 USB</td><td><code>F:\Licenser\Sum Path_License Maker\</code></td><td>발급 프로그램 · 서명 키 · 발급 기록 · 발급된 라이선스 (백업)</td></tr>
   </table>
   <div class="note">자세한 배포 절차 원본: 저장소 <code>license_server/DEPLOY_Synology.md</code> · 버전 기록: <code>ABOUT_RELEASE_INSTRUCTIONS.md</code></div>

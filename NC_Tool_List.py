@@ -13,6 +13,7 @@ import re
 import shutil
 import sys
 import tempfile
+import threading
 import traceback
 from datetime import date, datetime
 from html import escape
@@ -27,11 +28,12 @@ from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, TableStyle
 
+import app_update
 import lathe_insert_spec
 import sumpath_license
 
 
-APP_VERSION = '2.3.0'
+APP_VERSION = '2.3.1'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-11-05'
 APP_CREATOR = 'Hwang.seonmun'
@@ -2104,7 +2106,7 @@ try:
         QApplication, QAbstractItemView, QCheckBox, QComboBox, QDialog,
         QDialogButtonBox, QFileDialog, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout,
         QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
-        QPlainTextEdit, QPushButton, QShortcut, QSplitter, QStackedWidget, QStyle,
+        QPlainTextEdit, QProgressDialog, QPushButton, QShortcut, QSplitter, QStackedWidget, QStyle,
         QStyledItemDelegate, QStyleOptionViewItem, QTableWidget, QTableWidgetItem, QTextEdit,
         QVBoxLayout, QWidget, QFrame, QSlider, QToolButton,
     )
@@ -3553,10 +3555,128 @@ else:
             self._settings_dialog.activateWindow()
             return self._settings_dialog
 
+        # ---------- v2.3.1: 시작할 때 업데이트 감지 ----------
+        def check_for_update_on_startup(self):
+            """창이 뜬 뒤 백그라운드에서 업데이트를 찾는다(화면은 멈추지 않는다). 새 버전이 있으면
+            권장 창을 띄운다. [나중에]를 누르면 다음 시작 때 다시 묻는다(v2.3.1_PLAN.md D-2 (b))."""
+            if os.environ.get('NC_TOOL_LIST_NO_UPDATE_CHECK'):
+                return
+            result = {}
+            server_url = sumpath_license.get_license_server_url()
+            share_root = update_root_setting()
+
+            def work():
+                try:
+                    result['candidate'] = app_update.find_update(
+                        APP_VERSION, server_url=server_url, share_root=share_root,
+                        share_finder=find_latest_installer,
+                    )
+                except Exception as error:  # noqa: BLE001 - 업데이트 확인 실패는 앱 사용을 막지 않는다
+                    result['error'] = error
+                result['done'] = True
+
+            threading.Thread(target=work, name='update-check', daemon=True).start()
+            timer = QTimer(self)
+
+            def poll():
+                if not result.get('done'):
+                    return
+                timer.stop()
+                if result.get('error') is not None:
+                    write_startup_log('Update check failed: %s' % result['error'])
+                    return
+                candidate = result.get('candidate')
+                if candidate is not None:
+                    self._prompt_update(candidate)
+
+            timer.timeout.connect(poll)
+            timer.start(150)
+            self._update_check_timer = timer
+
+        def _prompt_update(self, candidate):
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Information)
+            box.setWindowTitle('업데이트 권장')
+            box.setText('새 버전 v%s이 있습니다. (현재 v%s)' % (candidate['version_text'], APP_VERSION))
+            box.setInformativeText(
+                '지금 업데이트하면 설치 화면이 열리고 프로그램은 종료됩니다.\n'
+                '작업 중인 내용은 먼저 저장하세요.')
+            update_button = box.addButton('지금 업데이트', QMessageBox.AcceptRole)
+            box.addButton('나중에', QMessageBox.RejectRole)
+            box.setDefaultButton(update_button)
+            self._update_prompt_box = box
+            box.exec_()
+            if box.clickedButton() is update_button:
+                self._install_update_candidate(candidate, self, confirm=False)
+
+        def _install_update_candidate(self, candidate, parent, confirm=True):
+            """업데이트 설치 파일을 준비해(서버: 내려받고 크기·SHA-256 확인 / 공유 폴더: 임시 폴더로 복사)
+            설치 마법사를 띄우고 프로그램을 끝낸다(D-3 (b): 설치 화면은 사용자가 진행)."""
+            if confirm and QMessageBox.question(
+                parent, '업데이트 설치',
+                'v%s 설치 화면을 열면 프로그램이 종료됩니다. 계속할까요?' % candidate['version_text'],
+            ) != QMessageBox.Yes:
+                return False
+            try:
+                if candidate['source'] == 'server':
+                    installer = self._download_update_with_progress(candidate, parent)
+                    if installer is None:
+                        return False
+                else:
+                    installer = copy_installer_to_temp(candidate['path'])
+            except (app_update.UpdateError, OSError) as error:
+                QMessageBox.critical(parent, '업데이트 실패', str(error))
+                return False
+            open_error = open_file_with_default_app(installer)
+            if open_error:
+                QMessageBox.critical(parent, '업데이트 실패', '설치 파일을 실행하지 못했습니다.\n%s' % open_error)
+                return False
+            write_startup_log('Update installer started: %s (v%s)' % (installer, candidate['version_text']))
+            QApplication.instance().quit()
+            return True
+
+        def _download_update_with_progress(self, candidate, parent):
+            total = max(1, int(candidate['size']))
+            progress = QProgressDialog(
+                'v%s 업데이트 파일을 받는 중...' % candidate['version_text'], '취소', 0, 1000, parent)
+            progress.setWindowTitle('업데이트')
+            progress.setWindowModality(Qt.WindowModal)
+            progress.setMinimumDuration(0)
+            progress.setValue(0)
+            state = {'done_bytes': 0}
+
+            def work():
+                try:
+                    state['path'] = app_update.download_server_update(
+                        candidate,
+                        progress=lambda done, _total: state.__setitem__('done_bytes', done),
+                        cancelled=lambda: state.get('cancel', False),
+                    )
+                except app_update.UpdateError as error:
+                    state['error'] = error
+                state['finished'] = True
+
+            threading.Thread(target=work, name='update-download', daemon=True).start()
+            waiter = threading.Event()
+            while not state.get('finished'):
+                if progress.wasCanceled():
+                    state['cancel'] = True
+                progress.setValue(min(999, int(state['done_bytes'] * 1000 / total)))
+                QApplication.processEvents()
+                waiter.wait(0.05)
+            progress.setValue(1000)
+            progress.close()
+            error = state.get('error')
+            if isinstance(error, app_update.UpdateCancelled):
+                return None
+            if error is not None:
+                raise error
+            return state['path']
+
         def show_about(self):
             dialog = QDialog(self)
             dialog.setWindowTitle('About')
-            dialog.setFixedWidth(520)
+            dialog.setMinimumWidth(520)  # v2.3.1: 고정 폭 → 최소 폭(글자 잘림 방지)
             layout = QVBoxLayout(dialog)
             title = QLabel('%s v%s' % (APP_NAME, APP_VERSION))
             title.setFont(QFont('맑은 고딕', 12, QFont.Bold))
@@ -3606,8 +3726,13 @@ else:
                             sumpath_license.get_license_server_url(), lic_data.get('seats', '?'),
                             text, status.message,
                         )
+                        # v2.3.1: 서버 > 로컬 — 서버를 쓰는 동안 로컬 라이선스는 해제(보관)된다.
+                        if sumpath_license.local_license_released():
+                            text += '\n로컬 라이선스: 해제됨 (서버 라이선스 사용 중)'
                     else:
                         text = '방식: 로컬 라이선스 (이 PC 전용)\n' + text
+                        if status.message:
+                            text += '\n' + status.message
                     return text
                 # 체험판(ok=True, license=None)과 실패 사유 모두 미리 사람이
                 # 읽을 문구가 status.message에 들어 있다(§ evaluate_trial).
@@ -3621,6 +3746,9 @@ else:
             license_code = sumpath_license.machine_code()
             license_code_edit = QLineEdit(license_code or '(확인 불가)')
             license_code_edit.setReadOnly(True)
+            license_code_edit.setMinimumWidth(
+                license_code_edit.fontMetrics().horizontalAdvance(license_code_edit.text()) + 24)
+            license_code_edit.setCursorPosition(0)
             license_code_row.addWidget(license_code_edit, 1)
             self._add_button(
                 license_code_row, '복사',
@@ -3672,6 +3800,8 @@ else:
             self._add_button(license_button_row, '라이선스 파일 등록/교체...', replace_license_file)
             self._add_button(license_button_row, '라이선스 서버 설정...', configure_license_server)
             license_layout.addLayout(license_button_row)
+            for button in license_group.findChildren(QPushButton):  # v2.3.1: 글자 잘림 방지
+                button.setMinimumWidth(button.sizeHint().width())
             layout.addWidget(license_group)
 
             # --- 업데이트 경로 및 수동 업데이트 ---
@@ -3704,43 +3834,29 @@ else:
                 update_status_label.setText('업데이트 경로를 저장했습니다.')
 
             def check_for_update():
+                # v2.3.1: 라이선스 서버 배포(설정된 경우) → 공유 폴더 순으로 찾는다.
                 root = update_root_edit.text().strip() or DEFAULT_UPDATE_ROOT
-                result = find_latest_installer(root)
-                if result is None:
-                    pending_update.pop('path', None)
+                server_url = sumpath_license.get_license_server_url()
+                candidate = app_update.find_update(
+                    APP_VERSION, server_url=server_url, share_root=root, share_finder=find_latest_installer,
+                )
+                if candidate is None:
+                    pending_update.pop('candidate', None)
                     install_button.setEnabled(False)
-                    update_status_label.setText('업데이트 파일을 찾을 수 없습니다.\n%s' % root)
+                    where = '라이선스 서버 %s / %s' % (server_url, root) if server_url else root
+                    update_status_label.setText('현재 버전이 최신입니다. (v%s)\n확인한 곳: %s' % (APP_VERSION, where))
                     return
-                path, version = result
-                version_text = '.'.join(str(part) for part in version)
-                if version > current_version_tuple():
-                    pending_update['path'] = path
-                    install_button.setEnabled(True)
-                    update_status_label.setText('새 버전 발견: v%s (현재 v%s)' % (version_text, APP_VERSION))
-                else:
-                    pending_update.pop('path', None)
-                    install_button.setEnabled(False)
-                    update_status_label.setText('현재 버전이 최신입니다. (v%s)' % APP_VERSION)
+                pending_update['candidate'] = candidate
+                install_button.setEnabled(True)
+                source_text = '라이선스 서버' if candidate['source'] == 'server' else '공유 폴더'
+                update_status_label.setText('새 버전 발견: v%s (현재 v%s, %s)' % (
+                    candidate['version_text'], APP_VERSION, source_text))
 
             def install_update():
-                path = pending_update.get('path')
-                if not path:
+                candidate = pending_update.get('candidate')
+                if not candidate:
                     return
-                if QMessageBox.question(
-                    dialog, '업데이트 설치',
-                    '설치 파일을 실행하면 프로그램이 종료됩니다. 계속할까요?\n%s' % path,
-                ) != QMessageBox.Yes:
-                    return
-                try:
-                    temp_path = copy_installer_to_temp(path)
-                except OSError as error:
-                    QMessageBox.critical(dialog, '업데이트 실패', '설치 파일을 복사하지 못했습니다.\n%s' % error)
-                    return
-                open_error = open_file_with_default_app(temp_path)
-                if open_error:
-                    QMessageBox.critical(dialog, '업데이트 실패', '설치 파일을 실행하지 못했습니다.\n%s' % open_error)
-                    return
-                QApplication.instance().quit()
+                self._install_update_candidate(candidate, dialog)
 
             update_button_row = QHBoxLayout()
             self._add_button(update_button_row, '찾아보기', browse_update_root)
@@ -5670,7 +5786,10 @@ def show_license_registration_dialog(status):
     등록하면 True, 사용자가 [종료]를 누르면 False를 돌려준다."""
     dialog = QDialog()
     dialog.setWindowTitle('%s 라이선스' % APP_NAME)
-    dialog.setFixedWidth(460)
+    # v2.3.1: 고정 폭(460px)을 없앴다. 글꼴·화면 배율에 따라 버튼 글자와 PC 코드 앞자리가
+    # 잘렸다(사용자 보고). 최소 폭만 글자 폭 기준으로 잡고 나머지는 레이아웃에 맡긴다.
+    metrics = dialog.fontMetrics()
+    dialog.setMinimumWidth(max(460, metrics.horizontalAdvance('가') * 34))
     layout = QVBoxLayout(dialog)
 
     message_label = QLabel(status.message)
@@ -5684,6 +5803,9 @@ def show_license_registration_dialog(status):
     code_edit = QLineEdit(code or '(확인 불가)')
     code_edit.setObjectName('license_code_edit')
     code_edit.setReadOnly(True)
+    # PC 코드 전체가 보이도록 글자 폭 + 여백만큼 최소 폭을 둔다.
+    code_edit.setMinimumWidth(code_edit.fontMetrics().horizontalAdvance(code_edit.text()) + 24)
+    code_edit.setCursorPosition(0)
     code_row.addWidget(code_edit, 1)
     _add_dialog_button(code_row, '복사', lambda: QApplication.clipboard().setText(code or ''))
     layout.addLayout(code_row)
@@ -5726,11 +5848,18 @@ def show_license_registration_dialog(status):
         else:
             message_label.setText(outcome.message)
 
+    # v2.3.1: 버튼을 두 줄로 — [라이선스 파일 등록...] [라이선스 서버 연결...] / [종료]
     button_row = QHBoxLayout()
     _add_dialog_button(button_row, '라이선스 파일 등록...', register)
     _add_dialog_button(button_row, '라이선스 서버 연결...', connect_server)
-    _add_dialog_button(button_row, '종료', dialog.reject)
     layout.addLayout(button_row)
+    exit_row = QHBoxLayout()
+    exit_row.addStretch(1)
+    _add_dialog_button(exit_row, '종료', dialog.reject)
+    layout.addLayout(exit_row)
+    for button in dialog.findChildren(QPushButton):
+        button.setMinimumWidth(button.sizeHint().width())
+    dialog.adjustSize()
 
     dialog.exec_()
     return result['accepted']
@@ -5792,6 +5921,8 @@ def main():
         if license_status.reason == 'trial_started':
             QMessageBox.information(window, '체험판 시작', license_status.message)
         window._maybe_show_license_expiry_notice(license_status)
+        # v2.3.1: 창이 뜬 뒤 업데이트를 확인한다(라이선스 서버 배포 → 공유 폴더, 백그라운드).
+        QTimer.singleShot(1500, window.check_for_update_on_startup)
         sys.exit(app.exec_())
     except Exception as error:
         write_startup_log('Fatal startup failure: %s\n%s' % (error, traceback.format_exc()))

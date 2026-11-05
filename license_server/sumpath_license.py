@@ -556,45 +556,144 @@ def evaluate_trial(now):
     )
 
 
-def ensure_license(now=None, client_info=None):
-    """앱 시작 시(그리고 실행 중 1시간마다) 부르는 진입점.
+# ---------- v2.3.1: 서버 라이선스 우선 — 로컬 라이선스 해제(보관)/복원 ----------
+SERVER_FALLBACK_REASONS = ('server_unreachable', 'lease_expired')
 
-    판정 순서(v2.2.9, 로컬/서버 겸용):
-      1) 이 PC용 로컬 라이선스(.lic)가 유효하면 그것으로 통과한다(서버에 묻지 않는다).
-      2) 라이선스 서버 주소가 설정돼 있으면 서버에서 사용권을 받는다. 서버에 연결할 수
-         없으면 마지막으로 받은 사용권이 기한(기본 7일) 안일 때만 통과한다.
-      3) 둘 다 아니면 30일 체험판을 본다(v1.8.1_PLAN.md §3.1).
-    모두 실패하면 서버 → 로컬 → 체험판 순으로 가장 쓸모 있는 실패 사유를 돌려준다.
-    어느 경로든 통과하면 마지막 확인 시각을 기록한다.
-    """
-    now = now or datetime.now()
-    today = now.date()
 
-    path = find_license_file()
-    license_status = None
-    if path is not None:
+def released_license_path():
+    """서버 라이선스를 쓰는 동안 보관해 두는 로컬 라이선스(ProgramData의 license.lic를 이 이름으로 옮김)."""
+    return license_dir() / 'license_released.lic'
+
+
+def _bundled_license_released():
+    return bool(load_license_state().get('bundled_license_released'))
+
+
+def local_license_released():
+    """로컬 라이선스가 해제(보관)된 상태인지 — About 표시용."""
+    return released_license_path().is_file() or _bundled_license_released()
+
+
+def release_local_license(now=None):
+    """서버에서 사용권을 받았을 때 부른다(v2.3.1, 서버 > 로컬). ProgramData의 license.lic는
+    license_released.lic로 옮기고, exe 옆 license.lic(설치 폴더라 이름을 못 바꿀 수 있음)는
+    상태 파일에 '해제됨'만 기록한다. 이미 보관본이 있으면 새 파일로 덮어쓴다. 실패해도 예외를 내지 않는다."""
+    changed = False
+    primary = license_file_path()
+    if primary.is_file():
+        try:
+            os.replace(str(primary), str(released_license_path()))
+            changed = True
+        except OSError:
+            pass
+    if bundled_license_path().is_file() and not _bundled_license_released():
+        try:
+            state = load_license_state()
+            state['bundled_license_released'] = (now or datetime.now()).isoformat(timespec='seconds')
+            save_license_state(state)
+            changed = True
+        except OSError:
+            pass
+    return changed
+
+
+def restore_local_license():
+    """서버 연결을 해제했을 때 보관한 로컬 라이선스를 되살린다. 이미 license.lic가 있으면 그것을 둔다."""
+    changed = False
+    released = released_license_path()
+    if released.is_file():
+        try:
+            if license_file_path().is_file():
+                released.unlink()
+            else:
+                os.replace(str(released), str(license_file_path()))
+            changed = True
+        except OSError:
+            pass
+    if _bundled_license_released():
+        try:
+            state = load_license_state()
+            state.pop('bundled_license_released', None)
+            save_license_state(state)
+            changed = True
+        except OSError:
+            pass
+    return changed
+
+
+def _evaluate_local_license(now, include_released=False):
+    """로컬 라이선스 판정. include_released면 해제(보관)된 것도 본다(서버 장애 비상용).
+    반환: (LicenseStatus 또는 None(파일 없음))."""
+    candidates = []
+    if license_file_path().is_file():
+        candidates.append(license_file_path())
+    if include_released and released_license_path().is_file():
+        candidates.append(released_license_path())
+    if bundled_license_path().is_file() and (include_released or not _bundled_license_released()):
+        candidates.append(bundled_license_path())
+    if not candidates:
+        return None
+    result = None
+    for path in candidates:
         data = load_license_file(path)
         if data is None:
-            license_status = LicenseStatus(False, 'invalid_format', '라이선스 파일을 읽을 수 없습니다.', None, None)
+            status = LicenseStatus(False, 'invalid_format', '라이선스 파일을 읽을 수 없습니다.', None, None)
         else:
-            license_status = verify_license(data, machine=machine_code(), today=today)
-            if license_status.ok:
+            status = verify_license(data, machine=machine_code(), today=now.date())
+            if status.ok:
                 state = load_license_state()
                 if clock_rollback_detected(now, state, data):
                     return LicenseStatus(
                         False, 'clock_rollback',
                         'PC 날짜가 올바르지 않습니다. 날짜/시간을 확인하세요.',
-                        data, license_status.days_left,
+                        data, status.days_left,
                     )
                 state['last_seen'] = now.isoformat(timespec='seconds')
                 save_license_state(state)
-                return license_status._replace(source='local')
+                return status._replace(source='local')
+        if result is None:
+            result = status
+    return result
+
+
+def ensure_license(now=None, client_info=None):
+    """앱 시작 시(그리고 실행 중 1시간마다) 부르는 진입점.
+
+    판정 순서(v2.3.1, **서버 > 로컬**):
+      · 라이선스 서버 주소가 **있는** PC
+        1) 서버에서 사용권을 받으면 통과하고, 로컬 라이선스는 해제(보관)한다(release_local_license).
+        2) 서버에 연결할 수 없으면 저장된 사용권(기본 7일) 안에서 통과한다.
+        3) 서버가 **거부**하면(차단/좌석 없음/서버 라이선스 만료 등) 로컬 라이선스로 돌아가지 않는다.
+           서버에 **연결할 수 없고** 사용권도 끝났을 때만 보관한 로컬 라이선스를 비상용으로 쓴다.
+      · 서버 주소가 **없는** PC: 보관된 로컬 라이선스가 있으면 되살리고(restore_local_license)
+        로컬 라이선스 → 체험판 순(v2.2.9와 같음).
+    마지막으로 30일 체험판을 본다(v1.8.1_PLAN.md §3.1). 모두 실패하면 서버 → 로컬 → 체험판 순으로
+    가장 쓸모 있는 실패 사유를 돌려준다.
+    """
+    now = now or datetime.now()
 
     server_status = None
+    license_status = None
     if get_license_server_url():
         server_status = evaluate_server_license(now, client_info=client_info)
-        if server_status.ok or server_status.reason == 'clock_rollback':
+        if server_status.ok:
+            if server_status.reason == 'server':  # 서버에서 방금 사용권을 받음(오프라인 통과는 아님)
+                release_local_license(now)
             return server_status
+        if server_status.reason == 'clock_rollback':
+            return server_status
+        if server_status.reason in SERVER_FALLBACK_REASONS:
+            license_status = _evaluate_local_license(now, include_released=True)
+            if license_status is not None and license_status.ok:
+                return license_status._replace(
+                    message='라이선스 서버에 연결할 수 없어 보관된 로컬 라이선스로 실행합니다.')
+            if license_status is not None and license_status.reason == 'clock_rollback':
+                return license_status
+    else:
+        restore_local_license()
+        license_status = _evaluate_local_license(now)
+        if license_status is not None and (license_status.ok or license_status.reason == 'clock_rollback'):
+            return license_status
 
     trial_status = evaluate_trial(now)
     if trial_status.ok or trial_status.reason == 'clock_rollback':
@@ -869,6 +968,7 @@ def set_license_server_url(url):
                 path.unlink()
             except OSError:
                 pass
+        restore_local_license()  # v2.3.1: 서버를 그만 쓰면 보관한 로컬 라이선스를 되살린다
         return ''
     _write_json(license_server_config_path(), {'url': url})
     cache = load_server_lease_cache()
@@ -1023,6 +1123,7 @@ def connect_license_server(url, now=None, client_info=None):
     status = evaluate_server_license(now=now, url=url, client_info=client_info)
     if status.ok and status.reason == 'server':
         set_license_server_url(url)  # 사용권 캐시는 evaluate_server_license가 이미 저장했다
+        release_local_license(now)  # v2.3.1: 서버 > 로컬
         return status
     # 실패 — 설정을 원래대로 둔다(evaluate가 거부 응답으로 캐시를 지웠다면 되돌린다).
     if previous_cache and previous == previous_cache.get('url') and not load_server_lease_cache():

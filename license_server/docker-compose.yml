@@ -5,7 +5,7 @@ services:
     build:
       context: .
       network: host            # 빌드 중 PyPI 접속(Synology DNS 문제 회피, TSERP와 같은 방식)
-    image: sumpath-license:1.0.0
+    image: sumpath-license:1.1.0
     container_name: sumpath-license
     ports:
       - "8765:8765"
@@ -14,8 +14,12 @@ services:
       - SUMPATH_DATA_DIR=/data
       - SUMPATH_ADMIN_TOKEN=${SUMPATH_ADMIN_TOKEN:-}
       - SUMPATH_LEASE_DAYS=${SUMPATH_LEASE_DAYS:-7}
-      - SUMPATH_SEAT_IDLE_DAYS=${SUMPATH_SEAT_IDLE_DAYS:-30}
+      - SUMPATH_SEAT_IDLE_DAYS=${SUMPATH_SEAT_IDLE_DAYS:-100}
+      - SUMPATH_UPDATES_DIR=/updates
     volumes:
       # ★ 서버 키·서버 라이선스·좌석 DB. 이 폴더를 지우면 서버 ID가 바뀐다 → 백업 대상.
       - ./data:/data
+      # v1.1.0: 앱 업데이트 배포 — NAS의 \\192.168.0.210\docker\SumPath_License_Server\updates 폴더(먼저 만들어 둔다).
+      #   여기에 NC_Tool_List_Setup_vX.Y.Z.exe를 넣으면 각 PC가 시작할 때 감지한다(읽기 전용).
+      - ./updates:/updates:ro
     restart: unless-stopped

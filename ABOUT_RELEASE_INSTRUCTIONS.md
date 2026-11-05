@@ -47,7 +47,39 @@ Last updated: 2026-11-05 (NC_Tool_List v2.3.0 — 로컬 v2.2.9(STOCK SIZE)와 G
 
 ## Version history
 
-### 2026-11-05 (latest, SumPath License Maker v1.4.2 — 앱은 v2.3.0 그대로)
+### 2026-11-05 (latest, v2.3.1 + 라이선스 서버 v1.1.0)
+
+- Version: 2.3.0 → 2.3.1, 라이선스 서버 1.0.0 → 1.1.0 (발급 프로그램 v1.4.2 그대로)
+- Release/build date: 2026-11-05
+- Summary: 사용자 요청 4가지. 상세는 `v2.3.1_PLAN.md`(D-1 a, D-2 b, D-3 b, D-4 a, D-5 승인).
+  1. **등록 창 글자 잘림**: `setFixedWidth(460)` 때문에 버튼 글자·PC 코드 앞자리가 잘렸다 → 최소 폭(글자 폭 기준)만 두고,
+     PC 코드 칸·버튼은 글자 폭만큼 최소 폭, 버튼 두 줄([라이선스 파일 등록...] [라이선스 서버 연결...] / [종료]). About도 고정 폭 520 → 최소 폭.
+  2. **서버 업데이트 배포 + 시작 시 감지**: 서버 `updates` 폴더(NAS `\\192.168.0.210\docker\SumPath_License_Server\updates` → 컨테이너 `/updates:ro`)의
+     최고 버전 `NC_Tool_List_Setup_vX.Y.Z.exe`를 `GET /api/v1/update`(버전·크기·SHA-256)와 `GET /api/v1/update/download/{file}`로 배포, 관리 화면에 "배포 중인 업데이트" 표시.
+     앱은 시작 1.5초 뒤 백그라운드로 서버(주소가 있으면) → 공유 폴더 순으로 확인(신규 `app_update.py`), 새 버전이면 "업데이트 권장" 창
+     [지금 업데이트]/[나중에]. 지금 업데이트 → 진행률 창으로 내려받고 크기·SHA-256 확인 → 설치 마법사 실행 후 앱 종료. [나중에]는 다음 시작 때 다시 묻는다.
+     About [업데이트 확인]도 서버 배포를 같이 본다. `.iss` 변경 없음.
+  3. **서버 > 로컬**: 서버 주소가 있는 PC는 서버를 먼저 묻는다. 사용권을 받으면 로컬 `license.lic` → `license_released.lic`(보관),
+     exe 옆 `license.lic`는 상태 파일에 해제 표시. 서버 거부(차단·좌석 없음·만료)면 로컬로 돌아가지 않고, 연결 불가 + 저장된 사용권(7일) 만료일 때만
+     보관본을 비상용으로 쓴다. 서버 연결 해제(About에서 주소 비우기) 시 복원. About에 "로컬 라이선스: 해제됨 (서버 라이선스 사용 중)".
+     서버 주소가 없는 PC는 이전과 같다(로컬 → 체험판).
+  4. **장기 미접속 PC 좌석 자동 회수 30일 → 100일**(서버 기본값·compose·`.env.example`·문서).
+  가이드 PDF(`docs/license_guide/`) 갱신: 판정 순서, 등록 창 그림, About 그림, 관리 화면 그림, 업데이트 배포, 100일.
+- Open source software: 변경 없음(앱은 표준 라이브러리 urllib/hashlib/threading만 추가 사용, 서버는 기존 FastAPI `FileResponse`).
+- Verification: `python -m pytest tests` → 778 passed, 1 failed, 1 skipped. 실패는 기존과 같은 이 PC 장비 설정 의존
+  `test_switching_to_lathe_changes_table_schema_and_machine`(HEAD에서도 동일하게 실패 확인). 신규: 서버 우선 6개, 업데이트 배포 4개 + HTTP 왕복,
+  `tests/test_auto_update.py` 11개, 등록 창 잘림(기본·1.5배 글꼴) 1개.
+  실제 확인: 로컬에 서버 1.1.0을 띄우고 `updates`에 v2.3.0·v2.3.1 설치 파일을 넣은 뒤 앱을 v2.3.0으로 실행 → 시작 시 "업데이트 권장
+  (새 버전 v2.3.1, 현재 v2.3.0)" 표시 → [지금 업데이트] → 82,038,324바이트 다운로드·SHA-256 일치 → 설치 파일 실행 호출 + 앱 종료 요청.
+  dist exe 기동 12초 뒤 실행 중(파일 버전 2.3.1.0).
+- Installer/package status: **생성 완료**. `installer\NC_Tool_List_Setup_v2.3.1.exe`.
+  `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean`(`app_update` hidden import 추가) → `ISCC.exe NC_Tool_List.iss`.
+  - Setup EXE SHA-256: BBABB5FC77B75BA0D467B2C42EAE4C7A6B44E14F502399970187D7BE58826EDE (78.2 MB)
+- NAS 반영: `license_server/` 새 파일 복사(`data/` 유지) → `updates` 폴더 확인 → `.env`에 `SUMPATH_SEAT_IDLE_DAYS=30`이 있으면 100으로 →
+  프로젝트 중지·빌드·시작 → `updates`에 설치 파일 복사. (`DEPLOY_Synology.md` 11장)
+- 서명 상태: 미서명(기존과 동일).
+
+### 2026-11-05 (SumPath License Maker v1.4.2 — 앱은 v2.3.0 그대로)
 
 - Version: License Maker 1.4.1 → 1.4.2 (NC_Tool_List 앱 변경 없음)
 - Release/build date: 2026-11-05

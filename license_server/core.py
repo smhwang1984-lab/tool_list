@@ -10,9 +10,11 @@
   좌석을 요청할 때 자동으로 회수된다. 관리자는 관리 화면에서 해제/차단할 수 있다.
 """
 import base64
+import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import sqlite3
 import threading
@@ -25,7 +27,9 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 import sumpath_license as lic
 
-SERVER_VERSION = '1.0.0'
+SERVER_VERSION = '1.1.0'
+DEFAULT_SEAT_IDLE_DAYS = 100  # v1.1.0(앱 v2.3.1): 30일 → 100일 (사용자 요청)
+UPDATE_INSTALLER_RE = re.compile(r'^NC_Tool_List_Setup_v(\d+)\.(\d+)\.(\d+)\.exe$', re.I)
 
 
 def _now():
@@ -37,9 +41,12 @@ def _iso(value):
 
 
 class LicenseServer:
-    def __init__(self, data_dir, lease_days=lic.DEFAULT_LEASE_DAYS, seat_idle_days=30,
-                 admin_token=None, now_fn=_now):
+    def __init__(self, data_dir, lease_days=lic.DEFAULT_LEASE_DAYS, seat_idle_days=DEFAULT_SEAT_IDLE_DAYS,
+                 admin_token=None, now_fn=_now, updates_dir=None):
         self.data_dir = Path(data_dir)
+        # v1.1.0: 앱 업데이트 배포 폴더(NAS \\192.168.0.210\docker\SumPath_License_Server\updates → 컨테이너 /updates)
+        self.updates_dir = Path(updates_dir) if updates_dir else None
+        self._sha_cache = {}
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.lease_days = max(1, int(lease_days))
         seat_idle_days = int(seat_idle_days)
@@ -311,4 +318,65 @@ class LicenseServer:
             'days_left': status.days_left,
             'lease_days': self.lease_days,
             'seat_idle_days': self.seat_idle_days,
+            'update': self.latest_update(),
+        }
+
+    # ---------- 앱 업데이트 배포 (v1.1.0) ----------
+    def update_file_path(self, name):
+        """updates 폴더 안의 설치 파일 경로. 이름 형식이 다르거나 없으면 None(경로 조작 방지)."""
+        if not self.updates_dir or not UPDATE_INSTALLER_RE.match(str(name or '')):
+            return None
+        path = self.updates_dir / name
+        try:
+            if path.parent.resolve() != self.updates_dir.resolve() or not path.is_file():
+                return None
+        except OSError:
+            return None
+        return path
+
+    def _sha256(self, path, stat):
+        key = (path.name, stat.st_size, stat.st_mtime_ns)
+        if key not in self._sha_cache:
+            digest = hashlib.sha256()
+            with path.open('rb') as fp:
+                for chunk in iter(lambda: fp.read(1024 * 1024), b''):
+                    digest.update(chunk)
+            self._sha_cache = {key: digest.hexdigest()}  # 최신 파일 하나만 기억
+        return self._sha_cache[key]
+
+    def latest_update(self):
+        """updates 폴더에서 가장 높은 버전의 NC_Tool_List_Setup_vX.Y.Z.exe. 없으면 None."""
+        if not self.updates_dir:
+            return None
+        best = None
+        try:
+            entries = list(self.updates_dir.iterdir())
+        except OSError:
+            return None
+        for entry in entries:
+            match = UPDATE_INSTALLER_RE.match(entry.name)
+            if not match:
+                continue
+            try:
+                if not entry.is_file():
+                    continue
+            except OSError:
+                continue
+            version = tuple(int(x) for x in match.groups())
+            if best is None or version > best[0]:
+                best = (version, entry)
+        if best is None:
+            return None
+        version, path = best
+        try:
+            stat = path.stat()
+            sha = self._sha256(path, stat)
+        except OSError:
+            return None
+        return {
+            'version': '.'.join(str(x) for x in version),
+            'file': path.name,
+            'size': stat.st_size,
+            'sha256': sha,
+            'modified': _iso(datetime.fromtimestamp(stat.st_mtime).astimezone()),
         }

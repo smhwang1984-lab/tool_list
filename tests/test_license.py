@@ -775,6 +775,37 @@ class LicenseRegistrationDialogUiTests(unittest.TestCase):
         app.show_license_registration_dialog(status)
         self.assertIn('체험 기간이 끝났습니다', captured['message'])
 
+    def test_registration_dialog_texts_are_not_clipped(self):
+        """v2.3.1: 버튼 글자와 PC 코드가 잘리지 않는다(기본 글꼴, 1.5배 글꼴)."""
+        qapp = app.QApplication.instance() or app.QApplication([])
+        status = lic.LicenseStatus(False, 'trial_expired', '체험 기간이 끝났습니다.', None, -1, True)
+        original_font = qapp.font()
+        self.addCleanup(qapp.setFont, original_font)
+        for scale in (1.0, 1.5):
+            font = app.QFont(original_font)
+            font.setPointSizeF(original_font.pointSizeF() * scale)
+            qapp.setFont(font)
+            problems = []
+
+            def inspect_and_close():
+                dialog = qapp.activeModalWidget()
+                qapp.processEvents()
+                for button in dialog.findChildren(app.QPushButton):
+                    if button.width() < button.sizeHint().width():
+                        problems.append('%s: %d < %d' % (button.text(), button.width(), button.sizeHint().width()))
+                code_edit = dialog.findChild(app.QLineEdit, 'license_code_edit')
+                need = code_edit.fontMetrics().horizontalAdvance(code_edit.text())
+                if code_edit.width() < need + 8:
+                    problems.append('PC 코드 칸 %d < %d' % (code_edit.width(), need + 8))
+                texts = [b.text() for b in dialog.findChildren(app.QPushButton)]
+                problems.extend('없음: ' + t for t in ('라이선스 파일 등록...', '라이선스 서버 연결...', '종료')
+                                if t not in texts)
+                dialog.reject()
+
+            app.QTimer.singleShot(0, inspect_and_close)
+            app.show_license_registration_dialog(status)
+            self.assertEqual(problems, [], 'scale %.1f' % scale)
+
 
 @unittest.skipIf(MAKER_IMPORT_ERROR is not None, 'SumPath_License_Maker를 불러올 수 없음: %r' % MAKER_IMPORT_ERROR)
 class LicenseMakerRoundTripTests(unittest.TestCase):
