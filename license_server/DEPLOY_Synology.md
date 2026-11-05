@@ -33,7 +33,7 @@ File Station에서 예를 들어 다음 폴더를 만듭니다.
 ## 2. 컨테이너 만들기 (Container Manager)
 
 1. Container Manager → **프로젝트** → **생성**
-2. 프로젝트 이름: `sumpath-license`, 경로: 위 폴더, 소스: **기존 docker-compose.yml 사용**
+2. 프로젝트 이름: `sumpathlicense`(**영어 소문자만** — NAS에 따라 `-`·대문자를 거부한다. 이름은 표시용이라 아무거나 돼도 서버 ID와 무관), 경로: 위 폴더, 소스: **기존 docker-compose.yml 사용**
 3. 다음 → 완료. 처음에는 이미지 빌드(PyPI에서 fastapi/uvicorn/cryptography 설치) 때문에 1~3분 걸립니다.
 4. 컨테이너 로그에 다음 줄이 보이면 정상입니다.
    ```
