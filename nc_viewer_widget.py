@@ -65,6 +65,11 @@ CONTROL_SHRINK = 0.6
 TOP_LEFT_OVERLAY_MARGIN_PX = 10
 TOP_LEFT_OVERLAY_STACK_GAP_PX = 6
 
+# v2.3.4: 줌 중심 십자 표시는 마지막 휠 입력(또는 휠 버튼을 놓은 뒤) 이만큼 뒤에 사라진다(ms).
+ZOOM_MARKER_HIDE_MS = 800
+# v2.3.4: 휠 누른 채 끌기 줌 — 1픽셀 아래로 끌 때 카메라 거리 배율(위로 끌면 역수 = 확대).
+MIDDLE_DRAG_ZOOM_BASE = 1.01
+
 # v1.6.5: 선반 뷰에서는 좌표 오버레이를 화면 하단(재생 속도바 바로 위)으로
 # 옮긴다 — 그 사이 세로 간격.
 BOTTOM_COORD_OVERLAY_GAP_PX = 8
@@ -571,12 +576,12 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
     # so it's a genuine click, not the start/end of an orbit. Carries local
     # (logical-pixel) coordinates for NCViewerWidget.pick_source_line().
     left_clicked = pyqtSignal(float, float)
-    # Fired on every right-button press, carrying local (logical-pixel)
-    # coordinates — the receiver (NCViewerWidget) owns the open/close toggle
-    # logic for the magnifier lens and centers it on this position.
+    # v2.3.4: 우클릭을 끌지 않고 놓았을 때(그냥 우클릭) 놓은 위치(논리 픽셀)로 쏜다 —
+    # 뷰어가 위치 찍기 모드를 끄는 데 쓴다. (v1.5.7~v2.3.3: 누를 때 쏴서 돋보기를 열었다.)
     right_clicked = pyqtSignal(float, float)
-    # Fired on every mouse move over the widget (any button state), so the
-    # magnifier lens can track the cursor while open.
+    # v2.3.4: 우클릭 드래그 사각형으로 확대한 직후 — 뷰어가 위치 찍기 모드를 켠다.
+    right_drag_zoomed = pyqtSignal()
+    # Fired on every mouse move over the widget (any button state).
     mouse_moved = pyqtSignal(float, float)
     # v1.6.5: 드래그줌 토글이 내부적으로(사각형 확정 후 자동 해제 포함)
     # 바뀔 때마다 쏜다 — 오버레이의 체크 버튼을 실제 상태와 맞추는 데 쓴다.
@@ -624,6 +629,19 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
         self.drag_zoom_active = False
         self._drag_zoom_rubber_band = None
         self._drag_zoom_origin = None
+        # v2.3.4: 우클릭 드래그 줌 — 누른 위치와 끌었는지(_CLICK_DRAG_PX 넘게) 여부.
+        self._right_press_pos = None
+        self._right_dragging = False
+        # v2.3.4: 휠(가운데 버튼) 누르기 = 줌 중심 고정, 누른 채 위아래로 끌기 = 줌.
+        self._middle_anchor = None
+        self._middle_last_y = 0.0
+        # 줌 중심 표시(십자). 휠 줌·휠 드래그 줌 뒤 ZOOM_MARKER_HIDE_MS 지나면 숨긴다.
+        self.zoom_marker = ZoomCenterMarker(self)
+        self.zoom_marker.hide()
+        self._zoom_marker_timer = QTimer(self)
+        self._zoom_marker_timer.setSingleShot(True)
+        self._zoom_marker_timer.setInterval(ZOOM_MARKER_HIDE_MS)
+        self._zoom_marker_timer.timeout.connect(self.zoom_marker.hide)
         # pyqtgraph's GLViewWidget defaults to ClickFocus and steals arrow keys for
         # camera orbit (its own keyPressEvent) the moment this widget is clicked,
         # which silently breaks program-cursor arrow-key stepping. Keyboard focus
@@ -663,13 +681,43 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
         offset_x = center.x() - width / 2.0
         offset_y = center.y() - height / 2.0
         if offset_x or offset_y:
-            self.pan(-offset_x, -offset_y, 0, relative='view')
+            self.pan_pixels(-offset_x, -offset_y)
         scale = max(rect_w / width, rect_h / height)
         scale = min(max(scale, 0.02), 1.0)
         self.opts['distance'] = max(float(self.opts.get('distance', 200.0)) * scale, 1.0)
         self.update()
         self.camera_changed.emit()
         self.set_drag_zoom_active(False)
+
+    def _apply_right_drag_zoom(self, rect):
+        """v2.3.4: 우클릭 드래그 사각형 확대 — [드래그줌] 버튼과 같은 계산이고, 끝나면
+        right_drag_zoomed를 쏜다(버튼 모드는 건드리지 않는다)."""
+        was_active = self.drag_zoom_active
+        self._apply_drag_zoom(rect)
+        if was_active:
+            self.set_drag_zoom_active(True)
+        self.right_drag_zoomed.emit()
+
+    # -- 줌 중심 표시 / 점 기준 줌 (v2.3.4) ------------------------------------
+    def show_zoom_marker(self, x, y, hold=False):
+        """줌 중심(x, y)에 십자를 띄운다. hold=False면 ZOOM_MARKER_HIDE_MS 뒤 사라진다."""
+        marker = self.zoom_marker
+        marker.move(int(round(x - marker.width() / 2.0)), int(round(y - marker.height() / 2.0)))
+        marker.show()
+        marker.raise_()
+        if hold:
+            self._zoom_marker_timer.stop()
+        else:
+            self._zoom_marker_timer.start()
+
+    def zoom_about_point(self, x, y, factor):
+        """카메라 거리를 factor배로 바꾸되 화면 점 (x, y) 아래 지점이 제자리에 남게 한다."""
+        old_distance = max(float(self.opts.get('distance', 200.0)), 1e-9)
+        self.opts['distance'] = old_distance * factor
+        applied = max(float(self.opts['distance']), 1e-9) / old_distance
+        self._pan_to_keep_point(x, y, applied)
+        self.update()
+        self.camera_changed.emit()
 
     def mousePressEvent(self, ev):
         lpos = ev.position() if hasattr(ev, 'position') else ev.localPos()
@@ -682,10 +730,33 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
             self._left_press_pos = lpos
             self._left_press_was_drag = False
         elif ev.button() == Qt.RightButton:
-            self.right_clicked.emit(lpos.x(), lpos.y())
+            self._right_press_pos = lpos
+            self._right_dragging = False
+        elif ev.button() == Qt.MiddleButton:
+            # v2.3.4: 누른 자리가 줌 중심 — 놓을 때까지 십자 표시를 띄워 둔다.
+            self._middle_anchor = lpos
+            self._middle_last_y = float(lpos.y())
+            self.show_zoom_marker(lpos.x(), lpos.y(), hold=True)
         super().mousePressEvent(ev)
 
     def mouseReleaseEvent(self, ev):
+        if ev.button() == Qt.RightButton and self._right_press_pos is not None:
+            lpos = ev.position() if hasattr(ev, 'position') else ev.localPos()
+            origin = self._right_press_pos
+            dragged = self._right_dragging
+            self._right_press_pos = None
+            self._right_dragging = False
+            if dragged:
+                if self._drag_zoom_rubber_band is not None:
+                    self._drag_zoom_rubber_band.hide()
+                self._apply_right_drag_zoom(QRect(origin.toPoint(), lpos.toPoint()).normalized())
+            else:
+                self.right_clicked.emit(lpos.x(), lpos.y())
+            return
+        if ev.button() == Qt.MiddleButton and self._middle_anchor is not None:
+            self._middle_anchor = None
+            self._zoom_marker_timer.start()
+            return
         if ev.button() == Qt.LeftButton and self.drag_zoom_active and self._drag_zoom_origin is not None:
             lpos = ev.position() if hasattr(ev, 'position') else ev.localPos()
             rect = QRect(self._drag_zoom_origin.toPoint(), lpos.toPoint()).normalized()
@@ -706,6 +777,29 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
         if self.drag_zoom_active and (ev.buttons() & Qt.LeftButton) and self._drag_zoom_origin is not None:
             rect = QRect(self._drag_zoom_origin.toPoint(), lpos.toPoint()).normalized()
             self._ensure_drag_zoom_band().setGeometry(rect)
+            return
+        if (ev.buttons() & Qt.RightButton) and self._right_press_pos is not None:
+            # v2.3.4: 우클릭 드래그 — 사각형만 그린다(카메라는 놓을 때 한 번 움직인다).
+            moved = lpos - self._right_press_pos
+            if not self._right_dragging and (moved.x() ** 2 + moved.y() ** 2) ** 0.5 > self._CLICK_DRAG_PX:
+                self._right_dragging = True
+                self._ensure_drag_zoom_band().show()
+            if self._right_dragging:
+                rect = QRect(self._right_press_pos.toPoint(), lpos.toPoint()).normalized()
+                self._ensure_drag_zoom_band().setGeometry(rect)
+            self.mousePos = lpos
+            self.mouse_moved.emit(lpos.x(), lpos.y())
+            return
+        if (ev.buttons() & Qt.MiddleButton) and self._middle_anchor is not None:
+            # v2.3.4: 휠 누른 채 위로 끌면 확대, 아래로 끌면 축소. 중심은 누른 자리에 고정
+            # (pyqtgraph 기본 휠 드래그 화면 이동은 쓰지 않는다 — 이동은 Ctrl+좌드래그).
+            dy = float(lpos.y()) - self._middle_last_y
+            self._middle_last_y = float(lpos.y())
+            if dy:
+                factor = MIDDLE_DRAG_ZOOM_BASE ** (dy * self.navigation_sensitivity)
+                self.zoom_about_point(self._middle_anchor.x(), self._middle_anchor.y(), factor)
+            self.mousePos = lpos
+            self.mouse_moved.emit(lpos.x(), lpos.y())
             return
         if (ev.buttons() & Qt.LeftButton) and self._left_press_pos is not None:
             moved = lpos - self._left_press_pos
@@ -757,6 +851,12 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
             self.opts['distance'] = old_distance * factor
             applied = max(float(self.opts['distance']), 1e-9) / old_distance
             self._zoom_toward_cursor(ev, applied)
+            # v2.3.4: 줌 중심(커서 위치)을 잠깐 십자로 보인다.
+            try:
+                pos = ev.position() if hasattr(ev, 'position') else ev.posF()
+                self.show_zoom_marker(pos.x(), pos.y())
+            except Exception:
+                pass
         self.update()
         self.camera_changed.emit()
 
@@ -768,13 +868,32 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
             return
         try:
             pos = ev.position() if hasattr(ev, 'position') else ev.posF()
-            offset_x = float(pos.x()) - self.width() / 2.0
-            offset_y = float(pos.y()) - self.height() / 2.0
-            shift = 1.0 - 1.0 / factor
-            if offset_x or offset_y:
-                self.pan(offset_x * shift, offset_y * shift, 0, relative='view')
+            self._pan_to_keep_point(pos.x(), pos.y(), factor)
         except Exception:
             pass
+
+    def _pan_to_keep_point(self, x, y, factor):
+        """거리가 factor배가 된 뒤 화면 점 (x, y) 아래 지점이 제자리에 남도록 팬한다."""
+        if not factor or factor <= 0.0:
+            return
+        offset_x = float(x) - self.width() / 2.0
+        offset_y = float(y) - self.height() / 2.0
+        shift = 1.0 - 1.0 / factor
+        if offset_x or offset_y:
+            self.pan_pixels(offset_x * shift, offset_y * shift)
+
+    def pan_pixels(self, dx, dy):
+        """화면 내용을 정확히 (dx, dy) 화면 픽셀만큼 옮긴다(v2.3.4).
+
+        pyqtgraph pan(relative='view')은 픽셀 크기를 '화면 폭' 기준(거리*2*tan(fov/2)/폭)으로
+        잡지만, 이 위젯의 직교 투영은 '화면 높이' 기준(projectionMatrix의 view_height)이라
+        그대로 넘기면 높이/폭 비율(800x600이면 0.75)만큼 덜 움직인다. 그래서 v1.6.7~v2.3.3의
+        휠 줌은 커서 아래 지점이 바깥으로 밀렸고, [드래그줌] 사각형 중심도 화면 정중앙에서
+        조금 어긋났다."""
+        ratio = 1.0
+        if self.use_orthographic_projection:
+            ratio = max(float(self.width()), 1.0) / max(float(self.height()), 1.0)
+        self.pan(dx * ratio, dy * ratio, 0, relative='view')
 
     def setCameraPosition(self, *args, **kwargs):
         super().setCameraPosition(*args, **kwargs)
@@ -1113,81 +1232,36 @@ class ViewCubeWidget(QWidget):
         super().mouseReleaseEvent(event)
 
 
-class MagnifierLensWidget(QWidget):
-    """우클릭으로 켜고 끄는 돋보기 렌즈.
+class ZoomCenterMarker(QWidget):
+    """v2.3.4: 줌 중심 표시 — 노란 십자 + 원(어두운 테두리로 밝은 소재 위에서도 보인다).
+    마우스 입력은 아래 3D 화면으로 그대로 흘려보낸다."""
 
-    gl_view를 grabFramebuffer()로 캡처한 정지 이미지를 원형으로 잘라 확대해
-    마우스를 따라다니며 보여주는 순수 시각 보조 오버레이다. WA_Transparent-
-    ForMouseEvents로 모든 마우스 이벤트를 그대로 gl_view에 흘려보내므로,
-    실제 클릭 판정(pick_source_line)은 항상 gl_view가 원래(확대 전) 좌표로
-    받는다 — 렌즈는 "어디를 클릭할지 정밀하게 보여주는" 역할만 한다.
-    카메라가 움직이는 동안에는 보이는 그림과 실제 위치가 어긋나므로 숨긴다."""
+    SIZE = 30
 
-    DIAMETER = 220
-    ZOOM = 3.0
-
-    def __init__(self, gl_view, parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self._gl_view = gl_view
-        self.setFixedSize(self.DIAMETER, self.DIAMETER)
-        self.setAttribute(Qt.WA_TransparentForMouseEvents)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self._source = None
-        self._center = QPointF(0.0, 0.0)
-        self.hide()
-
-    def set_source(self, image):
-        self._source = image
-        self.update()
-
-    def move_center_to(self, x, y):
-        """렌즈 중심을 gl_view 좌표 (x, y) 근처로 옮긴다. 커서가 렌즈에 가리지
-        않도록 살짝 위로 띄우고, gl_view 영역을 벗어나지 않게 고정한다."""
-        self._center = QPointF(x, y)
-        half = self.DIAMETER / 2.0
-        target_x, target_y = x - half, y - half - self.DIAMETER * 0.55
-        if self._gl_view is not None:
-            max_x = max(0, self._gl_view.width() - self.DIAMETER)
-            max_y = max(0, self._gl_view.height() - self.DIAMETER)
-            target_x = max(0, min(target_x, max_x))
-            target_y = max(0, min(target_y, max_y))
-        self.move(int(target_x), int(target_y))
-        self.update()
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.setAttribute(Qt.WA_NoSystemBackground, True)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setFixedSize(self.SIZE, self.SIZE)
 
     def paintEvent(self, _event):
-        if self._source is None or self._source.isNull():
-            return
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
-        path = QPainterPath()
-        path.addEllipse(0, 0, self.DIAMETER, self.DIAMETER)
-        painter.setClipPath(path)
-
-        # QImage.devicePixelRatio()(grabFramebuffer가 자동으로 설정)를 Qt가
-        # drawImage()에서 알아서 반영하므로, src_rect는 gl_view의 논리 좌표
-        # 그대로 쓰면 된다(DPI 배율을 직접 곱할 필요 없음).
-        crop = self.DIAMETER / self.ZOOM
-        src_rect = QRectF(
-            self._center.x() - crop / 2.0, self._center.y() - crop / 2.0, crop, crop,
-        )
-        painter.drawImage(QRectF(0, 0, self.DIAMETER, self.DIAMETER), self._source, src_rect)
-
-        pen = QPen(QColor(255, 255, 255, 220))
-        pen.setWidth(3)
-        painter.setPen(pen)
-        painter.setBrush(Qt.NoBrush)
-        painter.drawEllipse(1, 1, self.DIAMETER - 2, self.DIAMETER - 2)
-
-        # 실제로 클릭이 판정되는 지점(원 좌표계 아래 gl_view가 그대로 받는
-        # 실제 커서 위치)은 항상 렌즈 정중앙에 대응한다 — 어디를 클릭할지
-        # 정확히 짚을 수 있도록 가는 십자선으로 표시한다.
-        cx = cy = self.DIAMETER / 2.0
-        cross = 9.0
-        cross_pen = QPen(QColor(255, 60, 40, 230))
-        cross_pen.setWidth(2)
-        painter.setPen(cross_pen)
-        painter.drawLine(QPointF(cx - cross, cy), QPointF(cx + cross, cy))
-        painter.drawLine(QPointF(cx, cy - cross), QPointF(cx, cy + cross))
+        c = self.SIZE / 2.0
+        arm = self.SIZE / 2.0 - 2.0
+        radius = self.SIZE / 4.0
+        for color, width in ((QColor(20, 24, 30, 200), 4.0), (QColor(255, 214, 64), 2.0)):
+            pen = QPen(color)
+            pen.setWidthF(width)
+            painter.setPen(pen)
+            painter.setBrush(Qt.NoBrush)
+            painter.drawLine(QPointF(c - arm, c), QPointF(c - radius + 2, c))
+            painter.drawLine(QPointF(c + radius - 2, c), QPointF(c + arm, c))
+            painter.drawLine(QPointF(c, c - arm), QPointF(c, c - radius + 2))
+            painter.drawLine(QPointF(c, c + radius - 2), QPointF(c, c + arm))
+            painter.drawEllipse(QPointF(c, c), radius, radius)
+        painter.end()
 
 
 class ProjectionOverlayWidget(QWidget):
@@ -2317,14 +2391,15 @@ class NCViewerWidget(QWidget):
     # v2.3.3: 소재 적용/해제·PG 매칭 전환처럼 [실시간 형상]을 쓸 수 있는지가 바뀔 때.
     sim_state_changed = pyqtSignal()
 
-    # 3D 캔버스와 돋보기 렌즈(캔버스를 그대로 캡처)는 앱 라이트/다크 테마와
+    # 3D 캔버스는 앱 라이트/다크 테마와
     # 무관하게 항상 이 어두운 배경을 쓴다 — 경로 선 색이 밝은색 위주라
     # 흰 배경에서는 시인성이 크게 떨어지는 사용자 피드백 반영(v1.5.7).
     _VIEWER_BG = (33, 37, 43, 255)
-    # 클릭 판정은 이제 돋보기가 켜져 있을 때만 동작하므로(v1.5.7), 돋보기
-    # 배율(MagnifierLensWidget.ZOOM = 3x)만큼 더 정밀하게 조준할 수 있다는
-    # 전제로 반경을 좁혀 "근처 다른 라인이 잘못 집히는" 문제를 줄인다.
-    _PICK_RADIUS_PX = 4.0
+    # 클릭 판정은 위치 찍기 모드(우클릭 드래그 줌 뒤)에서만 동작한다. 반경을 좁게 두어
+    # "근처 다른 라인이 잘못 집히는" 문제를 줄인다(v1.5.7: 4px, 돋보기 3배 렌즈 기준).
+    # v2.3.4: 돋보기가 없어져 렌즈 없이 조준하므로 조금 넓힌다 — 대신 드래그 줌으로 이미
+    # 확대된 화면에서 찍는다.
+    _PICK_RADIUS_PX = 6.0
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -2333,7 +2408,9 @@ class NCViewerWidget(QWidget):
         self._pick_cache_key = None
         self._pick_world_pts = np.zeros((0, 2, 3), dtype=np.float64)
         self._pick_src_lines = np.zeros((0,), dtype=np.int64)
-        self._magnifier_active = False
+        # v2.3.4: 위치 찍기 모드(우클릭 드래그 줌 뒤 켜짐) — 켜져 있을 때만 좌클릭이 경로를 찍는다.
+        self.pick_mode = False
+        self.pick_mode_label = None
         self.machine_specs = self._load_machine_specs()
         self.current_machine_type = migrate_machine_type_name(
             self.settings.value("machine_type", next(iter(self.machine_specs)))
@@ -2569,14 +2646,12 @@ class NCViewerWidget(QWidget):
         self._build_coord_overlay()
         self._build_projection_overlay()
         self._build_playback_bar()
-        self._build_magnifier()
         self.gl_view.left_clicked.connect(self._on_gl_left_clicked)
         self.gl_view.right_clicked.connect(self._on_gl_right_clicked)
-        self.gl_view.mouse_moved.connect(self._on_gl_mouse_moved)
-        self.gl_view.camera_changed.connect(self._on_camera_changed_for_magnifier)
-        self._magnifier_shortcut = QShortcut(QKeySequence("Escape"), self)
-        self._magnifier_shortcut.setContext(Qt.ApplicationShortcut)
-        self._magnifier_shortcut.activated.connect(self._close_magnifier)
+        self.gl_view.right_drag_zoomed.connect(self._on_gl_right_drag_zoomed)
+        self._pick_mode_shortcut = QShortcut(QKeySequence("Escape"), self)
+        self._pick_mode_shortcut.setContext(Qt.ApplicationShortcut)
+        self._pick_mode_shortcut.activated.connect(lambda: self.set_pick_mode(False))
 
         # 격자판은 넓은 프로그램에서 시야를 가려 제거했다(v1.5.6) — 방향
         # 기준은 축선(_add_axis_lines)만으로 충분하다.
@@ -2677,69 +2752,49 @@ class NCViewerWidget(QWidget):
             bar = None
         self.playback_bar = bar
 
-    def _build_magnifier(self):
-        """돋보기 렌즈 오버레이를 만든다. 실패해도 뷰어 전체를 잃지 않는다."""
-        try:
-            lens = MagnifierLensWidget(self.gl_view, parent=self.gl_view)
-        except Exception:
-            lens = None
-        self.magnifier = lens
+    # -- 우클릭 드래그 줌 / 위치 찍기 모드 (v2.3.4) ------------------------------
+    _PICK_LABEL_STYLE = (
+        'QLabel { background: rgba(20,24,30,210); color: #ffd640;'
+        ' border-radius: 4px; padding: 4px 8px; }')
 
-    def _on_gl_right_clicked(self, x, y):
-        """우클릭 위치에서 돋보기를 켠다(다시 우클릭하면 끈다) — 렌즈는 항상
-        그 우클릭 지점을 중심으로 나타나야 한다는 사용자 요청 반영(v1.5.7)."""
-        if self.magnifier is None:
+    def _on_gl_right_drag_zoomed(self):
+        self.set_pick_mode(True)
+
+    def _on_gl_right_clicked(self, _x, _y):
+        """끌지 않은 우클릭 — 위치 찍기 모드를 끈다(D-2)."""
+        self.set_pick_mode(False)
+
+    def set_pick_mode(self, enabled):
+        """위치 찍기 모드를 켜고 끈다. 켜져 있으면 왼쪽 위에 안내를 띄운다."""
+        enabled = bool(enabled)
+        if enabled == self.pick_mode:
             return
-        if self._magnifier_active:
-            self._close_magnifier()
-        else:
-            self._magnifier_active = True
-            self.magnifier.move_center_to(x, y)
-            self._recapture_magnifier_source()
-            self.magnifier.show()
-            self.magnifier.raise_()
-
-    def _close_magnifier(self):
-        if self.magnifier is None or not self._magnifier_active:
-            return
-        self._magnifier_active = False
-        self.magnifier.hide()
-
-    def _recapture_magnifier_source(self):
-        """gl_view의 현재 프레임을 다시 캡처한다. 카메라가 움직이는 동안에는
-        보이는 그림과 실제 위치가 어긋나므로, 그 사이에는 렌즈를 숨긴다."""
-        if self.magnifier is None or not self._magnifier_active:
-            return
-        try:
-            image = self.gl_view.grabFramebuffer()
-        except Exception:
-            return
-        self.magnifier.set_source(image)
-
-    def _on_camera_changed_for_magnifier(self):
-        # 캡처 이미지가 곧바로 낡은 그림이 되므로, 재캡처 전까지는 숨겨서
-        # 실제 위치와 어긋난 렌즈를 보여주지 않는다.
-        if self._magnifier_active and self.magnifier is not None:
-            self.magnifier.hide()
-            QTimer.singleShot(0, self._reshow_magnifier_after_camera_change)
-
-    def _reshow_magnifier_after_camera_change(self):
-        if not self._magnifier_active or self.magnifier is None:
-            return
-        self._recapture_magnifier_source()
-        self.magnifier.show()
-        self.magnifier.raise_()
-
-    def _on_gl_mouse_moved(self, x, y):
-        if self._magnifier_active and self.magnifier is not None:
-            self.magnifier.move_center_to(x, y)
+        self.pick_mode = enabled
+        label = self.pick_mode_label
+        widgets = self.gl_view.top_left_widgets
+        if enabled:
+            if label is None:
+                label = QLabel(self.gl_view)
+                label.setStyleSheet(self._PICK_LABEL_STYLE)
+                label.setText('위치 찍기: 경로를 클릭하면 프로그램 줄로 이동 (Esc 끝)')
+                label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+                label.adjustSize()
+                self.pick_mode_label = label
+            if label not in widgets:
+                widgets.insert(0, label)
+            label.show()
+            label.raise_()
+        elif label is not None:
+            label.hide()
+            if label in widgets:
+                widgets.remove(label)
+        self.gl_view._reposition_top_left()
 
     def _on_gl_left_clicked(self, x, y):
-        # 라인 픽킹은 돋보기가 켜져 있을 때만 동작한다 — 꺼진 상태에서는
-        # 순수 카메라 조작(좌클릭 드래그로 궤도 회전)만 하도록 요청받았다.
-        # 돋보기 없이 화면을 찍으면 의도치 않게 근처 라인으로 커서가
-        # 넘어가던 문제(v1.5.6)의 수정(v1.5.7).
-        if not self._magnifier_active:
+        # 라인 픽킹은 위치 찍기 모드(우클릭 드래그 줌 뒤, v2.3.4)에서만 동작한다 — 꺼진
+        # 상태에서는 순수 카메라 조작(좌클릭 드래그로 궤도 회전)만 한다. 아무 때나 찍히면
+        # 회전하려다 근처 라인으로 커서가 넘어가던 문제(v1.5.6)가 다시 생긴다.
+        if not self.pick_mode:
             return
         line_index = self.pick_source_line(x, y)
         if line_index is None:
@@ -4322,6 +4377,7 @@ class NCViewerWidget(QWidget):
 
     def set_camera_angles(self, elevation, azimuth, distance=None, recenter=False):
         """카메라 방향만 바꾼다. distance를 안 주면 현재 줌 배율을 유지한다.
+        v2.3.4: 뷰를 바꾸면(투영 버튼·방향 큐브 면) 위치 찍기 모드는 끝난다(D-3).
 
         recenter=True면 카메라 중심(pos)을 원점으로 되돌려, 그동안 드래그로
         치우쳐 있던 좌표가 화면 정중앙으로 다시 온다(v1.6.2, ISO 버튼 요청)."""
@@ -4330,6 +4386,7 @@ class NCViewerWidget(QWidget):
             kwargs["distance"] = distance
         if recenter:
             kwargs["pos"] = Vector(0, 0, 0)
+        self.set_pick_mode(False)
         self.gl_view.setCameraPosition(**kwargs)
 
     # v1.6.3: 투영 버튼을 누르면 경로 전체가 화면 안에 들어오도록 거리도
