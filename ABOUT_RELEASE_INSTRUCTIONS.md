@@ -64,7 +64,12 @@ Last updated: 2026-11-05 (NC_Tool_List v2.3.0 — 로컬 v2.2.9(STOCK SIZE)와 G
   테스트 중 이 PC에 NC_Tool_List.exe가 실행 중이어서(단일 실행 핸드오프가 실제 창에 붙음) — 코드 변경과 무관.
   신규 `tests/test_v235_orbit_pivot.py` 11개(ISO/XY에서 경로 위 클릭 지점 고정, 빈 곳 클릭 화면 위치 고정, 십자 표시·해제,
   클릭만 하면 카메라 그대로, Ctrl 이동·뷰 큐브 회전 중심 유지, 선반 잠금 이동).
-- Installer/package status: 미생성(Windows 빌드 PC에서 `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` → `ISCC.exe NC_Tool_List.iss`).
+- Installer/package status: **생성 완료**. `installer\NC_Tool_List_Setup_v2.3.5.exe`.
+  `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` → `ISCC.exe NC_Tool_List.iss`.
+  - Setup EXE SHA-256: ACC24C3EF466A0E2ACA63851AD01D60136CB8AB6D697618EA2D00A746E976E00 (78.3 MB)
+  dist exe 파일 버전 2.3.5.0. 기동 확인 때 이 PC에 설치본이 실행 중이라 단일 실행 핸드오프로 곧바로 종료(exit 0) —
+  단독 기동은 실행 중인 창을 닫고 확인할 것.
+  배포: NAS `\\192.168.0.210\docker\SumPath_License_Server\updates`에 넣으면 v2.3.4 PC는 시작 시 업데이트 권장 창이 뜬다.
 - 서명 상태: 미서명(기존과 동일).
 
 ### 2026-11-09 (v2.3.4)
