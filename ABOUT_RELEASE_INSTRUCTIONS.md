@@ -64,7 +64,11 @@ Last updated: 2026-11-05 (NC_Tool_List v2.3.0 — 로컬 v2.2.9(STOCK SIZE)와 G
   `test_switching_to_lathe_changes_table_schema_and_machine`. 신규 `tests/test_v233_live_reload.py` 17개(이어 붙이기, 변경 감지/무시/수정 시각만 바뀜/자체 저장/
   편집 중/삭제·재생성/합친 파일/예제, 경로선 규칙·PG 궤적, 실시간 형상 앞·뒤 결과 = 새로 계산한 결과, 메쉬 갱신 간격, 복셀 거친 메쉬, 배속 상한·계산 대기, 체크박스).
   실제 창: `K10M41017…O1017.NC` 실시간 형상 재생(1000x 선택 → 200x 주황 표시, 드릴 구멍이 커서까지 깎임), 옵션 끈 채 공정 03만 선택 시 경로선 표시 확인.
-- Installer/package status: 미생성(빌드 PC에서 `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` → `ISCC.exe NC_Tool_List.iss`).
+  dist exe 기동 12초 뒤 실행 중(파일 버전 2.3.3.0).
+- Installer/package status: **생성 완료**. `installer\NC_Tool_List_Setup_v2.3.3.exe`.
+  `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` → `ISCC.exe NC_Tool_List.iss`.
+  - Setup EXE SHA-256: E2F7FFEC0CCBE4BC213C7599F1C81538F9E970F6057639B056FC8B01913ACC2D (78.2 MB)
+  배포: NAS `\\192.168.0.210\docker\SumPath_License_Server\updates`에 넣으면 v2.3.2 PC는 시작 시 업데이트 권장 창이 뜬다.
 - 서명 상태: 미서명(기존과 동일).
 
 ### 2026-11-05 (v2.3.2)
