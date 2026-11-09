@@ -33,7 +33,7 @@ import lathe_insert_spec
 import sumpath_license
 
 
-APP_VERSION = '2.3.4'
+APP_VERSION = '2.3.5'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-11-09'
 APP_CREATOR = 'Hwang.seonmun'
@@ -3640,7 +3640,7 @@ else:
             '  PDF 출력(기본 PDF 프로그램으로 바로 열림) / 표 복사(엑셀에 Ctrl+V로 붙여넣기).\n'
             '\n'
             '■ 3D 뷰어 조작\n'
-            '  좌클릭 드래그: 카메라 회전 / Ctrl+좌클릭 드래그: 화면 이동\n'
+            '  좌클릭 드래그: 누른 위치 기준 회전 / Ctrl+좌클릭 드래그: 화면 이동\n'
             '  휠: 마우스 위치 기준 확대·축소(줌 중심에 노란 십자가 잠깐 보입니다)\n'
             '  휠 누르기: 누른 자리가 줌 중심 — 누른 채 위로 끌면 확대, 아래로 끌면 축소\n'
             '  Ctrl+휠: 원근감(FOV) 조절 / Alt+휠: 마우스 감도 조절(설정 창의 감도 값과 같음)\n'
