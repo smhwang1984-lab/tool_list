@@ -635,6 +635,12 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
         # v2.3.4: 휠(가운데 버튼) 누르기 = 줌 중심 고정, 누른 채 위아래로 끌기 = 줌.
         self._middle_anchor = None
         self._middle_last_y = 0.0
+        # v2.3.5: 좌드래그 회전의 중심(월드 좌표). 누른 자리에서 정해 놓을 때까지 쓴다 —
+        # None이면 pyqtgraph 기본(opts['center']) 기준 회전. 호스트가 경로 위 지점을
+        # 돌려주는 콜백을 주입한다(view_x, view_y) -> (x, y, z) 또는 None.
+        self.orbit_pivot_provider = None
+        self._orbit_pivot = None
+        self._orbit_pivot_screen = None
         # 줌 중심 표시(십자). 휠 줌·휠 드래그 줌 뒤 ZOOM_MARKER_HIDE_MS 지나면 숨긴다.
         self.zoom_marker = ZoomCenterMarker(self)
         self.zoom_marker.hide()
@@ -719,6 +725,79 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
         self.update()
         self.camera_changed.emit()
 
+    # -- 클릭 위치 기준 회전 (v2.3.5) ------------------------------------------
+    def _view_rotation(self):
+        """월드 -> 뷰 회전(3x3, numpy). viewMatrix()에서 거리·중심 이동을 뺀 부분."""
+        rot = QMatrix4x4()
+        if self.opts.get('rotationMethod') == 'quaternion':
+            rot.rotate(self.opts['rotation'])
+        else:
+            rot.rotate(self.opts['elevation'] - 90.0, 1, 0, 0)
+            rot.rotate(self.opts['azimuth'] + 90.0, 0, 0, -1)
+        cols = [rot.column(i) for i in range(3)]
+        return np.array([[c.x(), c.y(), c.z()] for c in cols]).T
+
+    def _screen_point_at_center_depth(self, x, y):
+        """화면 점 (x, y) 아래, 현재 회전 중심과 같은 깊이에 있는 월드 지점(직교 투영)."""
+        center = self.opts['center']
+        c = np.array([center.x(), center.y(), center.z()], dtype=np.float64)
+        if not self.use_orthographic_projection:
+            return c
+        height = max(float(self.height()), 1.0)
+        distance = max(float(self.opts.get('distance', 200.0)), 1.0)
+        fov = max(float(self.opts.get('fov', 60.0)), 1.0)
+        unit = 2.0 * distance * tan(0.5 * radians(fov)) / height
+        rot = self._view_rotation()
+        right, up = rot[0], rot[1]
+        ox = float(x) - self.width() / 2.0
+        oy = float(y) - height / 2.0
+        return c + right * (ox * unit) - up * (oy * unit)
+
+    def _begin_orbit_pivot(self, lpos, modifiers):
+        """좌클릭을 누른 자리를 회전 중심으로 정한다. 경로 위면 그 지점, 아니면 그 화면
+        위치(현재 중심 깊이)를 쓴다. Ctrl(이동)·선반 평면 잠금에서는 정하지 않는다."""
+        self._orbit_pivot = None
+        self._orbit_pivot_screen = None
+        if self.orbit_locked or (modifiers & Qt.ControlModifier):
+            return
+        pivot = None
+        if self.orbit_pivot_provider is not None:
+            try:
+                pivot = self.orbit_pivot_provider(lpos.x(), lpos.y())
+            except Exception:
+                pivot = None
+        try:
+            if pivot is None:
+                pivot = self._screen_point_at_center_depth(lpos.x(), lpos.y())
+            self._orbit_pivot = np.asarray(pivot, dtype=np.float64).reshape(3)
+            self._orbit_pivot_screen = (float(lpos.x()), float(lpos.y()))
+        except Exception:
+            self._orbit_pivot = None
+
+    def _end_orbit_pivot(self):
+        if self._orbit_pivot is not None and self.zoom_marker.isVisible():
+            self._zoom_marker_timer.start()
+        self._orbit_pivot = None
+        self._orbit_pivot_screen = None
+
+    def orbit(self, azim, elev):
+        """회전 중심(_orbit_pivot)이 정해져 있으면 그 지점이 화면 같은 자리에 남도록
+        카메라 중심을 함께 옮긴다. 회전 전 pivot의 뷰 좌표 v를 기억했다가, 회전 뒤
+        R_new·(pivot - c') = v 가 되게 c' = pivot - R_newᵀ·v 로 둔다(거리 항은 양쪽에서 같다)."""
+        pivot = self._orbit_pivot
+        if pivot is None:
+            super().orbit(azim, elev)
+            return
+        center = self.opts['center']
+        c = np.array([center.x(), center.y(), center.z()], dtype=np.float64)
+        v = self._view_rotation() @ (pivot - c)
+        super().orbit(azim, elev)
+        new_c = pivot - self._view_rotation().T @ v
+        self.opts['center'] = QVector3D(float(new_c[0]), float(new_c[1]), float(new_c[2]))
+        if self._orbit_pivot_screen is not None:
+            self.show_zoom_marker(self._orbit_pivot_screen[0], self._orbit_pivot_screen[1], hold=True)
+        self.update()
+
     def mousePressEvent(self, ev):
         lpos = ev.position() if hasattr(ev, 'position') else ev.localPos()
         if ev.button() == Qt.LeftButton:
@@ -729,6 +808,7 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
                 return
             self._left_press_pos = lpos
             self._left_press_was_drag = False
+            self._begin_orbit_pivot(lpos, ev.modifiers())
         elif ev.button() == Qt.RightButton:
             self._right_press_pos = lpos
             self._right_dragging = False
@@ -770,6 +850,8 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
             if not self._left_press_was_drag:
                 self.left_clicked.emit(lpos.x(), lpos.y())
             self._left_press_pos = None
+        if ev.button() == Qt.LeftButton:
+            self._end_orbit_pivot()
         super().mouseReleaseEvent(ev)
 
     def mouseMoveEvent(self, ev):
@@ -2647,6 +2729,7 @@ class NCViewerWidget(QWidget):
         self._build_projection_overlay()
         self._build_playback_bar()
         self.gl_view.left_clicked.connect(self._on_gl_left_clicked)
+        self.gl_view.orbit_pivot_provider = self.orbit_pivot_at
         self.gl_view.right_clicked.connect(self._on_gl_right_clicked)
         self.gl_view.right_drag_zoomed.connect(self._on_gl_right_drag_zoomed)
         self._pick_mode_shortcut = QShortcut(QKeySequence("Escape"), self)
@@ -2888,6 +2971,28 @@ class NCViewerWidget(QWidget):
         가장 가까운 경로 선분을 찾아 그 도착 지점의 src_line을 반환한다.
         없으면 None."""
         radius_px = self._PICK_RADIUS_PX if radius_px is None else radius_px
+        hit = self._nearest_pick_segment(view_x, view_y)
+        if hit is None or hit[1] > radius_px:
+            return None
+        return int(self._pick_src_lines[hit[0]])
+
+    # v2.3.5: 좌드래그 회전 중심을 잡을 때 경로를 찾는 반경(px). 위치 찍기보다 넉넉하게 둔다.
+    _ORBIT_PIVOT_RADIUS_PX = 24.0
+
+    def orbit_pivot_at(self, view_x, view_y, radius_px=None):
+        """화면 점 근처(radius_px 안)의 그려진 경로 위 월드 지점 — 좌드래그 회전 중심.
+        없으면 None(그때는 gl_view가 현재 중심 깊이의 화면 지점을 쓴다)."""
+        radius_px = self._ORBIT_PIVOT_RADIUS_PX if radius_px is None else radius_px
+        hit = self._nearest_pick_segment(view_x, view_y)
+        if hit is None or hit[1] > radius_px:
+            return None
+        index, _dist, t = hit
+        p0, p1 = self._pick_world_pts[index]
+        return p0 + (p1 - p0) * t
+
+    def _nearest_pick_segment(self, view_x, view_y):
+        """화면 점에서 가장 가까운 그려진 경로 선분 (번호, 화면 거리 px, 선분 위 비율 t).
+        경로가 없으면 None. 직교 투영이라 화면 위 비율 t가 월드 선분 위 비율과 같다."""
         key = self._pick_cache_scope_key()
         if key != self._pick_cache_key:
             self._build_pick_cache()
@@ -2929,9 +3034,7 @@ class NCViewerWidget(QWidget):
         dist = np.where(denom == 0, point_dist, dist)
 
         best = int(np.argmin(dist))
-        if dist[best] <= radius_px:
-            return int(self._pick_src_lines[best])
-        return None
+        return best, float(dist[best]), float(0.0 if denom[best] == 0 else t[best])
 
     def _on_sensitivity_changed(self, percent):
         ratio = max(0.05, min(2.0, percent / 100.0))

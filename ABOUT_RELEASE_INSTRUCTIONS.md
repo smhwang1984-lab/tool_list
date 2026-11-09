@@ -47,7 +47,27 @@ Last updated: 2026-11-05 (NC_Tool_List v2.3.0 — 로컬 v2.2.9(STOCK SIZE)와 G
 
 ## Version history
 
-### 2026-11-09 (latest, v2.3.4)
+### 2026-11-09 (latest, v2.3.5)
+
+- Version: 2.3.4 → 2.3.5 (라이선스 서버 v1.1.0, 발급 프로그램 v1.4.2 그대로)
+- Release/build date: 2026-11-09
+- Summary: 사용자 요청 — 좌클릭 드래그 회전이 원점(카메라 중심) 기준으로 돌던 것을 **클릭한 위치 기준**으로 바꿨다.
+  1. 좌클릭을 누른 자리 근처(24px 안)에 그려진 경로선이 있으면 그 경로 위 지점이 회전 중심, 없으면 누른 화면 위치(현재 중심 깊이)가 중심.
+     회전하는 동안 중심 지점은 화면에서 제자리에 남고, 그 자리에 십자 표시가 뜬다(놓으면 잠시 뒤 사라짐).
+  2. `OrthographicGLViewWidget.orbit()`을 덮어써 회전 전 중심점의 뷰 좌표를 기억했다가 회전 뒤 카메라 중심(`opts['center']`)을 옮겨 맞춘다
+     (euler/quaternion 모두). 뷰 큐브 고리 회전·Ctrl+좌드래그 이동·선반 평면 잠금(좌드래그 = 이동)은 예전 그대로.
+  3. `pick_source_line()`의 화면 투영 계산을 `_nearest_pick_segment()`로 나눠 회전 중심 찾기(`orbit_pivot_at()`)와 같이 쓴다.
+  4. 도움말 "좌클릭 드래그: 누른 위치 기준 회전".
+- Open source software: 변경 없음.
+- Verification: `python -m pytest tests` (빌드 venv) → 834 passed, 2 failed, 2 skipped. 실패 1은 기존과 같은 이 PC 장비 설정 의존
+  `test_switching_to_lathe_changes_table_schema_and_machine`, 실패 2 `test_handoff_returns_false_when_no_instance_is_running`은
+  테스트 중 이 PC에 NC_Tool_List.exe가 실행 중이어서(단일 실행 핸드오프가 실제 창에 붙음) — 코드 변경과 무관.
+  신규 `tests/test_v235_orbit_pivot.py` 11개(ISO/XY에서 경로 위 클릭 지점 고정, 빈 곳 클릭 화면 위치 고정, 십자 표시·해제,
+  클릭만 하면 카메라 그대로, Ctrl 이동·뷰 큐브 회전 중심 유지, 선반 잠금 이동).
+- Installer/package status: 미생성(Windows 빌드 PC에서 `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` → `ISCC.exe NC_Tool_List.iss`).
+- 서명 상태: 미서명(기존과 동일).
+
+### 2026-11-09 (v2.3.4)
 
 - Version: 2.3.3 → 2.3.4 (라이선스 서버 v1.1.0, 발급 프로그램 v1.4.2 그대로)
 - Release/build date: 2026-11-09
