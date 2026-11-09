@@ -2442,64 +2442,75 @@ G02 X0 Y10 I-10 J0
         finally:
             settings_dir.cleanup()
 
-    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
-    def test_magnifier_toggles_on_right_click_and_escape_closes_it(self):
-        from PyQt5.QtTest import QTest
+    @staticmethod
+    def _send_mouse(widget, kind, pos, button, buttons):
+        """QTest.mouseMove는 눌린 버튼 상태를 싣지 못해 드래그를 직접 만든다(v2.3.4)."""
+        from PyQt5.QtCore import QEvent, QPointF
+        from PyQt5.QtGui import QMouseEvent
+        types = {'press': QEvent.MouseButtonPress, 'move': QEvent.MouseMove,
+                 'release': QEvent.MouseButtonRelease}
+        event = QMouseEvent(types[kind], QPointF(pos), button, buttons, app.Qt.NoModifier)
+        app.QApplication.sendEvent(widget, event)
 
-        qapp = app.QApplication.instance() or app.QApplication([])
-        from nc_viewer_widget import NCViewerWidget
-
-        viewer = NCViewerWidget()
-        try:
-            viewer.resize(800, 600)
-            viewer.show()
-            qapp.processEvents()
-            self.assertFalse(viewer._magnifier_active)
-
-            center = viewer.gl_view.rect().center()
-            QTest.mouseClick(viewer.gl_view, app.Qt.RightButton, pos=center)
-            qapp.processEvents()
-            self.assertTrue(viewer._magnifier_active)
-            self.assertTrue(viewer.magnifier.isVisible())
-
-            viewer._magnifier_shortcut.activated.emit()
-            qapp.processEvents()
-            self.assertFalse(viewer._magnifier_active)
-        finally:
-            viewer.deleteLater()
-            qapp.processEvents()
+    def _right_drag(self, widget, start, end):
+        right = app.Qt.RightButton
+        self._send_mouse(widget, 'press', start, right, right)
+        self._send_mouse(widget, 'move', end, app.Qt.NoButton, right)
+        self._send_mouse(widget, 'release', end, right, app.Qt.NoButton)
 
     @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
-    def test_magnifier_centers_on_right_click_position(self):
-        """돋보기는 우클릭한 지점을 중심으로 나타나야 한다(v1.5.7 요청) —
-        이전에는 마지막 마우스 이동 지점(초기값 (0,0))에 뜨는 문제가 있었다."""
+    def test_right_drag_zooms_and_turns_on_pick_mode_escape_ends_it(self):
+        """v2.3.4: 돋보기 대신 우클릭 드래그 줌. 끌지 않은 우클릭은 확대하지 않고, 드래그 줌
+        뒤에는 위치 찍기 모드가 켜지며 Esc·그냥 우클릭·뷰 전환으로 끝난다."""
         from PyQt5.QtCore import QPoint
         from PyQt5.QtTest import QTest
-        from nc_viewer_widget import NCViewerWidget
 
         qapp = app.QApplication.instance() or app.QApplication([])
+        from nc_viewer_widget import NCViewerWidget
+
         viewer = NCViewerWidget()
         try:
             viewer.resize(800, 600)
             viewer.show()
             qapp.processEvents()
+            self.assertFalse(viewer.pick_mode)
+            self.assertFalse(hasattr(viewer, 'magnifier'))
+            distance = viewer.gl_view.opts['distance']
 
-            click_pos = QPoint(150, 110)
-            QTest.mouseClick(viewer.gl_view, app.Qt.RightButton, pos=click_pos)
+            QTest.mouseClick(viewer.gl_view, app.Qt.RightButton, pos=QPoint(200, 200))
             qapp.processEvents()
+            self.assertFalse(viewer.pick_mode)
+            self.assertAlmostEqual(viewer.gl_view.opts['distance'], distance)
 
-            self.assertTrue(viewer._magnifier_active)
-            self.assertAlmostEqual(viewer.magnifier._center.x(), click_pos.x(), delta=1)
-            self.assertAlmostEqual(viewer.magnifier._center.y(), click_pos.y(), delta=1)
+            self._right_drag(viewer.gl_view, QPoint(100, 100), QPoint(300, 250))
+            qapp.processEvents()
+            self.assertTrue(viewer.pick_mode)
+            self.assertLess(viewer.gl_view.opts['distance'], distance)
+            self.assertTrue(viewer.pick_mode_label.isVisible())
+
+            viewer._pick_mode_shortcut.activated.emit()
+            qapp.processEvents()
+            self.assertFalse(viewer.pick_mode)
+            self.assertFalse(viewer.pick_mode_label.isVisible())
+
+            self._right_drag(viewer.gl_view, QPoint(100, 100), QPoint(300, 250))
+            QTest.mouseClick(viewer.gl_view, app.Qt.RightButton, pos=QPoint(200, 200))
+            self.assertFalse(viewer.pick_mode)
+
+            self._right_drag(viewer.gl_view, QPoint(100, 100), QPoint(300, 250))
+            viewer.set_camera_projection('XY')
+            self.assertFalse(viewer.pick_mode)
+            self._right_drag(viewer.gl_view, QPoint(100, 100), QPoint(300, 250))
+            viewer.set_camera_angles(90, 0)                       # 방향 큐브 면 클릭과 같은 경로
+            self.assertFalse(viewer.pick_mode)
         finally:
             viewer.deleteLater()
             qapp.processEvents()
 
     @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
-    def test_left_click_only_activates_line_when_magnifier_active(self):
-        """포인트 클릭(라인 활성화)은 돋보기가 켜져 있을 때만 동작해야 한다
-        (v1.5.7 요청) — 이전에는 돋보기 없이 화면을 찍기만 해도 근처 라인으로
-        커서가 넘어갔다."""
+    def test_left_click_only_activates_line_in_pick_mode(self):
+        """포인트 클릭(라인 활성화)은 위치 찍기 모드(우클릭 드래그 줌 뒤, v2.3.4)에서만
+        동작해야 한다 — 아무 때나 찍히면 회전하려다 근처 라인으로 커서가 넘어간다(v1.5.6)."""
         from PyQt5.QtCore import QPoint
         from PyQt5.QtGui import QVector3D
         from PyQt5.QtTest import QTest
@@ -2525,32 +2536,29 @@ G02 X0 Y10 I-10 J0
             self.assertIsNotNone(target_line)
             prev_pt = viewer.line_to_coord_map.get(target_line - 1)
             self.assertIsNotNone(prev_pt)
-
-            # 목표 지점(100,0,0)은 다음 세그먼트(→ 100,100,0)와 정확히 맞닿는
-            # 꼭짓점이라, 정밀도가 좁아진(4px, v1.5.7) 픽 반경에서는 두 세그먼트가
-            # 동일 거리로 집혀 어느 쪽이 뽑힐지 불안정해진다 — 세그먼트 중간
-            # 지점(직교투영이라 월드 중점 = 화면 중점)을 클릭해 모호함을 없앤다.
+            # 꼭짓점이 아니라 세그먼트 중간을 찍어 두 세그먼트 사이 모호함을 없앤다.
             midpoint = tuple((a + b) / 2.0 for a, b in zip(target_pt, prev_pt))
 
-            viewport = viewer.gl_view.getViewport()
-            mvp = viewer.gl_view.projectionMatrix(viewport, viewport) * viewer.gl_view.viewMatrix()
-            vec = mvp.map(QVector3D(*midpoint))
-            pos = QPoint(
-                int(round((vec.x() + 1.0) / 2.0 * viewport[2])),
-                int(round((1.0 - vec.y()) / 2.0 * viewport[3])),
-            )
+            def screen_pos():
+                viewport = viewer.gl_view.getViewport()
+                mvp = viewer.gl_view.projectionMatrix(viewport, viewport) * viewer.gl_view.viewMatrix()
+                vec = mvp.map(QVector3D(*midpoint))
+                return QPoint(int(round((vec.x() + 1.0) / 2.0 * viewport[2])),
+                              int(round((1.0 - vec.y()) / 2.0 * viewport[3])))
 
-            # 돋보기가 꺼진 상태: 좌클릭해도 라인이 활성화되지 않는다.
+            # 위치 찍기 모드가 꺼진 상태: 좌클릭해도 라인이 활성화되지 않는다.
+            pos = screen_pos()
             QTest.mouseClick(viewer.gl_view, app.Qt.LeftButton, pos=pos)
             qapp.processEvents()
             self.assertEqual(activated, [])
 
-            # 우클릭으로 돋보기를 켠 뒤에는 같은 위치 좌클릭이 라인을 활성화한다.
-            QTest.mouseClick(viewer.gl_view, app.Qt.RightButton, pos=pos)
+            # 목표 주변을 우클릭 드래그로 확대하면 위치 찍기 모드가 켜지고, 확대된 화면에서
+            # 같은 지점을 좌클릭하면 그 라인이 활성화된다.
+            self._right_drag(viewer.gl_view, pos - QPoint(120, 90), pos + QPoint(120, 90))
             qapp.processEvents()
-            self.assertTrue(viewer._magnifier_active)
+            self.assertTrue(viewer.pick_mode)
 
-            QTest.mouseClick(viewer.gl_view, app.Qt.LeftButton, pos=pos)
+            QTest.mouseClick(viewer.gl_view, app.Qt.LeftButton, pos=screen_pos())
             qapp.processEvents()
             self.assertEqual(activated, [target_line])
         finally:
@@ -6167,10 +6175,12 @@ class CursorAnchoredZoomTests(unittest.TestCase):
             self.assertEqual(len(calls), 1)
             dx, dy, relative = calls[0]
             self.assertEqual(relative, 'view')
-            # 보정량은 커서의 중앙 대비 오프셋 x (1 - 1/factor).
+            # 보정량은 커서의 중앙 대비 오프셋 x (1 - 1/factor) 화면 픽셀. v2.3.4: pyqtgraph
+            # pan()은 폭 기준 픽셀이고 직교 투영은 높이 기준이라 폭/높이(800/600)를 곱해 넘긴다.
             shift = 1.0 - 1.0 / factor
-            self.assertAlmostEqual(dx, 200.0 * shift, places=6)
-            self.assertAlmostEqual(dy, 150.0 * shift, places=6)
+            ratio = 800.0 / 600.0
+            self.assertAlmostEqual(dx, 200.0 * shift * ratio, places=6)
+            self.assertAlmostEqual(dy, 150.0 * shift * ratio, places=6)
             # 부호: 확대(거리 감소)면 커서 쪽으로 당기도록 음수여야 한다.
             if factor < 1.0:
                 self.assertLess(dx, 0.0)

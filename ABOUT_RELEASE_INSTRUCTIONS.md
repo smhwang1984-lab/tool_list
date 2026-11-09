@@ -47,7 +47,34 @@ Last updated: 2026-11-05 (NC_Tool_List v2.3.0 — 로컬 v2.2.9(STOCK SIZE)와 G
 
 ## Version history
 
-### 2026-11-09 (latest, v2.3.3)
+### 2026-11-09 (latest, v2.3.4)
+
+- Version: 2.3.3 → 2.3.4 (라이선스 서버 v1.1.0, 발급 프로그램 v1.4.2 그대로)
+- Release/build date: 2026-11-09
+- Summary: 사용자 요청 — 3D 뷰어 마우스 줌. 상세는 `v2.3.4_PLAN.md`(D-1~D-5 모두 [추천] 승인).
+  1. **우클릭 드래그 줌**: 우클릭한 채 끌어 사각형을 그리면 그 영역이 화면에 꽉 차게 확대(밀링·선반). 돋보기(3배 렌즈)는 없앴다.
+     드래그 줌 뒤에는 **위치 찍기 모드**(왼쪽 위 안내) — 좌클릭하면 가까운 경로선의 프로그램 줄로 커서 이동(찍기 반경 4 → 6px).
+     Esc·끌지 않은 우클릭·뷰 전환(ISO/XY/XZ/YZ·방향 큐브)으로 끝난다. 선반 [드래그줌] 버튼은 그대로.
+  2. **줌 중심 표시**: 휠 줌 때 커서 위치에 노란 십자가 0.8초 보인다. **휠 누르기** = 그 자리를 줌 중심으로 고정(누르는 동안 표시),
+     누른 채 **위로 끌면 확대, 아래로 끌면 축소**. 휠 드래그 화면 이동은 없어졌다(이동은 Ctrl+좌드래그).
+  3. **줌 기준점 어긋남 수정(v1.6.7부터)**: pyqtgraph pan은 화면 폭 기준 픽셀, 직교 투영은 높이 기준이라 휠 줌 때 커서 아래 지점이
+     바깥으로 밀렸다(800x600에서 약 17px). `pan_pixels()`로 보정해 0.05px 이내. 드래그 사각형 줌의 중심 맞춤도 같이 정확해졌다.
+  4. 도움말(3D 뷰어 조작·Esc) 갱신.
+- Open source software: 변경 없음.
+- Verification: `python -m pytest tests` (빌드 venv) → 824 passed, 1 failed, 2 skipped. 실패는 기존과 같은 이 PC 장비 설정 의존
+  `test_switching_to_lathe_changes_table_schema_and_machine`. 돋보기 테스트 3개를 우클릭 드래그 줌·위치 찍기 테스트 2개로 바꿨고,
+  휠 줌 보정량을 고정하던 `test_wheel_zoom_pans_toward_the_cursor`를 폭/높이 보정값으로 고쳤다. 신규 `tests/test_v234_mouse_zoom.py`
+  (줌 중심 표시·숨김, 표시가 마우스를 막지 않음, 휠 드래그 줌 방향·중심 고정, 휠 드래그 이동 없음, 좌드래그 회전·Ctrl 이동, 선반 드래그줌 버튼,
+  XY/ISO에서 휠 줌 기준점 고정, 드래그 사각형 중심 맞춤).
+  실제 창: `O3210.NC` ISO에서 우클릭 드래그 사각형 → 확대 + 위치 찍기 안내, 휠 줌 십자 표시 확인.
+  dist exe 기동 12초 뒤 실행 중(파일 버전 2.3.4.0).
+- Installer/package status: **생성 완료**. `installer\NC_Tool_List_Setup_v2.3.4.exe`.
+  `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` → `ISCC.exe NC_Tool_List.iss`.
+  - Setup EXE SHA-256: 08BFD4EA290B221B5AEE432EAE2454825F3BBCF8BAD4AA0031AE9F63F7666063 (78.2 MB)
+  배포: NAS `\\192.168.0.210\docker\SumPath_License_Server\updates`에 넣으면 v2.3.3 PC는 시작 시 업데이트 권장 창이 뜬다.
+- 서명 상태: 미서명(기존과 동일).
+
+### 2026-11-09 (v2.3.3)
 
 - Version: 2.3.2 → 2.3.3 (라이선스 서버 v1.1.0, 발급 프로그램 v1.4.2 그대로)
 - Release/build date: 2026-11-09
