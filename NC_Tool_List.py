@@ -33,9 +33,9 @@ import lathe_insert_spec
 import sumpath_license
 
 
-APP_VERSION = '2.3.2'
+APP_VERSION = '2.3.3'
 APP_NAME = 'Sum Path'
-APP_BUILD_DATE = '2026-11-05'
+APP_BUILD_DATE = '2026-11-09'
 APP_CREATOR = 'Hwang.seonmun'
 APP_PURPOSE = 'NC 프로그램에서 공구 리스트를 산출하고 NC 경로를 Viewer로 확인하는 도구'
 OPEN_SOURCE_COMPONENTS = (
@@ -614,6 +614,9 @@ def _measure_remark_width(text, regular_metrics, bold_metrics):
 M00_STOP_RE = re.compile(r'M0?0(?!\d)', re.I)
 M01_STOP_RE = re.compile(r'M0?1(?!\d)', re.I)
 MAX_PLAYBACK_SPEED = 5000
+# v2.3.3: 파일 변경 알림 뒤 다시 읽기 전에 기다리는 시간(ms). 편집기·CAM은 파일을
+# 여러 번 나눠 쓰므로 마지막 쓰기가 끝날 때까지 기다린다.
+FILE_CHANGE_SETTLE_MS = 500
 # v1.7.3: 프로그램 입력창 Ctrl+휠 확대/축소 폰트 크기 저장 범위(포인트).
 PROGRAM_FONT_MIN_PT = 6
 PROGRAM_FONT_MAX_PT = 48
@@ -1313,6 +1316,32 @@ def set_edit_password(password):
 
 
 # ---------- 프로그램 파일 읽기/저장: 인코딩·줄바꿈 보존 (v2.2.7) ----------
+def compose_program_texts(texts, first_raw=True):
+    """v2.3.3: 여러 파일 내용을 [불러오기]/[추가]와 똑같이 이어 붙인다.
+
+    first_raw=True면 첫 파일은 그대로(load_file), 나머지는 앞뒤 공백을 뗀 뒤 빈 줄 하나를
+    사이에 두고 붙인다(add_program_files). 빈 문서에 [추가]로 시작했으면 first_raw=False."""
+    rest = list(texts)
+    text = rest.pop(0) if (first_raw and rest) else ''
+    append = '\n\n'.join(part.strip() for part in rest if part.strip())
+    if append:
+        text = append if text == '' else text + '\n\n' + append
+    return text
+
+
+def program_text_digest(text):
+    return hashlib.sha1(text.encode('utf-8', 'replace')).hexdigest()
+
+
+def file_stamp(path):
+    """(수정 시각 ns, 크기). 파일이 없으면 None."""
+    try:
+        info = os.stat(path)
+    except OSError:
+        return None
+    return (info.st_mtime_ns, info.st_size)
+
+
 def decode_program_bytes(raw):
     """바이트 -> (텍스트, 인코딩, 줄바꿈, 손실여부). 텍스트의 줄바꿈은 LF로 통일한다."""
     lossy = False
@@ -2179,7 +2208,7 @@ QT_IMPORT_ERROR = None
 VIEWER_IMPORT_ERROR = None
 NCViewerWidget = None
 try:
-    from PyQt5.QtCore import Qt, QSettings, QSize, QTimer, QSignalBlocker, pyqtSignal, QEvent
+    from PyQt5.QtCore import Qt, QSettings, QSize, QTimer, QSignalBlocker, pyqtSignal, QEvent, QFileSystemWatcher
     from PyQt5.QtGui import (
         QAbstractTextDocumentLayout, QColor, QFont, QFontMetrics, QIcon, QKeySequence,
         QPalette, QSyntaxHighlighter, QTextCharFormat, QTextCursor, QTextDocument, QTextFormat,
@@ -2771,6 +2800,22 @@ else:
             self.viewer_update_timer = QTimer(self)
             self.viewer_update_timer.setSingleShot(True)
             self.viewer_update_timer.timeout.connect(self.sync_viewer_from_source)
+            # v2.3.3: 읽어 들인 파일이 바깥(CAM 재출력·다른 편집기)에서 바뀌면 다시
+            # 불러올지 묻는다. _file_sources는 지금 프로그램 내용을 만든 파일들(읽은 순서),
+            # _file_known_digest는 그 파일들로 만든 내용의 해시다.
+            self._file_sources = []
+            self._file_sources_first_raw = True
+            self._file_known_digest = None
+            self._file_ignored_digest = None
+            self._file_stamps = {}
+            self._file_prompt_open = False
+            self._file_missing_notified = False
+            self.file_watcher = QFileSystemWatcher(self)
+            self.file_watcher.fileChanged.connect(self._on_watched_file_changed)
+            self.file_change_timer = QTimer(self)
+            self.file_change_timer.setSingleShot(True)
+            self.file_change_timer.setInterval(FILE_CHANGE_SETTLE_MS)
+            self.file_change_timer.timeout.connect(self.check_file_sources_changed)
             self._gl_info_logged = False
             if _root is None:
                 self.layout_settings = QSettings('NC Tool List', 'MainWindow')
@@ -3339,10 +3384,18 @@ else:
             self.stop_m00_check.toggled.connect(self._save_playback_stop_options)
             self.stop_m01_check.toggled.connect(self._save_playback_stop_options)
             self.stop_text_input.setEnabled(self.stop_text_check.isChecked())
+            # v2.3.3: PG 매칭 재생 중 공구가 지나가는 대로 소재를 깎아 보인다(소재 적용 후).
+            self.sim_live_check = QCheckBox('실시간 형상')
+            self.sim_live_check.setFont(filter_kfont)
+            self.sim_live_check.setStyleSheet(PLAYBACK_CHECKBOX_STYLE)
+            self.sim_live_check.setChecked(
+                self._as_bool_setting(self.layout_settings.value('sim_live_shape', None), False))
+            self.sim_live_check.toggled.connect(self._on_sim_live_toggled)
             stop_bar.addWidget(self.stop_text_check)
             stop_bar.addWidget(self.stop_text_input)
             stop_bar.addWidget(self.stop_m00_check)
             stop_bar.addWidget(self.stop_m01_check)
+            stop_bar.addWidget(self.sim_live_check)
             stop_bar.addStretch()
             filter_layout.addLayout(stop_bar)
 
@@ -3422,6 +3475,11 @@ else:
                 playback_bar.next_tool_clicked.connect(self.playback_next_tool)
                 playback_bar.speed_changed.connect(self.set_playback_speed)
                 playback_bar.set_speed(self.play_speed)
+            if hasattr(self.viewer, 'sim_state_changed'):
+                self.viewer.sim_state_changed.connect(self._refresh_sim_live_ui)
+            if hasattr(self.viewer, 'set_sim_live_enabled'):
+                self.viewer.set_sim_live_enabled(self.sim_live_check.isChecked())
+            self._refresh_sim_live_ui()
             self.stack.addWidget(self.viewer)
             self.set_mode('tool')
 
@@ -4595,6 +4653,46 @@ else:
             self.layout_settings.setValue('stop_at_m00', self.stop_m00_check.isChecked())
             self.layout_settings.setValue('stop_at_m01', self.stop_m01_check.isChecked())
 
+        # ---------- PG 매칭 실시간 형상 (v2.3.3) ----------
+        def _on_sim_live_toggled(self, checked):
+            self.layout_settings.setValue('sim_live_shape', bool(checked))
+            if hasattr(self.viewer, 'set_sim_live_enabled'):
+                self.viewer.set_sim_live_enabled(checked)
+            self._refresh_sim_live_ui()
+
+        def _sim_stock_ready(self):
+            return bool(getattr(self.viewer, 'sim_enabled', False)
+                        and getattr(self.viewer, 'sim_stock', None) is not None)
+
+        def _refresh_sim_live_ui(self):
+            """소재가 적용돼 있을 때만 [실시간 형상]을 켤 수 있다. 재생 배속 상한 표시도 맞춘다."""
+            check = getattr(self, 'sim_live_check', None)
+            if check is None:
+                return
+            ready = self._sim_stock_ready()
+            check.setEnabled(ready)
+            if ready:
+                cap = (self.viewer.SIM_LIVE_SPEED_CAP_HEAVY if self.viewer.sim_live_heavy()
+                       else self.viewer.SIM_LIVE_SPEED_CAP)
+                check.setToolTip(
+                    'PG 매칭 재생·방향키로 공구가 지나가는 대로 소재를 깎아 보입니다.\n'
+                    '켜져 있으면 재생은 최대 %dx로 돌고, 형상 계산이 늦으면 기다립니다.' % cap)
+            else:
+                check.setToolTip('[소재]에서 소재를 적용하면 켤 수 있습니다.\n'
+                                 'PG 매칭 재생·방향키로 공구가 지나가는 대로 소재를 깎아 보입니다.')
+            bar = getattr(self.viewer, 'playback_bar', None)
+            if bar is not None and hasattr(bar, 'set_speed_cap'):
+                bar.set_speed_cap(self.effective_speed_cap())
+
+        def effective_speed_cap(self):
+            cap_of = getattr(self.viewer, 'sim_live_speed_cap', None)
+            return cap_of() if cap_of is not None else None
+
+        def effective_playback_speed(self):
+            """실제로 재생할 배속(줄/초) — [실시간 형상]이면 상한으로 묶는다(D-4)."""
+            cap = self.effective_speed_cap()
+            return self.play_speed if cap is None else min(self.play_speed, cap)
+
         def start_playback(self):
             """PG 매칭 자동 재생을 시작한다. PG 매칭이 꺼져 있거나 뷰어 모드가 아니면 무시한다."""
             if self.current_mode != 'viewer' or not getattr(self.viewer, 'pg_match_mode', False):
@@ -4657,7 +4755,12 @@ else:
                 self._dwell_remaining = 0.0
                 self._play_carry = 0.0
                 return
-            self._play_carry += self.play_speed * interval_sec
+            busy = getattr(self.viewer, 'sim_live_busy', None)
+            if busy is not None and busy():
+                # v2.3.3: 실시간 형상 계산이 아직 돌고 있다 — 형상이 공구보다 뒤처지지
+                # 않도록 이 틱은 진행하지 않고 기다린다.
+                return
+            self._play_carry += self.effective_playback_speed() * interval_sec
             steps = int(self._play_carry)
             if steps <= 0:
                 return
@@ -5430,6 +5533,10 @@ else:
                 # 사라지는 경우를 대비한 이중 안전장치다.
                 if not (self.windowState() & Qt.WindowMinimized):
                     self._restore_maximized = bool(self.windowState() & Qt.WindowMaximized)
+            elif event.type() == QEvent.ActivationChange and self.isActiveWindow():
+                # v2.3.3: NAS·네트워크 폴더는 변경 알림이 빠질 수 있어, 창이 다시
+                # 활성화될 때 수정 시각·크기도 확인한다(D-2).
+                self._check_file_stamps()
 
         # ---------- 편집 모드 (v2.2.7) ----------
         def toggle_edit_mode(self, checked):
@@ -5577,6 +5684,8 @@ else:
             self._edit_merged = False
             self._saved_text = text
             self.src.document().setModified(False)
+            # v2.3.3: 앱이 직접 저장한 변경은 묻지 않는다 — 저장한 파일 하나를 새 기준으로 삼는다.
+            self._set_file_sources([path], first_raw=True)
             self._flash_count_message('저장했습니다: %s' % Path(path).name)
             return True
 
@@ -5652,6 +5761,7 @@ else:
             self._highlight_current_line()
             self.invalidate_parse_cache()
             self.run()
+            self._set_file_sources([path], first_raw=True)
 
         def add_program_files(self, paths):
             if not self._confirm_discard_edits():
@@ -5672,8 +5782,9 @@ else:
             append_text = '\n\n'.join(text.strip() for text in additions if text.strip())
             if not append_text:
                 return
+            started_empty = self.src.document().isEmpty()
             with QSignalBlocker(self.src):
-                if self.src.document().isEmpty():
+                if started_empty:
                     self.src.setPlainText(append_text)
                 else:
                     cursor = self.src.textCursor()
@@ -5682,6 +5793,14 @@ else:
             self._highlight_current_line()
             self.invalidate_parse_cache()
             self.run()
+            # v2.3.3: 합친 내용도 그 파일들로 다시 만들 수 있을 때만 지켜본다(예제·직접
+            # 붙여 넣은 글 위에 추가했으면 다시 읽어 만들 수 없으니 지켜보지 않는다).
+            if started_empty:
+                self._set_file_sources(list(paths), first_raw=False)
+            elif self._file_sources:
+                self._set_file_sources(self._file_sources + list(paths), self._file_sources_first_raw)
+            else:
+                self._set_file_sources([])
 
         def drop_file(self, paths):
             if not paths:
@@ -5693,11 +5812,143 @@ else:
             if len(paths) > 1:
                 self.add_program_files(paths[1:])
 
+        # ---------- 파일 변경 감지 (v2.3.3) ----------
+        def _set_file_sources(self, paths, first_raw=True):
+            """지금 프로그램 내용을 만든 파일 목록을 바꾸고 그 파일들을 지켜본다."""
+            watched = self.file_watcher.files()
+            if watched:
+                self.file_watcher.removePaths(watched)
+            self.file_change_timer.stop()
+            self._file_sources = [str(p) for p in paths]
+            self._file_sources_first_raw = bool(first_raw)
+            self._file_ignored_digest = None
+            self._file_missing_notified = False
+            self._file_known_digest = self._file_sources_digest() if self._file_sources else None
+            self._file_stamps = {p: file_stamp(p) for p in self._file_sources}
+            existing = [p for p in self._file_sources if os.path.exists(p)]
+            if existing:
+                self.file_watcher.addPaths(existing)
+
+        def _read_file_sources(self):
+            """지켜보는 파일들을 다시 읽어 이어 붙인 내용. 읽지 못하면 None."""
+            try:
+                texts = [decode_program_bytes(Path(p).read_bytes())[0] for p in self._file_sources]
+            except OSError:
+                return None
+            return compose_program_texts(texts, self._file_sources_first_raw)
+
+        def _file_sources_digest(self):
+            text = self._read_file_sources()
+            return None if text is None else program_text_digest(text)
+
+        def _on_watched_file_changed(self, path):
+            # 지우고 새로 쓰는 저장 방식이면 감시가 풀린다 — 다시 생겼으면 다시 건다.
+            if path not in self.file_watcher.files() and os.path.exists(path):
+                self.file_watcher.addPath(path)
+            self.file_change_timer.start()
+
+        def _check_file_stamps(self):
+            if not self._file_sources or self._file_prompt_open:
+                return
+            if any(file_stamp(p) != self._file_stamps.get(p) for p in self._file_sources):
+                self.file_change_timer.start()
+
+        def check_file_sources_changed(self):
+            """파일이 바뀌었으면(내용이 실제로 다를 때만) 다시 불러올지 묻는다."""
+            if not self._file_sources or self._file_prompt_open:
+                return
+            watched = self.file_watcher.files()
+            for path in self._file_sources:
+                if path not in watched and os.path.exists(path):
+                    self.file_watcher.addPath(path)
+            self._file_stamps = {p: file_stamp(p) for p in self._file_sources}
+            missing = [p for p in self._file_sources if not os.path.exists(p)]
+            if missing:
+                if not self._file_missing_notified:
+                    self._file_missing_notified = True
+                    self.set_search_status(
+                        '불러온 파일이 지워졌거나 이름이 바뀌었습니다: %s' % Path(missing[0]).name, True)
+                return
+            self._file_missing_notified = False
+            digest = self._file_sources_digest()
+            if digest is None or digest in (self._file_known_digest, self._file_ignored_digest):
+                return
+            self._file_prompt_open = True
+            try:
+                self.pause_playback()
+                names = [Path(p).name for p in self._file_sources]
+                modified = bool(self.edit_mode and self.src.document().isModified())
+                reload_it = self._ask_reload_changed_files(names, modified)
+            finally:
+                self._file_prompt_open = False
+            if reload_it:
+                self.reload_file_sources()
+            else:
+                self._file_ignored_digest = digest
+            # 묻는 동안 또 바뀌었을 수 있다 — 한 번 더 확인한다(같은 내용이면 조용히 끝난다).
+            self.file_change_timer.start()
+
+        def _ask_reload_changed_files(self, names, modified):
+            """[새로고침]이면 True. 테스트는 이 메서드를 바꿔 끼운다."""
+            if len(names) == 1:
+                text = '"%s" 파일이 바뀌었습니다.\n다시 불러올까요?' % names[0]
+            else:
+                text = '불러온 파일 중 바뀐 것이 있습니다(%s).\n다시 불러올까요?' % ', '.join(names)
+            if modified:
+                text += '\n\n편집 중 저장하지 않은 수정 내용은 사라집니다.'
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Question)
+            box.setWindowTitle('파일 변경')
+            box.setText(text)
+            reload_button = box.addButton('새로고침', QMessageBox.AcceptRole)
+            box.addButton('무시', QMessageBox.RejectRole)
+            box.setDefaultButton(reload_button)
+            box.exec_()
+            return box.clickedButton() is reload_button
+
+        def reload_file_sources(self):
+            """지켜보던 파일들을 다시 읽어 프로그램을 바꾼다. 커서 줄·화면 위치·공정 필터
+            선택·소재 설정은 그대로 둔다. 다시 읽었으면 True."""
+            paths = list(self._file_sources)
+            first_raw = self._file_sources_first_raw
+            if not paths:
+                return False
+            try:
+                texts = [self.read_program_file(p) for p in paths]
+            except Exception as error:
+                QMessageBox.critical(self, '새로고침 실패', str(error))
+                return False
+            text = compose_program_texts(texts, first_raw)
+            cursor_line = self.src.textCursor().blockNumber()
+            scroll = self.src.verticalScrollBar().value()
+            selected = None
+            if self.current_mode == 'viewer' and hasattr(self.viewer, 'selected_tools'):
+                selected = set(self.viewer.selected_tools())
+            with QSignalBlocker(self.src):
+                self.src.setPlainText(text)
+                block = self.src.document().findBlockByNumber(
+                    min(cursor_line, self.src.document().blockCount() - 1))
+                if block.isValid():
+                    self.src.setTextCursor(QTextCursor(block))
+            self.src.document().setModified(False)
+            self._saved_text = text
+            self.edit_refresh_timer.stop()
+            self._highlight_current_line()
+            self.invalidate_parse_cache()
+            self.run()
+            if selected is not None and hasattr(self.viewer, 'set_selected_tools'):
+                self.viewer.set_selected_tools(selected)
+            self.src.verticalScrollBar().setValue(scroll)
+            self._set_file_sources(paths, first_raw)
+            self._flash_count_message('다시 불러왔습니다: %s' % ', '.join(Path(p).name for p in paths))
+            return True
+
         def load_example(self):
             if not self._confirm_discard_edits():
                 return
             self._edit_merged = False
             self.current_file_path = None
+            self._set_file_sources([])
             with QSignalBlocker(self.src):
                 self.src.setPlainText(EXAMPLE)
             self.invalidate_parse_cache()
@@ -5707,6 +5958,7 @@ else:
             if not self._confirm_discard_edits():
                 return
             self._edit_merged = False
+            self._set_file_sources([])
             self.src.clear()
             self.src.document().setModified(False)
             self._saved_text = ''

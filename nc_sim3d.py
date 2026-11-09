@@ -444,17 +444,19 @@ class VoxelStock:
         return verts, faces, colors, edge_verts
 
     def display_mesh(self, max_n=None, color_map=None, mode='tool',
-                     default_color=DEFAULT_STOCK_COLOR, edges=True):
+                     default_color=DEFAULT_STOCK_COLOR, edges=True, quads_max=None):
         """화면용 메쉬: (verts, faces, colors, edge_verts). 표면 사각형이 상한을 넘으면
         복셀을 2배씩 합쳐 거칠게 뽑는다. edge_verts는 꺾인 모서리 + 소재 외곽 선."""
         if self.occ.all():
             return self._box_mesh(color_map, mode, default_color, edges)
-        key = (self._version, SIM3D_DISPLAY_QUADS_MAX)
+        # v2.3.3: quads_max — PG 매칭 실시간 형상 재생 중에는 더 낮은 상한으로 거칠게 뽑는다.
+        limit = SIM3D_DISPLAY_QUADS_MAX if quads_max is None else min(int(quads_max), SIM3D_DISPLAY_QUADS_MAX)
+        key = (self._version, limit)
         cache = self._mesh_cache
         if cache is None or cache['key'] != key:
             factor = 1
             quads = self._estimate_quads()
-            while quads / (factor * factor) > SIM3D_DISPLAY_QUADS_MAX and factor < 16:
+            while quads / (factor * factor) > limit and factor < 16:
                 factor *= 2
             verts, faces, cell_col, quad_idx = self._surface(factor)
             cache = {'key': key, 'verts': verts, 'faces': faces, 'cell_col': cell_col,
