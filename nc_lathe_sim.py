@@ -1143,7 +1143,7 @@ class TurnMillStock:
 
     # -- 표시 메쉬 ------------------------------------------------------------
     def display_mesh(self, max_n=600, color_map=None, mode='tool', default_color=DEFAULT_STOCK_COLOR,
-                     edges=True, section='3q'):
+                     edges=True, section='3q', quads_max=None):
         """복셀 메쉬(표면 넷). 단면 보기는 앞쪽 사분면(3/4)·앞쪽 반(반 단면)의 복셀을 비운 사본으로 그린다.
         깎인 깊이 색은 반경(바깥에서 얼마나 들어갔나) 기준."""
         self.sync()
@@ -1165,7 +1165,7 @@ class TurnMillStock:
         view = cache[1]
         verts, faces, colors, edge_verts = view.display_mesh(
             color_map=color_map, mode='solid' if mode == 'depth' else mode,
-            default_color=default_color, edges=edges)
+            default_color=default_color, edges=edges, quads_max=quads_max)
         if mode == 'depth' and len(verts):
             radius = np.hypot(verts[:, 1], verts[:, 2])
             colors = depth_colors(radius, self.lathe.r_max, 0.0, float(default_color[3])).astype(np.float32)

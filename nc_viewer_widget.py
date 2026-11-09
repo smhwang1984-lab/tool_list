@@ -5,6 +5,7 @@ import json
 from math import cos, radians, sin, tan
 import re
 import threading
+import time
 
 import numpy as np
 import pyqtgraph.opengl as gl
@@ -1465,10 +1466,12 @@ class PlaybackBarWidget(QWidget):
         # v1.6.0: 속도 값 폰트를 기존의 1.7배(15px -> 26px)로 키운다. 이 바의
         # 다른 QLabel(예: "속도")까지 함께 커지지 않도록 인스턴스 스타일시트로
         # 개별 지정한다(인스턴스 지정값이 클래스 규칙보다 우선한다).
-        self.speed_value_label.setStyleSheet(
+        self._speed_label_style = (
             "background: transparent; color: white; font-size: %dpx; font-weight: bold;"
             % shrink(26)
         )
+        self._speed_cap = None
+        self.speed_value_label.setStyleSheet(self._speed_label_style)
         self.speed_value_label.setFixedWidth(shrink(122))
         speed_row.addWidget(self.speed_value_label)
         outer.addLayout(speed_row)
@@ -1505,8 +1508,28 @@ class PlaybackBarWidget(QWidget):
         self.rewind_button.clicked.connect(self.rewind_clicked)
         self.play_pause_button.clicked.connect(self._on_play_pause_clicked)
 
+    def _refresh_speed_label(self):
+        """v2.3.3: [실시간 형상] 상한이 걸려 있으면 실제로 도는 배속(상한)을 주황색으로
+        보이고, 툴팁에 고른 배속과 상한을 함께 적는다."""
+        value = self.speed_slider.value()
+        cap = getattr(self, '_speed_cap', None)
+        if cap is not None and value > cap:
+            self.speed_value_label.setText("%dx" % cap)
+            self.speed_value_label.setStyleSheet(self._speed_label_style + " color: #ffb74d;")
+            self.speed_value_label.setToolTip(
+                "실시간 형상: 최대 %dx로 재생합니다 (고른 배속 %dx)" % (cap, value))
+        else:
+            self.speed_value_label.setText("%dx" % value)
+            self.speed_value_label.setStyleSheet(self._speed_label_style)
+            self.speed_value_label.setToolTip(
+                "" if cap is None else "실시간 형상: 최대 %dx" % cap)
+
+    def set_speed_cap(self, cap):
+        self._speed_cap = None if cap is None else int(cap)
+        self._refresh_speed_label()
+
     def _on_speed_changed(self, value):
-        self.speed_value_label.setText("%dx" % value)
+        self._refresh_speed_label()
         self.speed_changed.emit(value)
 
     def _on_play_pause_clicked(self):
@@ -1523,7 +1546,7 @@ class PlaybackBarWidget(QWidget):
     def set_speed(self, value):
         with QSignalBlocker(self.speed_slider):
             self.speed_slider.setValue(value)
-        self.speed_value_label.setText("%dx" % self.speed_slider.value())
+        self._refresh_speed_label()
 
 
 # ------------------------------------------------------------------------ v1.9.2
@@ -2291,6 +2314,8 @@ class NCViewerWidget(QWidget):
     # same contract as process_activated, just picked from the drawn path
     # itself instead of the process filter list.
     line_activated = pyqtSignal(int)
+    # v2.3.3: 소재 적용/해제·PG 매칭 전환처럼 [실시간 형상]을 쓸 수 있는지가 바뀔 때.
+    sim_state_changed = pyqtSignal()
 
     # 3D 캔버스와 돋보기 렌즈(캔버스를 그대로 캡처)는 앱 라이트/다크 테마와
     # 무관하게 항상 이 어두운 배경을 쓴다 — 경로 선 색이 밝은색 위주라
@@ -3163,6 +3188,19 @@ class NCViewerWidget(QWidget):
     # (LATHE_MODE_GUIDELINES.md — 밀링 툴패스와 완전 분리).
     # 이 개수 이하의 선분은 UI 스레드에서 바로 계산한다(스레드 준비 비용이 더 큼).
     _SIM_SYNC_SEGMENTS = 300
+    # v2.3.3: PG 매칭 [실시간 형상] — 화면 메쉬는 이 간격(ms)보다 자주 다시 그리지 않고(D-3),
+    # 재생 배속은 상한(줄/초)으로 묶는다(D-4). 5축·경사면(복셀)과 선반은 더 무겁다.
+    SIM_LIVE_MESH_INTERVAL_MS = 200
+    SIM_LIVE_MESH_INTERVAL_MS_SAFE = 500
+    SIM_LIVE_SPEED_CAP = 200
+    SIM_LIVE_SPEED_CAP_HEAVY = 50
+    # 복셀 소재(5축·경사면·턴밀)는 메쉬 만들기가 수백 ms~1.5초라, 재생 중에는 표면 사각형을
+    # 이 상한으로 거칠게 그리고 움직임이 멈추면(SIM_LIVE_SETTLE_MS 뒤) 원래 품질로 다시 그린다.
+    # 다음 갱신까지는 지난 갱신 시간의 SIM_LIVE_MESH_COST_FACTOR배 이상 쉰다(화면이 멈춰 있는
+    # 시간을 1/3 이하로).
+    SIM_LIVE_VOXEL_QUADS_MAX = 100_000
+    SIM_LIVE_SETTLE_MS = 600
+    SIM_LIVE_MESH_COST_FACTOR = 2.0
     _SIM_SYNC_SEGMENTS_3D = 8
     # 색상 모드 이름 -> nc_sim.display_mesh(mode=...)
     SIM_COLOR_MODES = (('tool', '공정 색'), ('depth', '깎인 깊이'), ('solid', '단색'))
@@ -3211,6 +3249,83 @@ class NCViewerWidget(QWidget):
         self._sim_bridge.job_done.connect(self._sim_on_job_done)
         self._sim_bridge.progress.connect(self._sim_on_progress)
         self.sim_progress_label = None
+        # v2.3.3: PG 매칭 [실시간 형상]
+        self.sim_live_enabled = False
+        self.current_seq = 0
+        self._sim_mesh_last_time = 0.0
+        self._sim_mesh_last_cost = 0.0
+        self._sim_mesh_coarse_shown = False
+        self._sim_live_settle_timer = QTimer(self)
+        self._sim_live_settle_timer.setSingleShot(True)
+        self._sim_live_settle_timer.setInterval(self.SIM_LIVE_SETTLE_MS)
+        self._sim_live_settle_timer.timeout.connect(self._sim_live_settle)
+
+    # -- PG 매칭 실시간 형상(v2.3.3) -------------------------------------------
+    def sim_live_active(self):
+        """[실시간 형상]이 켜져 있고 PG 매칭 중이며 소재가 적용돼 있으면 True —
+        이때 소재는 공정 필터 선택이 아니라 커서(재생) 위치까지 깎는다."""
+        return bool(self.sim_live_enabled and getattr(self, 'pg_match_mode', False)
+                    and self.sim_enabled and self.sim_stock is not None)
+
+    def set_sim_live_enabled(self, enabled):
+        self.sim_live_enabled = bool(enabled)
+        self._sim_recompute_for_selection()
+        self._sim_request_mesh_refresh(force=True)
+        self.sim_state_changed.emit()
+
+    def sim_live_busy(self):
+        """실시간 형상 계산이 백그라운드에서 아직 돌고 있으면 True — 재생은 기다린다."""
+        return self.sim_live_active() and self._sim_job is not None
+
+    def sim_live_heavy(self):
+        stock = self.sim_stock
+        return bool(self.is_lathe_mode() or self.sim_engine == '3d'
+                    or getattr(stock, 'is_voxel', False) or getattr(stock, 'heavy', False))
+
+    def sim_live_speed_cap(self):
+        """실시간 형상일 때 재생 배속 상한(줄/초). 아니면 None."""
+        if not self.sim_live_active():
+            return None
+        return self.SIM_LIVE_SPEED_CAP_HEAVY if self.sim_live_heavy() else self.SIM_LIVE_SPEED_CAP
+
+    def _sim_live_mesh_interval(self):
+        base = (self.SIM_LIVE_MESH_INTERVAL_MS_SAFE if getattr(self, 'safe_mode', False)
+                else self.SIM_LIVE_MESH_INTERVAL_MS)
+        return max(base, self.SIM_LIVE_MESH_COST_FACTOR * 1000.0 * self._sim_mesh_last_cost)
+
+    def _sim_stock_is_voxel(self):
+        stock = self.sim_stock
+        return bool(getattr(stock, 'is_voxel', False) or getattr(stock, 'is_turnmill', False))
+
+    def _sim_live_settle(self):
+        """실시간 형상: 움직임이 멈췄다 — 거칠게 그려 둔 복셀 메쉬를 원래 품질로 다시 그린다."""
+        if not self._sim_mesh_coarse_shown:
+            return
+        if self._sim_job is not None:
+            self._sim_live_settle_timer.start()          # 아직 계산 중 — 끝난 뒤 다시 본다
+            return
+        self._sim_do_mesh_refresh()
+
+    def _sim_desired_seq(self):
+        """지금 소재를 어디까지 깎아 보여 줄지: 실시간 형상이면 커서 위치, 아니면
+        공정 필터에서 고른 공정들 중 가장 뒤 공정의 끝(선택이 없으면 None)."""
+        if self.sim_live_active():
+            return self.current_seq
+        return self._sim_target_seq_for_selection()
+
+    def set_selected_tools(self, keys):
+        """v2.3.3: 공정 필터 선택을 keys로 맞춘다(파일 새로고침 뒤 선택 복원). 목록에 남은
+        공정이 하나도 없으면 지금 선택(전체)을 그대로 둔다."""
+        if self.tool_filter_list is None:
+            return
+        keys = set(keys)
+        items = [self.tool_filter_list.item(row) for row in range(self.tool_filter_list.count())]
+        if not any(item.data(Qt.UserRole) in keys for item in items):
+            return
+        with QSignalBlocker(self.tool_filter_list):
+            for item in items:
+                item.setSelected(item.data(Qt.UserRole) in keys)
+        self.update_visible_paths()
 
     def is_sim_available(self):
         """형상 시뮬레이션은 밀링(nc_sim/nc_sim3d)과 선반(nc_lathe_sim) 모두 지원한다(v2.2.0)."""
@@ -3379,11 +3494,12 @@ class NCViewerWidget(QWidget):
         if self.sim_edge_item is not None:
             self.gl_view.removeItem(self.sim_edge_item)
             self.sim_edge_item = None
-        seq = self._sim_target_seq_for_selection()
+        seq = self._sim_desired_seq()
         if seq is None:
             seq = self.line_to_seq.get(self.current_cursor_line, self.current_cursor_line)
         self._sim_advance_to_seq(seq)
         self._sim_request_mesh_refresh(force=True)
+        self.sim_state_changed.emit()
 
     def toolpath_bounds(self, margin=2.0):
         """절삭 이송(G01/G02/G03) 노드의 XYZ 범위 + 여유(mm). 점이 없으면
@@ -3433,7 +3549,7 @@ class NCViewerWidget(QWidget):
         결정 G)."""
         if not self.sim_enabled or self.sim_stock is None:
             return
-        seq = self._sim_target_seq_for_selection()
+        seq = self._sim_desired_seq()
         if seq is not None:
             self._sim_advance_to_seq(seq)
 
@@ -3481,6 +3597,11 @@ class NCViewerWidget(QWidget):
         else:
             start_idx = int(np.searchsorted(self._sim_seq_keys, start_seq, side='right'))
             end_idx = int(np.searchsorted(self._sim_seq_keys, seq, side='right'))
+        if start_idx == end_idx and start_seq == self.sim_last_seq and self.sim_live_active():
+            # v2.3.3: 실시간 형상 재생 — 새로 깎을 선분이 없는 줄(G0·M코드 등)은 계산도
+            # 메쉬 갱신도 없이 위치만 옮긴다.
+            self.sim_last_seq = seq
+            return
         job = _SimJob(self._sim_generation, base, seg, self._sim_tools, start_idx, end_idx,
                       self._sim_snap_positions, set(self._sim_snapshots), seq, self._sim_bridge)
         heavy = getattr(base, 'is_voxel', False) or getattr(base, 'heavy', False)
@@ -3493,7 +3614,8 @@ class NCViewerWidget(QWidget):
             self._sim_pump()                 # 실행 중 목표가 바뀌었을 수 있다
             return
         self._sim_job = job
-        self._sim_set_progress('형상 계산 중… 0%')
+        if not self.sim_live_active():
+            self._sim_set_progress('형상 계산 중… 0%')
         job.start()
 
     def _sim_adopt(self, job):
@@ -3545,6 +3667,8 @@ class NCViewerWidget(QWidget):
     def _sim_on_progress(self, generation, done, total):
         if generation != self._sim_generation or self._sim_job is None:
             return
+        if self.sim_live_active():
+            return                           # 재생 중에는 진행률 표시가 깜빡이기만 한다
         percent = int(100 * done / max(total, 1))
         self._sim_set_progress('형상 계산 중… %d%%' % percent)
 
@@ -3600,6 +3724,7 @@ class NCViewerWidget(QWidget):
             if item is not None:
                 self.gl_view.removeItem(item)
                 setattr(self, name, None)
+        self.sim_state_changed.emit()
 
     def _rebuild_lathe_sim_nodes(self):
         """선반: 축대칭(선삭) 절삭 선분 배열과 공구 형상 캐시를 만든다. M35(턴밀) 이동은
@@ -3803,11 +3928,12 @@ class NCViewerWidget(QWidget):
             if item is not None:
                 self.gl_view.removeItem(item)
                 setattr(self, name, None)
-        seq = self._sim_target_seq_for_selection()
+        seq = self._sim_desired_seq()
         if seq is None:
             seq = self.line_to_seq.get(self.current_cursor_line, self.current_cursor_line)
         self._sim_advance_to_seq(seq)
         self._sim_request_mesh_refresh(force=True)
+        self.sim_state_changed.emit()
 
     def lathe_toolpath_bounds(self, margin=2.0):
         """선삭 절삭 이송의 소재 범위 — {'diameter','length','front_z'}(mm). 없으면 None.
@@ -3950,10 +4076,20 @@ class NCViewerWidget(QWidget):
         if force:
             self._sim_do_mesh_refresh()
             return
+        live = self.sim_live_active()
+        if live:
+            self._sim_live_settle_timer.start()
         if self._sim_mesh_refresh_pending:
             return
         self._sim_mesh_refresh_pending = True
-        QTimer.singleShot(0, self._sim_do_mesh_refresh)
+        delay = 0
+        if live:
+            # v2.3.3: 실시간 형상 — 메쉬 다시 만들기가 가장 무겁다. 마지막 갱신 뒤
+            # 간격이 차지 않았으면 그만큼 미룬다(그 사이 깎은 것은 다음 갱신에 한꺼번에).
+            elapsed_ms = (time.monotonic() - self._sim_mesh_last_time) * 1000.0
+            delay = max(0, int(self._sim_live_mesh_interval() - elapsed_ms))
+        QTimer.singleShot(delay, lambda: self._sim_do_mesh_refresh(live=True) if live
+                          else self._sim_do_mesh_refresh())
 
     def _sim_color_map(self):
         """color_idx(공정 순번) -> RGBA(0~1). 공정 목록 칩·툴패스 선과 같은
@@ -3977,20 +4113,27 @@ class NCViewerWidget(QWidget):
         GL.GL_POLYGON_OFFSET_FILL: False,
     }
 
-    def _sim_do_mesh_refresh(self):
+    def _sim_do_mesh_refresh(self, live=False):
+        """live=True: 실시간 형상 재생 중 갱신 — 복셀 소재는 거칠게 그린다(v2.3.3)."""
         self._sim_mesh_refresh_pending = False
         if self.sim_stock is None or not self.sim_enabled:
             return
+        started = time.monotonic()
+        extra = {}
+        coarse = bool(live and self.sim_live_active() and self._sim_stock_is_voxel())
+        if coarse:
+            extra['quads_max'] = self.SIM_LIVE_VOXEL_QUADS_MAX
         if getattr(self.sim_stock, 'is_lathe', False):
             verts, faces, colors, edge_verts = self.sim_stock.display_mesh(
                 self._sim_display_grid_max(), color_map=self._sim_color_map(),
-                mode=self.sim_color_mode, section=self.sim_section_mode,
+                mode=self.sim_color_mode, section=self.sim_section_mode, **extra
             )
         else:
             verts, faces, colors, edge_verts = self.sim_stock.display_mesh(
                 self._sim_display_grid_max(), color_map=self._sim_color_map(),
-                mode=self.sim_color_mode,
+                mode=self.sim_color_mode, **extra
             )
+        self._sim_mesh_coarse_shown = coarse
         meshdata = gl.MeshData(vertexes=verts, faces=faces, vertexColors=colors)
         if self.sim_mesh_item is None:
             # 셰이더·조명·법선 없이 정점 색만으로 채운다(구형 GL 드라이버 호환)
@@ -4012,6 +4155,10 @@ class NCViewerWidget(QWidget):
         else:
             self.sim_edge_item.setData(pos=edge_verts)
         self.sim_edge_item.setVisible(self.sim_enabled)
+        now = time.monotonic()
+        self._sim_mesh_last_time = now
+        if live:
+            self._sim_mesh_last_cost = now - started
 
     def set_sim_enabled(self, enabled):
         self.sim_enabled = bool(enabled) and self.is_sim_available() and self.sim_stock is not None
@@ -4023,6 +4170,7 @@ class NCViewerWidget(QWidget):
             # 꺼져 있는 동안 공정 선택이 바뀌었을 수 있으니 결과를 다시 맞춘다
             self._sim_recompute_for_selection()
             self._sim_request_mesh_refresh(force=True)
+        self.sim_state_changed.emit()
 
     def set_sim_color_mode(self, mode):
         """소재 색상 모드('tool' 공정 색 / 'depth' 깎인 깊이 / 'solid' 단색).
@@ -5933,11 +6081,25 @@ class NCViewerWidget(QWidget):
             self.playback_bar.setEnabled(self.pg_match_mode)
         # update_visible_paths()가 끝에서 set_cursor_line()을 부르므로 트레이스도 함께 갱신된다.
         self.update_visible_paths()
+        self.sim_state_changed.emit()
+
+    def toolpath_lines_visible(self, selected=None):
+        """v2.3.3(D-1): 경로선을 그릴지. '가공 경로 선 표시'가 켜져 있으면 늘 그린다.
+        꺼져 있어도 공정 필터에서 일부 공정만 골랐으면 그 공정 선은 그린다(전체를 고르면
+        옵션대로 소재만 보인다)."""
+        if self._toolpath_visible:
+            return True
+        if selected is None:
+            selected = self.selected_tools()
+        all_tools = set(self.plot_items)
+        chosen = set(selected) & all_tools
+        return 0 < len(chosen) < len(all_tools)
 
     def update_visible_paths(self):
         selected_items = self.selected_tools()
+        lines_visible = self.toolpath_lines_visible(selected_items)
         for tool, plot_item_list in self.plot_items.items():
-            visible = (not self.pg_match_mode) and (tool in selected_items) and self._toolpath_visible
+            visible = (not self.pg_match_mode) and (tool in selected_items) and lines_visible
             for item in plot_item_list:
                 item.setVisible(visible)
         self.set_cursor_line(self.current_cursor_line)
@@ -5945,9 +6107,11 @@ class NCViewerWidget(QWidget):
         # (재생 프레임마다 계산하던 것보다 훨씬 가볍다).
         self._sim_recompute_for_selection()
 
-    def update_trace_item(self, index, pts_list, motion_type, base_color):
+    def update_trace_item(self, index, pts_list, motion_type, base_color, visible=None):
         if len(pts_list) < 2:
             return False
+        if visible is None:
+            visible = self.toolpath_lines_visible()
         pts = np.array(pts_list, dtype=np.float32)
         if motion_type == "G00":
             color = RAPID_MOVE_COLOR + [RAPID_MOVE_ALPHA]
@@ -5959,10 +6123,10 @@ class NCViewerWidget(QWidget):
         if index < len(self.dynamic_trace_items):
             item = self.dynamic_trace_items[index]
             item.setData(pos=pts, color=color, width=width)
-            item.setVisible(self._toolpath_visible)
+            item.setVisible(visible)
         else:
             item = gl.GLLinePlotItem(pos=pts, color=color, width=width, antialias=True, mode="lines")
-            item.setVisible(self._toolpath_visible)
+            item.setVisible(visible)
             self.gl_view.addItem(item)
             self.dynamic_trace_items.append(item)
         item.sp_base_width = base_width
@@ -6079,6 +6243,13 @@ class NCViewerWidget(QWidget):
             self.current_cursor_line = self.seq_to_line[seq]
         else:
             self.current_cursor_line = seq
+        self.current_seq = seq
+        if self.sim_live_active():
+            # v2.3.3: [실시간 형상] — 커서(재생) 위치까지 깎는다. 앞으로는 새 선분만
+            # 이어 깎고, 메쉬는 SIM_LIVE_MESH_INTERVAL_MS 간격으로만 다시 그린다.
+            self._sim_advance_to_seq(seq)
+            if self._sim_mesh_coarse_shown:
+                self._sim_live_settle_timer.start()     # 아직 움직이는 중 — 고품질 갱신은 미룬다
 
         modal_values = self.seq_to_modal_state.get(seq)
         if modal_values:
@@ -6114,10 +6285,11 @@ class NCViewerWidget(QWidget):
             tool_index = 0
         base_color = tool_color_for_index(tool_index)
         trace_index = 0
+        trace_visible = self.toolpath_lines_visible()
         for motion_type, pts_list in self._render_segment_buckets(
             self.tool_paths[current_tool], seq
         ).items():
-            if self.update_trace_item(trace_index, pts_list, motion_type, base_color):
+            if self.update_trace_item(trace_index, pts_list, motion_type, base_color, trace_visible):
                 trace_index += 1
         self._hide_dynamic_trace_from(trace_index)
         # v1.6.6: 새로 만들어진 동적 트레이스 아이템은 항등 변환으로
