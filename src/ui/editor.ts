@@ -1,6 +1,6 @@
 // 프로그램 입력창 — CodeMirror 6. 줄 번호, ncColor 색칠, 현재 줄 강조, 읽기 전용/편집 전환, 핀치 글자 크기.
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
-import { Compartment, EditorState, type Extension } from '@codemirror/state';
+import { Compartment, EditorState, type Extension, Transaction } from '@codemirror/state';
 import {
   Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, highlightActiveLine, keymap,
   lineNumbers,
@@ -85,6 +85,8 @@ export interface Editor {
   setFontSize(px: number): void;
   fontSize(): number;
   focus(): void;
+  /** 사용자가 직접 고쳤을 때(프로그램이 setText 한 경우는 아님) */
+  onUserEdit: (() => void) | null;
 }
 
 export interface EditorOptions {
@@ -107,7 +109,11 @@ export function createEditor(parent: HTMLElement, opts: EditorOptions): Editor {
     baseTheme, colorPlugin(() => lathe),
     readOnly.of([EditorState.readOnly.of(true), EditorView.editable.of(true)]),
     fontTheme.of(fontExt(size)),
-    EditorView.updateListener.of((u) => { if (u.docChanged) opts.onChange?.(); }),
+    EditorView.updateListener.of((u) => {
+      if (!u.docChanged) return;
+      opts.onChange?.();
+      if (u.transactions.some((tr) => tr.annotation(Transaction.userEvent) !== undefined)) api.onUserEdit?.();
+    }),
   ];
   const view = new EditorView({ state: EditorState.create({ doc: '', extensions }), parent });
 
@@ -150,7 +156,7 @@ export function createEditor(parent: HTMLElement, opts: EditorOptions): Editor {
   dom.addEventListener('pointercancel', endPointer);
   dom.addEventListener('click', () => opts.onTap?.());
 
-  return {
+  const api: Editor = {
     view,
     getText: () => view.state.doc.toString(),
     setText(text) {
@@ -177,5 +183,7 @@ export function createEditor(parent: HTMLElement, opts: EditorOptions): Editor {
     setFontSize,
     fontSize: () => size,
     focus: () => view.focus(),
+    onUserEdit: null,
   };
+  return api;
 }

@@ -15,7 +15,7 @@
 ## 2. Android Studio (SDK + JDK 포함)
 
 1. https://developer.android.com/studio 에서 Android Studio를 받아 기본값으로 설치한다.
-2. 처음 실행하면 나오는 **Setup Wizard → Standard**를 끝까지 진행한다. Android SDK, Platform-Tools(adb), 내장 JDK(JBR 21)가 함께 깔린다.
+2. 처음 실행하면 나오는 **Setup Wizard → Standard**를 끝까지 진행한다. Android SDK, Platform-Tools(adb), 내장 JDK(JBR)가 함께 깔린다. **주의:** 최신 Android Studio의 내장 JBR이 JDK 25인 경우 이 프로젝트의 Gradle 8.14가 `Unsupported class file major version 69`로 실패한다. 그때는 JDK 21(Temurin)을 `C:\dev\jdk-21`에 풀어 두면 `build_apk.bat`이 먼저 쓴다.
 3. **More Actions → SDK Manager**에서 다음이 설치돼 있는지 확인한다.
    - SDK Platforms: **Android 16 (API 36)**
    - SDK Tools: **Android SDK Build-Tools**, **Android SDK Platform-Tools**

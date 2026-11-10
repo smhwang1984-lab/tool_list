@@ -15,6 +15,8 @@ if errorlevel 1 (
     goto :fail
 )
 
+rem ---- JDK: Gradle 8.14 는 JDK 25 를 읽지 못한다(Android Studio 최신판 내장 JBR 이 25). JDK 21 을 우선 쓴다 ----
+if not defined JAVA_HOME if exist "C:\dev\jdk-21\bin\java.exe" set "JAVA_HOME=C:\dev\jdk-21"
 rem ---- JDK: JAVA_HOME 이 없으면 Android Studio 내장 JBR 을 쓴다 ----
 if not defined JAVA_HOME if exist "%ProgramFiles%\Android\Android Studio\jbr\bin\java.exe" set "JAVA_HOME=%ProgramFiles%\Android\Android Studio\jbr"
 if not defined JAVA_HOME (

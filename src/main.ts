@@ -13,6 +13,8 @@ import { createSearchBar } from './ui/searchBar';
 import { createMachinePanel } from './ui/machinePanel';
 import { createToolTable } from './ui/toolTable';
 import { createFilterPanel } from './ui/filterPanel';
+import { createDocumentController } from './app/documentController';
+import { onIncoming } from './platform/files';
 import { showSettings } from './ui/settingsDialog';
 import { showRowEditor } from './ui/rowEditor';
 import { showTypeList } from './ui/typeListDialog';
@@ -60,7 +62,7 @@ function mount(root: HTMLElement): void {
   // ---------- 제목 줄 ----------
   const topBar = el('header', { class: 'top-bar' });
   topBar.innerHTML = `<span class="title">${APP_NAME} v${APP_VERSION}</span>` +
-    `<span class="caption">Android</span><span class="spacer"></span>`;
+    `<span class="caption" id="file-caption">Android</span><span class="spacer"></span>`;
   const btnSettings = el('button', { class: 'icon-btn', title: '설정', type: 'button' }, icon('gear'));
   const btnHelp = el('button', { class: 'icon-btn', title: '도움말', type: 'button' }, icon('help'));
   const btnAbout = el('button', { class: 'icon-btn', title: 'About', type: 'button' }, icon('info'));
@@ -71,6 +73,15 @@ function mount(root: HTMLElement): void {
 
   // ---------- 툴바 (원본 순서) ----------
   const toolbar = el('nav', { class: 'main-toolbar' });
+  const btnOpen = toolButton('파일 열기', 'folder_open', 'NC 파일 열기');
+  const btnEdit = toolButton('편집 모드', 'pencil', '편집 모드 (비밀번호)');
+  const btnEditSave = toolButton('저장', 'save', '편집 내용을 파일에 저장 (원래 인코딩·줄바꿈 유지)');
+  const btnEditPw = toolButton('비밀번호', 'key', '편집 모드 비밀번호 변경');
+  const editLabel = el('span', { class: 'edit-label' });
+  editLabel.textContent = '✎ 편집 중';
+  btnEditSave.hidden = true;
+  btnEditPw.hidden = true;
+  editLabel.hidden = true;
   const btnRun = toolButton('Tool List', 'run', '공구 리스트 산출', { accent: true });
   const btnExample = toolButton('예제', 'document', '예제 프로그램 불러오기');
   const btnClear = toolButton('지우기', 'eraser', '프로그램과 공구 리스트 지우기');
@@ -78,11 +89,11 @@ function mount(root: HTMLElement): void {
   const btnViewer = toolButton('Viewer', 'toolpath', 'Viewer 모드 (3D 공구 경로)');
   toolbar.append(
     group(
-      toolButton('파일 열기', 'folder_open', 'NC 파일 열기', { disabled: true }),
+      btnOpen,
       btnExample,
       btnClear,
     ),
-    group(toolButton('편집 모드', 'pencil', '편집 모드 (비밀번호)', { disabled: true })),
+    group(btnEdit, btnEditSave, btnEditPw, editLabel),
     group(btnRun),
     group(btnTool, btnViewer),
   );
@@ -288,16 +299,51 @@ function mount(root: HTMLElement): void {
     setPref('theme', theme);
     paintDark();
   });
-  btnExample.addEventListener('click', () => {
-    editor.setText(EXAMPLE);
-    hasRun = true;
-    run();
+  // ---------- 파일·편집 ----------
+  const doc = createDocumentController({
+    editor,
+    onTextReplaced: () => {
+      if (editor.getText().trim() === '') {
+        toolTable.clear();
+        return;
+      }
+      hasRun = true;
+      run();
+    },
+    onEditRefresh: () => {
+      hasRun = true;
+      run();
+    },
+    isTableEdited: () => toolTable.isEdited(),
+    onEditModeChange: (editing) => {
+      btnEdit.classList.toggle('checked', editing);
+      btnEditSave.hidden = !editing;
+      btnEditPw.hidden = !editing;
+      editLabel.hidden = !editing;
+      editorHost.classList.toggle('editing', editing);
+    },
+    onFileChange: (name) => {
+      const caption = document.getElementById('file-caption');
+      if (caption) caption.textContent = name ?? 'Android';
+    },
+  });
+  btnOpen.addEventListener('click', () => void doc.open());
+  btnEdit.addEventListener('click', () => void doc.toggleEdit());
+  btnEditSave.addEventListener('click', () => void doc.save());
+  btnEditPw.addEventListener('click', () => void doc.changePassword());
+  btnExample.addEventListener('click', async () => {
+    await doc.setPlainText(EXAMPLE);
     toast('예제 프로그램을 불러왔습니다');
   });
   btnClear.addEventListener('click', async () => {
     if (editor.getText() && !(await confirmDialog('지우기', '프로그램과 공구 리스트를 지울까요?', '지우기'))) return;
-    editor.setText('');
-    toolTable.clear();
+    await doc.setPlainText('');
+  });
+  // 다른 앱에서 "Sum Path로 열기"/공유로 받은 파일, 앱으로 돌아왔을 때 파일 변경 확인
+  void doc.openIncoming();
+  onIncoming(() => void doc.openIncoming());
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') void doc.checkExternalChange();
   });
   window.addEventListener('keydown', (e) => {
     if (e.key === 'F6') { e.preventDefault(); searchBar.prevTool(); }

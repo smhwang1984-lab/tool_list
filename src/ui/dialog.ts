@@ -77,3 +77,51 @@ export function installLongPressHints(root: HTMLElement, delay = 550): void {
   });
   for (const type of ['pointerup', 'pointercancel', 'pointermove', 'scroll']) root.addEventListener(type, cancel, true);
 }
+
+/** 글자 한 줄 입력(비밀번호면 가려서). 취소하면 null. */
+export function promptDialog(title: string, label: string, opts: { password?: boolean; value?: string; ok?: string } = {}): Promise<string | null> {
+  return new Promise((resolve) => {
+    const wrap = el('div', { class: 'row-form single' });
+    const lab = el('label');
+    const name = el('span');
+    name.textContent = label;
+    const input = el('input', {
+      type: opts.password ? 'password' : 'text', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false',
+    });
+    input.value = opts.value ?? '';
+    lab.append(name, input);
+    wrap.append(lab);
+    let answer: string | null = null;
+    const dlg = showDialog(title, wrap, [
+      { label: '취소' },
+      { label: opts.ok ?? '확인', primary: true, onClick: () => { answer = input.value; } },
+    ]);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        answer = input.value;
+        dlg.close();
+      }
+    });
+    dlg.addEventListener('close', () => resolve(answer));
+    setTimeout(() => input.focus(), 50);
+  });
+}
+
+/** 여러 선택지 중 하나. 닫기/바깥 취소는 null. */
+export function choiceDialog(title: string, message: string, choices: { label: string; value: string; primary?: boolean }[]): Promise<string | null> {
+  return new Promise((resolve) => {
+    let answer: string | null = null;
+    const dlg = showDialog(title, message, choices.map((c) => ({
+      label: c.label, primary: c.primary, onClick: () => { answer = c.value; },
+    })));
+    dlg.addEventListener('close', () => resolve(answer));
+  });
+}
+
+/** 확인만 있는 안내창 */
+export function alertDialog(title: string, message: string): Promise<void> {
+  return new Promise((resolve) => {
+    const dlg = showDialog(title, message);
+    dlg.addEventListener('close', () => resolve());
+  });
+}

@@ -156,12 +156,12 @@ tools/golden/   정답 생성 스크립트 (Python, 원본 저장소를 읽음)
 
 | ID | 작업 | Android 구현 | 완료 기준 |
 |---|---|---|---|
-| **T1** | 파일 열기 | `@capawesome/capacitor-file-picker`(SAF), 바이트 → `decode_program_bytes` | UTF-8 / CP949 / UTF-16 파일이 모두 열린다 |
+| **T1** | 파일 열기 | 자체 네이티브 플러그인 `NcFilesPlugin`(SAF: 열기·덮어쓰기·다른 이름·stat·.bak, 외부 라이브러리 없이), 바이트 → `decodeProgramBytes` | UTF-8 / CP949 파일이 열린다 ✅ (UTF-16은 원본도 지원하지 않아 제외) |
 | **T2** | ~~PG ADD~~ **제외** (2026-11-10 결정, Android 버전에는 넣지 않는다) | — | — |
-| **T3** | **다른 앱에서 열기** | `AndroidManifest.xml` intent-filter(VIEW/SEND, `.nc .mpf .tap`, `text/plain`, `application/octet-stream`) + 앱 시작/재개 시 받기 | 파일 앱·카카오톡·메일 첨부에서 "Sum Path로 열기"가 된다 |
-| **T4** | 편집 모드·비밀번호 | `password.ts`, 기본 1234, "✎ 편집 중" 표시, 입력창 테두리 강조 | 원본과 같은 흐름 |
-| **T5** | 저장 | 원래 인코딩·줄바꿈을 유지하고 `.bak`를 남긴다. 쓰기 권한이 없으면 "다른 이름으로 저장"(SAF CreateDocument) | 저장한 파일을 PC 원본 앱에서 열어도 같다 |
-| **T6** | 외부 변경 감지 | 앱 재개(resume) 때 파일 스탬프·다이제스트를 비교 → 새로고침/무시 창 | 원본 `파일 변경` 창과 같다 |
+| **T3** | **다른 앱에서 열기** | `AndroidManifest.xml` intent-filter(VIEW/SEND, `.nc .mpf .tap .min .prg .txt .cnc .ptp`, `text/*`, `application/octet-stream`) + 시작·새 intent 때 받기 | 파일 앱·카카오톡·메일 첨부에서 "Sum Path로 열기"가 된다 ✅ 코드 완료 · 실기기 확인 필요 |
+| **T4** | 편집 모드·비밀번호 | `password.ts`, 기본 1234, "✎ 편집 중" 표시, 입력창 테두리 강조 | 원본과 같은 흐름 ✅ (비밀번호 변경·편집 내용 자동 반영·저장 확인·표 직접 수정 손실 경고) |
+| **T5** | 저장 | 원래 인코딩·줄바꿈을 유지하고 `.bak`를 남긴다. 쓰기 권한이 없으면 "다른 이름으로 저장"(SAF CreateDocument) | 저장한 파일을 PC 원본 앱에서 열어도 같다 ✅ 코드 완료 (**.bak는 SAF로 같은 폴더에 만들 수 없어 앱 폴더 `Android/data/com.sumpath.nctoollist/files/backup/`에 저장**) · 실기기 확인 필요 |
+| **T6** | 외부 변경 감지 | 앱 재개(resume) 때 파일 스탬프·다이제스트를 비교 → 새로고침/무시 창 | 원본 `파일 변경` 창과 같다 ✅ 코드 완료 · 실기기 확인 필요 |
 | **T7** | **PDF 출력** | `pdfmake` + Noto Sans KR 서브셋. 원본 표 스타일·열 폭·REMARK 굵게·SO 경고색·메타 행·파일명 규칙(`default_pdf_filename`)을 그대로. 만든 뒤 `@capacitor/share` 또는 PDF 뷰어로 열기 | 원본 PDF와 나란히 놓고 비교했을 때 같은 배치(밀링·선반 각 1건) |
 | **T8** | 표 복사 | 클립보드에 TSV, 머리글 포함 옵션. "복사됨! 엑셀에서 붙여넣기" | 모바일 엑셀·구글 시트에 붙여넣으면 칸이 맞는다 |
 | **T9** | 선반 스펙 저장소 | `LatheSpecStore` → `platform/latheSpecStore.ts` | 직접 입력한 스펙이 유지된다 |

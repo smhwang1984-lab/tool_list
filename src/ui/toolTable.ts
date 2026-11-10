@@ -43,6 +43,8 @@ export interface ToolTable {
   onAdd: () => void;
   onTypes: () => void;
   withHeader(): boolean;
+  /** 표에서 직접 고친 내용이 있는가(프로그램에서 다시 산출하면 사라진다) */
+  isEdited(): boolean;
   /** 편집한 행을 바꿔 넣거나(index) 끝에 넣고(null) 그 행을 선택한다. 넣은 행 번호를 돌려준다. */
   putRow(index: number | null, row: TableRow): number;
   removeRows(indices: readonly number[]): void;
@@ -142,6 +144,7 @@ export function createToolTable(): ToolTable {
   root.append(bar, actions, summary, scroller, hint);
 
   let lathe = false;
+  let edited = false;
   let data: TableRow[] = [];
   let dynamicWidths: Record<string, number> = {};
   const selected = new Set<number>();
@@ -306,7 +309,9 @@ export function createToolTable(): ToolTable {
     onAdd: () => {},
     onTypes: () => {},
     withHeader: () => headerCheck.checked,
+    isEdited: () => edited,
     putRow(index, row) {
+      edited = true;
       let at = index;
       if (at === null || at < 0 || at >= data.length) {
         data.push(row);
@@ -321,6 +326,7 @@ export function createToolTable(): ToolTable {
       return at;
     },
     removeRows(indices) {
+      edited = true;
       const drop = new Set(indices);
       data = data.filter((_, i) => !drop.has(i));
       selected.clear();
@@ -343,6 +349,7 @@ export function createToolTable(): ToolTable {
       modeCombo.value = next ? 'lathe' : 'mill';
     },
     setRows(rows, isLathe, metadata) {
+      edited = false;
       lathe = isLathe;
       modeCombo.value = isLathe ? 'lathe' : 'mill';
       data = rows;
@@ -353,6 +360,7 @@ export function createToolTable(): ToolTable {
       summary.textContent = '출력 정보: ' + METADATA_FIELDS.map(([name, key]) => `${name} ${metadata[key] || '-'}`).join(' | ');
     },
     clear() {
+      edited = false;
       data = [];
       selected.clear();
       dynamicWidths = {};
