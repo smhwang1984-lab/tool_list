@@ -47,6 +47,11 @@ const SOURCES = new WeakMap<object, FieldSources>();
 
 export type LatheRow = Record<string, string>;
 
+/** 편집한 행의 값 출처를 붙인다. */
+export function setRowSources(row: object, sources: FieldSources): void {
+  SOURCES.set(row, sources);
+}
+
 /** 이 행의 값 출처. 빈 행(없는 공구번호 자리)이나 복사한 행에는 없다. */
 export function rowSources(row: object): FieldSources | undefined {
   return SOURCES.get(row);

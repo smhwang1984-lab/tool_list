@@ -139,6 +139,32 @@ html, body {
 .tool-table td.alert { color: var(--error); }
 .tool-table tr.selected td.alert { color: var(--list_selected_text); }
 .tool-hint { margin: 6px 10px; font-size: 11px; color: var(--faint_text); }
+.tool-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 10px; }
+.tool-actions button {
+  min-height: 40px; padding: 0 12px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--list_hover); color: var(--text); font: inherit; font-size: 14px;
+}
+.with-header { display: inline-flex; align-items: center; gap: 4px; font-size: 14px; min-height: 40px; }
+.with-header input { width: 20px; height: 20px; }
+dialog.wide { width: min(640px, 94vw); }
+.row-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; }
+.row-form.single { grid-template-columns: 1fr; }
+.row-form label { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--muted_text); }
+.row-form input, .row-form select {
+  min-height: 38px; padding: 0 8px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--editor_bg); color: var(--editor_text); font: inherit; font-size: 15px;
+}
+.row-form small { color: var(--faint_text); font-size: 11px; }
+@media (max-width: 480px) { .row-form { grid-template-columns: 1fr; } }
+.type-controls { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.type-controls button {
+  min-height: 40px; padding: 0 12px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--list_hover); color: var(--text); font: inherit;
+}
+.type-rows { max-height: 46vh; overflow: auto; border: 1px solid var(--border); }
+.type-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: 14px; }
+.type-row.head { position: sticky; top: 0; background: var(--toolbar_bg); font-weight: 700; }
+.type-row.selected { background: var(--list_selected_bg); color: var(--list_selected_text); }
 .placeholder {
   flex: 1; display: flex; align-items: center; justify-content: center; text-align: center;
   padding: 16px; color: var(--muted_text); font-size: 14px; line-height: 1.6;

@@ -12,6 +12,13 @@ import { createEditor } from './ui/editor';
 import { createSearchBar } from './ui/searchBar';
 import { createMachinePanel } from './ui/machinePanel';
 import { createToolTable } from './ui/toolTable';
+import { showRowEditor } from './ui/rowEditor';
+import { showTypeList } from './ui/typeListDialog';
+import { COLUMNS, LATHE_COLUMNS, LATHE_SPEC_KEYS } from './core/columns';
+import { resolveFields } from './core/latheInsertSpec';
+import { type LatheRow, rowSources, setRowSources } from './core/latheParser';
+import { propagateLatheSpecs, saveLatheSpecEdits } from './core/latheEdit';
+import { deriveD, deriveType, type NameType } from './core/nameTypes';
 import { parseProgram } from './core/millParser';
 import { parseLatheProgram } from './core/latheParser';
 import { parseProgramMetadata } from './core/metadata';
@@ -121,8 +128,20 @@ function mount(root: HTMLElement): void {
   root.append(topBar, toolbar, tabs, body);
 
   // ---------- 산출 ----------
-  const lathe_store = new LatheSpecStore();
-  const nameTypes = cleanNameTypes(DEFAULT_NAME_TYPES);
+  const storeJson = getPref('lathe_store');
+  const lathe_store = storeJson ? new LatheSpecStore(storeJson) : new LatheSpecStore();
+  const saveStore = (): void => setPref('lathe_store', JSON.stringify(lathe_store.toJson()));
+  const loadNameTypes = (): NameType[] => {
+    try {
+      const saved = JSON.parse(getPref('name_types')) as unknown;
+      if (Array.isArray(saved)) return cleanNameTypes(saved);
+    } catch {
+      /* 기본값 */
+    }
+    return DEFAULT_NAME_TYPES.map(([a, b]) => [a, b] as NameType);
+  };
+  const nameTypes: NameType[] = loadNameTypes();
+  const saveNameTypes = (): void => setPref('name_types', JSON.stringify(nameTypes.map(([name, type]) => ({ name, type }))));
   let lastMct = getPref('last_mct_machine_type');
   const run = (): void => {
     const text = editor.getText();
@@ -151,6 +170,74 @@ function mount(root: HTMLElement): void {
     hasRun = true;
     run();
   };
+  // ---------- 행 편집 (삭제 / 수정 / 행 추가 / 이름 경우의 수) ----------
+  const activeColumns = () => (isLathe() ? LATHE_COLUMNS : COLUMNS);
+  const textOf = (row: Record<string, unknown>): Record<string, string> =>
+    Object.fromEntries(activeColumns().map(([key]) => [key, row[key] === undefined || Array.isArray(row[key]) ? '' : String(row[key])]));
+  const nextToolNo = (): string => {
+    if (isLathe()) return '';
+    let max = 0;
+    for (const row of toolTable.rows()) {
+      const m = /^T?(\d+)$/i.exec(String(row.NO ?? '').trim());
+      if (m) max = Math.max(max, Number(m[1]));
+    }
+    return 'T' + String(max + 1).padStart(2, '0');
+  };
+  const openEditor = (index: number | null): void => {
+    const lathe = isLathe();
+    const old = index === null ? null : toolTable.rows()[index]!;
+    const values = old ? textOf(old) : { ...Object.fromEntries(activeColumns().map(([k]) => [k, ''])), NO: nextToolNo() };
+    const sources = old && lathe ? { ...(rowSources(old) ?? {}) } as Record<string, string> : undefined;
+    showRowEditor({
+      lathe, editing: index !== null, values, sources,
+      onSave: (edited) => {
+        if ('TYPE' in edited && !edited.TYPE && edited.NAME) edited.TYPE = deriveType(edited.NAME, nameTypes);
+        if ('D' in edited && !edited.D && edited.NAME) edited.D = deriveD(edited.NAME);
+        if (!lathe) {
+          const next: Record<string, unknown> = { ...(old ?? {}), ...edited };
+          delete next.SO_ALERT; // 표 SO와 주석 SO를 다시 비교한다
+          if (old && String(old.NO ?? '') !== edited.NO) delete next.NO_ALERT;
+          toolTable.putRow(index, next);
+          return;
+        }
+        const row = { ...edited } as LatheRow;
+        const baseline: Record<string, string> = { ...values };
+        const rowSrc: Record<string, string> = index === null ? {} : { ...(sources ?? {}) };
+        if (index === null) {
+          const [resolved, resolvedSources] = resolveFields(row.INSERT ?? '', row.HOLDER ?? '', null, null, lathe_store);
+          for (const key of LATHE_SPEC_KEYS) {
+            const r = (resolved as unknown as Record<string, string>)[key];
+            if (!row[key] && r) {
+              row[key] = r;
+              rowSrc[key] = (resolvedSources as unknown as Record<string, string>)[key] ?? '';
+              baseline[key] = r;
+            }
+          }
+        }
+        const result = saveLatheSpecEdits(baseline, row, rowSrc, lathe_store);
+        setRowSources(row, rowSrc as never);
+        const at = toolTable.putRow(index, row);
+        const touched = propagateLatheSpecs(toolTable.rows() as LatheRow[], at, values, row, rowSrc, result.changed);
+        if (result.storeChanged) saveStore();
+        if (touched.length) toolTable.refresh();
+        if (result.notice) toolTable.flash(result.notice, 6000);
+      },
+    });
+  };
+  toolTable.onEdit = (i) => openEditor(i);
+  toolTable.onAdd = () => openEditor(null);
+  toolTable.onEditButton = () => {
+    const sel = toolTable.selected();
+    if (!sel.length) toast('수정할 행을 먼저 선택하세요.');
+    else openEditor(sel[0]!);
+  };
+  toolTable.onDelete = async () => {
+    const sel = toolTable.selected();
+    if (!sel.length) return toast('삭제할 행을 먼저 선택하세요.');
+    if (await confirmDialog('행 삭제', `${sel.length}개 행을 삭제할까요?`, '삭제')) toolTable.removeRows(sel);
+  };
+  toolTable.onTypes = () => showTypeList(nameTypes, saveNameTypes);
+
   toolTable.setMode(isLathe());
   btnRun.addEventListener('click', () => {
     hasRun = true;

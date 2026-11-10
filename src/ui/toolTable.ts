@@ -37,6 +37,19 @@ export interface ToolTable {
   onModeChange: (lathe: boolean) => void;
   /** 행을 두 번 탭하거나 길게 눌렀을 때 */
   onEdit: (rowIndex: number) => void;
+  /** 표 위 버튼 */
+  onDelete: () => void;
+  onEditButton: () => void;
+  onAdd: () => void;
+  onTypes: () => void;
+  withHeader(): boolean;
+  /** 편집한 행을 바꿔 넣거나(index) 끝에 넣고(null) 그 행을 선택한다. 넣은 행 번호를 돌려준다. */
+  putRow(index: number | null, row: TableRow): number;
+  removeRows(indices: readonly number[]): void;
+  /** 행 내용이 바뀌었을 때 다시 그린다(선택 유지) */
+  refresh(): void;
+  /** 개수 줄에 안내 문구를 잠깐 보여 준다 */
+  flash(message: string, ms?: number): void;
   setMode(lathe: boolean): void;
   setRows(rows: TableRow[], lathe: boolean, metadata: ProgramMetadata): void;
   clear(): void;
@@ -105,6 +118,20 @@ export function createToolTable(): ToolTable {
   const modeCombo = el('select', { 'aria-label': '산출 모드', title: '산출 모드: 밀링 / 선반' });
   modeCombo.append(new Option('밀링', 'mill'), new Option('선반', 'lathe'));
   bar.append(label, count, modeCombo);
+  const actions = el('div', { class: 'tool-actions' });
+  const mkBtn = (text: string, title: string): HTMLButtonElement => {
+    const b = el('button', { type: 'button', title });
+    b.textContent = text;
+    return b;
+  };
+  const btnDelete = mkBtn('삭제', '선택한 행 삭제');
+  const btnEdit = mkBtn('수정', '선택한 행 수정 (두 번 탭)');
+  const btnAdd = mkBtn('행 추가', '빈 행 추가');
+  const btnTypes = mkBtn('이름 경우의 수', '공구 이름 → TYPE 변환표 편집');
+  const headerLabel = el('label', { class: 'with-header' });
+  const headerCheck = el('input', { type: 'checkbox' });
+  headerLabel.append(headerCheck, document.createTextNode(' 머리글 포함'));
+  actions.append(btnDelete, btnEdit, btnAdd, btnTypes, headerLabel);
   const summary = el('div', { class: 'metadata-summary' });
   summary.textContent = '출력 정보: -';
   const scroller = el('div', { class: 'table-scroll' });
@@ -112,7 +139,7 @@ export function createToolTable(): ToolTable {
   scroller.append(table);
   const hint = el('div', { class: 'tool-hint' });
   hint.textContent = '행을 두 번 탭하거나 길게 누르면 편집할 수 있습니다. (N번호 ~ 공구 교체 사이 괄호 주석을 읽음 / 밀링 M6T, 선반 Tnn00)';
-  root.append(bar, summary, scroller, hint);
+  root.append(bar, actions, summary, scroller, hint);
 
   let lathe = false;
   let data: TableRow[] = [];
@@ -262,6 +289,11 @@ export function createToolTable(): ToolTable {
     else selected.add(row);
     paintSelection();
   });
+  btnDelete.addEventListener('click', () => api.onDelete());
+  btnEdit.addEventListener('click', () => api.onEditButton());
+  btnAdd.addEventListener('click', () => api.onAdd());
+  btnTypes.addEventListener('click', () => api.onTypes());
+  let flashTimer = 0;
   modeCombo.addEventListener('change', () => api.onModeChange(modeCombo.value === 'lathe'));
   new ResizeObserver(() => relayout()).observe(scroller);
 
@@ -269,6 +301,43 @@ export function createToolTable(): ToolTable {
     root,
     onModeChange: () => {},
     onEdit: () => {},
+    onDelete: () => {},
+    onEditButton: () => {},
+    onAdd: () => {},
+    onTypes: () => {},
+    withHeader: () => headerCheck.checked,
+    putRow(index, row) {
+      let at = index;
+      if (at === null || at < 0 || at >= data.length) {
+        data.push(row);
+        at = data.length - 1;
+      } else data[at] = row;
+      selected.clear();
+      selected.add(at);
+      measureLatheWidths();
+      build();
+      updateCount();
+      table.querySelector(`tbody tr[data-row="${at}"]`)?.scrollIntoView({ block: 'nearest' });
+      return at;
+    },
+    removeRows(indices) {
+      const drop = new Set(indices);
+      data = data.filter((_, i) => !drop.has(i));
+      selected.clear();
+      measureLatheWidths();
+      build();
+      updateCount();
+    },
+    refresh() {
+      measureLatheWidths();
+      build();
+      updateCount();
+    },
+    flash(message, ms = 5000) {
+      count.textContent = message;
+      window.clearTimeout(flashTimer);
+      flashTimer = window.setTimeout(updateCount, ms);
+    },
     setMode(next) {
       lathe = next;
       modeCombo.value = next ? 'lathe' : 'mill';

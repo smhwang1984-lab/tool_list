@@ -10,7 +10,7 @@ import { pyStr, pyStrip, pyTruthy } from './py';
 export type SpecEntry = Record<string, string>;
 export type SpecTable = Record<string, SpecEntry>;
 
-const INSERT_FIELDS = ['R', 'T', 'PITCH', 'D'] as const;
+export const INSERT_FIELDS = ['R', 'T', 'PITCH', 'D'] as const;
 const TOOL_FIELDS = ['KIND', 'DIR', 'TIP'] as const;
 
 const isDict = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
