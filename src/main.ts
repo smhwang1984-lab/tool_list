@@ -309,6 +309,7 @@ function mount(root: HTMLElement): void {
     viewerLoading ??= import('./viewer/viewer').then((m) => {
       viewer = m.createViewer(viewerView, {
         onLine: (line) => { if (pgMatchOn) editor.selectLine(line); },
+        onPick: (line) => editor.selectLine(line),
         stopRule: () => {
           const o = filterPanel.stopOptions();
           return { text: o.stopText, textValue: o.stopTextValue, m00: o.stopM00, m01: o.stopM01 };

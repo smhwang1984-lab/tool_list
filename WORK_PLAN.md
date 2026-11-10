@@ -193,17 +193,17 @@ tools/golden/   정답 생성 스크립트 (Python, 원본 저장소를 읽음)
 
 | ID | 작업 | 완료 기준 |
 |---|---|---|
-| **T1** | 골든 생성기 확장: 원본 `NCViewerWidget`을 `QT_QPA_PLATFORM=offscreen`으로 띄워 `process_nc_lines` 결과(선분·seq·줄 대응·시간)를 JSON으로 내보낸다. 원본 `test_nc_sim_viewer.py`, `test_nc_lathe_viewer.py`, `test_dwell.py`, `test_v233_live_reload.py`의 입력을 재사용한다 | 골든 JSON 생성 |
-| **T2** | `core/toolpath.ts` · `latheGeom.ts` (밀링 → 선반 → 5축/G68.2 순서) | 좌표 오차 1e-6 이하, seq·줄 대응 100% |
-| **T3** | `core/timing.ts` · `playback.ts` | 시간 오차 0.01초 이하 |
-| **T4** | `viewer/scene.ts`: 경로 그리기, 공구별 색, 급속 빨강, 선 굵기 설정, 공정 필터 표시/숨김, 진행된 경로(trace) 강조 | 원본 캡처와 같은 색·모양 |
-| **T5** | `viewer/camera.ts`: 원근/직교, ISO/XY/XZ/YZ, 전체 맞춤, 선반 평면 뷰 orbit 잠금 | 원본 `test_v234_mouse_zoom.py`, `test_v235_orbit_pivot.py` 기대값을 TS 테스트로 옮겨 통과 |
-| **T6** | 방향 큐브·좌표 표시·투영 버튼·원점 화살표(큐브 크기 연동) | 원본과 같은 배치 |
-| **T7** | **공정 필터 연결**: 다중 선택, 항목 탭 → 첫 줄 이동, 전체/해제, 공구 표시 문구(`_tool_display_text` 4876) | 원본과 같다 |
-| **T8** | **PG 매칭 재생**: 입력창 커서 ↔ 경로 위치 양방향, 속도 1x~5000x, 텍스트 정지/M00/M01 정지, 이전/다음 툴, 되감기, 시간 표시 `00:00 / 00:00` | 원본과 같은 줄에서 멈춘다(골든) |
-| **T9** | 위치 찍기 모드(우선 버튼으로 켬, 제스처는 P5) → 가장 가까운 선분 → 프로그램 줄로 이동, 깜빡임 표시 | 원본과 같은 줄 |
-| **T10** | 성능: `ncdata.nc`를 Worker에서 파싱하고 BufferGeometry 한 덩어리로 그린다. 중급 폰에서 60fps 목표, 최소 30fps | 실기기 측정 기록 |
-| **T11** | WebGL 실패 시 안내 + 2D(Canvas) XY 평면 보기로 대체 | 강제로 실패시켜 확인 |
+| **T1** | 골든 생성기 확장: 원본 `NCViewerWidget`을 `QT_QPA_PLATFORM=offscreen`으로 띄워 `process_nc_lines` 결과(선분·seq·줄 대응·시간)를 JSON으로 내보낸다. 원본 `test_nc_sim_viewer.py`, `test_nc_lathe_viewer.py`, `test_dwell.py`, `test_v233_live_reload.py`의 입력을 재사용한다 | 골든 JSON 생성 ✅ `tools/golden/export_toolpath.py`, 21건(밀링 3·4·5축 AC/BC, 선반) |
+| **T2** | `core/toolpath.ts` · `latheGeom.ts` (밀링 → 선반 → 5축/G68.2 순서) | 좌표 오차 1e-6 이하, seq·줄 대응 100% ✅ 골든 21건 모두 일치(좌표 1e-6, seq·줄 대응 100%) |
+| **T3** | `core/timing.ts` · `playback.ts` | 시간 오차 0.01초 이하 ✅ 시간 계산은 `toolpath.ts`에, 재생 위치는 `core/playback.ts` |
+| **T4** | `viewer/scene.ts`: 경로 그리기, 공구별 색, 급속 빨강, 선 굵기 설정, 공정 필터 표시/숨김, 진행된 경로(trace) 강조 | 원본 캡처와 같은 색·모양 ✅ 기본 (공정별 선·급속 빨강·공구색·선 굵기 설정·진행 경로 굵게). 원본 캡처와의 나란히 비교는 실기기에서 |
+| **T5** | `viewer/camera.ts`: 원근/직교, ISO/XY/XZ/YZ, 전체 맞춤, 선반 평면 뷰 orbit 잠금 | 원본 `test_v234_mouse_zoom.py`, `test_v235_orbit_pivot.py` 기대값을 TS 테스트로 옮겨 통과 △ 궤도·이동·핀치 줌·투영 버튼·전체 맞춤 구현, 원본 camera 시험(v2.3.4/5) 이식은 P5에서 제스처와 함께 |
+| **T6** | 방향 큐브·좌표 표시·투영 버튼·원점 화살표(큐브 크기 연동) | 원본과 같은 배치 △ 방향 큐브(면 탭)·좌표 표시·투영 버튼 구현, 큐브 고리 드래그·원점 화살표 크기 연동은 P5 |
+| **T7** | **공정 필터 연결**: 다중 선택, 항목 탭 → 첫 줄 이동, 전체/해제, 공구 표시 문구(`_tool_display_text` 4876) | 원본과 같다 ✅ 공정 목록(색 칩·공정/공구/이름/시간), 다중 선택 표시/숨김, 전체/해제, Reset |
+| **T8** | **PG 매칭 재생**: 입력창 커서 ↔ 경로 위치 양방향, 속도 1x~5000x, 텍스트 정지/M00/M01 정지, 이전/다음 툴, 되감기, 시간 표시 `00:00 / 00:00` | 원본과 같은 줄에서 멈춘다(골든) ✅ 입력창 커서↔경로 위치, 재생(1x~5000x), 텍스트/M00/M01 정지, 이전/다음 공정, 되감기, 진행/전체 시간 |
+| **T9** | 위치 찍기 모드(우선 버튼으로 켬, 제스처는 P5) → 가장 가까운 선분 → 프로그램 줄로 이동, 깜빡임 표시 | 원본과 같은 줄 ✅ 📍 버튼으로 켜고 탭 → 가장 가까운 선분 → 그 줄로 이동 (깜빡임 표시는 P5) |
+| **T10** | 성능: `ncdata.nc`를 Worker에서 파싱하고 BufferGeometry 한 덩어리로 그린다. 중급 폰에서 60fps 목표, 최소 30fps | 실기기 측정 기록 ⏳ 아직 — 지금은 메인 스레드에서 계산, 큰 파일 Worker 이전·실기기 측정 필요 |
+| **T11** | WebGL 실패 시 안내 + 2D(Canvas) XY 평면 보기로 대체 | 강제로 실패시켜 확인 △ 안내 문구만, 2D 대체 화면은 아직 |
 | **T12** | 1.4.0, 병합 | 공통 완료 조건 |
 
 ---

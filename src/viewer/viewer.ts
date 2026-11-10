@@ -26,6 +26,8 @@ export interface StopRule {
 export interface ViewerHooks {
   /** 재생·찍기로 위치가 바뀜 → 입력창이 그 줄로 이동 (PG 매칭) */
   onLine?: (line: number) => void;
+  /** 위치 찍기로 고른 줄 → 입력창 이동(항상) */
+  onPick?: (line: number) => void;
   stopRule?: () => StopRule;
   lineText?: (line: number) => string;
 }
@@ -41,7 +43,7 @@ export interface Viewer {
   dispose(): void;
 }
 
-interface ProcessObjects { key: string; index: number; objs: LineSegments2[]; trace: { obj: LineSegments2; seqs: number[] }[] }
+interface ProcessObjects { key: string; index: number; objs: LineSegments2[]; trace: { obj: LineSegments2; seqs: number[] }[]; buckets: { pos: number[]; seqs: number[] }[] }
 
 const rgb = (c: readonly number[]): number => ((Math.round(c[0]! * 255) << 16) | (Math.round(c[1]! * 255) << 8) | Math.round(c[2]! * 255));
 
@@ -97,13 +99,56 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     return b;
   };
   const projButtons: HTMLButtonElement[] = [];
+  let pickMode = false;
+  const cube = el('div', { class: 'v-cube' });
+  const cubeBody = el('div', { class: 'v-cube-body' });
+  cube.append(cubeBody);
+  host.append(cube);
+  const CUBE_FACES: [label: string, transform: string, view: [number, number]][] = [
+    ['+Z', 'translateZ(var(--h))', [90, -90]],
+    ['-Z', 'rotateX(180deg) translateZ(var(--h))', [-90, -90]],
+    ['+X', 'rotateY(90deg) translateZ(var(--h))', [0, 0]],
+    ['-X', 'rotateY(-90deg) translateZ(var(--h))', [0, 180]],
+    ['+Y', 'rotateX(-90deg) translateZ(var(--h))', [0, 90]],
+    ['-Y', 'rotateX(90deg) translateZ(var(--h))', [0, -90]],
+  ];
+  for (const [label, transform, view] of CUBE_FACES) {
+    const face = el('div', { class: 'v-face' });
+    face.textContent = label;
+    face.style.transform = transform;
+    face.addEventListener('click', () => {
+      if (orbitLocked) return;
+      [elevation, azimuth] = view;
+      apply();
+    });
+    cubeBody.append(face);
+  }
+  const updateCube = (): void => {
+    const size = Math.round(getViewerSettings().cubeSizePx * 0.4);
+    cube.style.setProperty('--s', `${size}px`);
+    cube.style.setProperty('--h', `${size / 2}px`);
+    cube.hidden = lathe;
+    const e = (elevation * Math.PI) / 180;
+    const a = (azimuth * Math.PI) / 180;
+    const d = [Math.cos(e) * Math.cos(a), Math.cos(e) * Math.sin(a), Math.sin(e)];
+    const r = [-Math.sin(a), Math.cos(a), 0];
+    const u = [-Math.sin(e) * Math.cos(a), -Math.sin(e) * Math.sin(a), Math.cos(e)];
+    // 월드 X/Y/Z 단위벡터가 화면(오른쪽, 아래, 보는 사람 쪽)에서 놓이는 곳
+    const m = [
+      r[0]!, -u[0]!, d[0]!, 0, r[1]!, -u[1]!, d[1]!, 0, r[2]!, -u[2]!, d[2]!, 0, 0, 0, 0, 1,
+    ];
+    cubeBody.style.transform = `matrix3d(${m.join(',')})`;
+  };
   const buildProjButtons = (): void => {
     projBar.replaceChildren();
     projButtons.length = 0;
     const names = lathe ? ['ISO', 'LATHE'] : ['ISO', 'XY', 'XZ', 'YZ'];
+    const pick = mkBtn(projBar, '📍', '위치 찍기: 경로를 탭하면 그 줄로 이동');
+    pick.classList.toggle('on', pickMode);
+    pick.addEventListener('click', () => { pickMode = !pickMode; pick.classList.toggle('on', pickMode); });
     for (const name of names) {
       const b = mkBtn(projBar, name === 'LATHE' ? '선반' : name, `${name} 보기`);
-      b.addEventListener('click', () => setProjection(name));
+      b.addEventListener('click', () => { pickMode = false; projBar.firstElementChild?.classList.remove('on'); setProjection(name); });
       projButtons.push(b);
     }
   };
@@ -147,6 +192,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     camera.lookAt(center);
     clampRange();
     camera.updateProjectionMatrix();
+    updateCube();
     dirty = true;
   };
   const distanceForRadius = (r: number, w: number, h: number): number => {
@@ -228,7 +274,44 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
       apply();
     }
   });
-  const endPointer = (e: PointerEvent): void => { pointers.delete(e.pointerId); lastPinch = 0; };
+  let downAt: { x: number; y: number } | null = null;
+  dom.addEventListener('pointerdown', (e) => { downAt = pointers.size === 0 ? { x: e.clientX, y: e.clientY } : null; }, true);
+  const pickAt = (cx: number, cy: number): void => {
+    if (!result) return;
+    const rect = dom.getBoundingClientRect();
+    const w = rect.width, h = rect.height;
+    const px = cx - rect.left, py = cy - rect.top;
+    const v = new THREE.Vector3();
+    const toScreen = (x: number, y: number, z: number): [number, number, boolean] => {
+      v.set(x, y, z).project(camera);
+      return [(v.x * 0.5 + 0.5) * w, (-v.y * 0.5 + 0.5) * h, v.z < 1];
+    };
+    let best = 24; // px
+    let bestSeq = -1;
+    for (const p of processes) {
+      if (visible && !visible.has(p.key)) continue;
+      for (const b of p.buckets) {
+        for (let i = 0; i < b.seqs.length; i++) {
+          const o = i * 6;
+          const [ax, ay, aok] = toScreen(b.pos[o]!, b.pos[o + 1]!, b.pos[o + 2]!);
+          const [bx, by, bok] = toScreen(b.pos[o + 3]!, b.pos[o + 4]!, b.pos[o + 5]!);
+          if (!aok || !bok) continue;
+          const dx = bx - ax, dy = by - ay;
+          const len2 = dx * dx + dy * dy;
+          const tt = len2 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2)) : 0;
+          const dist = Math.hypot(px - (ax + dx * tt), py - (ay + dy * tt));
+          if (dist < best) { best = dist; bestSeq = b.seqs[i]!; }
+        }
+      }
+    }
+    if (bestSeq >= 0) { stopPlaying(); showSeq(bestSeq, false); hooks.onPick?.(lineAtSeq(result, bestSeq)); }
+  };
+  const endPointer = (e: PointerEvent): void => {
+    if (pickMode && downAt && pointers.size === 1 && Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) < 6) pickAt(e.clientX, e.clientY);
+    downAt = null;
+    pointers.delete(e.pointerId);
+    lastPinch = 0;
+  };
   dom.addEventListener('pointerup', endPointer);
   dom.addEventListener('pointercancel', endPointer);
   dom.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -264,7 +347,8 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     for (const [key, path] of r.tool_paths) {
       const buckets = segmentBuckets(path);
       const color = toolColorForIndex(idx);
-      const entry: ProcessObjects = { key, index: idx, objs: [], trace: [] };
+      const entry: ProcessObjects = { key, index: idx, objs: [], trace: [], buckets: [] };
+      entry.buckets.push({ pos: buckets.rapid, seqs: buckets.rapidSeq }, { pos: buckets.cut, seqs: buckets.cutSeq });
       if (buckets.rapid.length) {
         const o = makeLines(buckets.rapid, RAPID_MOVE_COLOR, RAPID_LINE_BASE_WIDTH);
         entry.objs.push(o); group.add(o);
