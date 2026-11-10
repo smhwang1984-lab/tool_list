@@ -59,7 +59,7 @@ Last updated: 2026-11-05 (NC_Tool_List v2.3.0 — 로컬 v2.2.9(STOCK SIZE)와 G
      [실시간 형상] 상한이 걸리면 버튼에 실제 배속(예 200x)을 주황색으로 표시.
   5. **재생바 = 시뮬레이션 진행 상태**(실행 순서 위치 ÷ 전체, 오른쪽에 %). 조작용이 아니라 표시용.
 - Installer/package status: **생성 완료**. `installer\NC_Tool_List_Setup_v2.4.2.exe`. dist exe 기동 10초 뒤 실행 중.
-  - Setup EXE SHA-256: 652E0A9D5D9AE690052C22A9D057DA8EA4AE40C66CD48DA168CFA033D84D619F
+  - Setup EXE SHA-256: 812D5EDECE9506928D1BAD4BF7501EA18A711F470810753EEDA93D98A6510400
 - Verification: pytest 843 통과 / 2 실패(이번 변경과 무관한 기존 2건).
 
 ### 2026-11-11 (v2.4.1)
