@@ -1,8 +1,9 @@
 # Sum Path Android — 실행 작업 플랜 (P1 ~ P7)
 
-- 작성일: 2026-11-10 · 현재 상태: **P0 완료(v0.1.0, master 병합됨)**
+- 작성일: 2026-11-10 · 현재 상태: **P0 완료, P1 진행 중 (v1.0.0)**
+- 버전: 원본과 별도 프로그램이므로 **1.0.0**에서 새로 시작한다(2026-11-10 결정, 처음 계획의 0.x 번호를 아래처럼 바꿈). 단계가 끝날 때마다 MINOR +1.
 - 상위 문서: `ANDROID_PLAN.md`(무엇을, 왜). 이 문서는 **어떻게, 어떤 순서로**를 적는다.
-- 원본 기준: `smhwang1984-lab/tool_list` `master` @ `0a1d5a3` (데스크톱 v2.3.5)
+- 원본 기준: `smhwang1984-lab/tool_list` `master` @ `0a1d5a3` (골든은 실행 시점의 원본 HEAD를 `tests/golden/SOURCE_REV`에 기록)
 - 원칙
   1. **원본 Python = 정답.** 옮긴 로직은 원본과 출력이 같아야 끝난 것으로 본다.
   2. **작업 단위(T) 하나 = 커밋 하나 이상**, 단계(P)가 끝날 때마다 버전을 올리고 `master`에 병합한다.
@@ -14,17 +15,17 @@
 
 | 단계 | 버전 | 결과물 | 선행 단계 | 규모(작업일) |
 |---|---|---|---|---|
-| P0 앱 뼈대 | 0.1.0 | ✅ 완료 | — | — |
-| **P1 핵심 로직 이식** | 0.2.0 | 공구 리스트 산출 엔진(TS) + 골든 테스트 | P0 | 5~7 |
-| **P2 화면** | 0.3.0 | 입력창·공구표·대화상자·설정 (원본과 같은 구성) | P1 | 5~7 |
-| **P3 파일·출력** | 0.4.0 | 열기/PG ADD/공유 받기/저장/편집 모드/PDF/표 복사 | P2 | 3~4 |
-| **P4 3D 뷰어** | 0.5.0 | 툴패스·뷰 전환·방향 큐브·공정 필터·위치 찍기·PG 매칭 재생 | P1 (P2와 병행 가능) | 7~10 |
-| **P5 제스처** | 0.6.0 | 마우스 → 터치 대응 전부 | P4 | 3~4 |
-| **1차 테스트 배포** | 0.7.0 | 현장 테스트용 debug APK | P1~P5 | 1~2 |
-| **P6 형상 시뮬레이션** | 0.8.x | 밀링 Z-map → 3D 복셀 → 선반 → 턴밀 | P4 | 10~15 |
-| **P7 정식 배포** | 1.0.0 | 서명 키, release APK, **AAB** | 전부 | 2 |
+| P0 앱 뼈대 | 1.0.0 | ✅ 완료 | — | — |
+| **P1 핵심 로직 이식** | 1.1.0 | 공구 리스트 산출 엔진(TS) + 골든 테스트 | P0 | 5~7 |
+| **P2 화면** | 1.2.0 | 입력창·공구표·대화상자·설정 (원본과 같은 구성) | P1 | 5~7 |
+| **P3 파일·출력** | 1.3.0 | 열기/PG ADD/공유 받기/저장/편집 모드/PDF/표 복사 | P2 | 3~4 |
+| **P4 3D 뷰어** | 1.4.0 | 툴패스·뷰 전환·방향 큐브·공정 필터·위치 찍기·PG 매칭 재생 | P1 (P2와 병행 가능) | 7~10 |
+| **P5 제스처** | 1.5.0 | 마우스 → 터치 대응 전부 | P4 | 3~4 |
+| **1차 테스트 배포** | 1.6.0 | 현장 테스트용 debug APK | P1~P5 | 1~2 |
+| **P6 형상 시뮬레이션** | 1.7.x | 밀링 Z-map → 3D 복셀 → 선반 → 턴밀 | P4 | 10~15 |
+| **P7 정식 배포** | 1.8.0 | 서명 키, release APK, **AAB** | 전부 | 2 |
 
-진행 순서: `P1 → (P2 ∥ P4) → P3 → P5 → 0.7.0 테스트 배포 → P6 → P7`
+진행 순서: `P1 → (P2 ∥ P4) → P3 → P5 → 1.6.0 테스트 배포 → P6 → P7`
 
 ---
 
@@ -33,13 +34,14 @@
 ### 1.1 브랜치·커밋·병합 (CLAUDE.md 1절)
 - **클라우드 세션:** 지정된 작업 브랜치에서 작업 → push → PR → `master`에 병합. 병합한 뒤 Windows PC에서 `git_sync.bat`을 실행하도록 안내한다.
 - **Windows PC:** 작업 시작 전에 `git_sync.bat`, 끝날 때 `git_publish.bat "메시지"`.
-- 커밋 메시지는 `vX.Y.Z Pn-Tm: 요약` 형식으로 쓴다(예: `v0.2.0 P1-T3: 밀링 parse_program 이식`).
+- 커밋 메시지는 `vX.Y.Z Pn-Tm: 요약` 형식으로 쓴다(예: `v1.1.0 P1-T3: 밀링 parse_program 이식`).
 
 ### 1.2 버전 올리기
 - 단계가 끝날 때 다음 세 곳을 함께 바꾼다. **P1-T0에서 `bump_version.mjs`를 만들어 한 번에 바꾸게 한다.**
   - `package.json` → `version`
   - `src/version.ts` → `APP_VERSION`
   - `android/app/build.gradle` → `versionName`, `versionCode`(= M×100 + m×10 + p)
+  - 실행: 단계 끝 `npm run bump -- --minor`, 중간 수정 `npm run bump`, 직접 지정 `npm run bump -- --set X.Y.Z`
 - `ANDROID_PLAN.md` §10 진행 기록에 한 줄을 추가한다.
 
 ### 1.3 단계마다 끝내기 전 점검 (공통 완료 조건)
@@ -67,7 +69,7 @@ tools/golden/   정답 생성 스크립트 (Python, 원본 저장소를 읽음)
 
 ---
 
-## P1. 핵심 로직 이식 (v0.2.0)
+## P1. 핵심 로직 이식 (v1.1.0)
 
 **목표:** NC 텍스트를 넣으면 원본과 **똑같은** 공구 리스트(밀링 16열 / 선반 14열), 경고, 메타데이터, 코드 색, 검색 결과가 나온다. 화면은 없다.
 
@@ -96,7 +98,7 @@ tools/golden/   정답 생성 스크립트 (Python, 원본 저장소를 읽음)
 
 | ID | 작업 | 완료 기준 |
 |---|---|---|
-| **T0** | `tools/bump_version.mjs`(3곳 동시 갱신 + 0~9 자리올림), `npm run bump`. 테스트 추가 | `node tools/bump_version.mjs`를 실행하면 0.1.0 → 0.1.1이 되고 테스트가 통과한다 |
+| **T0** | `tools/bump_version.mjs`(3곳 동시 갱신 + 0~9 자리올림), `npm run bump`. 테스트 추가 | `node tools/bump_version.mjs`를 실행하면 PATCH가 오르고(자리올림 포함) 테스트가 통과한다. ✅ 이 도구로 1.0.0 설정 |
 | **T1** | **골든 생성기** `tools/golden/export_golden.py` 작성 (아래 1.1) | Windows에서 실행하면 `tests/golden/*.json`이 생긴다 |
 | **T2** | `text` · `columns` · `metadata` · `nameTypes` | 해당 골든 100% 일치 |
 | **T3** | `radiusComp` · `alerts` · **`millParser`** | 밀링 골든(원본 테스트 입력 + `O3210_excerpt.nc` + `ncdata.nc`) 100% 일치 |
@@ -105,7 +107,7 @@ tools/golden/   정답 생성 스크립트 (Python, 원본 저장소를 읽음)
 | **T6** | `ncColor` · `search` | 골든 100% 일치 |
 | **T7** | `programText`(CP949는 `iconv-lite`로 인코딩) · `password`(WebCrypto PBKDF2, 원본 해시 형식과 호환) | 원본이 만든 해시를 TS가 검증하고, TS가 만든 해시를 원본이 검증한다 |
 | **T8** | 성능 확인: `ncdata.nc`(600KB) 산출 시간 측정 | PC Node 기준 200ms 이하. 넘으면 P2에서 Worker로 돌린다 |
-| **T9** | 버전 0.2.0, 진행 기록, 병합 | 공통 완료 조건 |
+| **T9** | 버전 1.1.0, 진행 기록, 병합 | 공통 완료 조건 |
 
 ### 1.1 골든 생성 방식 (T1)
 
@@ -127,7 +129,7 @@ tools/golden/   정답 생성 스크립트 (Python, 원본 저장소를 읽음)
 
 ---
 
-## P2. 화면 (v0.3.0)
+## P2. 화면 (v1.2.0)
 
 **목표:** 원본과 같은 화면 구성으로 **산출까지** 된다. 파일 열기 대신 예제와 붙여넣기를 쓴다.
 
@@ -144,11 +146,11 @@ tools/golden/   정답 생성 스크립트 (Python, 원본 저장소를 읽음)
 | **T9** | **필터 영역**(Viewer 모드에서 입력창 아래): 텍스트 정지+입력, 정지(M00), 옵션정지(M01), 실시간 형상(P6 전까지 비활성), 공정 필터 목록, 전체/해제, PG 매칭. 뷰어 연결은 P4 | 3360~3440 | 화면 배치가 원본과 같다 |
 | **T10** | 반응형 정리: 폰 세로 탭, 툴바가 넘치면 `⋯` 메뉴, 분할선(가로)·입력/필터 분할선(세로), 안전 영역 | QSplitter 2개 | 세 가지 화면 크기에서 확인한다 |
 | **T11** | 설정 저장소 `platform/prefs.ts` (`@capacitor/preferences`, 웹에서는 localStorage) | QSettings, `app_settings.json` | 테마·폰트·장비·이름표가 유지된다 |
-| **T12** | 0.3.0, 병합 | | 공통 완료 조건 + 실기기 확인 |
+| **T12** | 1.2.0, 병합 | | 공통 완료 조건 + 실기기 확인 |
 
 ---
 
-## P3. 파일·출력 (v0.4.0)
+## P3. 파일·출력 (v1.3.0)
 
 | ID | 작업 | Android 구현 | 완료 기준 |
 |---|---|---|---|
@@ -161,11 +163,11 @@ tools/golden/   정답 생성 스크립트 (Python, 원본 저장소를 읽음)
 | **T7** | **PDF 출력** | `pdfmake` + Noto Sans KR 서브셋. 원본 표 스타일·열 폭·REMARK 굵게·SO 경고색·메타 행·파일명 규칙(`default_pdf_filename`)을 그대로. 만든 뒤 `@capacitor/share` 또는 PDF 뷰어로 열기 | 원본 PDF와 나란히 놓고 비교했을 때 같은 배치(밀링·선반 각 1건) |
 | **T8** | 표 복사 | 클립보드에 TSV, 머리글 포함 옵션. "복사됨! 엑셀에서 붙여넣기" | 모바일 엑셀·구글 시트에 붙여넣으면 칸이 맞는다 |
 | **T9** | 선반 스펙 저장소 | `LatheSpecStore` → `platform/latheSpecStore.ts` | 직접 입력한 스펙이 유지된다 |
-| **T10** | 0.4.0, 병합 | | 실기기: 열기 → 산출 → PDF 공유 → 편집·저장 |
+| **T10** | 1.3.0, 병합 | | 실기기: 열기 → 산출 → PDF 공유 → 편집·저장 |
 
 ---
 
-## P4. 3D 뷰어 (v0.5.0)
+## P4. 3D 뷰어 (v1.4.0)
 
 **핵심 위험:** 원본의 경로 계산 `NCViewerWidget.process_nc_lines`(nc_viewer_widget.py 4956~5959, 약 1,000줄)가 Qt 위젯 안에 있다.
 → **먼저 순수 로직으로 떼어 내고 골든으로 맞춘 뒤** 그리기를 붙인다.
@@ -200,11 +202,11 @@ tools/golden/   정답 생성 스크립트 (Python, 원본 저장소를 읽음)
 | **T9** | 위치 찍기 모드(우선 버튼으로 켬, 제스처는 P5) → 가장 가까운 선분 → 프로그램 줄로 이동, 깜빡임 표시 | 원본과 같은 줄 |
 | **T10** | 성능: `ncdata.nc`를 Worker에서 파싱하고 BufferGeometry 한 덩어리로 그린다. 중급 폰에서 60fps 목표, 최소 30fps | 실기기 측정 기록 |
 | **T11** | WebGL 실패 시 안내 + 2D(Canvas) XY 평면 보기로 대체 | 강제로 실패시켜 확인 |
-| **T12** | 0.5.0, 병합 | 공통 완료 조건 |
+| **T12** | 1.4.0, 병합 | 공통 완료 조건 |
 
 ---
 
-## P5. 제스처 (v0.6.0)
+## P5. 제스처 (v1.5.0)
 
 `viewer/gestures.ts` 하나에 모은다. Pointer Events로 직접 구현하고, 카메라 조작은 `camera.ts` 함수만 부른다.
 
@@ -232,25 +234,25 @@ tools/golden/   정답 생성 스크립트 (Python, 원본 저장소를 읽음)
 
 ---
 
-## 1차 테스트 배포 (v0.7.0)
+## 1차 테스트 배포 (v1.6.0)
 
-1. 도움말을 제스처 기준으로 다시 쓰고, About에 기준 원본 버전을 표시한다.
-2. 원본과 Android로 **같은 NC 10건**(밀링 7, 선반 3)을 산출해 비교표를 만든다(`docs/compare_0.7.0.md`).
-3. Windows에서 `build_apk.bat`로 `out\SumPath_v0.7.0_debug.apk`를 만들어 현장 테스트용으로 배포한다.
+1. 도움말을 제스처 기준으로 다시 쓴다.
+2. 원본과 Android로 **같은 NC 10건**(밀링 7, 선반 3)을 산출해 비교표를 만든다(`docs/compare_1.6.0.md`).
+3. Windows에서 `build_apk.bat`로 `out\SumPath_v1.6.0_debug.apk`를 만들어 현장 테스트용으로 배포한다.
 4. 피드백은 GitHub Issues에 모은다.
 
 ---
 
-## P6. 형상 시뮬레이션 (v0.8.x)
+## P6. 형상 시뮬레이션 (v1.7.x)
 
 | 버전 | ID | 내용 | 원본 |
 |---|---|---|---|
-| 0.8.0 | T1 | 밀링 공구 형상 `ToolShape`(평/코너R/볼/드릴 원뿔/챔퍼), `parse_stock_size_comment`, `StockSpec`, **소재 창**(STOCK SIZE 주석 읽기) | `nc_sim.py` 앞부분, `StockDialog` 1806 |
-| 0.8.0 | T2 | **Z-map 절삭** `ZMapStock` + 메시(`mesh_from_grid`, 깊이 색, 모서리선) — Web Worker, 스냅샷/되감기 | `nc_sim.py`, `nc_sim_numba.py` 루프 |
-| 0.8.1 | T3 | **3D 복셀** `VoxelStock` + `surface_nets`(경사면 G68.2·5축 G43.4 구간) | `nc_sim3d.py` |
-| 0.8.2 | T4 | **선반** `LatheStock`(반단면 격자, 인서트 다각형, 회전체 메시, 단면 보기) + `LatheStockDialog` | `nc_lathe_sim.py` |
-| 0.8.3 | T5 | **턴밀** `TurnMillStock` | `nc_lathe_sim.py` 뒷부분 |
-| 0.8.4 | T6 | 실시간 형상 체크, 급속 절삭 경고, STL 내보내기(공유) | `write_stl_binary`, `rapid_cut_warnings` |
+| 1.7.0 | T1 | 밀링 공구 형상 `ToolShape`(평/코너R/볼/드릴 원뿔/챔퍼), `parse_stock_size_comment`, `StockSpec`, **소재 창**(STOCK SIZE 주석 읽기) | `nc_sim.py` 앞부분, `StockDialog` 1806 |
+| 1.7.0 | T2 | **Z-map 절삭** `ZMapStock` + 메시(`mesh_from_grid`, 깊이 색, 모서리선) — Web Worker, 스냅샷/되감기 | `nc_sim.py`, `nc_sim_numba.py` 루프 |
+| 1.7.1 | T3 | **3D 복셀** `VoxelStock` + `surface_nets`(경사면 G68.2·5축 G43.4 구간) | `nc_sim3d.py` |
+| 1.7.2 | T4 | **선반** `LatheStock`(반단면 격자, 인서트 다각형, 회전체 메시, 단면 보기) + `LatheStockDialog` | `nc_lathe_sim.py` |
+| 1.7.3 | T5 | **턴밀** `TurnMillStock` | `nc_lathe_sim.py` 뒷부분 |
+| 1.7.4 | T6 | 실시간 형상 체크, 급속 절삭 경고, STL 내보내기(공유) | `write_stl_binary`, `rapid_cut_warnings` |
 
 - 정답 비교: 원본 numpy 결과(높이맵·점유 격자)를 골든으로 저장한다(압축 바이너리, `.bin.gz`). 칸별 오차 허용치는 0.01mm, 다른 칸 비율은 0.1% 이하를 기준으로 한다.
 - 모바일 상한: 격자 칸 수를 원본 자동 해상도의 1/4부터 시작해 실기기에서 조정한다. 설정에 "형상 정밀도(낮음/보통/높음)"를 둔다.
@@ -258,7 +260,7 @@ tools/golden/   정답 생성 스크립트 (Python, 원본 저장소를 읽음)
 
 ---
 
-## P7. 정식 배포 (v1.0.0)
+## P7. 정식 배포 (v1.8.0)
 
 | ID | 작업 |
 |---|---|
@@ -267,7 +269,7 @@ tools/golden/   정답 생성 스크립트 (Python, 원본 저장소를 읽음)
 | T3 | `build_release.bat` → 서명된 release APK (사내 직접 배포용) |
 | T4 | `build_aab.bat` → `gradlew bundleRelease` → `out\SumPath_vX.Y.Z.aab` (Play 스토어용) |
 | T5 | Play 콘솔 준비 목록(앱 이름, 개인정보처리방침, 스크린샷, 대상 API 36) 문서화 — 실제 등록은 사용자가 결정 |
-| T6 | 1.0.0, 최종 점검표, 병합 |
+| T6 | 1.8.0, 최종 점검표, 병합 |
 
 ---
 

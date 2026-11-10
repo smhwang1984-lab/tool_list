@@ -2,7 +2,7 @@
 // 원본 v2.2.8 화면 배치(제목 줄 / 툴바 / 프로그램 입력 │ 툴리스트·Viewer)를 그대로 잡아 두고,
 // 기능은 P1~P5에서 채운다. 아직 동작하지 않는 버튼은 비활성으로 둔다.
 import './styles.css';
-import { APP_NAME, APP_VERSION, BASE_DESKTOP_VERSION } from './version';
+import { APP_NAME, APP_VERSION } from './version';
 import { applyTheme, type ThemeName } from './theme';
 import { icon } from './icons';
 
@@ -80,7 +80,7 @@ function mount(root: HTMLElement): void {
   // ---------- 제목 줄 ----------
   const topBar = el('header', { class: 'top-bar' });
   topBar.innerHTML = `<span class="title">${APP_NAME} v${APP_VERSION}</span>` +
-    `<span class="caption">Android · 기준 원본 v${BASE_DESKTOP_VERSION}</span><span class="spacer"></span>`;
+    `<span class="caption">Android</span><span class="spacer"></span>`;
   const btnSettings = el('button', { class: 'icon-btn', title: '설정', type: 'button' }, icon('gear'));
   btnSettings.disabled = true;
   const btnHelp = el('button', { class: 'icon-btn', title: '도움말', type: 'button' }, icon('help'));
@@ -172,7 +172,6 @@ function mount(root: HTMLElement): void {
   btnHelp.addEventListener('click', () => showDialog('도움말', HELP_TEXT));
   btnAbout.addEventListener('click', () => showDialog('About', [
     `${APP_NAME} v${APP_VERSION} (Android)`,
-    `기준 원본: Sum Path 데스크톱 v${BASE_DESKTOP_VERSION}`,
     '만든 사람: Hwang.seonmun',
     '용도: NC 프로그램에서 공구 리스트를 산출하고 NC 경로를 Viewer로 확인하는 도구',
     '',

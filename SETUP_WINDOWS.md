@@ -44,7 +44,7 @@ build_apk.bat
 ```
 
 - 처음에는 npm 패키지와 Gradle을 내려받느라 5~10분 걸린다.
-- 결과 파일: `out\SumPath_v0.1.0_debug.apk`
+- 결과 파일: `out\SumPath_v1.0.0_debug.apk`
 
 ## 5. 기기에 설치
 
@@ -58,7 +58,7 @@ build_apk.bat
    ```
 
 ### 방법 B — 파일 복사
-`out\SumPath_v0.1.0_debug.apk`를 카카오톡·메일·USB 등으로 기기에 옮겨 연다.
+`out\SumPath_v1.0.0_debug.apk`를 카카오톡·메일·USB 등으로 기기에 옮겨 연다.
 "출처를 알 수 없는 앱 설치 허용"을 묻는 창이 뜨면 허용한다.
 
 ## 6. PC 브라우저에서 바로 보기 (개발할 때)

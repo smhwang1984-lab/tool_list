@@ -2,6 +2,7 @@
 
 - 작성일: 2026-11-10
 - 원본: `smhwang1984-lab/tool_list` `master` @ `0a1d5a3` (Sum Path **v2.3.5**, PyQt5 데스크톱)
+- 2026-11-10 결정: 이 앱은 원본과 **별도 프로그램**이다. 버전은 1.0.0에서 따로 시작한다(§8).
 - 목표: **기능은 그대로, 화면 구성은 같거나 비슷하게**, 마우스 조작만 **터치 제스처**로 바꿔 **Android APK**로 만든다.
 - 작업 환경: **Windows 11 Home PC** (빌드·서명·기기 테스트 모두 Windows에서)
 - **라이선스(sumpath_license / license_server / 체험판 창)는 이번 범위에서 보류** — 코드에서 아예 빼고, 나중에 붙일 자리만 남긴다.
@@ -227,7 +228,7 @@ build_apk.bat install
 ## 8. 저장소·버전 규칙 (tool_list와 같은 방식)
 
 - 메인 브랜치는 **`master`** 다. 작업이 끝나면 commit → push → master에 병합 → push. Windows PC는 `git_sync.bat` / `git_publish.bat`로 맞춘다.
-- 버전은 `MAJOR.MINOR.PATCH`(각 자리 0~9)로 **0.1.0**에서 시작한다. `package.json` / `src/version.ts` / `android/app/build.gradle`(versionName, versionCode = M×100+m×10+p)을 함께 올린다. 원본 기능을 다 갖추면 1.0.0. 원본 버전과는 따로 매기고, 기준으로 삼은 원본 버전은 About에 표시한다(예: "기준 원본 v2.3.5").
+- 이 앱은 원본과 **별도 프로그램**이다(2026-11-10 사용자 결정). 버전은 `MAJOR.MINOR.PATCH`(각 자리 0~9)로 **1.0.0**에서 새로 시작하고, 원본 버전과 맞추거나 About에 표시하지 않는다. `package.json` / `src/version.ts` / `android/app/build.gradle`(versionName, versionCode = M×100+m×10+p)은 `npm run bump`로 함께 올린다. 단계(P)가 끝날 때마다 MINOR를 올린다. 로직 정답 비교에 쓴 원본 커밋은 `tests/golden/SOURCE_REV`에만 적는다.
 - 서명 키스토어(`*.jks`, `*.keystore`), `keystore.properties`, 빌드 결과물은 커밋하지 않는다.
 - 원본 Python 코드는 이 저장소에 복사하지 않는다. 골든 스크립트가 원본 저장소 경로(`..\tool_list`)를 읽어서 정답을 만든다.
 
@@ -252,3 +253,4 @@ build_apk.bat install
 | 버전 | 날짜 | 단계 | 내용 |
 |---|---|---|---|
 | 0.1.0 | 2026-11-10 | **P0** | Capacitor 8 + Vite + TypeScript 뼈대. 원본 배치(제목 줄/툴바/2단·폰 세로 탭), 원본 THEMES 다크모드, 원본 아이콘 SVG 이식, Three.js WebGL 확인 화면, Android 프로젝트(`com.sumpath.nctoollist`, minSdk 26, target 36), 런처 아이콘·시작 화면, `build_apk.bat` / `git_sync.bat` / `git_publish.bat`, `SETUP_WINDOWS.md`. **APK 빌드는 Windows PC에서 확인 필요**(클라우드에서는 Android SDK 다운로드가 막혀 있음) |
+| 1.0.0 | 2026-11-10 | **P1-T0** | 별도 프로그램으로 보고 버전을 1.0.0에서 새로 시작(원본 버전 표시 제거). `tools/bump_version.mjs`(`npm run bump`, `--minor`, `--set`, `--check`) + 테스트. 단계별 버전을 P1=1.1.0 … P7=1.8.0으로 다시 매김 |
