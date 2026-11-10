@@ -29,7 +29,6 @@ import { cleanNameTypes, DEFAULT_NAME_TYPES } from './core/nameTypes';
 import { MACHINE_LATHE } from './core/machines';
 
 type Mode = 'tool' | 'viewer';
-type Tab = 'program' | Mode;
 
 function toolButton(label: string, iconName: string, title: string, opts: { accent?: boolean; disabled?: boolean } = {}) {
   const b = el('button', { class: 'tool-btn' + (opts.accent ? ' accent' : ''), title, type: 'button' },
@@ -88,15 +87,6 @@ function mount(root: HTMLElement): void {
     group(btnTool, btnViewer),
   );
 
-  // ---------- 폰 세로 탭 ----------
-  const tabs = el('div', { class: 'tabs' });
-  const tabButtons: Record<Tab, HTMLButtonElement> = {
-    program: el('button', { type: 'button' }, '프로그램'),
-    tool: el('button', { type: 'button' }, '툴리스트'),
-    viewer: el('button', { type: 'button' }, 'Viewer'),
-  };
-  tabs.append(tabButtons.program, tabButtons.tool, tabButtons.viewer);
-
   // ---------- 본문 ----------
   const body = el('main', { class: 'body' });
   const programPane = el('section', { class: 'pane program-pane' });
@@ -115,7 +105,30 @@ function mount(root: HTMLElement): void {
   editor.setLathe(isLathe());
   const searchBar = createSearchBar(editor, isLathe);
   const filterPanel = createFilterPanel();
-  programPane.append(machinePanel.root, searchBar.root, editorHost, filterPanel.root);
+  const vSplitter = el('div', { class: 'vsplitter', role: 'separator', 'aria-orientation': 'horizontal' });
+  programPane.append(machinePanel.root, searchBar.root, editorHost, vSplitter, filterPanel.root);
+  const setFilterHeight = (h: number): void => {
+    filterPanel.root.style.flex = `0 0 ${h}px`;
+  };
+  setFilterHeight(getPrefNumber('filter_height_px', window.innerHeight <= 520 ? 110 : 190, 70, 2000));
+  vSplitter.addEventListener('pointerdown', (ev) => {
+    vSplitter.setPointerCapture(ev.pointerId);
+    const startY = ev.clientY;
+    const startH = filterPanel.root.getBoundingClientRect().height;
+    const move = (e: PointerEvent): void => {
+      const room = programPane.getBoundingClientRect().height - 160;
+      setFilterHeight(Math.max(70, Math.min(room, startH - (e.clientY - startY))));
+    };
+    const up = (): void => {
+      vSplitter.removeEventListener('pointermove', move);
+      vSplitter.removeEventListener('pointerup', up);
+      vSplitter.removeEventListener('pointercancel', up);
+      setPref('filter_height_px', String(Math.round(filterPanel.root.getBoundingClientRect().height)));
+    };
+    vSplitter.addEventListener('pointermove', move);
+    vSplitter.addEventListener('pointerup', up);
+    vSplitter.addEventListener('pointercancel', up);
+  });
 
   const splitter = el('div', { class: 'splitter', role: 'separator', 'aria-orientation': 'vertical' });
 
@@ -127,7 +140,7 @@ function mount(root: HTMLElement): void {
   rightPane.append(toolView, viewerView);
   body.append(programPane, splitter, rightPane);
 
-  root.append(topBar, toolbar, tabs, body);
+  root.append(topBar, toolbar, body);
 
   // ---------- 산출 ----------
   const storeJson = getPref('lathe_store');
@@ -244,24 +257,20 @@ function mount(root: HTMLElement): void {
   btnRun.addEventListener('click', () => {
     hasRun = true;
     run();
-    setTab('tool');
+    setMode('tool');
     toast(`공구 ${toolTable.rows().length}개`);
   });
 
   // ---------- 동작 ----------
   let mode: Mode = 'tool';
   let viewerStarted = false;
-  const setTab = (tab: Tab) => {
-    body.dataset.tab = tab;
-    for (const [k, b] of Object.entries(tabButtons)) b.classList.toggle('active', k === tab);
-    if (tab !== 'program') setMode(tab);
-  };
   const setMode = (next: Mode) => {
     mode = next;
     btnTool.classList.toggle('checked', mode === 'tool');
     btnViewer.classList.toggle('checked', mode === 'viewer');
     toolView.hidden = mode !== 'tool';
     viewerView.hidden = mode !== 'viewer';
+    vSplitter.hidden = mode !== 'viewer';
     filterPanel.root.hidden = mode !== 'viewer'; // 필터 영역은 Viewer 모드에서만 (원본과 같다)
     machinePanel.root.hidden = mode !== 'viewer'; // 원본: 산출 모드에서는 장비 패널을 숨기고 표 위 콤보를 쓴다
     if (mode === 'viewer' && !viewerStarted) {
@@ -269,12 +278,9 @@ function mount(root: HTMLElement): void {
       void import('./viewer/placeholder').then((m) => m.startPlaceholderViewer(viewerView));
     }
   };
-  // 툴바의 모드 버튼은 폰 세로 화면에서 탭 전환도 겸한다(가로 화면에서는 탭이 숨어 있어 영향 없음).
-  btnTool.addEventListener('click', () => setTab('tool'));
-  btnViewer.addEventListener('click', () => setTab('viewer'));
-  for (const [k, b] of Object.entries(tabButtons)) b.addEventListener('click', () => setTab(k as Tab));
+  btnTool.addEventListener('click', () => setMode('tool'));
+  btnViewer.addEventListener('click', () => setMode('viewer'));
   setMode('tool');
-  setTab('program');
 
   btnDark.addEventListener('click', () => {
     theme = theme === 'dark' ? 'light' : 'dark';

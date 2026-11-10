@@ -3,7 +3,7 @@ import {
   findNextLiteralSpan, findNextToolChangeSpan, findPrevToolChangeSpan, type Span,
 } from '../core/search';
 import type { Editor } from './editor';
-import { el } from './dialog';
+import { el, toast } from './dialog';
 
 export interface SearchBar {
   root: HTMLElement;
@@ -31,6 +31,8 @@ export function createSearchBar(editor: Editor, isLathe: () => boolean): SearchB
 
   const setStatus = (text: string, error = false): void => {
     status.textContent = text;
+    // 낮은 화면(폰 가로)에서는 상태 줄을 숨기므로 안내를 잠깐 띄운다
+    if (window.matchMedia('(max-height: 520px)').matches) toast(text, 1500);
     status.classList.toggle('error', error);
   };
   const apply = (result: Span | null, noneText: string, foundText: string, wrapText: string): void => {

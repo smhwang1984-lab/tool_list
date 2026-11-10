@@ -199,23 +199,39 @@ dialog.settings { width: min(440px, 94vw); }
 }
 [hidden] { display: none !important; }
 
-/* ---------- 폰 세로: 탭 ---------- */
-.tabs { display: none; }
-@media (orientation: portrait) and (max-width: 900px) {
-  .tabs {
-    display: flex; background: var(--toolbar_bg); border-bottom: 1px solid var(--toolbar_sep);
-  }
-  .tabs button {
-    flex: 1; min-height: 44px; border: none; background: transparent; color: var(--text);
-    font: inherit; font-size: 14px; border-bottom: 3px solid transparent;
-  }
-  .top-bar .caption { display: none; }
-  .tabs button.active { border-bottom-color: var(--accent); font-weight: 700; }
-  .splitter { display: none; }
-  .program-pane { flex: 1; min-width: 0; }
-  .body[data-tab="program"] .right-pane { display: none; }
-  .body[data-tab="tool"] .program-pane,
-  .body[data-tab="viewer"] .program-pane { display: none; }
+/* ---------- 가로 전용: 낮은 화면(폰 가로 약 360px 높이)에서 세로 공간 아끼기 ---------- */
+.vsplitter { flex: 0 0 14px; cursor: row-resize; touch-action: none; display: flex; align-items: center; justify-content: center; }
+.vsplitter::after { content: ''; height: 4px; width: 48px; border-radius: 2px; background: var(--toolbar_sep); }
+.machine-panel { max-height: 55%; overflow: auto; }
+.filter-panel { max-height: none; min-height: 0; }
+@media (max-height: 520px) {
+  .top-bar { min-height: 36px; }
+  .top-bar .title { font-size: 15px; }
+  .top-bar .icon-btn { min-width: 40px; min-height: 36px; }
+  .icon-btn svg { width: 22px; height: 22px; }
+  .tool-btn { min-height: 40px; min-width: 52px; padding: 2px 6px; font-size: 11px; }
+  .tool-btn svg { width: 20px; height: 20px; }
+  .pane-head { display: none; }
+  .search-bar { padding: 2px 6px; flex-wrap: nowrap; }
+  .search-bar button { padding: 0 6px; font-size: 12px; }
+  .search-status { display: none; }
+  .editor-host { min-height: 70px; }
+  .machine-toggle { min-height: 32px; padding: 2px 10px; }
+  .machine-panel { padding: 2px 8px; }
+  .filter-row { gap: 2px 8px; }
+  .pb-check { font-size: 13px; }
+  .filter-row input[type="text"] { width: 6em; min-height: 30px; }
+  .filter-title { font-size: 13px; }
+  .search-bar button, .search-bar input { min-height: 34px; }
+  .tool-bar { padding: 2px 10px; }
+  .tool-actions { padding: 2px 10px; }
+  .tool-actions button, .filter-row button { min-height: 34px; }
+  .metadata-summary { margin: 2px 10px; padding: 3px 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tool-hint { display: none; }
+  .pb-check { min-height: 30px; }
+  .filter-panel { padding: 2px 8px; }
+  dialog { max-height: 96vh; }
+  dialog .dlg-body { max-height: 62vh; }
 }
 
 /* ---------- 대화상자 ---------- */
