@@ -33,7 +33,7 @@ import lathe_insert_spec
 import sumpath_license
 
 
-APP_VERSION = '2.3.6'
+APP_VERSION = '2.3.7'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-11-10'
 APP_CREATOR = 'Hwang.seonmun'
@@ -504,7 +504,11 @@ def code_without_comments(line):
 RADIUS_COMP_RE = re.compile(r'G0*4([12])(?![\d.])', re.I)
 # 화면/PDF에서 굵게 그릴 부분을 되짚어 찾을 때 쓰는, REMARK 표시 문구
 # 안의 "(G41)"/"(G42)"/"(G41/G42)" 패턴.
-RADIUS_COMP_DISPLAY_RE = re.compile(r'\(G4[12](?:/G4[12])*\)')
+RADIUS_COMP_DISPLAY_RE = re.compile(r'\(G4[12](?:/G4[12])*\)|\(M[23]00(?:H\d+(?:≠H\d+)?)?\)')
+# v2.3.7: M300/M200(H번호) 표기 — "(M300H1)". 공정의 G43 H(없으면 M6 T)와 다르면
+# "(M300H2≠H1)" 로 적고 화면/PDF에서 빨간 글씨로 그린다.
+M_PROBE_RE = re.compile(r'(?<![A-Z])M0*([23]00)(?![\d.])\s*(?:H\s*0*(\d+)(?![\d.]))?', re.I)
+RADIUS_COMP_MISMATCH_RE = re.compile(r'\(M[23]00H\d+≠H\d+\)')
 # M98 P<n>로 부르는 서브프로그램(O<n> 헤더 ~ M99 또는 다음 O헤더) 안의
 # G41/G42도 호출한 N에 포함한다(결정 D) — 뷰어의 상태 추적형
 # _expand_subprograms()(nc_viewer_widget.py)는 재사용하지 않는다. 공구
@@ -570,6 +574,35 @@ def _format_comp_suffix(codes):
     return '(' + '/'.join(ordered) + ')'
 
 
+def _probe_suffix(block_lines):
+    """v2.3.7: 공정(N 블록) 안 M300/M200 → "(M300H1)(M200)" 표기. H가 있고 같은
+    공정의 G43 H(없으면 M6 T 번호)와 다르면 "(M300H2≠H1)"."""
+    g43_ref = t_ref = None
+    found = []
+    for line in block_lines:
+        code = code_without_comments(line)
+        hm = MILL_G43_RE.search(code) and MILL_H_WORD_RE.search(code)
+        if hm and g43_ref is None:
+            g43_ref = int(hm.group(1))
+        tm = M6_RE.match(line)
+        if tm and t_ref is None:
+            t_ref = int(tm.group(1))
+        for m in M_PROBE_RE.finditer(code):
+            found.append((m.group(1), int(m.group(2)) if m.group(2) else None))
+    ref = g43_ref if g43_ref is not None else t_ref
+    out = []
+    for code_no, h in found:
+        if h is None:
+            text = '(M%s)' % code_no
+        elif ref is not None and h != ref:
+            text = '(M%sH%d≠H%d)' % (code_no, h, ref)
+        else:
+            text = '(M%sH%d)' % (code_no, h)
+        if text not in out:
+            out.append(text)
+    return ''.join(out)
+
+
 def _radius_comp_by_n(lines, n_re):
     """N번호(예: "N8") -> 경보정 표시 문구("(G41)" 등, 없으면 "") 매핑.
     블록 범위는 n_re가 매치하는 줄부터 다음 매치 줄 전까지(밀링/선반 각자의
@@ -585,7 +618,7 @@ def _radius_comp_by_n(lines, n_re):
     for index, (start, label) in enumerate(positions):
         end = positions[index + 1][0] if index + 1 < len(positions) else len(lines)
         codes = _radius_comp_codes_for_block(lines[start + 1:end], bodies, lines, set())
-        result[label] = _format_comp_suffix(codes)
+        result[label] = _format_comp_suffix(codes) + _probe_suffix(lines[start + 1:end])
     return result
 
 
@@ -819,7 +852,8 @@ def _pdf_remark_cell(text, regular_font, bold_font):
     chunks = []
     for match in RADIUS_COMP_DISPLAY_RE.finditer(text):
         chunks.append(escape(text[pos:match.start()]))
-        chunks.append('<font face="%s">%s</font>' % (bold_font, escape(match.group(0))))
+        color = ' color="#d00000"' if RADIUS_COMP_MISMATCH_RE.fullmatch(match.group(0)) else ''
+        chunks.append('<font face="%s"%s>%s</font>' % (bold_font, color, escape(match.group(0))))
         pos = match.end()
     chunks.append(escape(text[pos:]))
     return Paragraph(''.join(chunks), style)
@@ -2293,7 +2327,10 @@ else:
             chunks = []
             for match in RADIUS_COMP_DISPLAY_RE.finditer(text):
                 chunks.append(escape(text[pos:match.start()]))
-                chunks.append('<b>%s</b>' % escape(match.group(0)))
+                if RADIUS_COMP_MISMATCH_RE.fullmatch(match.group(0)):
+                    chunks.append('<b style="color:#d00000;">%s</b>' % escape(match.group(0)))
+                else:
+                    chunks.append('<b>%s</b>' % escape(match.group(0)))
                 pos = match.end()
             chunks.append(escape(text[pos:]))
             return ''.join(chunks)

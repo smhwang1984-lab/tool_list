@@ -639,6 +639,7 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
         # v2.3.4: 휠(가운데 버튼) 누르기 = 줌 중심 고정, 누른 채 위아래로 끌기 = 줌.
         self._middle_anchor = None
         self._middle_last_y = 0.0
+        self._middle_last_x = 0.0
         # v2.3.5: 좌드래그 회전의 중심(월드 좌표). 누른 자리에서 정해 놓을 때까지 쓴다 —
         # None이면 pyqtgraph 기본(opts['center']) 기준 회전. 호스트가 경로 위 지점을
         # 돌려주는 콜백을 주입한다(view_x, view_y) -> (x, y, z) 또는 None.
@@ -817,10 +818,10 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
             self._right_press_pos = lpos
             self._right_dragging = False
         elif ev.button() == Qt.MiddleButton:
-            # v2.3.4: 누른 자리가 줌 중심 — 놓을 때까지 십자 표시를 띄워 둔다.
+            # v2.3.7: 휠 버튼 누른 채 드래그 = 화면 이동(pan). 확대/축소는 휠 굴리기만.
             self._middle_anchor = lpos
             self._middle_last_y = float(lpos.y())
-            self.show_zoom_marker(lpos.x(), lpos.y(), hold=True)
+            self._middle_last_x = float(lpos.x())
         super().mousePressEvent(ev)
 
     def mouseReleaseEvent(self, ev):
@@ -839,7 +840,6 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
             return
         if ev.button() == Qt.MiddleButton and self._middle_anchor is not None:
             self._middle_anchor = None
-            self._zoom_marker_timer.start()
             return
         if ev.button() == Qt.LeftButton and self.drag_zoom_active and self._drag_zoom_origin is not None:
             lpos = ev.position() if hasattr(ev, 'position') else ev.localPos()
@@ -877,13 +877,14 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
             self.mouse_moved.emit(lpos.x(), lpos.y())
             return
         if (ev.buttons() & Qt.MiddleButton) and self._middle_anchor is not None:
-            # v2.3.4: 휠 누른 채 위로 끌면 확대, 아래로 끌면 축소. 중심은 누른 자리에 고정
-            # (pyqtgraph 기본 휠 드래그 화면 이동은 쓰지 않는다 — 이동은 Ctrl+좌드래그).
+            # v2.3.7: 휠 누른 채 끌면 화면 이동(Ctrl+좌드래그 팬과 같은 pan 호출).
+            dx = float(lpos.x()) - self._middle_last_x
             dy = float(lpos.y()) - self._middle_last_y
+            self._middle_last_x = float(lpos.x())
             self._middle_last_y = float(lpos.y())
-            if dy:
-                factor = MIDDLE_DRAG_ZOOM_BASE ** (dy * self.navigation_sensitivity)
-                self.zoom_about_point(self._middle_anchor.x(), self._middle_anchor.y(), factor)
+            if dx or dy:
+                self.pan(dx * self.navigation_sensitivity, dy * self.navigation_sensitivity, 0, relative='view')
+                self.camera_changed.emit()
             self.mousePos = lpos
             self.mouse_moved.emit(lpos.x(), lpos.y())
             return

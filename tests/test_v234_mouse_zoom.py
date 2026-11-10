@@ -84,47 +84,19 @@ def test_marker_does_not_take_mouse_events(viewer):
     assert viewer.gl_view.zoom_marker.testAttribute(Qt.WA_TransparentForMouseEvents)
 
 
-# ---------------------------------------------------------------- 휠 누르고 끌기 줌
-def test_middle_press_fixes_center_and_vertical_drag_zooms_about_it(viewer):
-    gl_view = viewer.gl_view
-    world = (100.0, 0.0, 0.0)
-    sx, sy = project(gl_view, world)
-    anchor = QPoint(int(round(sx)), int(round(sy)))
-    mid = Qt.MiddleButton
-    distance = gl_view.opts['distance']
-
-    mouse(gl_view, 'press', anchor, mid, mid)
-    assert gl_view.zoom_marker.isVisible() and not gl_view._zoom_marker_timer.isActive()
-
-    # 위로 끌기(커서는 옆으로도 움직임) — 확대, 중심은 처음 누른 자리에 고정
-    mouse(gl_view, 'move', anchor + QPoint(40, -60), Qt.NoButton, mid)
-    zoomed_in = gl_view.opts['distance']
-    assert zoomed_in < distance
-    px, py = project(gl_view, world)
-    assert abs(px - anchor.x()) < 1.0 and abs(py - anchor.y()) < 1.0
-    assert marker_center(gl_view) == pytest.approx((anchor.x(), anchor.y()), abs=1)
-
-    # 아래로 끌기 — 축소
-    mouse(gl_view, 'move', anchor + QPoint(40, 60), Qt.NoButton, mid)
-    assert gl_view.opts['distance'] > zoomed_in
-    px, py = project(gl_view, world)
-    assert abs(px - anchor.x()) < 1.0 and abs(py - anchor.y()) < 1.0
-
-    mouse(gl_view, 'release', anchor + QPoint(40, 60), mid, Qt.NoButton)
-    assert gl_view._zoom_marker_timer.isActive()
-
-
-def test_middle_horizontal_drag_no_longer_pans(viewer):
+# ---------------------------------------------------------------- 휠 누르고 끌기 = 이동(v2.3.7)
+def test_middle_drag_pans_without_zoom(viewer):
     gl_view = viewer.gl_view
     center = QPoint(gl_view.width() // 2, gl_view.height() // 2)
     before = QVector3D(gl_view.opts['center'])
     distance = gl_view.opts['distance']
     mid = Qt.MiddleButton
     mouse(gl_view, 'press', center, mid, mid)
-    mouse(gl_view, 'move', center + QPoint(120, 0), Qt.NoButton, mid)
-    mouse(gl_view, 'release', center + QPoint(120, 0), mid, Qt.NoButton)
+    mouse(gl_view, 'move', center + QPoint(80, -50), Qt.NoButton, mid)
+    mouse(gl_view, 'release', center + QPoint(80, -50), mid, Qt.NoButton)
     assert gl_view.opts['distance'] == pytest.approx(distance)
-    assert (QVector3D(gl_view.opts['center']) - before).length() < 1e-6
+    assert (QVector3D(gl_view.opts['center']) - before).length() > 1e-3
+    assert gl_view._middle_anchor is None
 
 
 # ---------------------------------------------------------------- 회귀
