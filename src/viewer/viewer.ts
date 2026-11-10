@@ -476,7 +476,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     const geom = new LineSegmentsGeometry();
     geom.setPositions(new Float32Array(pos));
     const mat = new LineMaterial({ color: rgb(color), linewidth: lineWidth(base), worldUnits: false, depthTest: false, transparent: true });
-    mat.resolution.set(host.clientWidth, host.clientHeight);
+    mat.resolution.set(Math.max(1, host.clientWidth), Math.max(1, host.clientHeight));
     materials.push({ m: mat, base });
     const obj = new LineSegments2(geom, mat);
     obj.frustumCulled = false;
@@ -627,7 +627,13 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
       if (next >= 0 && next !== seqNow) showSeq(next, true);
       if (seqNow >= n - 1) stopPlaying();
     }
-    if (dirty) { dirty = false; renderer.render(scene, camera); }
+    if (dirty) {
+      dirty = false;
+      // 선 굵기 계산용 해상도가 0이면 선이 사라진다 — 매 그리기 전에 실제 크기와 맞춘다
+      const rw = Math.max(1, host.clientWidth), rh = Math.max(1, host.clientHeight);
+      for (const { m } of materials) if (m.resolution.x !== rw || m.resolution.y !== rh) m.resolution.set(rw, rh);
+      renderer.render(scene, camera);
+    }
   };
   let raf = requestAnimationFrame(tick);
 
