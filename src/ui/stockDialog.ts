@@ -1,6 +1,6 @@
 // 소재(STOCK) 창 — 원본 StockDialog(밀링). T/W/L 치수 · 축 배정 · 기준 위치 · 추가 이동 · 해상도 · 형상 켜기.
 import { getPref, setPref } from '../platform/prefs';
-import { AXES, DIM_KEYS, StockSpec, autoResolution, parseStockSizeComment, type Axis, type Bounds, type DimKey, type Reference } from '../sim/stock';
+import { AXES, DIM_KEYS, StockSpec, parseStockSizeComment, type Axis, type Bounds, type DimKey, type Reference } from '../sim/stock';
 import type { SimStatus } from '../viewer/simLayer';
 import { el, showDialog, toast } from './dialog';
 
@@ -9,7 +9,8 @@ export interface StockDialogContext {
   lines: () => string[];
   /** 툴패스 범위 + 여유(mm). 경로가 없으면 null */
   toolpathBounds: (margin: number) => Bounds | null;
-  apply: (spec: StockSpec, resolution: number, enabled: boolean) => void;
+  /** resolution null = 자동 */
+  apply: (spec: StockSpec, resolution: number | null, enabled: boolean) => void;
   clear: () => void;
   status: () => SimStatus;
   /** 급속 절삭 줄로 이동 */
@@ -127,8 +128,8 @@ export function showStockDialog(ctx: StockDialogContext): void {
   const refreshStatus = (): void => {
     const st = ctx.status();
     const parts: string[] = [];
-    if (st.hasStock) parts.push(`격자 ${st.nx}×${st.ny} (${(st.cells / 1000).toFixed(0)}천 칸, ${st.resolution}mm) · 깎은 선분 ${st.cutSegments}/${st.totalSegments}${st.busy ? ' · 계산 중…' : ''}`);
-    if (st.tilted) parts.push(`공구 축이 기울어진 ${st.tilted}개 이동은 건너뜁니다(3D 소재는 다음 단계).`);
+    if (st.hasStock) parts.push(`${st.engine === 'voxel' ? '3D 복셀' : 'Z-map'} 격자 ${st.nx}×${st.ny}${st.engine === 'voxel' ? '×' + st.nz : ''} (${(st.cells / 1000).toFixed(0)}천 칸, ${st.resolution}mm) · 깎은 선분 ${st.cutSegments}/${st.totalSegments}${st.busy ? ' · 계산 중…' : ''}`);
+    if (st.engine === 'voxel' || st.tilted) parts.push(`공구 축이 기운 이동 ${st.tilted}개가 있어 3D 복셀로 깎습니다(자동 해상도는 거칠 수 있습니다).`);
     if (st.excluded.length) parts.push(`공구 형상을 못 만든 공구(지름 없음): ${st.excluded.join(', ')}`);
     if (st.noToolMoves) parts.push(`공구 번호가 없는 공정 이동 ${st.noToolMoves}개는 깎지 않습니다.`);
     if (st.rapidLines.length) parts.push(`급속(G00)이 소재를 깎은 줄: ${st.rapidLines.map((l) => l + 1).join(', ')}`);
@@ -190,7 +191,7 @@ export function showStockDialog(ctx: StockDialogContext): void {
         const b = spec.bounds();
         if (!(b.X[1] > b.X[0] && b.Y[1] > b.Y[0] && b.Z[1] > b.Z[0])) { toast('소재 치수가 0 이하입니다.'); return false; }
         const resText = resSelect.value;
-        const res = resText === '자동' ? autoResolution(b, 1_000_000, true) : parseFloat(resText);
+        const res = resText === '자동' ? null : parseFloat(resText);
         save();
         ctx.apply(spec, res, enable.checked);
         return true;

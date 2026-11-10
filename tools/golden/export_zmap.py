@@ -36,6 +36,11 @@ def fake_shape_map():
     return out
 
 
+def nc_sim_clean(value):
+    import json as _j
+    return _j.loads(_j.dumps(value, default=lambda o: o.tolist() if hasattr(o, 'tolist') else str(o)))
+
+
 def main(argv):
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -88,6 +93,38 @@ def main(argv):
             f.write(stock.heights.astype('<f4').tobytes())
             f.write(stock.color_ids.astype('<i2').tobytes())
         print(name, 'cells', stock.nx * stock.ny, 'segs', meta['segments'], 'tilted', meta['tilted'], 'cut', meta['cut'])
+    # ---- P6-T3: 3D 복셀 (공구 축이 기운 이동) ----
+    import nc_sim3d
+    M5A = '5축 MCT (A to C)'
+    for name, machine, limit, vres in [('5ax_A_To_C.nc', M5A, 100000, 0.5)]:
+        raw = (FIXTURES / name).read_bytes()
+        try:
+            text = raw.decode('utf-8-sig')
+        except UnicodeDecodeError:
+            text = raw.decode('cp949', errors='replace')
+        lines = text.splitlines()[:MAX_LINES]
+        viewer.current_machine_type = machine
+        viewer.last_render_signature = None
+        viewer.process_nc_lines(lines)
+        viewer.tool_shape_map = fake_shape_map()
+        viewer._rebuild_sim_nodes()
+        seg = viewer.sim_seg
+        bounds = viewer.toolpath_bounds(margin=MARGIN)
+        n = min(limit, len(seg['seq1']))
+        stock = nc_sim3d.VoxelStock(bounds, vres)
+        stock.cut_batch(seg['p0'][:n], seg['p1'][:n], viewer._sim_tools, seg['slot'][:n], seg['rapid'][:n],
+                        seg['color'][:n], src_lines=seg['src'][:n], seqs=seg['seq1'][:n], use_numba=False,
+                        axes0=seg['axis0'][:n], axes1=seg['axis1'][:n])
+        meta = {'file': name, 'machine': machine, 'specs': nc_sim_clean(viewer.machine_specs.get(machine, {})),
+                'bounds': {k: list(v) for k, v in bounds.items()}, 'resolution': vres, 'limit': n,
+                'shape': [stock.nx, stock.ny, stock.nz], 'engine': viewer.sim_engine,
+                'removed': int(stock.occ.size - int(stock.occ.sum())), 'rapid_warnings': [[a, b] for a, b in stock.rapid_cut_warnings]}
+        stem = Path(name).stem + '__voxel'
+        (OUT / (stem + '.json')).write_text(json.dumps(meta, ensure_ascii=False), encoding='utf-8')
+        with gzip.open(OUT / (stem + '.bin.gz'), 'wb', compresslevel=9) as f:
+            f.write(stock.occ.tobytes())
+            f.write(stock.col.tobytes())
+        print(name, 'voxel', meta['shape'], 'removed', meta['removed'], 'engine', meta['engine'])
     return 0
 
 

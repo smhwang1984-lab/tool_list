@@ -251,7 +251,7 @@ tools/golden/   정답 생성 스크립트 (Python, 원본 저장소를 읽음)
 |---|---|---|---|
 | 1.7.0 | T1 ✅ | 밀링 공구 형상 `ToolShape`(평/코너R/볼/드릴 원뿔/챔퍼), `parse_stock_size_comment`, `StockSpec`, **소재 창**(STOCK SIZE 주석 읽기) | `nc_sim.py` 앞부분, `StockDialog` 1806 |
 | 1.7.0 | T2 ✅(△ Worker·깊이 색 보류) | **Z-map 절삭** `ZMapStock` + 메시(`mesh_from_grid`, 깊이 색, 모서리선) — Web Worker, 스냅샷/되감기 | `nc_sim.py`, `nc_sim_numba.py` 루프 |
-| 1.7.1 | T3 | **3D 복셀** `VoxelStock` + `surface_nets`(경사면 G68.2·5축 G43.4 구간) | `nc_sim3d.py` |
+| 1.7.1 | T3 ✅(기본) | **3D 복셀** `VoxelStock` + `surface_nets`(경사면 G68.2·5축 G43.4 구간) | `nc_sim3d.py` |
 | 1.7.2 | T4 | **선반** `LatheStock`(반단면 격자, 인서트 다각형, 회전체 메시, 단면 보기) + `LatheStockDialog` | `nc_lathe_sim.py` |
 | 1.7.3 | T5 | **턴밀** `TurnMillStock` | `nc_lathe_sim.py` 뒷부분 |
 | 1.7.4 | T6 | 실시간 형상 체크, 급속 절삭 경고, STL 내보내기(공유) | `write_stl_binary`, `rapid_cut_warnings` |

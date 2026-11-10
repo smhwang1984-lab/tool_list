@@ -52,7 +52,9 @@ export interface Viewer {
   /** 가공 형상: 절삭 선분·공구 형상(프로그램이 바뀔 때마다) */
   setSimProgram(p: SimProgram | null): void;
   /** 소재 적용(bounds 가 null 이면 소재 제거) */
-  applyStock(bounds: Bounds | null, resolution: number, enabled: boolean): void;
+  applyStock(bounds: Bounds | null, resolution: number | null, enabled: boolean): void;
+  /** PG 매칭: 전체 경로를 지우고 커서가 있는 공정만 커서 위치까지 그린다 */
+  setPgMatch(on: boolean): void;
   setSimEnabled(on: boolean): void;
   setSimLive(on: boolean): void;
   simStatus(): SimStatus;
@@ -105,6 +107,15 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
   scene.add(group);
   const sim: SimLayer = createSimLayer(scene, () => { dirty = true; hooks.onSimChange?.(); });
   let simLive = false;
+  let pgMatch = false;
+  /** seqNow 가 속한 공정 키(공정 첫 seq 가 seqNow 이하인 마지막 공정) */
+  const currentProcessKey = (): string | null => {
+    if (!result) return null;
+    let best: string | null = null;
+    let bestSeq = -1;
+    for (const [key, s] of result.process_first_seq) if (s <= seqNow && s >= bestSeq) { best = key; bestSeq = s; }
+    return best;
+  };
   let processes: ProcessObjects[] = [];
   const materials: { m: LineMaterial; base: number }[] = [];
 
@@ -548,10 +559,6 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
   let visible: Set<string> | null = null;
   function setVisible(keys: string[] | null): void {
     visible = keys ? new Set(keys) : null;
-    for (const p of processes) {
-      const on = !visible || visible.has(p.key);
-      for (const o of p.objs) o.visible = on;
-    }
     showSeq(seqNow, false);
     if (!simLive) sim.setTarget(selectionEndSeq());
   }
@@ -589,15 +596,18 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     slider.value = String(seqNow);
     if (simLive) sim.setTarget(seqNow);
     const keysVisible = visibleKeys();
+    const curKey = pgMatch ? currentProcessKey() : null;
     for (const p of processes) {
       const on = !keysVisible || keysVisible.has(p.key);
+      for (const o of p.objs) o.visible = on && !pgMatch; // PG 매칭 중에는 전체 경로를 숨긴다
+      const traceOn = on && (!pgMatch || p.key === curKey);
       for (const t of p.trace) {
         let count = 0;
         const s = t.seqs;
         let lo = 0, hi = s.length;
         while (lo < hi) { const mid = (lo + hi) >> 1; if (s[mid]! <= seqNow) lo = mid + 1; else hi = mid; }
         count = lo;
-        t.obj.visible = on && count > 0;
+        t.obj.visible = traceOn && count > 0;
         if (count > 0) (t.obj.geometry as LineSegmentsGeometry & { instanceCount: number }).instanceCount = count;
       }
     }
@@ -714,6 +724,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     },
     setSimProgram(p) { sim.setProgram(p); if (!simLive) sim.setTarget(selectionEndSeq()); },
     applyStock(bounds, resolution, on) { sim.setStock(bounds, resolution, on); sim.setTarget(simLive ? seqNow : selectionEndSeq()); },
+    setPgMatch(on) { pgMatch = on; showSeq(seqNow, false); },
     setSimEnabled(on) { sim.setEnabled(on); },
     setSimLive(on) {
       simLive = on;

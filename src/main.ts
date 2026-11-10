@@ -83,13 +83,13 @@ const HELP_TEXT = [
   '■ 재생 (PG 매칭)',
   '  ▶ 재생/정지, ↺ 처음으로, ⏮⏭ 이전/다음 공정, 속도 1x~5000x, 막대를 끌어 위치 이동.',
   '  텍스트 정지 / 정지(M00) / 옵션정지(M01)에서 자동으로 멈춥니다.',
-  '  "PG 매칭"을 켜면 입력창의 커서 줄과 경로 위치가 서로 따라갑니다.',
+  '  "PG 매칭"을 켜면 전체 경로를 지우고, 입력창 커서가 있는 공정만 커서 위치까지 그립니다(재생·방향키 연동).',
   '',
-  '■ 소재와 가공 형상 (밀링 3축)',
+  '■ 소재와 가공 형상 (밀링)',
   '  툴바 "소재" 단추 → 치수(T/W/L)·축·기준 위치·해상도를 정하고 적용하면 깎인 모양이 보입니다.',
   '  프로그램 위쪽 주석 (STOCK SIZE : T50 W95 L385) 이 있으면 치수를 자동으로 읽습니다.',
   '  "실시간 형상"을 켜면 재생·커서 위치까지, 끄면 선택한 공정의 끝까지 깎습니다.',
-  '  공구 축이 기울어진 이동(경사면·5축)은 아직 깎지 않습니다. 선반 소재도 다음 단계입니다.',
+  '  경사면·5축처럼 공구 축이 기운 이동이 있으면 3D 복셀로 깎습니다(자동 해상도는 거칠 수 있음). 선반 소재는 다음 단계입니다.',
   '',
   '■ 공정 필터',
   '  목록에서 공정을 여러 개 골라 표시합니다. 전체 / 해제 / Reset.',
@@ -370,6 +370,7 @@ function mount(root: HTMLElement): void {
         lineText: (line) => editor.view.state.doc.line(Math.min(editor.view.state.doc.lines, line + 1)).text,
       });
       viewer?.setSimLive(filterPanel.liveOn());
+      viewer?.setPgMatch(pgMatchOn);
     });
     return viewerLoading;
   };
@@ -453,7 +454,7 @@ function mount(root: HTMLElement): void {
 
   filterPanel.onSelectionChange = (keys) => viewer?.setVisible(keys);
   filterPanel.onReset = () => viewer?.reset();
-  filterPanel.onPgMatch = (on) => { pgMatchOn = on; if (on) viewer?.setLine(editor.view.state.doc.lineAt(editor.view.state.selection.main.head).number - 1); };
+  filterPanel.onPgMatch = (on) => { pgMatchOn = on; viewer?.setPgMatch(on); if (on) viewer?.setLine(editor.view.state.doc.lineAt(editor.view.state.selection.main.head).number - 1); };
   editor.onCursorLine = (line) => { if (pgMatchOn) viewer?.setLine(line); };
   btnTool.addEventListener('click', () => setMode('tool'));
   btnViewer.addEventListener('click', () => setMode('viewer'));

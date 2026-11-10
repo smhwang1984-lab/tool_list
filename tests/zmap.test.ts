@@ -8,6 +8,7 @@ import { buildSimProgram, toolpathBounds } from '../src/sim/segments';
 import { autoResolution, parseStockSizeComment, StockSpec } from '../src/sim/stock';
 import { toolShapeFromValues, type ToolValues } from '../src/sim/toolShape';
 import { ZMapStock } from '../src/sim/zmap';
+import { VoxelStock } from '../src/sim/voxel';
 
 const DIR = join(__dirname, 'golden', 'zmap');
 const FIX = join(__dirname, 'fixtures');
@@ -30,7 +31,7 @@ function fakeShapeMap(): Map<string, ToolValues> {
 }
 
 describe('Z-map 골든', () => {
-  for (const file of readdirSync(DIR).filter((f) => f.endsWith('.json'))) {
+  for (const file of readdirSync(DIR).filter((f) => f.endsWith('.json') && !f.includes('__voxel'))) {
     it(file, () => {
       const g = JSON.parse(readFileSync(join(DIR, file), 'utf-8'));
       const lines = decode(readFileSync(join(FIX, g.file))).split(/\r\n|\r|\n/).slice(0, 700);
@@ -38,6 +39,7 @@ describe('Z-map 골든', () => {
       const prog = buildSimProgram(res, fakeShapeMap());
       const b = toolpathBounds(res, 2)!;
       expect(prog.seg.count - prog.tilted).toBe(g.segments);
+      expect(prog.engine).toBe('zmap');
       const stock = new ZMapStock(b, g.resolution);
       expect([stock.nx, stock.ny]).toEqual([g.nx, g.ny]);
       stock.cutRange(prog.seg, prog.tools, 0, prog.seg.count);
@@ -90,4 +92,31 @@ describe('공구 형상 / 소재', () => {
     expect(autoResolution(s.bounds())).toBe(autoResolution({ X: [-50, 50], Y: [-20, 20], Z: [-20, 0] }));
     expect(autoResolution({ X: [0, 1], Y: [0, 1], Z: [0, 1] })).toBe(0.05);
   });
+});
+
+describe('3D 복셀 골든', () => {
+  for (const file of readdirSync(DIR).filter((f) => f.endsWith('__voxel.json'))) {
+    it(file, () => {
+      const g = JSON.parse(readFileSync(join(DIR, file), 'utf-8'));
+      const lines = decode(readFileSync(join(FIX, g.file))).split(/\r\n|\r|\n/).slice(0, 700);
+      const res = processNcLines(lines, g.machine, g.specs);
+      const prog = buildSimProgram(res, fakeShapeMap());
+      expect(prog.engine).toBe('voxel');
+      const b = toolpathBounds(res, 2)!;
+      const stock = new VoxelStock(b, g.resolution);
+      expect([stock.nx, stock.ny, stock.nz]).toEqual(g.shape);
+      stock.cutRange(prog.seg, prog.tools, prog.axes0, prog.axes1, 0, Math.min(g.limit, prog.seg.count));
+      const bin = gunzipSync(readFileSync(join(DIR, file.replace('.json', '.bin.gz'))));
+      const n = g.shape[0] * g.shape[1] * g.shape[2];
+      let badOcc = 0;
+      let badCol = 0;
+      for (let i = 0; i < n; i++) {
+        if (stock.occ[i] !== bin[i]) badOcc++;
+        else if (stock.col[i] !== bin[n + i]) badCol++;
+      }
+      expect(badOcc / n).toBeLessThanOrEqual(0.001);
+      expect(badCol / n).toBeLessThanOrEqual(0.001);
+      expect(stock.rapidWarnings.map((w) => [w.src, w.seq])).toEqual(g.rapid_warnings);
+    });
+  }
 });

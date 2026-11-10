@@ -99,6 +99,44 @@ export interface SimMesh {
   edges: Float32Array; // 선분 끝점쌍 xyz
 }
 
+/** 공정 색 경계 선명화: 색 id 가 섞인 삼각형은 정점을 복제해 한 가지 색으로 칠한다(원본 sharpen_color_edges) */
+export function finishMesh(
+  positions: Float32Array, cid: Int16Array, faces: Uint32Array, colorOf: (id: number) => readonly [number, number, number],
+): { positions: Float32Array; colors: Float32Array; indices: Uint32Array } {
+  const vertCount = positions.length / 3;
+  const faceCount = faces.length / 3;
+  const extraPos: number[] = [];
+  const extraCid: number[] = [];
+  const idx = faces.slice();
+  let nextV = vertCount;
+  for (let t = 0; t < faceCount; t++) {
+    const a = idx[t * 3]!, b = idx[t * 3 + 1]!, c = idx[t * 3 + 2]!;
+    const ca = cid[a]!, cb = cid[b]!, cc = cid[c]!;
+    if (ca === cb && cb === cc) continue;
+    let pick: number;
+    if (ca === cb || ca === cc) pick = ca;
+    else if (cb === cc) pick = cb;
+    else pick = ca !== -1 ? ca : cb !== -1 ? cb : cc;
+    for (let q = 0; q < 3; q++) {
+      const v = idx[t * 3 + q]!;
+      extraPos.push(positions[v * 3]!, positions[v * 3 + 1]!, positions[v * 3 + 2]!);
+      extraCid.push(pick);
+      idx[t * 3 + q] = nextV++;
+    }
+  }
+  const total = nextV;
+  const outPos = new Float32Array(total * 3);
+  outPos.set(positions);
+  outPos.set(extraPos, vertCount * 3);
+  const outColors = new Float32Array(total * 3);
+  for (let v = 0; v < total; v++) {
+    const id = v < vertCount ? cid[v]! : extraCid[v - vertCount]!;
+    const col = id < 0 ? DEFAULT_STOCK_COLOR : colorOf(id);
+    outColors[v * 3] = col[0]; outColors[v * 3 + 1] = col[1]; outColors[v * 3 + 2] = col[2];
+  }
+  return { positions: outPos, colors: outColors, indices: idx };
+}
+
 export function buildSimMesh(
   stock: ZMapStock, colorOf: (id: number) => readonly [number, number, number], maxN: number, edges = true,
 ): SimMesh {
@@ -147,38 +185,10 @@ export function buildSimMesh(
   for (let k = 0; k < p; k++) push(perim[k]!, nt + ((k + 1) % p), perim[(k + 1) % p]!);
   for (let k = 0; k < p; k++) push(cv, nt + ((k + 1) % p), nt + k);
 
-  // 공정 색 경계 선명화: 색 id 가 섞인 삼각형은 정점을 복제해 한 가지 색으로 칠한다
-  const extraPos: number[] = [];
-  const extraCid: number[] = [];
-  let nextV = vertCount;
-  for (let t = 0; t < faceCount; t++) {
-    const a = faces[t * 3]!, b = faces[t * 3 + 1]!, c = faces[t * 3 + 2]!;
-    const ca = cid[a]!, cb = cid[b]!, cc = cid[c]!;
-    if (ca === cb && cb === cc) continue;
-    let pick: number;
-    if (ca === cb || ca === cc) pick = ca;
-    else if (cb === cc) pick = cb;
-    else pick = ca !== -1 ? ca : cb !== -1 ? cb : cc;
-    for (let q = 0; q < 3; q++) {
-      const v = faces[t * 3 + q]!;
-      extraPos.push(positions[v * 3]!, positions[v * 3 + 1]!, positions[v * 3 + 2]!);
-      extraCid.push(pick);
-      faces[t * 3 + q] = nextV++;
-    }
-  }
-  const total = nextV;
-  const outPos = new Float32Array(total * 3);
-  outPos.set(positions);
-  outPos.set(extraPos, vertCount * 3);
-  const outColors = new Float32Array(total * 3);
-  for (let v = 0; v < total; v++) {
-    const id = v < vertCount ? cid[v]! : extraCid[v - vertCount]!;
-    const col = id < 0 ? DEFAULT_STOCK_COLOR : colorOf(id);
-    outColors[v * 3] = col[0]; outColors[v * 3 + 1] = col[1]; outColors[v * 3 + 2] = col[2];
-  }
+  const fin = finishMesh(positions, cid, faces, colorOf);
   const spacing = nvx > 1 ? (g.xs[nvx - 1]! - g.xs[0]!) / (nvx - 1) : stock.resolution;
   return {
-    positions: outPos, colors: outColors, indices: faces,
+    positions: fin.positions, colors: fin.colors, indices: fin.indices,
     edges: edges ? edgeLines(g, stock.zlo, spacing * SIM_EDGE_SLOPE) : new Float32Array(0),
   };
 }
