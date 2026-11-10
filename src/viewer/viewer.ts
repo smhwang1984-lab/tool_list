@@ -218,8 +218,8 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     [elevation, azimuth] = preset;
     const w = host.clientWidth;
     const h = host.clientHeight;
-    if (lathe) {
-      const { c, r } = boundsCenterRadius();
+    const { c, r } = boundsCenterRadius();
+    if (r > 0) {
       center.copy(c);
       distance = distanceForRadius(r, w, h);
     } else {
@@ -317,14 +317,15 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
   };
   const fitView = (): void => {
     const w = host.clientWidth, h = host.clientHeight;
-    if (lathe) {
-      const { c, r } = boundsCenterRadius();
+    const { c, r } = boundsCenterRadius();
+    if (r > 0) {
       center.copy(c);
       distance = distanceForRadius(r, w, h);
     } else {
       center.set(0, 0, 0);
       distance = distanceForRadius(radius, w, h);
     }
+
     apply();
   };
   dom.addEventListener('pointerdown', (e) => {
