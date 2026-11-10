@@ -33,9 +33,9 @@ import lathe_insert_spec
 import sumpath_license
 
 
-APP_VERSION = '2.3.5'
+APP_VERSION = '2.3.6'
 APP_NAME = 'Sum Path'
-APP_BUILD_DATE = '2026-11-09'
+APP_BUILD_DATE = '2026-11-10'
 APP_CREATOR = 'Hwang.seonmun'
 APP_PURPOSE = 'NC 프로그램에서 공구 리스트를 산출하고 NC 경로를 Viewer로 확인하는 도구'
 OPEN_SOURCE_COMPONENTS = (
@@ -3652,7 +3652,7 @@ else:
             '  설정 창에서 큐브 크기를 바꾸면 원점 화살표 크기도 함께 바뀝니다.\n'
             '\n'
             '■ PG 매칭 자동 재생 (Viewer 모드에서 "PG 매칭" 체크 시)\n'
-            '  속도 슬라이더(1x~5000x)로 재생 속도를 조절합니다.\n'
+            '  속도 슬라이더(x0.01~x50)로 재생 속도를 조절합니다. 바를 누르면 그 자리로 바로 갑니다.\n'
             '  텍스트 정지 / 정지(M00) / 옵션정지(M01) 체크박스로 자동 정지 조건을 고릅니다.\n'
             '  재생바의 이전 툴 / 되감기 / 재생·정지 / 다음 툴 버튼으로도 조작할 수 있습니다.\n'
             '\n'
@@ -4675,11 +4675,13 @@ else:
             ready = self._sim_stock_ready()
             check.setEnabled(ready)
             if ready:
+                from nc_viewer_widget import format_playback_speed
                 cap = (self.viewer.SIM_LIVE_SPEED_CAP_HEAVY if self.viewer.sim_live_heavy()
                        else self.viewer.SIM_LIVE_SPEED_CAP)
                 check.setToolTip(
                     'PG 매칭 재생·방향키로 공구가 지나가는 대로 소재를 깎아 보입니다.\n'
-                    '켜져 있으면 재생은 최대 %dx로 돌고, 형상 계산이 늦으면 기다립니다.' % cap)
+                    '켜져 있으면 재생은 최대 %s로 돌고, 형상 계산이 늦으면 기다립니다.'
+                    % format_playback_speed(cap))
             else:
                 check.setToolTip('[소재]에서 소재를 적용하면 켤 수 있습니다.\n'
                                  'PG 매칭 재생·방향키로 공구가 지나가는 대로 소재를 깎아 보입니다.')
