@@ -73,8 +73,8 @@ export function programHeaderText(text: string | null | undefined): string {
 const PDF_NAME_UNSAFE_RE = pyRe(String.raw`[^\w.-]+`);
 
 /** PDF 기본 파일 이름 (part_no_operation_program_TOOL_LIST.pdf) */
-export function defaultPdfFilename(metadata: Partial<Record<string, unknown>>): string {
-  const parts = ['part_no', 'operation', 'program'].map((key) => metadata[key]);
+export function defaultPdfFilename(metadata: object): string {
+  const parts = ['part_no', 'operation', 'program'].map((key) => (metadata as Record<string, unknown>)[key]);
   let stem = parts.filter((v) => v !== null && v !== undefined && v !== '' && v !== 0 && v !== false)
     .map((v) => pyStrip(pyStr(v))).join('_');
   stem = pyStrip(reSub(PDF_NAME_UNSAFE_RE, '_', stem), '_.');

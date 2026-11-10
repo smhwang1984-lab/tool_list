@@ -7,6 +7,7 @@ import { codeWithoutComments, fmtNum, normalizeMetadataKey } from '../src/core/t
 import { defaultPdfFilename, parseProgramMetadata, programHeaderText } from '../src/core/metadata';
 import { cleanNameTypes, deriveD, deriveType } from '../src/core/nameTypes';
 import { collectRadiusCompCodes, formatCompSuffix, formatRemark, subprogramBodies } from '../src/core/radiusComp';
+import { parseProgram, toolNameMapFromRows, toolShapeMapFromRows } from '../src/core/millParser';
 import { hNumberAlertText, lineListText, sameNumber, soAlertText, spindleAlertText } from '../src/core/alerts';
 
 type Fn = (args: unknown[], kwargs: Record<string, unknown>) => unknown;
@@ -34,6 +35,11 @@ const IMPL: Record<string, Fn> = {
   spindle_alert_text: ([checks, table]) => spindleAlertText(checks as never, table),
   h_number_alert_text: ([n, checks]) => hNumberAlertText(n as number, checks as never),
   so_alert_text: ([a, b]) => soAlertText(a, b),
+  // millParser
+  parse_program: ([text, types], kw) =>
+    parseProgram(text as string, (types ?? kw.name_types ?? null) as never, Boolean(kw.lathe)),
+  tool_name_map_from_rows: ([rows]) => toolNameMapFromRows(rows as never),
+  tool_shape_map_from_rows: ([rows]) => toolShapeMapFromRows(rows as never),
 };
 
 interface CallRecord {
@@ -117,6 +123,59 @@ describe('골든: 원본 함수 호출 기록', () => {
         }
       }
       expect(failures.slice(0, 15).join('\n')).toBe('');
+    });
+  }
+});
+
+// ---------------------------------------------------------------- 샘플 NC 전체 산출
+const FIX_DIR = new URL('./golden/fixtures/', import.meta.url);
+const fixtureFiles = existsSync(FIX_DIR) ? readdirSync(FIX_DIR).filter((f) => f.endsWith('.json')) : [];
+
+/** 임시 디코더 — 인코딩 판별·저장은 P1-T7(programText)에서 원본과 똑같이 이식한다. */
+function readFixtureText(name: string): string {
+  const raw = readFileSync(new URL(`./fixtures/${name}`, import.meta.url));
+  let text: string;
+  try {
+    text = new TextDecoder('utf-8', { fatal: true }).decode(raw);
+  } catch {
+    text = new TextDecoder('euc-kr').decode(raw);
+  }
+  return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+}
+
+describe('골든: 샘플 NC 전체 산출', () => {
+  it('샘플이 있다', () => {
+    expect(fixtureFiles.length).toBeGreaterThan(0);
+  });
+  for (const file of fixtureFiles) {
+    const gold = JSON.parse(readFileSync(new URL(file, FIX_DIR), 'utf8')) as Record<string, unknown> & {
+      file: string; decode: { length: number; lines: number };
+    };
+    describe(gold.file, () => {
+      const text = readFixtureText(gold.file);
+      const g = (key: string) => normalize(decode(gold[key]));
+      it('글자 수가 같다', () => {
+        expect(Array.from(text).length).toBe(gold.decode.length);
+      });
+      it('출력 정보·좌상단 문구·PDF 파일명', () => {
+        const metadata = parseProgramMetadata(text);
+        expect(metadata).toStrictEqual(g('metadata'));
+        expect(programHeaderText(text)).toBe(gold.header);
+        expect(defaultPdfFilename(metadata)).toBe(gold.pdf_filename);
+      });
+      it('밀링 공구 리스트', () => {
+        expect(normalize(parseProgram(text))).toStrictEqual(g('mill_rows'));
+      });
+      it('밀링 공구 리스트 (lathe 표시)', () => {
+        expect(normalize(parseProgram(text, null, true))).toStrictEqual(g('mill_rows_lathe_flag'));
+      });
+      it('밀링 공구 리스트 (이름표 직접 지정)', () => {
+        const types: [string, string][] = [['EM', 'END MILL'], ['DR', 'DRILL X']];
+        expect(normalize(parseProgram(text, types))).toStrictEqual(g('mill_rows_custom_types'));
+      });
+      it('공정 필터 이름표', () => {
+        expect(toolNameMapFromRows(parseProgram(text))).toStrictEqual(g('tool_name_map'));
+      });
     });
   }
 });
