@@ -99,7 +99,7 @@ export function showSettings(extras: SettingsExtras = {}): void {
   dlg.append(head, body, foot);
   dlg.addEventListener('close', () => { dlg.remove(); open = null; });
   document.body.append(dlg);
-  dlg.show(); // 비모달: 열어 둔 채로 뒤 화면을 볼 수 있다
+  dlg.showModal(); // 가운데 팝업(뒤 화면은 투명 배경이라 슬라이더 변화를 볼 수 있다)
   open = dlg;
   void CUBE_DEFAULT;
 }

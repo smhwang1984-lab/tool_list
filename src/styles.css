@@ -293,3 +293,4 @@ dialog .dlg-foot button.primary { border-color: var(--accent); background: var(-
 .filter-panel .filter-row .filter-title { white-space: nowrap; }
 .filter-panel .filter-row button, .filter-panel .filter-row label { white-space: nowrap; flex: 0 0 auto; }
 .filter-panel .filter-row button { padding: 0 8px; font-size: 13px; }
+dialog.settings::backdrop { background: transparent; }

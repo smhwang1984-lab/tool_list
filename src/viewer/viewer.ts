@@ -65,7 +65,10 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
 
   const scene = new THREE.Scene();
   const settings = getViewerSettings();
-  const camera = new THREE.PerspectiveCamera(settings.fovDeg, 1, 1, 100000);
+  // 원본(OrthographicGLViewWidget)처럼 직교 투영 — FOV는 화면에 보이는 높이(2·거리·tan(fov/2))만 정한다
+  let fovDeg = settings.fovDeg;
+  let aspect = 1;
+  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, -1000, 1000);
   camera.up.set(0, 0, 1);
 
   // 카메라 상태 — pyqtgraph 와 같은 (중심, 거리, 고도, 방위)
@@ -181,8 +184,12 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
   };
   const clampRange = (): void => {
     const far = Math.max(1000, (radius + distance) * 4);
-    camera.near = Math.max(0.05, distance / 500);
-    camera.far = far;
+    void far;
+    const halfH = distance * Math.tan((fovDeg * Math.PI) / 360);
+    const depth = Math.max(distance, radius) * 20 + 1000;
+    camera.left = -halfH * aspect; camera.right = halfH * aspect;
+    camera.top = halfH; camera.bottom = -halfH;
+    camera.near = -depth; camera.far = depth;
   };
   let dirty = true;
   const apply = (): void => {
@@ -202,7 +209,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
   const distanceForRadius = (r: number, w: number, h: number): number => {
     if (!r || r <= 0) return FALLBACK_DISTANCE;
     const aspect = Math.max(w, 1) / Math.max(h, 1);
-    const halfTan = Math.tan((Math.max(camera.fov, 1) * Math.PI) / 360);
+    const halfTan = Math.tan((Math.max(fovDeg, 1) * Math.PI) / 360);
     return Math.max((r / (halfTan * Math.min(1, aspect))) * ZOOM_TO_FIT_MARGIN, 10);
   };
   const boundsCenterRadius = (): { c: THREE.Vector3; r: number } => {
@@ -236,7 +243,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
   let lastPinch = 0;
   const panBy = (dx: number, dy: number): void => {
     const h = Math.max(host.clientHeight, 1);
-    const worldPerPx = (2 * distance * Math.tan((camera.fov * Math.PI) / 360)) / h;
+    const worldPerPx = (2 * distance * Math.tan((fovDeg * Math.PI) / 360)) / h;
     const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
     const up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
     center.addScaledVector(right, -dx * worldPerPx).addScaledVector(up, dy * worldPerPx);
@@ -253,7 +260,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
   };
   const screenOffset = (cx: number, cy: number): { sx: number; sy: number } => {
     const box = renderer.domElement.getBoundingClientRect();
-    const wpp = (2 * distance * Math.tan((camera.fov * Math.PI) / 360)) / Math.max(box.height, 1);
+    const wpp = (2 * distance * Math.tan((fovDeg * Math.PI) / 360)) / Math.max(box.height, 1);
     return { sx: (cx - box.left - box.width / 2) * wpp, sy: -(cy - box.top - box.height / 2) * wpp };
   };
   /** 손가락 위치를 고정한 채 확대·축소 */
@@ -308,7 +315,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     if (rw < 12 || rh < 12) return;
     const cxp = (r.x0 + r.x1) / 2 - box.left - w / 2;
     const cyp = (r.y0 + r.y1) / 2 - box.top - h / 2;
-    const worldPerPx = (2 * distance * Math.tan((camera.fov * Math.PI) / 360)) / Math.max(h, 1);
+    const worldPerPx = (2 * distance * Math.tan((fovDeg * Math.PI) / 360)) / Math.max(h, 1);
     const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
     const up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
     center.addScaledVector(right, cxp * worldPerPx).addScaledVector(up, -cyp * worldPerPx);
@@ -396,8 +403,8 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
   let tapOrigin: { x: number; y: number } | null = null;
   let downPos = { x: 0, y: 0 };
   const updateViewerSettingsFov = (delta: number): number => {
-    const fov = Math.max(FOV_MIN, Math.min(FOV_MAX, camera.fov + delta));
-    camera.fov = fov;
+    const fov = Math.max(FOV_MIN, Math.min(FOV_MAX, fovDeg + delta));
+    fovDeg = fov;
     apply();
     return fov;
   };
@@ -639,7 +646,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
 
   // ---------------------------------------------------------------- 설정 반영·크기
   const offSettings = onViewerSettings((s) => {
-    camera.fov = s.fovDeg;
+    fovDeg = s.fovDeg;
     for (const { m, base } of materials) m.linewidth = toolpathLineWidth(base, s.lineWidthPct);
     apply();
   });
@@ -647,7 +654,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     const w = Math.max(1, host.clientWidth);
     const h = Math.max(1, host.clientHeight);
     renderer.setSize(w, h, false);
-    camera.aspect = w / h;
+    aspect = w / h;
     for (const { m } of materials) m.resolution.set(w, h);
     apply();
   };
