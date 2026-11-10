@@ -32,6 +32,7 @@ viewer_hiddenimports = [
     'nc_sim',
     # v1.10.0: 3D 소재(복셀) 엔진 — 경사면/동시 5축 가공 시뮬레이션.
     'nc_sim3d',
+    'nc_tool_marker',
     # v2.1.0: 선반 인서트·홀더 ISO 규격표와 툴리스트 자동 입력(순수 파이썬, Qt 비의존).
     'lathe_insert_spec',
     # v2.2.0: 선반 형상 시뮬레이션 엔진(선삭 축대칭 + 턴밀 하이브리드, Qt 비의존).

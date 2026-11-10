@@ -48,6 +48,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+import nc_tool_marker
 import nc_sim
 import nc_sim3d
 import nc_lathe_sim
@@ -1389,21 +1390,28 @@ class ProjectionOverlayWidget(QWidget):
         # v2.4.2: 버튼 크기를 이전의 2.5배로 키우고, 눌린(활성) 버튼은 파란색으로 보인다.
         self.setStyleSheet(
             "ProjectionOverlayWidget { background: transparent; }"
-            " QLabel { background: transparent; color: white; font-size: 30px; }"
-            " QPushButton { color: white; background-color: rgba(40, 44, 52, 150);"
-            " border: 2px solid rgba(255, 255, 255, 70); border-radius: 12px;"
-            " padding: 8px 18px; font-size: 30px; }"
+            " QLabel { background: transparent; color: white; font-size: 12px; }"
+            " QPushButton { color: white; background-color: rgba(40, 44, 52, 90);"
+            " border: 1px solid rgba(255, 255, 255, 70); border-radius: 5px;"
+            " padding: 3px 7px; font-size: 12px; }"
             " QPushButton:hover { background-color: rgba(255, 255, 255, 65); }"
             " QPushButton:checked { background-color: #2e86de; border-color: #8ec5ff; color: white; }"
+            # v2.4.3: 투영 버튼은 본래 크기로 되돌리고, [위치 찍기]만 2.5배를 유지한다.
+            " QPushButton#pickButton { background-color: rgba(40, 44, 52, 150);"
+            " border: 2px solid rgba(255, 255, 255, 70); border-radius: 12px;"
+            " padding: 8px 18px; font-size: 30px; }"
+            " QPushButton#pickButton:hover { background-color: rgba(255, 255, 255, 65); }"
+            " QPushButton#pickButton:checked { background-color: #2e86de; border-color: #8ec5ff; }"
         )
         row = QHBoxLayout(self)
-        row.setContentsMargins(10, 8, 10, 8)
+        row.setContentsMargins(6, 4, 6, 4)
         # v1.6.3: 버튼끼리 너무 붙어 있다는 피드백으로 간격을 4 -> 10px로
         # 넓힌다. "투영" 라벨과 첫 버튼 사이에는 조금 더 띄운다.
-        row.setSpacing(15)
+        row.setSpacing(10)
         self.pick_button = QPushButton("위치 찍기")
         self.pick_button.setIcon(ui_icons.icon("pin", "#e4e8f0", 35))
         self.pick_button.setIconSize(QSize(35, 35))
+        self.pick_button.setObjectName("pickButton")
         self.pick_button.setCheckable(True)
         self.pick_button.setFocusPolicy(Qt.NoFocus)
         self.pick_button.setToolTip("위치 찍기 — 켠 뒤 경로를 클릭하면 그 프로그램 줄로 이동 (Esc 끝)")
@@ -1459,7 +1467,7 @@ class ProjectionOverlayWidget(QWidget):
                 button.setIcon(plane_icon("CX"))
             else:
                 button.setIcon(plane_icon(view_type))
-            button.setIconSize(QSize(35, 35))
+            button.setIconSize(QSize(14, 14))
             button.setCheckable(True)
             self._view_group.addButton(button)
             self._view_buttons[view_type] = button
@@ -1482,8 +1490,8 @@ class ProjectionOverlayWidget(QWidget):
             # v1.6.5: 선반 뷰 전용 — 드래그로 그린 사각형만큼 한 번에
             # 확대하는 토글 버튼(밀링에는 없음, 기존 오빗/휠줌 그대로).
             drag_zoom_button = QPushButton("드래그줌")
-            drag_zoom_button.setIcon(ui_icons.icon("drag_zoom", "#e4e8f0", 35))
-            drag_zoom_button.setIconSize(QSize(35, 35))
+            drag_zoom_button.setIcon(ui_icons.icon("drag_zoom", "#e4e8f0", 14))
+            drag_zoom_button.setIconSize(QSize(14, 14))
             drag_zoom_button.setCheckable(True)
             drag_zoom_button.setFocusPolicy(Qt.NoFocus)
             drag_zoom_button.toggled.connect(self.drag_zoom_toggled.emit)
@@ -2606,6 +2614,8 @@ class NCViewerWidget(QWidget):
 
         self.tool_paths = {}
         self.plot_items = {}
+        # v2.4.3: 공정별 공구 모양 + 진입 방향 화살표 (공정 키 -> GL 아이템 목록)
+        self.tool_marker_items = {}
         self.raw_lines = []
         self.tool_name_map = {}
         # v1.9.0: 형상 시뮬레이션용 공구 값(TYPE/D/FL/R/SIG/PL/SO) — 키는
@@ -4707,6 +4717,10 @@ class NCViewerWidget(QWidget):
             self.set_camera_angles(elevation, azimuth, distance=distance, recenter=True)
 
     def _clear_path_items(self):
+        for item_list in self.tool_marker_items.values():
+            for item in item_list:
+                self.gl_view.removeItem(item)
+        self.tool_marker_items = {}
         for item_list in self.plot_items.values():
             for item in item_list:
                 self.gl_view.removeItem(item)
@@ -6258,6 +6272,28 @@ class NCViewerWidget(QWidget):
             self.plot_items[tool] = []
             for motion_type, pts_list in self._render_segment_buckets(path_data).items():
                 self.create_segment_item(tool, pts_list, motion_type, base_color)
+        self._build_tool_markers()
+
+    def _build_tool_markers(self):
+        """v2.4.3: 공정마다 첫 절삭 진입점에 공구 모양을 세우고 진입 방향 화살표를 그린다(밀링)."""
+        self.tool_marker_items = {}
+        if self.is_lathe_mode():
+            return
+        for idx, (process_key, path_data) in enumerate(self.tool_paths.items()):
+            tool_no = self.process_tool_map.get(process_key)
+            data = nc_tool_marker.marker_for_process(
+                path_data, self.tool_shape_map.get(tool_no), self.line_axis_map)
+            if data is None:
+                continue
+            color = tuple(tool_color_for_index(idx))[:3]
+            mesh = gl.GLMeshItem(
+                vertexes=data['verts'], faces=data['faces'], smooth=True,
+                color=(color[0], color[1], color[2], 0.85), shader='shaded', glOptions='translucent')
+            arrow = gl.GLLinePlotItem(
+                pos=data['arrow'], color=(1.0, 0.85, 0.1, 1.0), width=3.0, antialias=True, mode='lines')
+            for item in (mesh, arrow):
+                self.gl_view.addItem(item)
+            self.tool_marker_items[process_key] = [mesh, arrow]
 
     def _compute_scene_radius(self):
         """모든 경로 점을 감싸는 구의 반지름(원점 기준). 경로가 없으면 0을
@@ -6378,6 +6414,8 @@ class NCViewerWidget(QWidget):
         for tool, plot_item_list in self.plot_items.items():
             visible = (not self.pg_match_mode) and (tool in selected_items) and lines_visible
             for item in plot_item_list:
+                item.setVisible(visible)
+            for item in self.tool_marker_items.get(tool, ()):
                 item.setVisible(visible)
         self.set_cursor_line(self.current_cursor_line)
         # v1.9.1: 공정 필터 선택이 바뀔 때만 STOCK 절삭을 다시 계산한다
