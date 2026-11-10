@@ -319,6 +319,15 @@ def _machine(d):
     d.poly((0.67, 0.48), (0.81, 0.48), (0.74, 0.64))
 
 
+def _pin(d):
+    # 위치 찍기(조준 표시: 원 + 십자)
+    d.circle(0.5, 0.5, 0.26)
+    d.line(0.5, 0.08, 0.5, 0.30)
+    d.line(0.5, 0.70, 0.5, 0.92)
+    d.line(0.08, 0.5, 0.30, 0.5)
+    d.line(0.70, 0.5, 0.92, 0.5)
+
+
 def _filter(d):
     d.poly((0.10, 0.16), (0.90, 0.16), (0.58, 0.52), (0.58, 0.86), (0.42, 0.76), (0.42, 0.52))
 
@@ -356,6 +365,7 @@ ICON_PAINTERS = {
     'chevron_down': _chevron_down,
     'stop': _stop,
     'filter': _filter,
+    'pin': _pin,
     'machine': _machine,
 }
 

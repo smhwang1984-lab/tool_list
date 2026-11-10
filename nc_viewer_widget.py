@@ -1363,6 +1363,8 @@ class ProjectionOverlayWidget(QWidget):
     # v1.6.5: 선반 전용 "드래그줌" 토글 버튼의 체크 상태가 바뀔 때(사용자
     # 클릭이든, 드래그 확정 후 자동 해제든) 쏜다.
     drag_zoom_toggled = pyqtSignal(bool)
+    # v2.4.1: [위치 찍기] 버튼(투영 ISO 앞) 토글.
+    pick_toggled = pyqtSignal(bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1382,6 +1384,14 @@ class ProjectionOverlayWidget(QWidget):
         # v1.6.3: 버튼끼리 너무 붙어 있다는 피드백으로 간격을 4 -> 10px로
         # 넓힌다. "투영" 라벨과 첫 버튼 사이에는 조금 더 띄운다.
         row.setSpacing(10)
+        self.pick_button = QPushButton("위치")
+        self.pick_button.setIcon(ui_icons.icon("pin", "#e4e8f0", 14))
+        self.pick_button.setIconSize(QSize(14, 14))
+        self.pick_button.setCheckable(True)
+        self.pick_button.setFocusPolicy(Qt.NoFocus)
+        self.pick_button.setToolTip("위치 찍기 — 켠 뒤 경로를 클릭하면 그 프로그램 줄로 이동 (Esc 끝)")
+        self.pick_button.toggled.connect(self.pick_toggled.emit)
+        row.addWidget(self.pick_button)
         label = QLabel("투영")
         row.addWidget(label)
         row.addSpacing(4)
@@ -1488,6 +1498,10 @@ class ProjectionOverlayWidget(QWidget):
             if self._row.itemAt(index).widget() is not None
             and self._row.itemAt(index).widget() is not self.drag_zoom_button
         ]
+
+    def set_pick_checked(self, checked):
+        with QSignalBlocker(self.pick_button):
+            self.pick_button.setChecked(bool(checked))
 
     def set_drag_zoom_checked(self, checked):
         """gl_view의 실제 drag_zoom_active 상태에 버튼 체크를 맞춘다(v1.6.5).
@@ -1629,7 +1643,6 @@ class PlaybackBarWidget(QWidget):
                 "btn_pad_h": shrink(27), "btn_font": shrink(17),
             }
         )
-        self.setEnabled(False)
         self._playing = False
         # v2.3.6: 바 위의 마우스·휠은 (꺼져 있을 때도) 아래 3D 화면으로 넘기지 않는다 —
         # 바 여백을 누르면 회전이 시작되고 회전 중심·줌 십자가 뜨던 문제.
@@ -1698,6 +1711,14 @@ class PlaybackBarWidget(QWidget):
         self.next_tool_button.clicked.connect(self.next_tool_clicked)
         self.rewind_button.clicked.connect(self.rewind_clicked)
         self.play_pause_button.clicked.connect(self._on_play_pause_clicked)
+        # v2.4.1: 속도 슬라이더는 PG 매칭이 꺼져 있어도 움직인다(미리 맞춰 둘 수 있게).
+        # 재생·이동 버튼만 PG 매칭일 때 켠다.
+        self.set_controls_enabled(False)
+
+    def set_controls_enabled(self, enabled):
+        for button in (self.prev_tool_button, self.rewind_button,
+                       self.play_pause_button, self.next_tool_button):
+            button.setEnabled(bool(enabled))
 
     def _refresh_speed_label(self):
         """v2.3.3: [실시간 형상] 상한이 걸려 있으면 실제로 도는 배속(상한)을 주황색으로
@@ -2843,6 +2864,7 @@ class NCViewerWidget(QWidget):
             self.gl_view.top_left_widgets.append(overlay)
             self.gl_view._reposition_top_left()
             overlay.projection_clicked.connect(self.set_camera_projection)
+            overlay.pick_toggled.connect(self.set_pick_mode)
             # v1.6.5: 선반 전용 "드래그줌" 버튼 <-> gl_view의 실제 상태를
             # 양방향으로 맞춘다(버튼 클릭 -> gl_view 활성화, 드래그 확정 후
             # 자동 해제 -> 버튼 체크 해제).
@@ -2889,6 +2911,9 @@ class NCViewerWidget(QWidget):
         if enabled == self.pick_mode:
             return
         self.pick_mode = enabled
+        overlay = getattr(self, "projection_overlay", None)
+        if overlay is not None:
+            overlay.set_pick_checked(enabled)
         label = self.pick_mode_label
         widgets = self.gl_view.top_left_widgets
         if enabled:
@@ -4488,9 +4513,11 @@ class NCViewerWidget(QWidget):
             gl_view.bottom_coord_widget = coord_overlay
         projection_overlay = getattr(self, "projection_overlay", None)
         if projection_overlay is not None:
-            if projection_overlay in gl_view.top_left_widgets:
-                gl_view.top_left_widgets.remove(projection_overlay)
-            gl_view.bottom_projection_widget = projection_overlay
+            # v2.4.1: 투영(위치 · ISO · XY · XZ · YZ) 오버레이는 3D 화면 왼쪽 위에 둔다.
+            # 좌표 오버레이와 재생바는 하단 그대로.
+            gl_view.bottom_projection_widget = None
+            if projection_overlay not in gl_view.top_left_widgets:
+                gl_view.top_left_widgets.append(projection_overlay)
         gl_view._reposition_top_left()
         gl_view._reposition_bottom_coord()
 
@@ -6278,7 +6305,7 @@ class NCViewerWidget(QWidget):
         """정적 경로를 숨기고 커서 공정의 실시간 트레이스만 남기는 모드를 토글한다."""
         self.pg_match_mode = bool(enabled)
         if self.playback_bar is not None:
-            self.playback_bar.setEnabled(self.pg_match_mode)
+            self.playback_bar.set_controls_enabled(self.pg_match_mode)
         # update_visible_paths()가 끝에서 set_cursor_line()을 부르므로 트레이스도 함께 갱신된다.
         self.update_visible_paths()
         self.sim_state_changed.emit()

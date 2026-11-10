@@ -1798,7 +1798,8 @@ G02 X0 Y10 I-10 J0
                 self.assertTrue(window.play_timer.isActive())
                 window.pg_match_check.setChecked(False)
                 self.assertFalse(window.play_timer.isActive())
-                self.assertFalse(window.viewer.playback_bar.isEnabled())
+                self.assertFalse(window.viewer.playback_bar.play_pause_button.isEnabled())
+                self.assertTrue(window.viewer.playback_bar.speed_slider.isEnabled())
             finally:
                 window.deleteLater()
                 qapp.processEvents()
@@ -2724,14 +2725,11 @@ G02 X0 Y10 I-10 J0
             # 않는다.
             self.assertNotIn(viewer.coord_overlay, viewer.gl_view.top_left_widgets)
             self.assertIs(viewer.gl_view.bottom_coord_widget, viewer.coord_overlay)
-            self.assertIs(viewer.gl_view.bottom_projection_widget, viewer.projection_overlay)
+            # v2.4.1: 투영(위치·ISO·XY·XZ·YZ) 오버레이는 3D 화면 왼쪽 위로 옮겼다 — 좌표는 하단 그대로.
+            self.assertIsNone(viewer.gl_view.bottom_projection_widget)
+            self.assertIn(viewer.projection_overlay, viewer.gl_view.top_left_widgets)
             self.assertIn('background: transparent', viewer.coord_overlay.styleSheet())
             self.assertIn('color: white', viewer.coord_overlay.styleSheet())
-            # 투영이 왼쪽, 좌표가 오른쪽으로 나란히 붙어야 한다(사용자 확정).
-            self.assertLess(
-                viewer.projection_overlay.x(), viewer.coord_overlay.x(),
-                '투영 오버레이가 좌표 오버레이보다 왼쪽에 있어야 한다',
-            )
             # 값 갱신은 여전히 동작해야 한다.
             viewer._set_coordinate_labels([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
             self.assertEqual(viewer.coord_labels['X'].text(), '1.0')
@@ -4141,7 +4139,7 @@ G80
             # 밀링으로 되돌려도 v1.6.8부터는 계속 하단(밀링/선반 공통).
             viewer.set_machine_type(original)
             self.assertIs(viewer.gl_view.bottom_coord_widget, viewer.coord_overlay)
-            self.assertIs(viewer.gl_view.bottom_projection_widget, viewer.projection_overlay)
+            self.assertIn(viewer.projection_overlay, viewer.gl_view.top_left_widgets)
             self.assertNotIn(viewer.coord_overlay, viewer.gl_view.top_left_widgets)
             if bar is not None and viewer.coord_overlay is not None:
                 self.assertLessEqual(
