@@ -27,6 +27,9 @@ export interface FilterPanel {
   onSelectionChange: (keys: string[]) => void;
   onReset: () => void;
   onPgMatch: (on: boolean) => void;
+  /** 실시간 형상 체크가 바뀜 */
+  onLive: (on: boolean) => void;
+  liveOn(): boolean;
   /** 툴바 드롭다운에 넣을 정지 옵션(텍스트 정지·정지·옵션정지·실시간 형상) */
   stopMenu: HTMLElement;
   /** 툴바에 둘 소재 단추 */
@@ -57,8 +60,7 @@ export function createFilterPanel(): FilterPanel {
   textInput.disabled = !textCheck.checked;
   const [m00Label, m00Check] = check('정지', 'M0 또는 M00에서 자동 재생을 멈춥니다.', asBool(getPref('stop_at_m00'), true));
   const [m01Label, m01Check] = check('옵션정지', 'M1 또는 M01에서 자동 재생을 멈춥니다.', asBool(getPref('stop_at_m01'), true));
-  const [liveLabel, liveCheck] = check('실시간 형상', '소재를 깎아 보이는 기능은 시뮬레이션 단계(P6)에서 켜집니다.', false);
-  liveCheck.disabled = true;
+  const [liveLabel, liveCheck] = check('실시간 형상', '체크하면 재생·커서 위치까지 소재를 깎아 보여 줍니다. 끄면 선택한 공정의 끝까지 깎은 모양을 보여 줍니다.', asBool(getPref('sim_live'), false));
   const stopBar = el('div', { class: 'filter-row' });
   stopBar.append(textLabel, textInput, m00Label, m01Label, liveLabel);
 
@@ -68,8 +70,7 @@ export function createFilterPanel(): FilterPanel {
   const [pgLabel, pgCheck] = check('PG 매칭', '체크하면 그려진 경로를 지우고, 커서가 있는 공정만\n프로그램 방향키에 맞춰 실시간으로 그리고 지웁니다.', false);
   const btnAll = btn('전체', '모든 공정 경로 표시');
   const btnNone = btn('해제', '모든 공정 경로 숨기기');
-  const btnStock = btn('소재', '소재(STOCK) 설정과 가공 형상 시뮬레이션은 P6에서 켜집니다.');
-  btnStock.disabled = true;
+  const btnStock = btn('소재', '소재(STOCK) 설정과 가공 형상 시뮬레이션');
   const filterBar = el('div', { class: 'filter-row' });
   filterBar.append(title, el('span', { class: 'spacer' }), btnReset, pgLabel, btnAll, btnNone);
 
@@ -110,6 +111,8 @@ export function createFilterPanel(): FilterPanel {
     onSelectionChange: () => {},
     onReset: () => {},
     onPgMatch: () => {},
+    onLive: () => {},
+    liveOn: () => liveCheck.checked,
     setItems(next, keepSelection = false) {
       const prev = new Set(selected);
       items = [...next];
@@ -140,6 +143,7 @@ export function createFilterPanel(): FilterPanel {
   });
   btnReset.addEventListener('click', () => api.onReset());
   pgCheck.addEventListener('change', () => api.onPgMatch(pgCheck.checked));
+  liveCheck.addEventListener('change', () => { setPref('sim_live', liveCheck.checked ? '1' : '0'); api.onLive(liveCheck.checked); });
   const save = (): void => {
     setPref('stop_at_text', textCheck.checked ? '1' : '0');
     setPref('stop_text_value', textInput.value);

@@ -1,0 +1,185 @@
+// 가공 형상(소재) 층 — 원본 NCViewerWidget 의 sim_* 상태 (_sim_advance_to_seq / 스냅샷 / 메시 갱신)
+import * as THREE from 'three';
+import { buildSimMesh, SIM_DISPLAY_GRID_MAX_SAFE } from '../sim/mesh';
+import type { SimProgram } from '../sim/segments';
+import type { Bounds } from '../sim/stock';
+import { SIM_CHUNK_SEGMENTS, ZMapStock } from '../sim/zmap';
+import { toolColorForIndex } from './segments';
+
+const SNAPSHOT_MEMORY_BYTES = 200 * 1024 * 1024;
+const LIVE_MESH_INTERVAL_MS = 120;
+
+export interface SimStatus {
+  enabled: boolean;
+  live: boolean;
+  busy: boolean;
+  cells: number;
+  nx: number;
+  ny: number;
+  resolution: number;
+  cutSegments: number;
+  totalSegments: number;
+  tilted: number;
+  excluded: string[];
+  noToolMoves: number;
+  rapidLines: number[];
+  hasStock: boolean;
+}
+
+export interface SimLayer {
+  setProgram(p: SimProgram | null): void;
+  setStock(bounds: Bounds | null, resolution: number, enabled: boolean): void;
+  setEnabled(on: boolean): void;
+  setLive(on: boolean): void;
+  /** 목표 seq 까지 깎는다(null 이면 아무 것도 안 깎은 상태) */
+  setTarget(seq: number | null): void;
+  status(): SimStatus;
+  hasStock(): boolean;
+  dispose(): void;
+}
+
+export function createSimLayer(parent: THREE.Object3D, onChange: () => void): SimLayer {
+  const group = new THREE.Group();
+  group.renderOrder = -1;
+  parent.add(group);
+  let mesh: THREE.Mesh | null = null;
+  let edges: THREE.LineSegments | null = null;
+
+  let program: SimProgram | null = null;
+  let stock: ZMapStock | null = null;
+  let enabled = false;
+  let live = false;
+  let cutIdx = 0;
+  let target: number | null = null;
+  let running = false;
+  let dirty = false;
+  let lastMesh = 0;
+  const snapshots = new Map<number, { h: Float32Array; c: Int16Array }>();
+  let snapBytes = 0;
+
+  const colorOf = (id: number): readonly [number, number, number] => toolColorForIndex(id);
+
+  const disposeMesh = (): void => {
+    for (const o of [mesh, edges]) {
+      if (!o) continue;
+      group.remove(o);
+      o.geometry.dispose();
+      (o.material as THREE.Material).dispose();
+    }
+    mesh = null;
+    edges = null;
+  };
+
+  const refreshMesh = (): void => {
+    if (!stock || !enabled) { disposeMesh(); group.visible = false; onChange(); return; }
+    const m = buildSimMesh(stock, colorOf, SIM_DISPLAY_GRID_MAX_SAFE, true);
+    group.visible = true;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(m.positions, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(m.colors, 3));
+    geo.setIndex(new THREE.BufferAttribute(m.indices, 1));
+    const egeo = new THREE.BufferGeometry();
+    egeo.setAttribute('position', new THREE.BufferAttribute(m.edges, 3));
+    disposeMesh();
+    mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+      vertexColors: true, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
+    }));
+    edges = new THREE.LineSegments(egeo, new THREE.LineBasicMaterial({ color: new THREE.Color(0.16, 0.22, 0.32) }));
+    group.add(mesh, edges);
+    lastMesh = performance.now();
+    dirty = false;
+    onChange();
+  };
+
+  const yieldToUi = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+
+  const resetState = (): void => {
+    snapshots.clear();
+    snapBytes = 0;
+    cutIdx = 0;
+    stock?.reset();
+  };
+
+  const targetIndex = (): number => {
+    if (!program || target === null) return 0;
+    const s = program.seg.seq1;
+    let lo = 0, hi = program.seg.count;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (s[mid]! <= target) lo = mid + 1; else hi = mid; }
+    return lo;
+  };
+
+  async function pump(): Promise<void> {
+    if (running) return;
+    running = true;
+    try {
+      while (stock && program && enabled) {
+        const want = targetIndex();
+        if (want < cutIdx) {
+          // 뒤로: 가장 가까운 스냅샷에서 다시 시작
+          let best = -1;
+          for (const pos of snapshots.keys()) if (pos <= want && pos > best) best = pos;
+          if (best >= 0) { stock.restore(snapshots.get(best)!); cutIdx = best; } else { stock.reset(); cutIdx = 0; }
+          dirty = true;
+        }
+        if (cutIdx === want) break;
+        const snapAt = program.snapPositions;
+        const bytes = stock.cellCount() * 6;
+        if (snapAt.includes(cutIdx) && !snapshots.has(cutIdx) && snapBytes + bytes <= SNAPSHOT_MEMORY_BYTES) {
+          snapshots.set(cutIdx, stock.snapshot());
+          snapBytes += bytes;
+        }
+        let end = Math.min(want, cutIdx + SIM_CHUNK_SEGMENTS);
+        for (const pos of snapAt) if (pos > cutIdx && pos < end) { end = pos; break; }
+        stock.cutRange(program.seg, program.tools, cutIdx, end);
+        cutIdx = end;
+        dirty = true;
+        if (live && performance.now() - lastMesh > LIVE_MESH_INTERVAL_MS) refreshMesh();
+        if (cutIdx !== want) await yieldToUi();
+      }
+    } finally {
+      running = false;
+    }
+    if (dirty || !mesh) refreshMesh();
+    else onChange();
+  }
+
+  return {
+    setProgram(p) {
+      program = p;
+      if (stock) { resetState(); }
+      if (enabled) void pump();
+      else onChange();
+    },
+    setStock(bounds, resolution, on) {
+      stock = bounds ? new ZMapStock(bounds, resolution) : null;
+      resetState();
+      enabled = on && !!stock;
+      if (!stock) { disposeMesh(); group.visible = false; onChange(); return; }
+      refreshMesh();
+      void pump();
+    },
+    setEnabled(on) {
+      enabled = on && !!stock;
+      if (!enabled) { group.visible = false; onChange(); return; }
+      group.visible = true;
+      void pump();
+    },
+    setLive(on) { live = on; },
+    setTarget(seq) {
+      if (target === seq) return;
+      target = seq;
+      if (enabled) void pump();
+    },
+    status() {
+      return {
+        enabled, live, busy: running, cells: stock?.cellCount() ?? 0, nx: stock?.nx ?? 0, ny: stock?.ny ?? 0,
+        resolution: stock?.resolution ?? 0, cutSegments: cutIdx, totalSegments: program?.seg.count ?? 0,
+        tilted: program?.tilted ?? 0, excluded: program?.excluded ?? [], noToolMoves: program?.noToolMoves ?? 0,
+        rapidLines: stock ? [...new Set(stock.rapidWarnings.flatMap((w) => (w.src !== null ? [w.src] : [])))].sort((a, b) => a - b) : [],
+        hasStock: !!stock,
+      };
+    },
+    hasStock: () => !!stock,
+    dispose() { disposeMesh(); parent.remove(group); },
+  };
+}

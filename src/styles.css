@@ -9,7 +9,7 @@ html, body {
 }
 #app {
   display: flex; flex-direction: column; height: 100%;
-  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom) 0;
   box-sizing: border-box;
 }
 
@@ -294,3 +294,12 @@ dialog .dlg-foot button.primary { border-color: var(--accent); background: var(-
 .filter-panel .filter-row button, .filter-panel .filter-row label { white-space: nowrap; flex: 0 0 auto; }
 .filter-panel .filter-row button { padding: 0 8px; font-size: 13px; }
 dialog.settings::backdrop { background: transparent; }
+
+/* ---------- 소재 창 ---------- */
+.stock-body { display: flex; flex-direction: column; gap: 6px; white-space: normal; }
+.stock-row { display: grid; grid-template-columns: 8em 1fr 1fr; align-items: center; gap: 8px; font-size: 14px; }
+.stock-row input, .stock-row select, .stock-row button { min-height: 36px; background: var(--editor_bg); color: var(--editor_text); border: 1px solid var(--border); border-radius: 6px; font: inherit; padding: 0 8px; min-width: 0; }
+.stock-row.single > :nth-child(2) { grid-column: 2 / 4; }
+.stock-bounds { font-size: 13px; font-family: monospace; padding: 4px 0; }
+.stock-note { font-size: 12px; color: var(--muted_text); }
+.stock-status { font-size: 12px; white-space: pre-line; color: var(--muted_text); }

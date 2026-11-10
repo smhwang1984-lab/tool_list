@@ -11,6 +11,9 @@ import { alertDialog, confirmDialog, el, installLongPressHints, showDialog, toas
 import { createEditor } from './ui/editor';
 import { createSearchBar } from './ui/searchBar';
 import { createMachinePanel } from './ui/machinePanel';
+import { showStockDialog } from './ui/stockDialog';
+import { buildSimProgram, toolpathBounds } from './sim/segments';
+import { toolShapeMapFromRows } from './sim/toolShape';
 import { createToolTable } from './ui/toolTable';
 import { createFilterPanel } from './ui/filterPanel';
 import { createDocumentController } from './app/documentController';
@@ -82,6 +85,12 @@ const HELP_TEXT = [
   '  텍스트 정지 / 정지(M00) / 옵션정지(M01)에서 자동으로 멈춥니다.',
   '  "PG 매칭"을 켜면 입력창의 커서 줄과 경로 위치가 서로 따라갑니다.',
   '',
+  '■ 소재와 가공 형상 (밀링 3축)',
+  '  툴바 "소재" 단추 → 치수(T/W/L)·축·기준 위치·해상도를 정하고 적용하면 깎인 모양이 보입니다.',
+  '  프로그램 위쪽 주석 (STOCK SIZE : T50 W95 L385) 이 있으면 치수를 자동으로 읽습니다.',
+  '  "실시간 형상"을 켜면 재생·커서 위치까지, 끄면 선택한 공정의 끝까지 깎습니다.',
+  '  공구 축이 기울어진 이동(경사면·5축)은 아직 깎지 않습니다. 선반 소재도 다음 단계입니다.',
+  '',
   '■ 공정 필터',
   '  목록에서 공정을 여러 개 골라 표시합니다. 전체 / 해제 / Reset.',
   '',
@@ -127,8 +136,7 @@ function mount(root: HTMLElement): void {
   editLabel.hidden = true;
   const btnMachine = toolButton('장비', 'gear', '장비 타입 및 스펙 설정');
   const btnStop = toolButton('정지 옵션', 'run', '텍스트 정지 · 정지 · 옵션정지 · 실시간 형상');
-  const btnStockTb = toolButton('소재', 'document', '소재(STOCK) 설정 — 시뮬레이션 단계에서 켜집니다');
-  btnStockTb.disabled = true;
+  const btnStockTb = toolButton('소재', 'document', '소재(STOCK) 설정과 가공 형상 시뮬레이션');
   const btnRun = toolButton('Tool List', 'run', '공구 리스트 산출', { accent: true });
   const btnExample = toolButton('예제', 'document', '예제 프로그램 불러오기');
   const btnClear = toolButton('지우기', 'eraser', '프로그램과 공구 리스트 지우기');
@@ -152,6 +160,7 @@ function mount(root: HTMLElement): void {
   let viewerStale = true;
   let pgMatchOn = false;
   let viewerTimer = 0;
+  let lastResult: import('./core/toolpath').ToolpathResult | null = null;
   const scheduleViewerRefresh = (): void => {
     window.clearTimeout(viewerTimer);
     viewerTimer = window.setTimeout(() => { if (mode === 'viewer') refreshViewer(); }, 350);
@@ -360,6 +369,7 @@ function mount(root: HTMLElement): void {
         },
         lineText: (line) => editor.view.state.doc.line(Math.min(editor.view.state.doc.lines, line + 1)).text,
       });
+      viewer?.setSimLive(filterPanel.liveOn());
     });
     return viewerLoading;
   };
@@ -371,6 +381,8 @@ function mount(root: HTMLElement): void {
     const mt = machinePanel.machineType();
     if (!text.trim()) {
       viewer.setProgram(null, mt);
+      viewer.setSimProgram(null);
+      lastResult = null;
       filterPanel.setItems([]);
       return;
     }
@@ -378,11 +390,29 @@ function mount(root: HTMLElement): void {
     const rows = toolTable.rows();
     const names = machinePanel.isLathe() ? latheToolNameMapFromRows(rows) : toolNameMapFromRows(rows);
     viewer.setProgram(res, mt);
+    lastResult = res;
+    viewer.setSimProgram(machinePanel.isLathe() ? null : buildSimProgram(res, toolShapeMapFromRows(rows)));
     filterPanel.setItems([...res.tool_paths.keys()].map((key, i) => ({
       key, label: toolDisplayText(res, key, names), color: cssColor(toolColorForIndex(i)),
     })));
     viewer.setVisible(null);
   };
+  filterPanel.onLive = (on) => viewer?.setSimLive(on);
+  btnStockTb.addEventListener('click', () => {
+    if (machinePanel.isLathe()) { toast('선반 소재(회전체)는 다음 단계(1.7.2)에서 지원합니다.'); return; }
+    void ensureViewer().then(() => {
+      viewerStale = true;
+      refreshViewer();
+      showStockDialog({
+        lines: () => editor.getText().split(/\r\n|\r|\n/),
+        toolpathBounds: (margin) => (lastResult ? toolpathBounds(lastResult, margin) : null),
+        apply: (spec, res, enabled) => { viewer?.applyStock(spec.bounds(), res, enabled); },
+        clear: () => { viewer?.applyStock(null, 1, false); },
+        status: () => viewer!.simStatus(),
+        gotoLine: (line) => editor.selectLine(line),
+      });
+    });
+  });
   const setMode = (next: Mode) => {
     mode = next;
     btnTool.classList.toggle('checked', mode === 'tool');

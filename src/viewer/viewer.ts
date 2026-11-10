@@ -6,6 +6,9 @@ import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 import { elapsedSecondsAtSeq, formatElapsedOverTotal, lineAtSeq, resolveSeqForLine, sequenceLength } from '../core/playback';
 import { isLatheMachine, type ToolpathResult } from '../core/toolpath';
+import { createSimLayer, type SimLayer, type SimStatus } from './simLayer';
+import type { SimProgram } from '../sim/segments';
+import type { Bounds } from '../sim/stock';
 import { CUT_LINE_BASE_WIDTH, FOV_MAX, FOV_MIN, toolpathLineWidth } from '../core/viewerSettings';
 import { getViewerSettings, onViewerSettings } from '../platform/viewerSettings';
 import { el } from '../ui/dialog';
@@ -30,6 +33,8 @@ export interface ViewerHooks {
   onPick?: (line: number) => void;
   stopRule?: () => StopRule;
   lineText?: (line: number) => string;
+  /** 가공 형상 상태가 바뀜(진행·적용) */
+  onSimChange?: () => void;
 }
 export interface Viewer {
   setProgram(result: ToolpathResult | null, machineType: string): void;
@@ -44,6 +49,13 @@ export interface Viewer {
   jumpTool(dir: -1 | 1): void;
   /** 위치 찍기 모드가 켜져 있으면 끄고 true */
   cancelPick(): boolean;
+  /** 가공 형상: 절삭 선분·공구 형상(프로그램이 바뀔 때마다) */
+  setSimProgram(p: SimProgram | null): void;
+  /** 소재 적용(bounds 가 null 이면 소재 제거) */
+  applyStock(bounds: Bounds | null, resolution: number, enabled: boolean): void;
+  setSimEnabled(on: boolean): void;
+  setSimLive(on: boolean): void;
+  simStatus(): SimStatus;
   dispose(): void;
 }
 
@@ -91,6 +103,8 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
 
   const group = new THREE.Group();
   scene.add(group);
+  const sim: SimLayer = createSimLayer(scene, () => { dirty = true; hooks.onSimChange?.(); });
+  let simLive = false;
   let processes: ProcessObjects[] = [];
   const materials: { m: LineMaterial; base: number }[] = [];
 
@@ -539,6 +553,21 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
       for (const o of p.objs) o.visible = on;
     }
     showSeq(seqNow, false);
+    if (!simLive) sim.setTarget(selectionEndSeq());
+  }
+
+  /** 지금 보이는 공정들 중 가장 뒤 공정의 끝 seq (실시간 형상이 아닐 때 소재를 어디까지 깎을지) */
+  function selectionEndSeq(): number | null {
+    if (!result) return null;
+    let best: number | null = null;
+    for (const [key, path] of result.tool_paths) {
+      if (visible && !visible.has(key)) continue;
+      for (let i = path.length - 1; i >= 0; i--) {
+        const n = path[i]!;
+        if (n.valid) { if (best === null || n.seq > best) best = n.seq; break; }
+      }
+    }
+    return best;
   }
 
   // ---------------------------------------------------------------- 재생
@@ -558,6 +587,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     const n = sequenceLength(result);
     seqNow = Math.max(0, Math.min(seq, Math.max(0, n - 1)));
     slider.value = String(seqNow);
+    if (simLive) sim.setTarget(seqNow);
     const keysVisible = visibleKeys();
     for (const p of processes) {
       const on = !keysVisible || keysVisible.has(p.key);
@@ -682,7 +712,17 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
       projBar.firstElementChild?.classList.remove('on');
       return true;
     },
+    setSimProgram(p) { sim.setProgram(p); if (!simLive) sim.setTarget(selectionEndSeq()); },
+    applyStock(bounds, resolution, on) { sim.setStock(bounds, resolution, on); sim.setTarget(simLive ? seqNow : selectionEndSeq()); },
+    setSimEnabled(on) { sim.setEnabled(on); },
+    setSimLive(on) {
+      simLive = on;
+      sim.setLive(on);
+      sim.setTarget(on ? seqNow : selectionEndSeq());
+    },
+    simStatus: () => sim.status(),
     dispose() {
+      sim.dispose();
       cancelAnimationFrame(raf);
       ro.disconnect();
       offSettings();
