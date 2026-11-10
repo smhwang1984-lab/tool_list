@@ -303,11 +303,15 @@ def export_store_golden(app):
     import tempfile
 
     pairs = []
+    lathe_texts = {}
     for path in sorted(FIXTURES.iterdir()):
         if not path.is_file() or path.suffix.lower() not in ('.nc', '.mpf', '.tap'):
             continue
         text = app.decode_program_bytes(path.read_bytes())[0]
-        for row in app.parse_lathe_program(text):
+        lathe_rows = app.parse_lathe_program(text)
+        if lathe_rows:
+            lathe_texts[path.name] = text
+        for row in lathe_rows:
             pair = [str(row.get('INSERT', '')), str(row.get('HOLDER', ''))]
             if (pair[0] or pair[1]) and pair not in pairs:
                 pairs.append(pair)
@@ -373,8 +377,11 @@ def export_store_golden(app):
                 hints = hint_variants[index % len(hint_variants)]
                 values, sources = lis.resolve_fields(ins, hol, tags, hints, store)
                 resolves.append({'args': [ins, hol, tags, hints], 'values': values, 'sources': sources})
+            # 저장소를 넣은 선반 공구 리스트 전체 산출 (샘플 NC 파일마다)
+            parses = [{'file': name, 'rows': enc(app.parse_lathe_program(text, store))}
+                      for name, text in lathe_texts.items()]
             cases.append({'raw': raw, 'insert': store.insert, 'tool': store.tool,
-                          'queries': queries, 'resolves': resolves})
+                          'queries': queries, 'resolves': resolves, 'parses': parses})
 
     # 갱신: 사례 A에서 시작해 연산을 차례로 적용한 뒤의 저장소
     ops_list = [

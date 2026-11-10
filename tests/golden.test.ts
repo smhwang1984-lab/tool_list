@@ -11,6 +11,18 @@ import { parseProgram, toolNameMapFromRows, toolShapeMapFromRows } from '../src/
 import { hNumberAlertText, lineListText, sameNumber, soAlertText, spindleAlertText } from '../src/core/alerts';
 import * as lis from '../src/core/latheInsertSpec';
 import { LatheSpecStore } from '../src/core/latheSpecStore';
+import {
+  type LatheRow, isLatheMachine, latheCollectSpindleFeed, latheNumericValue, parseLatheProgram,
+  latheToolNameMapFromRows, latheValueRange, rowSources, stripLatheToolPrefix,
+} from '../src/core/latheParser';
+
+/** 선반 행 -> 골든과 같은 모양: 출처가 있는 행은 {row, sources}, 빈 행은 그대로 */
+function wrapLatheRows(rows: LatheRow[]): unknown[] {
+  return rows.map((row) => {
+    const sources = rowSources(row);
+    return sources ? { row: { ...row }, sources: { ...sources } } : { ...row };
+  });
+}
 
 type Fn = (args: unknown[], kwargs: Record<string, unknown>) => unknown;
 
@@ -46,6 +58,14 @@ const IMPL: Record<string, Fn> = {
     parseProgram(text as string, (types ?? kw.name_types ?? null) as never, Boolean(kw.lathe)),
   tool_name_map_from_rows: ([rows]) => toolNameMapFromRows(rows as never),
   tool_shape_map_from_rows: ([rows]) => toolShapeMapFromRows(rows as never),
+  // latheParser
+  _lathe_collect_spindle_feed: ([code]) => latheCollectSpindleFeed(code as string),
+  _lathe_numeric_value: ([w]) => latheNumericValue(w as string),
+  _lathe_value_range: ([words]) => latheValueRange(words as string[]),
+  _strip_lathe_tool_prefix: ([t]) => stripLatheToolPrefix(t),
+  parse_lathe_program: ([text]) => wrapLatheRows(parseLatheProgram(text as string)),
+  lathe_tool_name_map_from_rows: ([rows]) => latheToolNameMapFromRows((rows as unknown[]).map(rowOf) as never),
+  is_lathe_machine: ([m]) => isLatheMachine(m),
   // latheInsertSpec (원본 lathe_insert_spec.py)
   'lis.fmt_number': ([v]) => lis.fmtNumber(v),
   'lis.normalize_key': ([v]) => lis.normalizeKey(v),
@@ -208,6 +228,7 @@ interface StoreCase {
     get_insert: unknown; get_tool: unknown;
   }[];
   resolves: { args: [string, string, Record<string, string>, Record<string, unknown> | null]; values: unknown; sources: unknown }[];
+  parses: { file: string; rows: unknown }[];
 }
 
 const STORE_FILE = new URL('./golden/lathe_store.json', import.meta.url);
@@ -236,6 +257,15 @@ describe('골든: 선반 스펙 저장소 (직접 입력 저장값)', () => {
           expect(store.getInsert(q.insert_text, q.holder_text)).toStrictEqual(q.get_insert);
           expect(store.getTool(q.holder_text, q.insert_text)).toStrictEqual(q.get_tool);
         }
+      });
+      it(`선반 공구 리스트 전체 산출(저장소 포함) ${c.parses.length}개 파일`, () => {
+        const failures: string[] = [];
+        for (const p of c.parses) {
+          const got = normalize(wrapLatheRows(parseLatheProgram(readFixtureText(p.file), store)));
+          const d = diff(got, normalize(decode(p.rows)));
+          if (d) failures.push(`${p.file}\n  ${d}`);
+        }
+        expect(failures.join('\n')).toBe('');
       });
       it(`resolve_fields(저장소 포함) ${c.resolves.length}건`, () => {
         const failures: string[] = [];
@@ -310,6 +340,13 @@ describe('골든: 샘플 NC 전체 산출', () => {
       });
       it('공정 필터 이름표', () => {
         expect(toolNameMapFromRows(parseProgram(text))).toStrictEqual(g('tool_name_map'));
+      });
+      it('선반 공구 리스트 (행 + 값 출처)', () => {
+        const d = diff(normalize(wrapLatheRows(parseLatheProgram(text))), g('lathe_rows'));
+        expect(d).toBeNull();
+      });
+      it('선반 공정 필터 이름표', () => {
+        expect(latheToolNameMapFromRows(parseLatheProgram(text))).toStrictEqual(g('lathe_tool_name_map'));
       });
     });
   }
