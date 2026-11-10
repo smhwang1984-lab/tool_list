@@ -71,12 +71,30 @@ html, body {
 }
 .splitter::after { content: ''; width: 4px; height: 48px; border-radius: 2px; background: var(--toolbar_sep); }
 
-.program-editor {
-  flex: 1; width: 100%; resize: none; border: none; outline: none; padding: 8px 10px;
-  background: var(--editor_bg); color: var(--editor_text);
-  font-family: Consolas, "D2Coding", "Noto Sans Mono", monospace; font-size: 14px; line-height: 1.45;
-  white-space: pre; overflow: auto;
+.editor-host { flex: 1; min-height: 0; background: var(--editor_bg); }
+.editor-host .cm-editor { height: 100%; }
+.nc-g0 { color: var(--nc_g0); } .nc-g1 { color: var(--nc_g1); } .nc-g2 { color: var(--nc_g2); }
+.nc-g3 { color: var(--nc_g3); } .nc-cycle { color: var(--nc_cycle); }
+.nc-spindle { color: var(--nc_spindle); } .nc-coolant { color: var(--nc_coolant); }
+.search-bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 4px 6px; border-bottom: 1px solid var(--border);
 }
+.search-bar button {
+  min-height: 36px; padding: 0 8px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--list_hover); color: var(--text); font: inherit; font-size: 13px; white-space: nowrap;
+}
+.search-bar input {
+  flex: 1 1 90px; min-width: 90px; min-height: 36px; padding: 0 8px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--editor_bg); color: var(--editor_text); font: inherit; font-size: 14px;
+}
+.search-status { font-size: 12px; color: var(--muted_text); white-space: nowrap; }
+.search-status.error { color: var(--error); }
+#toast {
+  position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+  max-width: 88vw; padding: 10px 16px; border-radius: 8px; background: var(--neutral_button);
+  color: var(--neutral_button_text); font-size: 14px; opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 50;
+}
+#toast.show { opacity: 1; }
 .placeholder {
   flex: 1; display: flex; align-items: center; justify-content: center; text-align: center;
   padding: 16px; color: var(--muted_text); font-size: 14px; line-height: 1.6;
@@ -117,6 +135,7 @@ dialog .dlg-head { padding: 12px 16px; font-weight: 700; border-bottom: 1px soli
 dialog .dlg-body { padding: 12px 16px; overflow: auto; max-height: 64vh; white-space: pre-wrap; font-size: 14px; line-height: 1.55; }
 dialog .dlg-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--border); }
 dialog .dlg-foot button {
-  min-height: 40px; min-width: 80px; border-radius: 6px; border: 1px solid var(--accent);
-  background: var(--accent); color: var(--accent_text); font: inherit;
+  min-height: 40px; min-width: 80px; border-radius: 6px; border: 1px solid var(--border);
+  background: var(--list_hover); color: var(--text); font: inherit;
 }
+dialog .dlg-foot button.primary { border-color: var(--accent); background: var(--accent); color: var(--accent_text); }

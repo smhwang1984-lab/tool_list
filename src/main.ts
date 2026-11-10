@@ -5,38 +5,14 @@ import './styles.css';
 import { APP_NAME, APP_VERSION } from './version';
 import { applyTheme, type ThemeName } from './theme';
 import { icon } from './icons';
+import { EXAMPLE } from './example';
+import { getPref, getPrefNumber, loadPrefs, setPref } from './platform/prefs';
+import { confirmDialog, el, installLongPressHints, showDialog, toast } from './ui/dialog';
+import { createEditor } from './ui/editor';
+import { createSearchBar } from './ui/searchBar';
 
 type Mode = 'tool' | 'viewer';
 type Tab = 'program' | Mode;
-
-const PREF_THEME = 'sumpath.theme';
-
-function loadTheme(): ThemeName {
-  try {
-    const saved = localStorage.getItem(PREF_THEME);
-    if (saved === 'light' || saved === 'dark') return saved;
-  } catch {
-    /* 저장소를 못 쓰면 기본값 */
-  }
-  return 'light';
-}
-
-function saveTheme(name: ThemeName): void {
-  try {
-    localStorage.setItem(PREF_THEME, name);
-  } catch {
-    /* 무시 */
-  }
-}
-
-function el<K extends keyof HTMLElementTagNameMap>(
-  tag: K, attrs: Record<string, string> = {}, html = '',
-): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
-  if (html) node.innerHTML = html;
-  return node;
-}
 
 function toolButton(label: string, iconName: string, title: string, opts: { accent?: boolean; disabled?: boolean } = {}) {
   const b = el('button', { class: 'tool-btn' + (opts.accent ? ' accent' : ''), title, type: 'button' },
@@ -51,18 +27,6 @@ function group(...buttons: HTMLElement[]): HTMLElement {
   return g;
 }
 
-function showDialog(title: string, body: string): void {
-  const dlg = el('dialog');
-  dlg.innerHTML = '<div class="dlg-head"></div><div class="dlg-body"></div>' +
-    '<div class="dlg-foot"><button type="button">닫기</button></div>';
-  dlg.querySelector('.dlg-head')!.textContent = title;
-  dlg.querySelector('.dlg-body')!.textContent = body;
-  dlg.querySelector('button')!.addEventListener('click', () => dlg.close());
-  dlg.addEventListener('close', () => dlg.remove());
-  document.body.append(dlg);
-  dlg.showModal();
-}
-
 const HELP_TEXT = [
   '■ 이 버전은 P0(앱 뼈대)입니다.',
   '  화면 배치와 다크모드, 화면 모드 전환만 동작합니다.',
@@ -74,7 +38,7 @@ const HELP_TEXT = [
 ].join('\n');
 
 function mount(root: HTMLElement): void {
-  let theme = loadTheme();
+  let theme: ThemeName = getPref('theme') === 'dark' ? 'dark' : 'light';
   applyTheme(theme);
 
   // ---------- 제목 줄 ----------
@@ -92,14 +56,15 @@ function mount(root: HTMLElement): void {
 
   // ---------- 툴바 (원본 순서) ----------
   const toolbar = el('nav', { class: 'main-toolbar' });
+  const btnExample = toolButton('예제', 'document', '예제 프로그램 불러오기');
+  const btnClear = toolButton('지우기', 'eraser', '프로그램과 공구 리스트 지우기');
   const btnTool = toolButton('툴리스트 산출', 'table', '툴리스트 산출 모드');
   const btnViewer = toolButton('Viewer', 'toolpath', 'Viewer 모드 (3D 공구 경로)');
   toolbar.append(
     group(
       toolButton('파일 열기', 'folder_open', 'NC 파일 열기', { disabled: true }),
-      toolButton('PG ADD', 'folder_add', '여러 NC 파일을 이어붙여 추가', { disabled: true }),
-      toolButton('예제', 'document', '예제 프로그램 불러오기', { disabled: true }),
-      toolButton('지우기', 'eraser', '프로그램과 공구 리스트 지우기', { disabled: true }),
+      btnExample,
+      btnClear,
     ),
     group(toolButton('편집 모드', 'pencil', '편집 모드 (비밀번호)', { disabled: true })),
     group(toolButton('Tool List', 'run', '공구 리스트 산출', { accent: true, disabled: true })),
@@ -119,11 +84,16 @@ function mount(root: HTMLElement): void {
   const body = el('main', { class: 'body' });
   const programPane = el('section', { class: 'pane program-pane' });
   programPane.innerHTML = '<div class="pane-head">① 프로그램 입력</div>';
-  const editor = el('textarea', {
-    class: 'program-editor', spellcheck: 'false', readonly: '',
-    placeholder: 'NC 프로그램 (P2에서 코드 색·검색, P3에서 파일 열기를 붙입니다)',
+  // 장비 타입(밀링/선반)은 T4의 장비 패널에서 정한다. 그 전까지는 밀링.
+  const lathe = false;
+  const editorHost = el('div', { class: 'editor-host' });
+  const editor = createEditor(editorHost, {
+    fontSize: getPrefNumber('editor_font_px', 14, 9, 32),
+    onFontSize: (px) => setPref('editor_font_px', String(px)),
   });
-  programPane.append(editor);
+  editor.setLathe(lathe);
+  const searchBar = createSearchBar(editor, () => lathe);
+  programPane.append(searchBar.root, editorHost);
 
   const splitter = el('div', { class: 'splitter', role: 'separator', 'aria-orientation': 'vertical' });
 
@@ -166,9 +136,22 @@ function mount(root: HTMLElement): void {
   btnDark.addEventListener('click', () => {
     theme = theme === 'dark' ? 'light' : 'dark';
     applyTheme(theme);
-    saveTheme(theme);
+    setPref('theme', theme);
     paintDark();
   });
+  btnExample.addEventListener('click', () => {
+    editor.setText(EXAMPLE);
+    toast('예제 프로그램을 불러왔습니다');
+  });
+  btnClear.addEventListener('click', async () => {
+    if (editor.getText() && !(await confirmDialog('지우기', '프로그램과 공구 리스트를 지울까요?', '지우기'))) return;
+    editor.setText('');
+  });
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'F6') { e.preventDefault(); searchBar.prevTool(); }
+    if (e.key === 'F8') { e.preventDefault(); searchBar.nextTool(); }
+  });
+  installLongPressHints(root);
   btnHelp.addEventListener('click', () => showDialog('도움말', HELP_TEXT));
   btnAbout.addEventListener('click', () => showDialog('About', [
     `${APP_NAME} v${APP_VERSION} (Android)`,
@@ -199,4 +182,4 @@ function mount(root: HTMLElement): void {
   });
 }
 
-mount(document.getElementById('app')!);
+void loadPrefs().then(() => mount(document.getElementById('app')!));
