@@ -33,7 +33,7 @@ import lathe_insert_spec
 import sumpath_license
 
 
-APP_VERSION = '2.3.7'
+APP_VERSION = '2.3.8'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-11-10'
 APP_CREATOR = 'Hwang.seonmun'
@@ -2253,7 +2253,7 @@ try:
         QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
         QPlainTextEdit, QProgressDialog, QPushButton, QShortcut, QSplitter, QStackedWidget, QStyle,
         QStyledItemDelegate, QStyleOptionViewItem, QTableWidget, QTableWidgetItem, QTextEdit,
-        QVBoxLayout, QWidget, QFrame, QSlider, QToolButton,
+        QVBoxLayout, QWidget, QFrame, QSlider, QToolButton, QMenu, QWidgetAction,
     )
     import ui_icons
 except ImportError as error:
@@ -3271,6 +3271,24 @@ else:
                 self.btn_open_file, self.btn_add_program, self.btn_example, self.btn_clear,
             ))
 
+            # v2.3.8: 장비 타입·스펙 / 정지 옵션(드롭다운) / 소재 설정을 아이콘 버튼으로 —
+            # 편집 모드 앞에 둔다. Viewer 모드에서만 보인다(set_mode).
+            self.btn_machine = self._make_tool_button(
+                '장비', 'machine',
+                lambda: self.set_machine_panel_expanded(not self.machine_dialog.isVisible()),
+                '장비 타입 및 스펙 설정', checkable=True)
+            self.btn_stop_options = self._make_tool_button(
+                '정지 옵션', 'stop', lambda: None,
+                '재생 정지 옵션 — 텍스트 정지 · 정지(M00) · 옵션정지(M01) · 실시간 형상')
+            self.btn_stop_options.setPopupMode(QToolButton.InstantPopup)
+            self.stock_button = self._make_tool_button(
+                '소재', 'stock', self.open_stock_dialog, '소재(STOCK) 설정과 가공 형상 시뮬레이션')
+            viewer_separator = self._add_toolbar_group(toolbar_layout, (
+                self.btn_machine, self.btn_stop_options, self.stock_button,
+            ))
+            self._viewer_only_toolbar = [self.btn_machine, self.btn_stop_options, self.stock_button,
+                                         viewer_separator]
+
             self.btn_edit_mode = self._make_tool_button(
                 '편집 모드', 'pencil', self.toggle_edit_mode, '편집 모드 켜기/끄기 (비밀번호)', checkable=True)
             self.btn_edit_save = self._make_tool_button('저장', 'save', self.save_edit, '저장 (Ctrl+S)')
@@ -3332,7 +3350,15 @@ else:
             # 장비 타입 및 스펙 설정 패널을 다음공구검색 행보다 위쪽에
             # 배치한다(v1.6.0 요청 — 두 행의 상하 순서 교체).
             self.machine_settings_panel = self._build_machine_settings_panel(kfont)
-            left_layout.addWidget(self.machine_settings_panel)
+            # v2.3.8: 패널은 왼쪽 위가 아니라 툴바 [장비] 버튼 아래에 뜨는 창에 둔다.
+            self.machine_dialog = QDialog(self, Qt.Tool)
+            self.machine_dialog.setWindowTitle(self.MACHINE_PANEL_TITLE)
+            machine_dialog_layout = QVBoxLayout(self.machine_dialog)
+            machine_dialog_layout.setContentsMargins(6, 6, 6, 6)
+            machine_dialog_layout.addWidget(self.machine_settings_panel)
+            self.machine_dialog.setMinimumWidth(380)
+            self.machine_dialog.finished.connect(lambda _r: self.set_machine_panel_expanded(False))
+            self.set_machine_panel_expanded(False)
 
             search_bar = QHBoxLayout()
             self._search_bar_layout = search_bar  # 테스트에서 버튼 순서를 확인하는 용도
@@ -3392,8 +3418,6 @@ else:
             filter_kfont = QFont('맑은 고딕')
             filter_kfont.setPointSizeF(kfont.pointSize() * FILTER_SECTION_SCALE)
 
-            stop_bar = QHBoxLayout()
-            stop_bar.setSpacing(scaled(6))
             self.stop_text_check = QCheckBox('텍스트 정지')
             self.stop_text_check.setFont(filter_kfont)
             self.stop_text_check.setStyleSheet(PLAYBACK_CHECKBOX_STYLE)
@@ -3428,13 +3452,23 @@ else:
             self.sim_live_check.setChecked(
                 self._as_bool_setting(self.layout_settings.value('sim_live_shape', None), False))
             self.sim_live_check.toggled.connect(self._on_sim_live_toggled)
-            stop_bar.addWidget(self.stop_text_check)
-            stop_bar.addWidget(self.stop_text_input)
-            stop_bar.addWidget(self.stop_m00_check)
-            stop_bar.addWidget(self.stop_m01_check)
-            stop_bar.addWidget(self.sim_live_check)
-            stop_bar.addStretch()
-            filter_layout.addLayout(stop_bar)
+            # v2.3.8: 정지 옵션은 한 줄 체크박스 대신 툴바 [정지 옵션] 드롭다운에 둔다.
+            stop_panel = QWidget()
+            stop_layout = QVBoxLayout(stop_panel)
+            stop_layout.setContentsMargins(10, 8, 10, 8)
+            stop_layout.setSpacing(scaled(6))
+            stop_text_row = QHBoxLayout()
+            stop_text_row.addWidget(self.stop_text_check)
+            stop_text_row.addWidget(self.stop_text_input)
+            stop_layout.addLayout(stop_text_row)
+            stop_layout.addWidget(self.stop_m00_check)
+            stop_layout.addWidget(self.stop_m01_check)
+            stop_layout.addWidget(self.sim_live_check)
+            stop_action = QWidgetAction(self)
+            stop_action.setDefaultWidget(stop_panel)
+            self.stop_options_menu = QMenu(self)
+            self.stop_options_menu.addAction(stop_action)
+            self.btn_stop_options.setMenu(self.stop_options_menu)
 
             filter_bar = QHBoxLayout()
             filter_bar.setSpacing(scaled(6))
@@ -3468,10 +3502,6 @@ else:
             self.btn_select_no_tools = self._add_button(
                 filter_bar, '해제', lambda: self.viewer.select_all_tools(False), filter_kfont)
             self._set_button_icon(self.btn_select_no_tools, 'check_none', '모든 공정 경로 숨기기')
-            # v1.9.0: 밀링 3축 형상 가공 시뮬레이션 — 소재 설정 팝업. v2.2.0부터 선반도
-            # 같은 버튼으로 선반 소재 창(지름·길이·앞면 Z·내경)을 연다.
-            self.stock_button = self._add_button(filter_bar, '소재', self.open_stock_dialog, filter_kfont)
-            self._set_button_icon(self.stock_button, 'stock', '소재(STOCK) 설정과 가공 형상 시뮬레이션')
             filter_layout.addLayout(filter_bar)
             self.tool_filter = QListWidget()
             self.tool_filter.setSelectionMode(QAbstractItemView.MultiSelection)
@@ -3562,6 +3592,8 @@ else:
                 line.setFrameShape(QFrame.VLine)
                 line.setFixedWidth(9)
                 layout.addWidget(line)
+                return line
+            return None
 
         def _set_button_icon(self, button, icon_name, tooltip=None, color_key='icon'):
             """기존 QPushButton에 아이콘을 붙인다(글자는 그대로 둔다)."""
@@ -4106,6 +4138,7 @@ else:
             self.machine_panel_toggle.setFont(QFont('맑은 고딕', 9, QFont.Bold))
             self.machine_panel_toggle.toggled.connect(self._on_machine_panel_toggled)
             layout.addWidget(self.machine_panel_toggle)
+            self.machine_panel_toggle.setVisible(False)  # v2.3.8: 창 제목이 대신한다
 
             self.machine_settings_body = QWidget()
             body_layout = QVBoxLayout(self.machine_settings_body)
@@ -4161,6 +4194,18 @@ else:
                 self.machine_panel_toggle.setChecked(expanded)
             self.machine_settings_body.setVisible(expanded)
             self.layout_settings.setValue('machine_panel_expanded', expanded)
+            dialog = getattr(self, 'machine_dialog', None)
+            if dialog is not None:
+                if expanded and not dialog.isVisible():
+                    button = self.btn_machine
+                    dialog.move(button.mapToGlobal(button.rect().bottomLeft()))
+                    dialog.show()
+                elif not expanded and dialog.isVisible():
+                    dialog.hide()
+            button = getattr(self, 'btn_machine', None)
+            if button is not None:
+                with QSignalBlocker(button):
+                    button.setChecked(expanded)
             # 채워진 색상 블럭 헤더 — 접힘/펼침 어느 쪽이든 항상 눈에 띄게 한다.
             t = self.theme
             self.machine_panel_toggle.setStyleSheet(
@@ -4190,9 +4235,6 @@ else:
             self._rebuild_machine_spec_form()
             self.viewer.set_machine_type(machine_type)
             self.machine_settings_status.setText('')
-            stock_button = getattr(self, 'stock_button', None)
-            if stock_button is not None:
-                stock_button.setVisible(True)      # v2.2.0: 선반도 소재 창(선반 소재)이 있다
             if not is_lathe_machine(machine_type):
                 # v1.6.8: 산출 모드 콤보가 "MCT (밀링)"로 되돌아갈 때 어느
                 # MCT였는지 기억해 둔다 — 사용자가 직접 장비 콤보를
@@ -4470,7 +4512,11 @@ else:
             is_viewer = mode == 'viewer'
             self.stack.setCurrentIndex(1 if is_viewer else 0)
             self.filter_panel.setVisible(is_viewer)
-            self.machine_settings_panel.setVisible(is_viewer)
+            for widget in getattr(self, '_viewer_only_toolbar', ()):
+                if widget is not None:
+                    widget.setVisible(is_viewer)
+            if not is_viewer:
+                self.set_machine_panel_expanded(False)
             if is_viewer:
                 self._restore_input_splitter_sizes()
             self.btn_tool_mode.setChecked(not is_viewer)

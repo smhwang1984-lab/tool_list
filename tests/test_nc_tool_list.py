@@ -305,12 +305,13 @@ X60 Y10 Z0
             self.assertFalse(hasattr(window, 'btn_machine_settings'))
             self.assertEqual(window.machine_settings_panel.title(), '')
             self.assertIn('장비 타입 및 스펙 설정', window.machine_panel_toggle.text())
-            self.assertTrue(window.machine_settings_panel.isHidden())
-            # 접이식 패널은 기본적으로 접혀 있어 프로그램 입력창을 더 넓게 쓴다.
+            # v2.3.8: 패널은 툴바 [장비] 버튼이 여는 창 안에 있고, 기본은 닫혀 있다.
+            self.assertTrue(window.btn_machine.isHidden())
+            self.assertFalse(window.machine_dialog.isVisible())
             self.assertFalse(window.machine_panel_toggle.isChecked())
             self.assertTrue(window.machine_settings_body.isHidden())
             window.set_mode('viewer')
-            self.assertFalse(window.machine_settings_panel.isHidden())
+            self.assertFalse(window.btn_machine.isHidden())
             self.assertGreater(window.machine_type_combo.count(), 0)
             self.assertGreater(window.machine_spec_form.rowCount(), 0)
 
@@ -344,7 +345,7 @@ X60 Y10 Z0
 
             self.assertEqual(
                 button_texts(row),
-                ['파일 열기', 'PG ADD', '예제', '지우기', '편집 모드', '저장', '비밀번호',
+                ['파일 열기', 'PG ADD', '예제', '지우기', '장비', '정지 옵션', '소재', '편집 모드', '저장', '비밀번호',
                  'Tool List', '툴리스트 산출', 'Viewer'],
             )
         finally:
