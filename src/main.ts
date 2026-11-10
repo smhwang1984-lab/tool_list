@@ -12,6 +12,8 @@ import { createEditor } from './ui/editor';
 import { createSearchBar } from './ui/searchBar';
 import { createMachinePanel } from './ui/machinePanel';
 import { createToolTable } from './ui/toolTable';
+import { createFilterPanel } from './ui/filterPanel';
+import { showSettings } from './ui/settingsDialog';
 import { showRowEditor } from './ui/rowEditor';
 import { showTypeList } from './ui/typeListDialog';
 import { COLUMNS, LATHE_COLUMNS, LATHE_SPEC_KEYS } from './core/columns';
@@ -61,7 +63,6 @@ function mount(root: HTMLElement): void {
   topBar.innerHTML = `<span class="title">${APP_NAME} v${APP_VERSION}</span>` +
     `<span class="caption">Android</span><span class="spacer"></span>`;
   const btnSettings = el('button', { class: 'icon-btn', title: '설정', type: 'button' }, icon('gear'));
-  btnSettings.disabled = true;
   const btnHelp = el('button', { class: 'icon-btn', title: '도움말', type: 'button' }, icon('help'));
   const btnAbout = el('button', { class: 'icon-btn', title: 'About', type: 'button' }, icon('info'));
   const btnDark = el('button', { class: 'icon-btn', title: '다크모드', type: 'button' });
@@ -113,7 +114,8 @@ function mount(root: HTMLElement): void {
   const isLathe = (): boolean => machinePanel.isLathe();
   editor.setLathe(isLathe());
   const searchBar = createSearchBar(editor, isLathe);
-  programPane.append(machinePanel.root, searchBar.root, editorHost);
+  const filterPanel = createFilterPanel();
+  programPane.append(machinePanel.root, searchBar.root, editorHost, filterPanel.root);
 
   const splitter = el('div', { class: 'splitter', role: 'separator', 'aria-orientation': 'vertical' });
 
@@ -260,6 +262,7 @@ function mount(root: HTMLElement): void {
     btnViewer.classList.toggle('checked', mode === 'viewer');
     toolView.hidden = mode !== 'tool';
     viewerView.hidden = mode !== 'viewer';
+    filterPanel.root.hidden = mode !== 'viewer'; // 필터 영역은 Viewer 모드에서만 (원본과 같다)
     machinePanel.root.hidden = mode !== 'viewer'; // 원본: 산출 모드에서는 장비 패널을 숨기고 표 위 콤보를 쓴다
     if (mode === 'viewer' && !viewerStarted) {
       viewerStarted = true;
@@ -295,6 +298,7 @@ function mount(root: HTMLElement): void {
     if (e.key === 'F8') { e.preventDefault(); searchBar.nextTool(); }
   });
   installLongPressHints(root);
+  btnSettings.addEventListener('click', showSettings);
   btnHelp.addEventListener('click', () => showDialog('도움말', HELP_TEXT));
   btnAbout.addEventListener('click', () => showDialog('About', [
     `${APP_NAME} v${APP_VERSION} (Android)`,
