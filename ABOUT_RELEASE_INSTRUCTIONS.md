@@ -54,7 +54,10 @@ Last updated: 2026-11-05 (NC_Tool_List v2.3.0 — 로컬 v2.2.9(STOCK SIZE)와 G
   1. **3D 화면 휠 버튼 드래그 = 화면 이동(pan)**: 이전엔 확대/축소였다. 확대/축소는 휠 굴리기만 쓴다(줌 십자 표시는 휠 굴릴 때만).
   2. **REMARK에 M300/M200 표기**: G41처럼 N번호 뒤에 `N1(M300H1)`, H가 없으면 `N1(M300)`. 같은 공정의 G43 H(없으면 M6 T번호)와
      다르면 `N1(M300H5≠H2)`로 적고 화면·PDF에서 빨간 굵은 글씨. (`≠H값`은 비교 기준 H를 알려 주려고 덧붙인 표기)
-- Installer/package status: 미생성(빌드 PC에서 생성).
+- Installer/package status: **생성 완료**. `installer\NC_Tool_List_Setup_v2.3.7.exe`.
+  `python -m PyInstaller NC_Tool_List.spec --noconfirm --clean` → `ISCC.exe NC_Tool_List.iss`. dist exe 기동 10초 뒤 실행 중.
+  - Setup EXE SHA-256: 16E0E98AC3149CAD8857D1F12B7A0F3EEA6EBC293233F21822CA7C0E7ABB6194 (78.3 MB)
+- 서명 상태: 미서명(기존과 동일).
 
 ### 2026-11-10 (v2.3.6)
 
