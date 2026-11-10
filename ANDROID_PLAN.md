@@ -256,3 +256,4 @@ build_apk.bat install
 | 1.0.0 | 2026-11-10 | **P1-T0** | 별도 프로그램으로 보고 버전을 1.0.0에서 새로 시작(원본 버전 표시 제거). `tools/bump_version.mjs`(`npm run bump`, `--minor`, `--set`, `--check`) + 테스트. 단계별 버전을 P1=1.1.0 … P7=1.8.0으로 다시 매김 |
 | 1.0.0 | 2026-11-10 | **P1-T1·T2** | 골든 생성기(원본 pytest 기록 모드 + 샘플 NC 11개 전체 산출, 기준 원본 `3d189d4`). `src/core/py.ts`(Python 정규식·float·repr·strip 동작 맞추기), `text`·`columns`·`metadata`·`nameTypes` 이식 — 골든 100% 일치. T3 일부(`radiusComp`·`alerts`)도 일치 |
 | 1.0.0 | 2026-11-10 | **P1-T3** | `radiusComp`·`alerts`·`millParser`(parse_program, 공정 필터 이름표, 형상용 공구 맵)·`patterns.ts` 이식. 원본 호출 기록과 샘플 NC 11개(밀링/선반 표시/이름표 직접 지정 3가지) 산출이 모두 일치 |
+| 1.0.0 | 2026-11-10 | **P1-T4** | `latheInsertSpec`(ISO 1832 인서트·나사·홈·ISO 5608 홀더 해석, 종류/방향/인선/D 자동 추천, 출처 우선순위, 형상 맵)·`latheSpecStore`(직접 입력 저장값, 메모리 부분) 이식 — 원본 함수 28개 약 1,400건과 저장소 정답 일치. `py.ts`에 Python `%.3f`·`round()` 정확 반올림(정확히 절반이면 짝수 쪽) 추가. 골든 생성기에 `--skip-pytest`(5초) 옵션과 저장소 정답 추가 |

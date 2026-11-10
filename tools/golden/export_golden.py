@@ -296,6 +296,115 @@ def extra_calls(app):
         call(app.code_without_comments, line)
 
 
+def export_store_golden(app):
+    """LatheSpecStore(직접 입력 저장소)와, 저장소를 넣은 resolve_fields 정답.
+    저장소는 객체라 함수 호출 기록으로는 남지 않아 여기서 따로 만든다 → tests/golden/lathe_store.json"""
+    import lathe_insert_spec as lis
+    import tempfile
+
+    pairs = []
+    for path in sorted(FIXTURES.iterdir()):
+        if not path.is_file() or path.suffix.lower() not in ('.nc', '.mpf', '.tap'):
+            continue
+        text = app.decode_program_bytes(path.read_bytes())[0]
+        for row in app.parse_lathe_program(text):
+            pair = [str(row.get('INSERT', '')), str(row.get('HOLDER', ''))]
+            if (pair[0] or pair[1]) and pair not in pairs:
+                pairs.append(pair)
+    pairs += [
+        ['CNMG 120408', 'PCLNR 2525M12'], ['  cnmg 120408  [R 0.4]', 'pclnr 2525m12'],
+        ['', 'MGEHR 2525-3'], ['', ''], ['16ER 1.5 ISO', 'SER 2525M16'],
+        ['D10 X 90 NC DRILL', 'MILL TOOL CHECK'], ['GTN-3', 'MGEHR 2525-3'],
+    ]
+
+    def file_text(data):
+        return json.dumps(data, ensure_ascii=False)
+
+    # 사례 A: 실제 키로 만든 저장값(R/T/PITCH/D, KIND/DIR/TIP) + 일부러 비운 칸('-')
+    data_a = {'version': 1, 'insert': {}, 'tool': {}}
+    for i, (ins, hol) in enumerate(pairs[:30]):
+        ikey = lis.LatheSpecStore.insert_key(ins, hol)
+        tkey = lis.LatheSpecStore.tool_key(hol, ins)
+        if ikey and i % 2 == 0:
+            entry = {'R': '0.%d' % (i % 8 + 1)}
+            if i % 3 == 0:
+                entry['PITCH'] = '2'
+            if i % 4 == 0:
+                entry['D'] = '8'
+            if i % 5 == 0:
+                entry['T'] = '3.5'
+            if i % 6 == 0:
+                entry['R'] = '-'
+            data_a['insert'][ikey] = entry
+        if tkey != '||' and i % 3 != 1:
+            data_a['tool'][tkey] = {'KIND': lis.KINDS[i % len(lis.KINDS)],
+                                    'DIR': 'RLN'[i % 3], 'TIP': '12349'[i % 5]}
+            if i % 7 == 0:
+                data_a['tool'][tkey]['TIP'] = '-'
+    raws = [
+        file_text(data_a),
+        '{}',
+        'not json',
+        '[]',
+        file_text({'insert': [], 'tool': 'x'}),
+        file_text({'insert': {'A': {'R': '  0.5  ', 'T': '', 'X': 'y', 'D': 3, 'PITCH': 1.5},
+                              'B': 'str', 'C': {'R': '   '}},
+                   'tool': {'A||B': {'KIND': ' 외경 ', 'DIR': None, 'TIP': True}}}),
+    ]
+    tag_variants = [{}, {'R': '0.4'}, {'PITCH': '1.25', 'D': '6'}, {'T': '2', 'R': '-'}]
+    hint_variants = [None, {}, {'thread': True, 'pitch': '1.5'}, {'groove': True},
+                     {'milling': True}, {'turning': True}, {'face_groove': True}]
+
+    cases = []
+    for raw in raws:
+        with tempfile.TemporaryDirectory() as tmp:
+            file_path = os.path.join(tmp, 'lathe_insert_specs.json')
+            with open(file_path, 'w', encoding='utf-8') as fp:
+                fp.write(raw)
+            store = lis.LatheSpecStore(file_path)
+            queries, resolves = [], []
+            for index, (ins, hol) in enumerate(pairs):
+                queries.append({'insert_text': ins, 'holder_text': hol,
+                                'insert_key': lis.LatheSpecStore.insert_key(ins, hol),
+                                'tool_key': lis.LatheSpecStore.tool_key(hol, ins),
+                                'get_insert': store.get_insert(ins, hol),
+                                'get_tool': store.get_tool(hol, ins)})
+                tags = tag_variants[index % len(tag_variants)]
+                hints = hint_variants[index % len(hint_variants)]
+                values, sources = lis.resolve_fields(ins, hol, tags, hints, store)
+                resolves.append({'args': [ins, hol, tags, hints], 'values': values, 'sources': sources})
+            cases.append({'raw': raw, 'insert': store.insert, 'tool': store.tool,
+                          'queries': queries, 'resolves': resolves})
+
+    # 갱신: 사례 A에서 시작해 연산을 차례로 적용한 뒤의 저장소
+    ops_list = [
+        [['update_insert', 'CNMG 120408', {'R': '0.8', 'T': ''}, ''],
+         ['update_insert', '', {'PITCH': '1.5', 'R': '0.2'}, 'MGEHR 2525-3'],
+         ['update_insert', '', {'R': '1'}, ''],
+         ['update_tool', 'PCLNR 2525M12', 'CNMG 120408', {'KIND': '내경', 'DIR': 'L', 'TIP': ''}],
+         ['update_tool', '', '', {'KIND': 'x'}],
+         ['update_insert', 'cnmg 120408', {'R': None, 'D': 0, 'T': 3}, ''],
+         ['update_insert', 'NEW [R 1]', {'R': ' 0.4 ', 'bogus': 'x'}, ''],
+         ['update_tool', 'H', 'I', {'KIND': '-', 'TIP': '3'}]],
+        [['update_insert', 'CNMG 120408', {'R': '', 'T': '', 'PITCH': '', 'D': ''}, '']],
+    ]
+    updates = []
+    for ops in ops_list:
+        with tempfile.TemporaryDirectory() as tmp:
+            file_path = os.path.join(tmp, 'lathe_insert_specs.json')
+            with open(file_path, 'w', encoding='utf-8') as fp:
+                fp.write(raws[0])
+            store = lis.LatheSpecStore(file_path)
+            for op in ops:
+                if op[0] == 'update_insert':
+                    store.update_insert(op[1], op[2], op[3])
+                else:
+                    store.update_tool(op[1], op[2], op[3])
+            updates.append({'raw': raws[0], 'ops': ops, 'insert': store.insert, 'tool': store.tool})
+    write_json(GOLDEN / 'lathe_store.json', {'pairs': pairs, 'cases': cases, 'updates': updates})
+    print('  lathe_store', len(pairs), 'pairs,', len(cases), 'cases')
+
+
 def main(argv):
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -316,31 +425,37 @@ def main(argv):
     dirty = subprocess.run(['git', 'status', '--porcelain', '--untracked-files=no'],
                            capture_output=True, text=True).stdout.strip()
 
-    import pytest
-    recorder = Recorder()
-    code = pytest.main(TEST_FILES + ['-q', '-p', 'no:cacheprovider', '-x' if '--stop' in argv else '-q'],
-                       plugins=[recorder])
-    print('pytest 종료 코드:', code)
-    import NC_Tool_List as app
-    extra_calls(app)
+    skip_pytest = '--skip-pytest' in argv   # 함수 호출 기록(calls/)은 그대로 두고 나머지만 다시 만든다
+    code = 0
+    if skip_pytest:
+        import NC_Tool_List as app
+    else:
+        import pytest
+        recorder = Recorder()
+        code = pytest.main(TEST_FILES + ['-q', '-p', 'no:cacheprovider', '-x' if '--stop' in argv else '-q'],
+                           plugins=[recorder])
+        print('pytest 종료 코드:', code)
+        import NC_Tool_List as app
+        extra_calls(app)
 
-    calls_dir = GOLDEN / 'calls'
-    if calls_dir.exists():
-        for old in calls_dir.glob('*.json'):
-            old.unlink()
-    total = 0
-    for label in sorted(recorder.calls):
-        records = recorder.calls[label]
-        total += len(records)
-        write_json(calls_dir / (label + '.json'), {'func': label, 'calls': records})
-    print('기록한 함수 %d개, 호출 %d건' % (len(recorder.calls), total))
-    missing = [n for n in NC_FUNCS if n not in recorder.calls]
-    if missing:
-        print('호출 기록이 없는 함수:', ', '.join(missing))
-    if recorder.skipped:
-        print('건너뛴 호출(직렬화 불가·대용량):',
-              ', '.join('%s %d' % kv for kv in sorted(recorder.skipped.items())))
+        calls_dir = GOLDEN / 'calls'
+        if calls_dir.exists():
+            for old in calls_dir.glob('*.json'):
+                old.unlink()
+        total = 0
+        for label in sorted(recorder.calls):
+            records = recorder.calls[label]
+            total += len(records)
+            write_json(calls_dir / (label + '.json'), {'func': label, 'calls': records})
+        print('기록한 함수 %d개, 호출 %d건' % (len(recorder.calls), total))
+        missing = [n for n in NC_FUNCS if n not in recorder.calls]
+        if missing:
+            print('호출 기록이 없는 함수:', ', '.join(missing))
+        if recorder.skipped:
+            print('건너뛴 호출(직렬화 불가·대용량):',
+                  ', '.join('%s %d' % kv for kv in sorted(recorder.skipped.items())))
 
+    export_store_golden(app)
     export_fixtures(app)
 
     (GOLDEN / 'SOURCE_REV').write_text(

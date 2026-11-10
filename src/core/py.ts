@@ -371,13 +371,28 @@ export function grp(m: PyMatch, n: number): string | null {
   return m[n] ?? null;
 }
 
-/** Python round(x, ndigits) — 은행가 반올림(정확히 반일 때 짝수 쪽) */
-export function pyRound(x: number, ndigits = 0): number {
+/**
+ * '%.{nd}f' % x — 이진 값을 정확히 십진으로 본 뒤 반올림한다. 정확히 절반인 경우(예: 0.0625 → nd=3)는
+ * Python은 짝수 쪽, JS toFixed는 큰 쪽이라 따로 처리한다.
+ * 정확히 절반이 되는 x는 x * 2^(nd+1) 이 홀수 정수인 경우뿐이다.
+ */
+export function pyFormatFixed(x: number, nd: number): string {
+  if (Number.isNaN(x)) return 'nan';
+  if (x === Infinity) return 'inf';
+  if (x === -Infinity) return '-inf';
+  if (Object.is(x, -0)) return (0).toFixed(nd).replace(/^/, '-');
+  const scaled = x * 2 ** (nd + 1);
+  if (Number.isInteger(scaled) && Math.abs(scaled) % 2 === 1 && Math.abs(x) < 2 ** 40) {
+    const n = Math.abs(x) * 10 ** nd; // 정확히 .5 로 끝나는 값
+    const lo = Math.floor(n);
+    const pick = lo % 2 === 0 ? lo : lo + 1;
+    return (x < 0 ? '-' : '') + (pick / 10 ** nd).toFixed(nd);
+  }
+  return x.toFixed(nd);
+}
+
+/** Python round(x, ndigits) (ndigits >= 0) — 정확한 십진 반올림, 정확히 절반이면 짝수 쪽 */
+export function pyRoundDigits(x: number, ndigits: number): number {
   if (!Number.isFinite(x)) return x;
-  const factor = 10 ** ndigits;
-  const y = x * factor;
-  const r = Math.round(y);
-  const exactHalf = Math.abs(y % 1) === 0.5;
-  const v = exactHalf ? (r % 2 === 0 ? r : r - 1) : r;
-  return v / factor;
+  return Number(pyFormatFixed(x, ndigits));
 }

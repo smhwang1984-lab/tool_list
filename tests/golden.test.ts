@@ -1,4 +1,4 @@
-// 골든 비교 — 원본 Python 결과(tests/golden/calls/*.json)와 TS 이식본 결과가 같은지 본다.
+// 골든 비교 — 원본 Python 결과(tests/golden/**)와 TS 이식본 결과가 같은지 본다.
 // 골든은 tools/golden/export_golden.py 로 만든다(WORK_PLAN P1 §1.1).
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
@@ -9,8 +9,14 @@ import { cleanNameTypes, deriveD, deriveType } from '../src/core/nameTypes';
 import { collectRadiusCompCodes, formatCompSuffix, formatRemark, subprogramBodies } from '../src/core/radiusComp';
 import { parseProgram, toolNameMapFromRows, toolShapeMapFromRows } from '../src/core/millParser';
 import { hNumberAlertText, lineListText, sameNumber, soAlertText, spindleAlertText } from '../src/core/alerts';
+import * as lis from '../src/core/latheInsertSpec';
+import { LatheSpecStore } from '../src/core/latheSpecStore';
 
 type Fn = (args: unknown[], kwargs: Record<string, unknown>) => unknown;
+
+/** LatheRow 는 {row, sources} 로 풀려 온다 — 행만 꺼낸다 */
+const rowOf = (x: unknown): Record<string, unknown> =>
+  (x && typeof x === 'object' && 'row' in (x as object) ? (x as { row: Record<string, unknown> }).row : x) as Record<string, unknown>;
 
 /** 원본 함수 이름 → TS 구현 (인자는 Python 위치 인자 그대로) */
 const IMPL: Record<string, Fn> = {
@@ -40,6 +46,42 @@ const IMPL: Record<string, Fn> = {
     parseProgram(text as string, (types ?? kw.name_types ?? null) as never, Boolean(kw.lathe)),
   tool_name_map_from_rows: ([rows]) => toolNameMapFromRows(rows as never),
   tool_shape_map_from_rows: ([rows]) => toolShapeMapFromRows(rows as never),
+  // latheInsertSpec (원본 lathe_insert_spec.py)
+  'lis.fmt_number': ([v]) => lis.fmtNumber(v),
+  'lis.normalize_key': ([v]) => lis.normalizeKey(v),
+  'lis.strip_tags': ([v]) => lis.stripTags(v),
+  'lis.find_tags': ([v]) => lis.findTags(v),
+  'lis._clean_number': ([v]) => lis.cleanNumber(v),
+  'lis._float': ([v]) => lis.floatOrNull(v),
+  'lis.edge_length_from_ic': ([shape, ic]) => lis.edgeLengthFromIc(shape as string, ic as number),
+  'lis.size_code_for_ic': ([shape, ic]) => lis.sizeCodeForIc(shape as string, ic as number),
+  'lis.ic_for_size_code': ([shape, code, clearance]) =>
+    lis.icForSizeCode(shape as string, code as number, (clearance ?? 'N') as string),
+  'lis.parse_insert': ([t]) => lis.parseInsert(t),
+  'lis.parse_thread_insert': ([t]) => lis.parseThreadInsert(t),
+  'lis.parse_groove_insert': ([t]) => lis.parseGrooveInsert(t),
+  'lis.parse_tool_diameter': ([t]) => lis.parseToolDiameter(t),
+  'lis.parse_holder': ([t]) => lis.parseHolder(t),
+  'lis.program_hints': ([lines]) => lis.programHints(lines as string[]),
+  'lis.merge_hints': ([a, b]) => lis.mergeHints(a as never, b as never),
+  'lis.infer_kind': ([i, h, hints]) => lis.inferKind(i, h, hints as never),
+  'lis.infer_direction': ([kind, i, h]) => lis.inferDirection(kind as string, i, h),
+  'lis.infer_tip': ([kind, hand]) => lis.inferTip(kind as string, hand),
+  'lis.iso_values': ([i, h]) => lis.isoValues(i, h ?? ''),
+  'lis.resolve_fields': ([i, h, tags, hints], kw) =>
+    lis.resolveFields(i, h, (tags ?? kw.tags ?? null) as never, (hints ?? kw.hints ?? null) as never, null),
+  'lis.recommend_fields': ([i, h]) => lis.recommendFields(i, h),
+  'lis.describe_insert': ([t]) => lis.describeInsert(t),
+  'lis.describe_holder': ([t]) => lis.describeHolder(t),
+  'lis.chamfer_angle': ([t]) => lis.chamferAngle(t),
+  'lis.mill_type_for': ([kind, i]) => lis.millTypeFor(kind as string, i ?? ''),
+  'lis.geometry_from_row': ([row]) => lis.geometryFromRow(rowOf(row)),
+  'lis.geometry_map_from_rows': ([rows]) => lis.geometryMapFromRows((rows as unknown[]).map(rowOf)),
+};
+
+/** 일부러 TS로 옮기지 않는 함수 (이유) */
+const NOT_PORTED: Record<string, string> = {
+  'lis.specs_path': '저장 파일 경로 조립은 platform/ 에서(Android는 Preferences/앱 폴더)',
 };
 
 interface CallRecord {
@@ -77,6 +119,37 @@ function normalize(v: unknown): unknown {
   return v;
 }
 
+/**
+ * 깊은 비교. 문자열·정수·구조는 엄격하고, 소수는 마지막 자리 차이(상대 1e-12)까지 같게 본다 —
+ * sin/tan 같은 삼각함수는 JS와 C 라이브러리의 마지막 자리가 다를 수 있다.
+ */
+function diff(a: unknown, b: unknown, path = '$'): string | null {
+  if (typeof a === 'number' && typeof b === 'number') {
+    if (a === b || (Number.isNaN(a) && Number.isNaN(b))) return null;
+    const tolerance = 1e-12 * Math.max(1, Math.abs(a), Math.abs(b));
+    return Math.abs(a - b) <= tolerance ? null : `${path}: ${a} != ${b}`;
+  }
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return `${path}: 길이 ${a.length} != ${b.length}`;
+    for (let i = 0; i < a.length; i++) {
+      const d = diff(a[i], b[i], `${path}[${i}]`);
+      if (d) return d;
+    }
+    return null;
+  }
+  if (a && b && typeof a === 'object' && typeof b === 'object' && !Array.isArray(a) && !Array.isArray(b)) {
+    const ka = Object.keys(a).sort();
+    const kb = Object.keys(b).sort();
+    if (ka.join('\u0000') !== kb.join('\u0000')) return `${path}: 키 ${JSON.stringify(ka)} != ${JSON.stringify(kb)}`;
+    for (const k of ka) {
+      const d = diff((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k], `${path}.${k}`);
+      if (d) return d;
+    }
+    return null;
+  }
+  return a === b ? null : `${path}: ${JSON.stringify(a)} != ${JSON.stringify(b)}`;
+}
+
 const CALLS_DIR = new URL('./golden/calls/', import.meta.url);
 const files = existsSync(CALLS_DIR) ? readdirSync(CALLS_DIR).filter((f) => f.endsWith('.json')) : [];
 
@@ -88,6 +161,7 @@ describe('골든: 원본 함수 호출 기록', () => {
     const data = JSON.parse(readFileSync(new URL(file, CALLS_DIR), 'utf8')) as { func: string; calls: CallRecord[] };
     const impl = IMPL[data.func];
     if (!impl) {
+      if (data.func in NOT_PORTED) continue;
       it.todo(`${data.func} (${data.calls.length}건)`);
       continue;
     }
@@ -116,15 +190,76 @@ describe('골든: 원본 함수 호출 기록', () => {
           continue;
         }
         const want = normalize(decode(call.result));
-        try {
-          expect(got).toStrictEqual(want);
-        } catch {
-          failures.push(`${label}\n  기대: ${JSON.stringify(want).slice(0, 300)}\n  실제: ${JSON.stringify(got).slice(0, 300)}`);
-        }
+        const d = diff(got, want);
+        if (d) failures.push(`${label}\n  ${d}\n  기대: ${JSON.stringify(want).slice(0, 300)}\n  실제: ${JSON.stringify(got).slice(0, 300)}`);
       }
       expect(failures.slice(0, 15).join('\n')).toBe('');
     });
   }
+});
+
+// ---------------------------------------------------------------- 선반 스펙 저장소
+interface StoreCase {
+  raw: string;
+  insert: unknown;
+  tool: unknown;
+  queries: {
+    insert_text: string; holder_text: string; insert_key: string; tool_key: string;
+    get_insert: unknown; get_tool: unknown;
+  }[];
+  resolves: { args: [string, string, Record<string, string>, Record<string, unknown> | null]; values: unknown; sources: unknown }[];
+}
+
+const STORE_FILE = new URL('./golden/lathe_store.json', import.meta.url);
+
+describe('골든: 선반 스펙 저장소 (직접 입력 저장값)', () => {
+  const gold = existsSync(STORE_FILE)
+    ? (JSON.parse(readFileSync(STORE_FILE, 'utf8')) as {
+        cases: StoreCase[];
+        updates: { raw: string; ops: unknown[][]; insert: unknown; tool: unknown }[];
+      })
+    : null;
+  it('골든이 있다', () => {
+    expect(gold).not.toBeNull();
+  });
+  gold?.cases.forEach((c, index) => {
+    describe(`사례 ${index + 1}`, () => {
+      const store = new LatheSpecStore(c.raw);
+      it('파일 내용을 원본과 똑같이 읽는다', () => {
+        expect(diff(store.insert, c.insert)).toBeNull();
+        expect(diff(store.tool, c.tool)).toBeNull();
+      });
+      it('키와 저장값 조회', () => {
+        for (const q of c.queries) {
+          expect(LatheSpecStore.insertKey(q.insert_text, q.holder_text)).toBe(q.insert_key);
+          expect(LatheSpecStore.toolKey(q.holder_text, q.insert_text)).toBe(q.tool_key);
+          expect(store.getInsert(q.insert_text, q.holder_text)).toStrictEqual(q.get_insert);
+          expect(store.getTool(q.holder_text, q.insert_text)).toStrictEqual(q.get_tool);
+        }
+      });
+      it(`resolve_fields(저장소 포함) ${c.resolves.length}건`, () => {
+        const failures: string[] = [];
+        for (const r of c.resolves) {
+          const [i, h, tags, hints] = r.args;
+          const [values, sources] = lis.resolveFields(i, h, tags, hints as never, store);
+          const d = diff(values, r.values) ?? diff(sources, r.sources);
+          if (d) failures.push(`${JSON.stringify(r.args)}\n  ${d}`);
+        }
+        expect(failures.slice(0, 10).join('\n')).toBe('');
+      });
+    });
+  });
+  gold?.updates.forEach((u, index) => {
+    it(`저장값 갱신 ${index + 1}`, () => {
+      const store = new LatheSpecStore(u.raw);
+      for (const op of u.ops) {
+        if (op[0] === 'update_insert') store.updateInsert(op[1], op[2] as never, op[3]);
+        else store.updateTool(op[1], op[2], op[3] as never);
+      }
+      expect(diff(store.insert, u.insert)).toBeNull();
+      expect(diff(store.tool, u.tool)).toBeNull();
+    });
+  });
 });
 
 // ---------------------------------------------------------------- 샘플 NC 전체 산출

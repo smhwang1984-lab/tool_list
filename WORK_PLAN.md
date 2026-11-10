@@ -102,7 +102,7 @@ tools/golden/   정답 생성 스크립트 (Python, 원본 저장소를 읽음)
 | **T1** | **골든 생성기** `tools/golden/export_golden.py` 작성 (아래 1.1) | Windows에서 실행하면 `tests/golden/*.json`이 생긴다 ✅ (함수 72개·호출 8,880건, 샘플 NC 11개) |
 | **T2** | `text` · `columns` · `metadata` · `nameTypes` (+ Python 동작 맞추기 `py.ts`) | 해당 골든 100% 일치 ✅ |
 | **T3** | `radiusComp` · `alerts` · **`millParser`** (+ 공용 정규식 `patterns.ts`) | 밀링 골든(원본 테스트 입력 + `O3210_excerpt.nc` + `ncdata.nc`) 100% 일치 ✅ (샘플 NC 11개 전부 일치) |
-| **T4** | **`latheInsertSpec`** (원본 테스트 67개 → 골든) | 100% 일치 |
+| **T4** | **`latheInsertSpec`** (원본 테스트 67개 → 골든) + 직접 입력 저장소 `latheSpecStore`(메모리 부분) | 100% 일치 ✅ (함수 28개 약 1,400건 + 저장소 6사례·갱신 2건; 파일 입출력은 P3-T9) |
 | **T5** | **`latheParser`** | 선반 골든 100% 일치 |
 | **T6** | `ncColor` · `search` | 골든 100% 일치 |
 | **T7** | `programText`(CP949는 `iconv-lite`로 인코딩) · `password`(WebCrypto PBKDF2, 원본 해시 형식과 호환) | 원본이 만든 해시를 TS가 검증하고, TS가 만든 해시를 원본이 검증한다 |
