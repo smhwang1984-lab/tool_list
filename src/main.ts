@@ -14,6 +14,9 @@ import { createMachinePanel } from './ui/machinePanel';
 import { showStockDialog } from './ui/stockDialog';
 import { buildSimProgram, toolpathBounds } from './sim/segments';
 import { toolShapeMapFromRows } from './sim/toolShape';
+import { buildLatheProgram, latheToolpathExtent, type LatheProgram } from './sim/latheSegments';
+import { geometryMapFromRows } from './core/latheInsertSpec';
+import { showLatheStockDialog } from './ui/latheStockDialog';
 import { createToolTable } from './ui/toolTable';
 import { createFilterPanel } from './ui/filterPanel';
 import { createDocumentController } from './app/documentController';
@@ -362,6 +365,7 @@ function mount(root: HTMLElement): void {
   });
 
   // ---------- 동작 ----------
+  let lastLatheProgram: LatheProgram | null = null;
   let mode: Mode = 'tool';
   const ensureViewer = (): Promise<void> => {
     viewerLoading ??= import('./viewer/viewer').then((m) => {
@@ -399,7 +403,13 @@ function mount(root: HTMLElement): void {
     const names = machinePanel.isLathe() ? latheToolNameMapFromRows(rows) : toolNameMapFromRows(rows);
     viewer.setProgram(res, mt);
     lastResult = res;
-    viewer.setSimProgram(machinePanel.isLathe() ? null : buildSimProgram(res, toolShapeMapFromRows(rows)));
+    if (machinePanel.isLathe()) {
+      lastLatheProgram = buildLatheProgram(res, geometryMapFromRows(rows));
+      viewer.setSimProgram(lastLatheProgram);
+    } else {
+      lastLatheProgram = null;
+      viewer.setSimProgram(buildSimProgram(res, toolShapeMapFromRows(rows)));
+    }
     filterPanel.setItems([...res.tool_paths.keys()].map((key, i) => ({
       key, label: toolDisplayText(res, key, names), color: cssColor(toolColorForIndex(i)),
     })));
@@ -416,10 +426,20 @@ function mount(root: HTMLElement): void {
   };
   btnStockClear.addEventListener('click', clearStock);
   btnStockTb.addEventListener('click', () => {
-    if (machinePanel.isLathe()) { toast('선반 소재(회전체)는 다음 단계에서 지원합니다.'); return; }
     void ensureViewer().then(() => {
       viewerStale = true;
       refreshViewer();
+      if (machinePanel.isLathe()) {
+        showLatheStockDialog({
+          extent: () => (lastResult ? latheToolpathExtent(lastResult) : null),
+          apply: (spec, res, enabled) => { viewer?.applyStock(spec.bounds(), res, enabled); },
+          clear: clearStock,
+          status: () => viewer!.simStatus(),
+          setToolpathVisible: (on) => viewer?.setToolpathVisible(on),
+          excludedWhy: () => lastLatheProgram?.excludedWhy ?? {},
+        });
+        return;
+      }
       showStockDialog({
         lines: () => editor.getText().split(/\r\n|\r|\n/),
         toolpathBounds: (margin) => (lastResult ? toolpathBounds(lastResult, margin) : null),

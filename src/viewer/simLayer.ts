@@ -6,6 +6,9 @@ import { autoResolution, type Bounds } from '../sim/stock';
 import { autoResolution3d, clampResolution3d, VoxelStock } from '../sim/voxel';
 import { buildVoxelMesh } from '../sim/voxelMesh';
 import { SIM_CHUNK_SEGMENTS, ZMapStock } from '../sim/zmap';
+import { buildLatheMesh, LatheStock, latheAutoResolution, type LatheBounds } from '../sim/latheStock';
+import type { LatheProgram } from '../sim/latheSegments';
+import type { LatheTool } from '../sim/latheTool';
 import { toolColorForIndex } from './segments';
 
 const SNAPSHOT_MEMORY_BYTES = 200 * 1024 * 1024;
@@ -19,7 +22,7 @@ export interface SimStatus {
   nx: number;
   ny: number;
   nz: number;
-  engine: 'zmap' | 'voxel';
+  engine: 'zmap' | 'voxel' | 'lathe';
   resolution: number;
   cutSegments: number;
   totalSegments: number;
@@ -31,9 +34,9 @@ export interface SimStatus {
 }
 
 export interface SimLayer {
-  setProgram(p: SimProgram | null): void;
+  setProgram(p: SimProgram | LatheProgram | null): void;
   /** resolution null = 자동 */
-  setStock(bounds: Bounds | null, resolution: number | null, enabled: boolean): void;
+  setStock(bounds: Bounds | LatheBounds | null, resolution: number | null, enabled: boolean): void;
   setEnabled(on: boolean): void;
   setLive(on: boolean): void;
   /** 목표 seq 까지 깎는다(null 이면 아무 것도 안 깎은 상태) */
@@ -53,19 +56,26 @@ export function createSimLayer(parent: THREE.Object3D, onChange: () => void, onP
   let mesh: THREE.Mesh | null = null;
   let edges: THREE.LineSegments | null = null;
 
-  let program: SimProgram | null = null;
-  type AnyStock = ZMapStock | VoxelStock;
+  let program: SimProgram | LatheProgram | null = null;
+  type AnyStock = ZMapStock | VoxelStock | LatheStock;
   let stock: AnyStock | null = null;
-  let stockBounds: Bounds | null = null;
+  let stockBounds: Bounds | LatheBounds | null = null;
   let stockResolution: number | null = null;
   const makeStock = (): AnyStock | null => {
     if (!stockBounds) return null;
-    if (program?.engine === 'voxel') {
-      return new VoxelStock(stockBounds, stockResolution === null ? autoResolution3d(stockBounds) : clampResolution3d(stockBounds, stockResolution));
+    if (program?.engine === 'lathe') {
+      const lb = stockBounds as LatheBounds;
+      return new LatheStock(lb, stockResolution === null ? latheAutoResolution(lb) : stockResolution);
     }
-    return new ZMapStock(stockBounds, stockResolution === null ? autoResolution(stockBounds, 1_000_000, true) : stockResolution);
+    const sb = stockBounds as Bounds;
+    if (!('X' in sb)) return null; // 선반 소재 사양인데 밀링 프로그램: 만들지 않는다
+    if (program?.engine === 'voxel') {
+      return new VoxelStock(sb, stockResolution === null ? autoResolution3d(sb) : clampResolution3d(sb, stockResolution));
+    }
+    return new ZMapStock(sb, stockResolution === null ? autoResolution(sb, 1_000_000, true) : stockResolution);
   };
-  const stockMatches = (): boolean => !!stock && (stock instanceof VoxelStock) === (program?.engine === 'voxel');
+  const engineOf = (s: AnyStock | null): string => (s instanceof LatheStock ? 'lathe' : s instanceof VoxelStock ? 'voxel' : s ? 'zmap' : '');
+  const stockMatches = (): boolean => !!stock && engineOf(stock) === (program?.engine ?? 'zmap');
   let enabled = false;
   let live = false;
   let cutIdx = 0;
@@ -94,7 +104,9 @@ export function createSimLayer(parent: THREE.Object3D, onChange: () => void, onP
   const refreshMesh = (): void => {
     if (!stock || !enabled) { disposeMesh(); group.visible = false; onChange(); return; }
     let m: { positions: Float32Array; colors: Float32Array; indices: Uint32Array; edges: Float32Array };
-    if (stock instanceof VoxelStock) {
+    if (stock instanceof LatheStock) {
+      m = buildLatheMesh(stock, colorOf, live ? 300 : 500);
+    } else if (stock instanceof VoxelStock) {
       const vm = buildVoxelMesh(stock, live ? 50_000 : 150_000, true);
       const fin = finishMesh(vm.positions, vm.cid, vm.faces, colorOf);
       m = { ...fin, edges: vm.edges };
@@ -154,15 +166,16 @@ export function createSimLayer(parent: THREE.Object3D, onChange: () => void, onP
         }
         if (cutIdx === want) break;
         const snapAt = program.snapPositions;
-        const bytes = stock.cellCount() * (stock instanceof VoxelStock ? 2 : 6);
+        const bytes = stock.cellCount() * (stock instanceof VoxelStock || stock instanceof LatheStock ? 2 : 6);
         if (snapAt.includes(cutIdx) && !snapshots.has(cutIdx) && snapBytes + bytes <= SNAPSHOT_MEMORY_BYTES) {
           snapshots.set(cutIdx, stock.snapshot());
           snapBytes += bytes;
         }
         let end = Math.min(want, cutIdx + SIM_CHUNK_SEGMENTS);
         for (const pos of snapAt) if (pos > cutIdx && pos < end) { end = pos; break; }
-        if (stock instanceof VoxelStock) stock.cutRange(program.seg, program.tools, program.axes0, program.axes1, cutIdx, end);
-        else stock.cutRange(program.seg, program.tools, cutIdx, end);
+        if (stock instanceof LatheStock) stock.cutRange(program.seg, program.tools as (LatheTool | null)[], cutIdx, end);
+        else if (stock instanceof VoxelStock) stock.cutRange(program.seg, program.tools as never, (program as SimProgram).axes0, (program as SimProgram).axes1, cutIdx, end);
+        else stock.cutRange(program.seg, program.tools as never, cutIdx, end);
         cutIdx = end;
         dirty = true;
         const nowMs = performance.now();
@@ -216,7 +229,7 @@ export function createSimLayer(parent: THREE.Object3D, onChange: () => void, onP
     status() {
       return {
         enabled, live, busy: running, cells: stock?.cellCount() ?? 0, nx: stock?.nx ?? 0, ny: stock?.ny ?? 0,
-        nz: stock instanceof VoxelStock ? stock.nz : 1, engine: stock instanceof VoxelStock ? 'voxel' : 'zmap',
+        nz: stock instanceof VoxelStock ? stock.nz : 1, engine: (engineOf(stock) || 'zmap') as SimStatus['engine'],
         resolution: stock?.resolution ?? 0, cutSegments: cutIdx, totalSegments: program?.seg.count ?? 0,
         tilted: program?.tilted ?? 0, excluded: program?.excluded ?? [], noToolMoves: program?.noToolMoves ?? 0,
         rapidLines: stock ? [...new Set(stock.rapidWarnings.flatMap((w) => (w.src !== null ? [w.src] : [])))].sort((a, b) => a - b) : [],

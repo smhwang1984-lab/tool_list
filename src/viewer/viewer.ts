@@ -9,6 +9,8 @@ import { isLatheMachine, type ToolpathResult } from '../core/toolpath';
 import { createSimLayer, type SimLayer, type SimStatus } from './simLayer';
 import type { SimProgram } from '../sim/segments';
 import type { Bounds } from '../sim/stock';
+import type { LatheProgram } from '../sim/latheSegments';
+import type { LatheBounds } from '../sim/latheStock';
 import { CUT_LINE_BASE_WIDTH, FOV_MAX, FOV_MIN, toolpathLineWidth } from '../core/viewerSettings';
 import { getViewerSettings, onViewerSettings } from '../platform/viewerSettings';
 import { el } from '../ui/dialog';
@@ -50,9 +52,9 @@ export interface Viewer {
   /** 위치 찍기 모드가 켜져 있으면 끄고 true */
   cancelPick(): boolean;
   /** 가공 형상: 절삭 선분·공구 형상(프로그램이 바뀔 때마다) */
-  setSimProgram(p: SimProgram | null): void;
+  setSimProgram(p: SimProgram | LatheProgram | null): void;
   /** 소재 적용(bounds 가 null 이면 소재 제거) */
-  applyStock(bounds: Bounds | null, resolution: number | null, enabled: boolean): void;
+  applyStock(bounds: Bounds | LatheBounds | null, resolution: number | null, enabled: boolean): void;
   /** PG 매칭: 전체 경로를 지우고 커서가 있는 공정만 커서 위치까지 그린다 */
   setPgMatch(on: boolean): void;
   /** 툴패스 선 표시/숨김(가공 형상을 가리지 않게) */
@@ -710,7 +712,8 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
       const startSeq = seqNow;
       while (next < n - 1 && elapsedSecondsAtSeq(result, next + 1, sortedKeys) <= virtualTime) {
         next++;
-        if (shouldStop(next)) { showSeq(next, true); stopPlaying(); next = -1; break; }
+        // 같은 줄이 여러 seq 로 이어질 때(G80·사이클 줄 등) 줄에 들어설 때 한 번만 멈춘다 — 재생을 다시 눌렀을 때 같은 줄에서 또 멈춰 진행이 안 되던 문제
+        if (lineAtSeq(result, next) !== lineAtSeq(result, next - 1) && shouldStop(next)) { showSeq(next, true); stopPlaying(); next = -1; break; }
         if (next - startSeq > 20000) break;
       }
       if (next >= 0 && next !== seqNow) showSeq(next, true);
@@ -768,7 +771,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     },
     setSimProgram(p) { sim.setProgram(p); if (!simLive) sim.setTarget(selectionEndSeq()); },
     applyStock(bounds, resolution, on) {
-      if (bounds) {
+      if (bounds && 'X' in bounds) {
         // 소재가 화면 가운데에 꽉 차게 맞춘다
         center.set((bounds.X[0] + bounds.X[1]) / 2, (bounds.Y[0] + bounds.Y[1]) / 2, (bounds.Z[0] + bounds.Z[1]) / 2);
         const r = Math.hypot(bounds.X[1] - bounds.X[0], bounds.Y[1] - bounds.Y[0], bounds.Z[1] - bounds.Z[0]) / 2;
