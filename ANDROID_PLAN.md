@@ -1,0 +1,243 @@
+# Sum Path Android (tool_list_android) — 전환 플랜 v0.1 (승인 대기)
+
+- 작성일: 2026-11-10
+- 원본: `smhwang1984-lab/tool_list` `master` @ `0a1d5a3` (Sum Path **v2.3.5**, PyQt5 데스크톱)
+- 목표: **기능은 그대로, 화면 구성은 같거나 비슷하게**, 마우스 조작만 **터치 제스처**로 바꿔 **Android APK**로 만든다.
+- 작업 환경: **Windows 11 Home PC** (빌드·서명·기기 테스트 모두 Windows에서)
+- **라이선스(sumpath_license / license_server / 체험판 창)는 이번 범위에서 보류** — 코드에서 아예 빼고, 나중에 붙일 자리만 남긴다.
+
+> 이 문서는 승인 전 초안이다. 맨 아래 **§9 승인 요청 항목**에 답을 주면 그대로 확정하고 P0부터 시작한다.
+
+---
+
+## 1. 원본 분석 요약
+
+| 구분 | 원본 파일 | 규모 | 의존성 | Android 처리 |
+|---|---|---|---|---|
+| 메인 UI·공구 리스트 산출·PDF | `NC_Tool_List.py` | 6,401줄 | PyQt5, ReportLab | **UI 새로 작성**, 파싱 로직은 **이식** |
+| 3D 뷰어·재생·소재 창 | `nc_viewer_widget.py` | 6,512줄 | PyQt5, pyqtgraph.opengl, PyOpenGL | **Three.js(WebGL)로 새로 작성** |
+| 밀링 Z-map 시뮬 | `nc_sim.py` | 867줄 | NumPy | **TypeScript 이식** (Web Worker) |
+| 3D 복셀 시뮬 | `nc_sim3d.py` | 605줄 | NumPy | **TypeScript 이식** (Web Worker) |
+| 선반 시뮬 | `nc_lathe_sim.py` | 1,186줄 | NumPy | **TypeScript 이식** (Web Worker) |
+| 가속 커널 | `nc_sim_numba.py` | 469줄 | Numba/llvmlite | Android 불가 → **TS 루프 / 이후 WASM** |
+| 선반 인서트 규격 해석 | `lathe_insert_spec.py` | 855줄 | 표준 라이브러리 | **TypeScript 이식** |
+| 아이콘 | `ui_icons.py` | 391줄 | PyQt5 | SVG로 다시 그림 |
+| 라이선스 | `sumpath_license.py` 등 | — | — | **보류(제외)** |
+| 자동 업데이트(UNC 공유폴더) | `app_update.py` | 150줄 | Windows 공유폴더 | **보류**(§9-6) |
+| Windows 전용 | 파일 연결 레지스트리, 단일 인스턴스, GPU 선호, GL 안전 모드 | — | winreg 등 | **해당 없음** → Android 방식으로 대체(§4) |
+
+원본에 이미 웹 프로토타입 `NC_Tool_List.html`(입력창 + 공구표 2단)이 있어서 화면 구성은 그대로 참고할 수 있다.
+
+---
+
+## 2. 기술 스택 결정 (권장안)
+
+### 권장: **Capacitor + TypeScript(Node.js 툴체인) + Three.js**
+
+```
+tool_list_android/
+├─ web/                 ← 앱 본체 (Vite + TypeScript)
+│  ├─ src/core/         ← G코드 파싱·공구 리스트·선반 규격 (Python 로직 1:1 이식, UI 없음)
+│  ├─ src/sim/          ← nc_sim / nc_sim3d / nc_lathe_sim 이식 (Web Worker)
+│  ├─ src/viewer/       ← Three.js 3D 뷰어 + 방향 큐브 + 재생바 + 제스처
+│  ├─ src/ui/           ← 툴바·입력창·공구표·대화상자 (원본 화면 재현)
+│  └─ src/platform/     ← 파일 열기/저장/공유, PDF, 클립보드 (Capacitor 플러그인)
+├─ android/             ← `npx cap add android` 로 생성되는 Gradle 프로젝트
+├─ tools/golden/        ← 원본 Python으로 정답(JSON) 만드는 스크립트
+└─ tests/               ← Vitest: 이식한 TS 결과 == 원본 Python 결과
+```
+
+| 영역 | 라이브러리 (오픈소스) | 이유 |
+|---|---|---|
+| 앱 껍데기 | **Capacitor 7** | 웹 코드로 APK를 만든다. Windows에서 `gradlew`로 빌드할 수 있다 |
+| 빌드 | **Vite + TypeScript**, Node.js 20 LTS | 빠른 개발 서버. PC 브라우저에서 바로 확인할 수 있다 |
+| 3D | **Three.js** (`LineSegments2` 굵은 선, `InstancedMesh`) | pyqtgraph GLLinePlotItem / GLMeshItem 대체 |
+| 프로그램 입력창 | **CodeMirror 6** | 60만 바이트급 NC도 가볍다. 코드 색칠·검색·편집 모드·핀치 폰트 크기 |
+| 제스처 | **Pointer Events 직접 구현** (+ 필요하면 Hammer.js) | 원본 카메라 수식(회전 기준점, 커서 기준 줌)을 그대로 쓰려고 직접 구현 |
+| PDF | **pdfmake** + Noto Sans KR(서브셋) | ReportLab 표 레이아웃을 재현하고 한글을 넣는다 |
+| 파일 | `@capacitor/filesystem`, `@capawesome/capacitor-file-picker`, `@capacitor/share` | 파일 열기 / PG ADD / 저장(.bak) / PDF 공유 |
+| 설정 저장 | `@capacitor/preferences` | `app_settings.json` / QSettings 대체 |
+| 테스트 | **Vitest** + Playwright(웹 화면) | 골든 비교, 제스처 시나리오 |
+
+### 다른 안과 비교 (권장하지 않는 이유)
+
+| 안 | 장점 | 단점 |
+|---|---|---|
+| Kivy / Buildozer (Python) | Python 코드 일부 재사용 | **Windows 11 Home에서 직접 빌드 불가**(WSL 필요), PyQt UI는 어차피 새로 작성, Numba 불가, 3D 뷰어 새로 작성 |
+| Chaquopy (Android 안에 Python) + WebView | 파서·NumPy 시뮬을 Python 그대로 | Java↔Python↔JS 다리 3단, APK 60MB 이상, UI·3D는 어차피 새로 작성, 디버깅 어려움 |
+| Flutter / Kotlin 네이티브 | 성능 | Dart/Kotlin으로 **전부 새로 작성**, Node/Python 경험 활용 못 함 |
+
+→ **UI와 3D는 어떤 안이든 새로 만들어야 한다.** 그래서 PC 브라우저에서 바로 개발·확인할 수 있는 웹 스택이 가장 빠르다. 로직은 "원본 Python = 정답" 골든 테스트로 같게 맞춘다.
+
+---
+
+## 3. 화면 구성 (원본과 같거나 비슷하게)
+
+### 3.1 원본 배치 (v2.2.8 이후)
+
+```
+[제목 줄]  Sum Path vX.Y.Z ............................ ⚙설정 ?도움말 ⓘAbout ◐다크
+[툴바]     [파일 열기·PG ADD·예제·지우기] [편집 모드·저장·비밀번호] [Tool List] [툴리스트 산출|Viewer]
+[본문]     ① 프로그램 입력(코드 색, 검색, 이전/다음 공구) │ 공구 리스트 표  또는  3D Viewer
+           장비 타입·스펙 패널(▶/▼ 접기)                 │ (공정 필터, PG 매칭, 재생바, 방향 큐브)
+```
+
+### 3.2 Android 배치
+
+| 기기·방향 | 배치 |
+|---|---|
+| **태블릿 가로 / 폰 가로** | 원본과 **같은 2단**. 가운데 분할선은 끌어서 폭 조절(QSplitter 대체) |
+| **폰 세로** | 위쪽 툴바는 그대로, 본문은 **탭 3개**: `프로그램` / `툴리스트` / `Viewer`. 툴바의 [툴리스트 산출·Viewer] 버튼이 탭 전환을 겸한다 |
+| 툴바 넘침 | 폭이 모자라면 오른쪽 `⋯` 메뉴로 넘긴다(그룹 순서는 원본 유지) |
+
+- 색·아이콘·다크모드·버튼 문구는 원본과 똑같이 한다(`ui_icons.py` 도형을 SVG로 옮긴다).
+- 터치 대상은 최소 44dp. 표 글자는 원본처럼 화면 폭에 맞춰 줄이고(`TOOL_TABLE_MIN_SCALE = 0.45`), 그보다 좁아지면 가로 스크롤을 쓴다.
+- 툴팁(마우스 올리기)은 **길게 누르기**로 보여 준다.
+
+---
+
+## 4. 기능 대응표 (기능은 그대로)
+
+| 원본 기능 | Android 구현 |
+|---|---|
+| 파일 열기 / 드래그&드롭 | 시스템 파일 선택기(SAF). `.nc/.mpf/.tap/.txt` 및 모든 파일 |
+| PG ADD (여러 파일 이어붙이기) | 파일 선택기 다중 선택 → `append_nc_programs` 이식 |
+| 탐색기 더블클릭 열기(파일 연결) | **Android "연결 프로그램 / 공유"** intent-filter(`.nc/.mpf/.tap`). 파일 앱·메신저 첨부에서 바로 열린다 |
+| 예제 / 지우기 | 그대로 (예제 NC를 앱에 넣는다) |
+| 인코딩 판별(`decode_program_bytes`) | 이식(UTF-8 / CP949 / UTF-16). CP949는 `TextDecoder('euc-kr')` |
+| 편집 모드 + 비밀번호(PBKDF2 해시, 기본 1234) | 그대로. WebCrypto PBKDF2 사용, 같은 반복 횟수·솔트 형식 |
+| 저장(원래 인코딩·줄바꿈 유지, .bak 남김) | 그대로. 원본 위치에 쓸 권한이 없으면 "다른 이름으로 저장" |
+| 외부에서 파일 변경 감지 → 새로고침 | 앱이 다시 앞으로 올 때(resume) 파일 스탬프를 비교한다 |
+| 코드 색(G0 빨강/G1 초록/G2 파랑/G3 보라/사이클 갈색, S·M3/4/5 노랑, M8/9 주황) | CodeMirror 하이라이터로 `nc_color_line` 규칙 1:1 이식 |
+| 검색: 이전/다음 공구, 문자 검색, 끝에서 반대쪽으로 이어서 | 그대로 |
+| 장비 타입·스펙 패널(밀링/선반), 장비 스펙 기록/저장 | 그대로 |
+| Tool List 산출(밀링 16열 / 선반 14열), 스핀들·H번호·SO 경고 | `parse_program`, `parse_lathe_program`, 경고 함수 이식 |
+| 행 삭제/수정/추가, 수정 창의 **자동 추천** | 그대로 (`lathe_insert_spec` 이식) |
+| 이름 → TYPE 경우의 수 편집 | 그대로 |
+| 머리글 포함 / 출력 정보(메타데이터) | 그대로 |
+| PDF 출력 → 기본 프로그램으로 열기 | pdfmake로 만든 뒤 **PDF 뷰어로 열기 / 공유** |
+| 표 복사(엑셀 Ctrl+V) | 클립보드에 TSV 복사 → 모바일 엑셀·구글 시트에 붙여넣기 |
+| 3D Viewer: 툴패스, ISO/XY/XZ/YZ, 방향 큐브, 원점 화살표, 좌표 표시 | Three.js로 재현 |
+| 공정 필터(다중 선택, 클릭 → 첫 줄 이동, 전체/해제) | 그대로 |
+| PG 매칭 자동 재생(1x~5000x, 텍스트 정지/M00/M01, 이전 툴/되감기/재생/다음 툴) | 그대로 (재생바 UI 동일) |
+| 실시간 형상(밀링 Z-map / 3D 복셀 / 선반 / 턴밀) + 소재 창(STOCK SIZE 주석 읽기) | Web Worker 이식 — **§6 P6** (모바일 해상도 상한 따로) |
+| 설정(선 굵기 10~100%, 감도, 큐브 크기) | 그대로 + **FOV 슬라이더 추가**(Ctrl+휠 대체) |
+| 도움말 / About | 그대로 (도움말 내용은 제스처 기준으로 다시 씀) |
+| 다크모드 | 그대로 + 시스템 테마 따르기 옵션 |
+| 단축키 F5/F6/F7/F8, Ctrl+S | 화면 버튼(재생바·툴바) + **블루투스 키보드를 연결하면 같은 단축키**도 동작 |
+| 자동 업데이트(사내 공유폴더 `\\192.168.0.210\...`) | **보류** (§9-6) |
+| 라이선스·체험판 | **보류** |
+| 단일 인스턴스, GPU 선호, GL 안전 모드, 시작 로그 | 해당 없음 (WebGL 실패 시 "2D 경로 보기"로 대체만 둔다) |
+
+---
+
+## 5. 제스처 설계 (마우스 → 터치) ★검토 핵심
+
+### 5.1 3D 뷰어
+
+| 원본 마우스 조작 | 원본 동작 | **Android 제스처 (제안)** |
+|---|---|---|
+| 좌클릭 드래그 | **누른 위치 기준** 회전(v2.3.5 orbit pivot) | **한 손가락 드래그** → 처음 닿은 점 기준 회전 (노란 십자 표시 유지) |
+| Ctrl + 좌클릭 드래그 | 화면 이동(pan) | **두 손가락 드래그** → 이동 |
+| 휠 | **커서 위치 기준** 확대·축소 | **두 손가락 핀치** → 두 손가락 **가운데 점 기준** 확대·축소(노란 십자) |
+| 휠 누르고 위아래 끌기 | 누른 자리 기준 연속 줌 | 핀치로 대체. 한 손 조작용으로 **두 번 탭한 뒤 누른 채 위아래로 끌기**(지도 앱 방식) |
+| Ctrl + 휠 | 원근감(FOV) | **세 손가락 위아래 드래그** + 설정 창 FOV 슬라이더 |
+| Alt + 휠 | 감도 조절 | 설정 창 감도 슬라이더만 사용 |
+| 우클릭 드래그 | 사각형 영역 확대 + "위치 찍기" 모드 켜기 | **길게 누른 뒤(0.4초) 끌기** → 사각형 확대 + 위치 찍기 모드 |
+| (위치 찍기 모드) 좌클릭 | 가장 가까운 경로 → 프로그램 줄로 커서 이동 | **한 번 탭** |
+| 그냥 우클릭 / Esc | 위치 찍기 모드 끝 | 화면 위 **[위치 찍기 ✕] 칩** 탭 / Android **뒤로** 버튼 / 뷰 전환 |
+| 선반 평면 뷰 좌드래그 = 이동(orbit 잠금) | — | 한 손가락 드래그 = 이동 (원본과 같은 규칙) |
+| 방향 큐브 면 클릭 / 고리 드래그 | 뷰 전환 / 부드러운 회전 | **탭** / **고리 드래그** (터치 영역 확대) |
+| (새로 추가) | — | **두 번 탭 = 전체 맞춤(Fit)** — 원본에 없으므로 승인이 필요하다(§9-4) |
+
+- 탭과 드래그를 가르는 기준 `_CLICK_DRAG_PX`는 터치 기준(약 8dp)으로 다시 잡는다.
+- 감도(`navigation_sensitivity`)는 원본처럼 회전·이동·줌에 모두 곱한다.
+- 손가락 수가 바뀌는 순간(1→2) 화면이 튀지 않도록, 그 시점의 기준점을 다시 잡는다.
+- 카메라 수식(`_pan_to_keep_point`, `zoom_about_point`, orbit pivot)은 원본 코드를 그대로 옮긴다. `test_v234_mouse_zoom.py`, `test_v235_orbit_pivot.py`의 기대값을 TS 테스트로 옮겨 같은 동작을 확인한다.
+
+### 5.2 프로그램 입력창
+
+| 원본 | Android |
+|---|---|
+| Ctrl + 휠 폰트 크기(저장됨) | **두 손가락 핀치**로 폰트 크기 조절(저장됨) |
+| 클릭 → 커서, 장비 패널 자동 접힘 | 탭 → 커서, 같은 규칙으로 접힘 |
+| 드래그 선택, Ctrl+C | 길게 누르기 → 선택 핸들 → 복사 (Android 기본) |
+
+### 5.3 공구 리스트 표
+
+| 원본 | Android |
+|---|---|
+| 행 클릭 = 선택 | 탭 = 선택 |
+| 행 **더블클릭 = 수정 창** | **두 번 탭** 또는 **길게 누르기** → 수정 창 |
+| 삭제/수정/행 추가 버튼 | 그대로 (선택 후 버튼) |
+| 가로 스크롤 | 한 손가락 좌우 스와이프 |
+
+### 5.4 분할선·패널
+
+- 2단 배치의 분할선은 굵은 손잡이(24dp)를 끌어서 조절한다.
+- 장비 스펙 패널 ▶/▼는 탭으로 연다.
+
+---
+
+## 6. 작업 단계 (Phase)
+
+| 단계 | 내용 | 끝났다고 보는 기준 |
+|---|---|---|
+| **P0 준비** | 저장소 뼈대, Windows 툴체인 안내(`SETUP_WINDOWS.md`), `build_apk.bat`, `git_sync.bat` / `git_publish.bat` | Windows PC에서 빈 앱 APK가 설치·실행된다 |
+| **P1 핵심 로직 이식** | `parse_program`, `parse_lathe_program`, 메타데이터, 경고(스핀들/H/SO), 반경보정 REMARK, 이름→TYPE, `lathe_insert_spec`, 인코딩, 공구 교체 검색 | `tools/golden`으로 원본 Python 결과를 JSON으로 뽑고, TS 결과와 **100% 일치**(원본 tests 케이스 + 샘플 NC) |
+| **P2 화면 껍데기** | 제목 줄·툴바·입력창(코드 색)·공구표·장비 패널·대화상자(수정/추가/이름 경우/설정/도움말/About)·다크모드·반응형 | 원본 스크린샷과 나란히 비교해 구성이 같다 |
+| **P3 파일·출력** | 열기 / PG ADD / 공유받아 열기 / 저장(.bak) / 편집 모드·비밀번호 / PDF / 표 복사 | 실기기에서 NC 열기 → 산출 → PDF 공유까지 된다 |
+| **P4 3D 뷰어** | 툴패스·색, 뷰 전환, 방향 큐브, 좌표 표시, 공정 필터, 위치 찍기 → 줄 이동, PG 매칭 재생 | 원본과 같은 NC로 같은 경로·같은 재생 정지 지점 |
+| **P5 제스처** | §5 전부, 감도·FOV, 테스트 | 제스처 시나리오 테스트 통과 + 실기기 손 테스트 |
+| **P6 형상 시뮬** | 밀링 Z-map → 3D 복셀 → 선반 → 턴밀 순서. Web Worker로 백그라운드 계산, 모바일 격자 상한, 스냅샷/되감기 | 원본과 형상 비교(높이맵 오차 허용치 안), 중급 기기에서 화면이 멈추지 않는다 |
+| **P7 배포** | 앱 아이콘(assets/nc_tool_list.png), 서명 키스토어(**커밋 금지**), release APK, 버전 기록 | 서명된 APK를 기기에 설치하고 전체 점검표 통과 |
+
+- 성능 대비: 600KB급 NC(`ncdata.nc`)는 파싱을 Worker에서 하고 툴패스는 하나의 BufferGeometry로 그린다. 시뮬레이션이 느리면 P6 뒤에 핵심 루프를 **AssemblyScript/Rust → WASM**으로 바꾸는 단계를 따로 둔다.
+
+---
+
+## 7. Windows 11 Home 빌드 환경
+
+| 항목 | 버전 | 비고 |
+|---|---|---|
+| Node.js | 20 LTS 이상 | `node -v` |
+| Android Studio | 최신 안정판 | SDK Platform 35, Build-Tools, Platform-Tools(adb) |
+| JDK | 21 (Android Studio 내장 JBR) | `JAVA_HOME` 설정 |
+| Python | 3.x (이미 설치됨) | 골든 정답 생성용으로만 사용 |
+| 기기 | Android 8.0(API 26) 이상 | USB 디버깅 켬 |
+
+```bat
+:: 개발 (PC 브라우저에서 바로 확인)
+cd web && npm install && npm run dev
+:: APK 빌드
+build_apk.bat           :: = npm run build → npx cap sync android → android\gradlew assembleDebug
+:: 기기에 설치
+adb install -r android\app\build\outputs\apk\debug\app-debug.apk
+```
+
+---
+
+## 8. 저장소·버전 규칙 (tool_list와 같은 방식)
+
+- 메인 브랜치는 **`master`** 다. 작업이 끝나면 commit → push → master에 병합 → push. Windows PC는 `git_sync.bat` / `git_publish.bat`로 맞춘다.
+- 버전은 `MAJOR.MINOR.PATCH`(각 자리 0~9)로 **0.1.0**에서 시작한다. 원본 기능을 다 갖추면 1.0.0. 원본 버전과는 따로 매기고, 기준으로 삼은 원본 버전은 About에 표시한다(예: "기준 원본 v2.3.5").
+- 서명 키스토어(`*.jks`, `*.keystore`), `keystore.properties`, 빌드 결과물은 커밋하지 않는다.
+- 원본 Python 코드는 이 저장소에 복사하지 않는다. 골든 스크립트가 원본 저장소 경로(`..\tool_list`)를 읽어서 정답을 만든다.
+
+---
+
+## 9. 승인 요청 항목 (답 주시면 확정)
+
+| # | 질문 | 제안(권장) |
+|---|---|---|
+| 1 | 기술 스택 | **Capacitor + TypeScript + Three.js** (§2) |
+| 2 | 주 대상 기기 | **태블릿 가로 + 폰 둘 다** (태블릿 = PC와 같은 2단, 폰 세로 = 탭) |
+| 3 | 최소 Android 버전 | **8.0 (API 26)** |
+| 4 | 새 제스처 추가: 두 번 탭 = 전체 맞춤 / 세 손가락 = FOV | **추가** (원본에 없던 동작이라 확인 요청) |
+| 5 | 편집 모드(비밀번호·저장) 포함 | **포함** (원본 기능 그대로) |
+| 6 | 자동 업데이트 | **보류** (사내 공유폴더는 폰에서 접근이 어렵다. 나중에 GitHub Releases 방식 검토) |
+| 7 | 형상 시뮬레이션(P6) 1차 포함 | **1차는 P1~P5(+P7)로 먼저 배포하고 P6는 2차** — 모바일 성능 검증이 따로 필요해서 |
+| 8 | 앱 이름 / 패키지 ID | **Sum Path** / `com.sumpath.nctoollist` |
+| 9 | 배포 방식 | **APK 직접 설치(사내 배포)**. Play 스토어는 나중에 |
+
+승인되면 P0부터 시작하고, 각 단계가 끝날 때마다 `master`에 병합한 뒤 Windows PC에서 확인할 수 있게 안내한다.
