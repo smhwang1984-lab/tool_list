@@ -17,6 +17,7 @@ try {
     await page.waitForTimeout(400);
     await page.click('text=다음 공구');
     await page.waitForTimeout(200);
+    if (w < 600) { await page.click('.tabs >> text=툴리스트'); await page.waitForTimeout(300); }
     await page.screenshot({ path: `${out}/${name}.png` });
     console.log(name, await page.locator('.search-status').innerText());
   }

@@ -10,6 +10,14 @@ import { getPref, getPrefNumber, loadPrefs, setPref } from './platform/prefs';
 import { confirmDialog, el, installLongPressHints, showDialog, toast } from './ui/dialog';
 import { createEditor } from './ui/editor';
 import { createSearchBar } from './ui/searchBar';
+import { createMachinePanel } from './ui/machinePanel';
+import { createToolTable } from './ui/toolTable';
+import { parseProgram } from './core/millParser';
+import { parseLatheProgram } from './core/latheParser';
+import { parseProgramMetadata } from './core/metadata';
+import { LatheSpecStore } from './core/latheSpecStore';
+import { cleanNameTypes, DEFAULT_NAME_TYPES } from './core/nameTypes';
+import { MACHINE_LATHE } from './core/machines';
 
 type Mode = 'tool' | 'viewer';
 type Tab = 'program' | Mode;
@@ -56,6 +64,7 @@ function mount(root: HTMLElement): void {
 
   // ---------- 툴바 (원본 순서) ----------
   const toolbar = el('nav', { class: 'main-toolbar' });
+  const btnRun = toolButton('Tool List', 'run', '공구 리스트 산출', { accent: true });
   const btnExample = toolButton('예제', 'document', '예제 프로그램 불러오기');
   const btnClear = toolButton('지우기', 'eraser', '프로그램과 공구 리스트 지우기');
   const btnTool = toolButton('툴리스트 산출', 'table', '툴리스트 산출 모드');
@@ -67,7 +76,7 @@ function mount(root: HTMLElement): void {
       btnClear,
     ),
     group(toolButton('편집 모드', 'pencil', '편집 모드 (비밀번호)', { disabled: true })),
-    group(toolButton('Tool List', 'run', '공구 리스트 산출', { accent: true, disabled: true })),
+    group(btnRun),
     group(btnTool, btnViewer),
   );
 
@@ -84,28 +93,71 @@ function mount(root: HTMLElement): void {
   const body = el('main', { class: 'body' });
   const programPane = el('section', { class: 'pane program-pane' });
   programPane.innerHTML = '<div class="pane-head">① 프로그램 입력</div>';
-  // 장비 타입(밀링/선반)은 T4의 장비 패널에서 정한다. 그 전까지는 밀링.
-  const lathe = false;
   const editorHost = el('div', { class: 'editor-host' });
   const editor = createEditor(editorHost, {
     fontSize: getPrefNumber('editor_font_px', 14, 9, 32),
     onFontSize: (px) => setPref('editor_font_px', String(px)),
   });
-  editor.setLathe(lathe);
-  const searchBar = createSearchBar(editor, () => lathe);
-  programPane.append(searchBar.root, editorHost);
+  // 장비 타입(밀링/선반)이 공구 교체 기준·표 양식·색칠 기준을 정한다(원본 is_lathe_program).
+  const machinePanel = createMachinePanel(() => {
+    editor.setLathe(isLathe());
+    syncTableModeToMachine();
+  });
+  const isLathe = (): boolean => machinePanel.isLathe();
+  editor.setLathe(isLathe());
+  const searchBar = createSearchBar(editor, isLathe);
+  programPane.append(machinePanel.root, searchBar.root, editorHost);
 
   const splitter = el('div', { class: 'splitter', role: 'separator', 'aria-orientation': 'vertical' });
 
   const rightPane = el('section', { class: 'pane right-pane' });
-  const toolView = el('div', { class: 'placeholder' },
-    '공구 리스트<br>밀링 16열 / 선반 14열 표는 P1·P2에서 원본과 같게 산출합니다.');
+  const toolTable = createToolTable();
+  const toolView = toolTable.root;
   const viewerView = el('div', { class: 'viewer-host' });
   viewerView.hidden = true;
   rightPane.append(toolView, viewerView);
   body.append(programPane, splitter, rightPane);
 
   root.append(topBar, toolbar, tabs, body);
+
+  // ---------- 산출 ----------
+  const lathe_store = new LatheSpecStore();
+  const nameTypes = cleanNameTypes(DEFAULT_NAME_TYPES);
+  let lastMct = getPref('last_mct_machine_type');
+  const run = (): void => {
+    const text = editor.getText();
+    const lathe = isLathe();
+    const rows = lathe ? parseLatheProgram(text, lathe_store) : parseProgram(text, nameTypes, false);
+    toolTable.setRows(rows, lathe, parseProgramMetadata(text));
+  };
+  /** 장비가 바뀌면 표 양식이 달라지므로 비우고(원본과 같다), 이미 산출한 적이 있으면 다시 산출한다. */
+  let hasRun = false;
+  const syncTableModeToMachine = (): void => {
+    if (!isLathe()) {
+      lastMct = machinePanel.machineType();
+      setPref('last_mct_machine_type', lastMct);
+    }
+    toolTable.setMode(isLathe());
+    if (hasRun) run();
+    else toolTable.clear();
+  };
+  toolTable.onModeChange = (wantLathe) => {
+    if (wantLathe === isLathe()) return;
+    const types = machinePanel.machineTypes();
+    const target = wantLathe
+      ? types.find((n) => n === MACHINE_LATHE) ?? types.find((n) => n.includes('선반'))
+      : (lastMct && types.includes(lastMct) && !lastMct.includes('선반') ? lastMct : types.find((n) => !n.includes('선반')));
+    if (target) machinePanel.setMachineType(target);
+    hasRun = true;
+    run();
+  };
+  toolTable.setMode(isLathe());
+  btnRun.addEventListener('click', () => {
+    hasRun = true;
+    run();
+    setTab('tool');
+    toast(`공구 ${toolTable.rows().length}개`);
+  });
 
   // ---------- 동작 ----------
   let mode: Mode = 'tool';
@@ -121,6 +173,7 @@ function mount(root: HTMLElement): void {
     btnViewer.classList.toggle('checked', mode === 'viewer');
     toolView.hidden = mode !== 'tool';
     viewerView.hidden = mode !== 'viewer';
+    machinePanel.root.hidden = mode !== 'viewer'; // 원본: 산출 모드에서는 장비 패널을 숨기고 표 위 콤보를 쓴다
     if (mode === 'viewer' && !viewerStarted) {
       viewerStarted = true;
       void import('./viewer/placeholder').then((m) => m.startPlaceholderViewer(viewerView));
@@ -141,11 +194,14 @@ function mount(root: HTMLElement): void {
   });
   btnExample.addEventListener('click', () => {
     editor.setText(EXAMPLE);
+    hasRun = true;
+    run();
     toast('예제 프로그램을 불러왔습니다');
   });
   btnClear.addEventListener('click', async () => {
     if (editor.getText() && !(await confirmDialog('지우기', '프로그램과 공구 리스트를 지울까요?', '지우기'))) return;
     editor.setText('');
+    toolTable.clear();
   });
   window.addEventListener('keydown', (e) => {
     if (e.key === 'F6') { e.preventDefault(); searchBar.prevTool(); }
