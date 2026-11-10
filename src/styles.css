@@ -303,3 +303,13 @@ dialog.settings::backdrop { background: transparent; }
 .stock-bounds { font-size: 13px; font-family: monospace; padding: 4px 0; }
 .stock-note { font-size: 12px; color: var(--muted_text); }
 .stock-status { font-size: 12px; white-space: pre-line; color: var(--muted_text); }
+
+/* 가공형상 즉시 보기 / 진행률 */
+.viewer-host .v-proj .v-instant { margin-left: 14px; height: 34px; padding: 0 10px; border-radius: 6px; border: 1px solid #3a4558; background: #1b2230; color: #dfe6f2; font: inherit; font-size: 13px; white-space: nowrap; }
+.viewer-host .v-proj .v-instant:disabled { opacity: 0.4; }
+.viewer-host .v-proj .v-instant:not(:disabled) { background: #2a6e3f; border-color: #46a869; color: #fff; }
+.viewer-host .v-progress {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 6; pointer-events: none;
+  padding: 14px 26px; border-radius: 10px; background: rgba(15, 20, 30, 0.82); color: #fff; font-size: 22px; font-weight: 700;
+}
+.viewer-host .v-progress[hidden] { display: none; }

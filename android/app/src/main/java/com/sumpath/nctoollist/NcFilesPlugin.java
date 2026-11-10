@@ -10,6 +10,7 @@ import android.provider.OpenableColumns;
 import android.util.Base64;
 
 import androidx.activity.result.ActivityResult;
+import androidx.core.content.FileProvider;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -280,6 +281,35 @@ public class NcFilesPlugin extends Plugin {
             call.resolve(o);
         } catch (IOException | IllegalArgumentException e) {
             call.reject("백업 실패: " + e.getMessage());
+        }
+    }
+
+    // ---------------------------------------------------------------- PDF 열기(저장은 PDF 앱에서 사용자가 정한다)
+    @PluginMethod
+    public void openPdf(PluginCall call) {
+        String name = call.getString("name", "toollist.pdf");
+        String data = call.getString("data");
+        if (data == null) {
+            call.reject("data 가 없습니다");
+            return;
+        }
+        try {
+            File dir = new File(getContext().getCacheDir(), "pdf");
+            if (!dir.exists() && !dir.mkdirs()) throw new IOException("임시 폴더를 만들 수 없습니다");
+            String safe = name.replaceAll("[\\/:*?\"<>|]", "_");
+            if (!safe.toLowerCase().endsWith(".pdf")) safe = safe + ".pdf";
+            File file = new File(dir, safe);
+            try (FileOutputStream out = new FileOutputStream(file)) {
+                out.write(Base64.decode(data, Base64.DEFAULT));
+            }
+            Uri uri = FileProvider.getUriForFile(getContext(), getContext().getPackageName() + ".fileprovider", file);
+            Intent intent = new Intent(Intent.ACTION_VIEW);
+            intent.setDataAndType(uri, "application/pdf");
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(Intent.createChooser(intent, "PDF 열기").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            call.resolve();
+        } catch (IOException | IllegalArgumentException | android.content.ActivityNotFoundException e) {
+            call.reject("PDF 열기 실패: " + e.getMessage());
         }
     }
 

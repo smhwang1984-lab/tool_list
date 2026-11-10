@@ -342,10 +342,13 @@ function mount(root: HTMLElement): void {
     toast('PDF를 만드는 중...');
     try {
       const { makeToolListPdf } = await import('./platform/pdf');
-      const { saveAs } = await import('./platform/files');
+      const { openPdf, saveAs } = await import('./platform/files');
       const { bytes, filename } = await makeToolListPdf(toolTable.rows(), toolTable.metadata(), toolTable.isLathe());
-      const saved = await saveAs(filename, bytes);
-      if (saved) toast(`PDF를 저장했습니다: ${saved.name}`);
+      // PDF 를 먼저 띄운다 — 저장·공유는 사용자가 PDF 앱에서 정한다. PDF 앱이 없으면 저장 위치를 묻는다.
+      if (!(await openPdf(filename, bytes))) {
+        const saved = await saveAs(filename, bytes);
+        if (saved) toast(`PDF를 저장했습니다: ${saved.name}`);
+      }
     } catch (error) {
       await alertDialog('PDF 실패', String((error as Error).message ?? error));
     }
@@ -577,6 +580,10 @@ function mount(root: HTMLElement): void {
     '오픈소스: Capacitor, Vite, TypeScript, Three.js',
   ].join('\n')));
 
+  {
+    const saved = parseFloat(getPref('program_pane_ratio'));
+    if (saved > 0.05 && saved < 0.95) programPane.style.flex = `0 0 ${(saved * 100).toFixed(2)}%`;
+  }
   // 가운데 손잡이 끌어서 폭 조절 (원본 QSplitter, 최소 폭 300px)
   splitter.addEventListener('pointerdown', (ev) => {
     splitter.setPointerCapture(ev.pointerId);
@@ -588,6 +595,9 @@ function mount(root: HTMLElement): void {
       programPane.style.flex = `0 0 ${w}px`;
     };
     const up = () => {
+      // 마지막 분할 위치를 비율로 저장해 다음 실행에서 그대로 쓴다
+      const ratio = programPane.getBoundingClientRect().width / Math.max(1, body.getBoundingClientRect().width);
+      if (ratio > 0.05 && ratio < 0.95) setPref('program_pane_ratio', ratio.toFixed(4));
       splitter.removeEventListener('pointermove', move);
       splitter.removeEventListener('pointerup', up);
       splitter.removeEventListener('pointercancel', up);

@@ -31,6 +31,7 @@ interface NcFilesNative {
   writeDocument(o: { uri: string; data: string }): Promise<NativeResult>;
   createDocument(o: { name: string; data: string }): Promise<NativeResult>;
   saveBackup(o: { name: string; data: string }): Promise<NativeResult>;
+  openPdf(o: { name: string; data: string }): Promise<void>;
   takeIncoming(): Promise<NativeResult>;
   addListener(event: 'incoming', fn: () => void): Promise<PluginListenerHandle>;
 }
@@ -125,6 +126,22 @@ export async function saveBackup(name: string, bytes: Uint8Array): Promise<boole
   if (!native()) return false;
   try {
     await plugin.saveBackup({ name, data: toBase64(bytes) });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** PDF 를 PDF 보기 앱(브라우저에서는 새 탭)으로 띄운다. 저장 여부는 사용자가 그 앱에서 정한다. 못 띄우면 false. */
+export async function openPdf(name: string, bytes: Uint8Array): Promise<boolean> {
+  if (!native()) {
+    const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/pdf' }));
+    const win = window.open(url, '_blank');
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    return !!win;
+  }
+  try {
+    await plugin.openPdf({ name, data: toBase64(bytes) });
     return true;
   } catch {
     return false;

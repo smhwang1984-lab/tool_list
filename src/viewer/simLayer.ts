@@ -37,13 +37,16 @@ export interface SimLayer {
   setEnabled(on: boolean): void;
   setLive(on: boolean): void;
   /** 목표 seq 까지 깎는다(null 이면 아무 것도 안 깎은 상태) */
-  setTarget(seq: number | null): void;
+  setTarget(seq: number | null, showProgress?: boolean): void;
   status(): SimStatus;
   hasStock(): boolean;
   dispose(): void;
 }
 
-export function createSimLayer(parent: THREE.Object3D, onChange: () => void): SimLayer {
+/** pct: 0~1, busy=false 이면 끝난 것 */
+export type SimProgress = (busy: boolean, pct: number) => void;
+
+export function createSimLayer(parent: THREE.Object3D, onChange: () => void, onProgress: SimProgress = () => {}): SimLayer {
   const group = new THREE.Group();
   group.renderOrder = -1;
   parent.add(group);
@@ -68,6 +71,8 @@ export function createSimLayer(parent: THREE.Object3D, onChange: () => void): Si
   let cutIdx = 0;
   let target: number | null = null;
   let running = false;
+  let showProgress = false;
+  let lastYield = 0;
   let dirty = false;
   let lastMesh = 0;
   const snapshots = new Map<number, ReturnType<AnyStock['snapshot']>>();
@@ -134,9 +139,12 @@ export function createSimLayer(parent: THREE.Object3D, onChange: () => void): Si
   async function pump(): Promise<void> {
     if (running) return;
     running = true;
+    let runFrom = cutIdx;
+    lastYield = performance.now();
     try {
       while (stock && program && enabled) {
         const want = targetIndex();
+        if (want < cutIdx) runFrom = 0;
         if (want < cutIdx) {
           // 뒤로: 가장 가까운 스냅샷에서 다시 시작
           let best = -1;
@@ -157,12 +165,19 @@ export function createSimLayer(parent: THREE.Object3D, onChange: () => void): Si
         else stock.cutRange(program.seg, program.tools, cutIdx, end);
         cutIdx = end;
         dirty = true;
-        if (live && performance.now() - lastMesh > LIVE_MESH_INTERVAL_MS) refreshMesh();
-        if (cutIdx !== want) await yieldToUi();
+        const nowMs = performance.now();
+        if ((live || showProgress) && nowMs - lastMesh > (showProgress ? 350 : LIVE_MESH_INTERVAL_MS)) refreshMesh();
+        // 화면이 멈추지 않게 30ms 마다 한 번 양보하고 진행률을 알린다
+        if (cutIdx !== want && nowMs - lastYield > 30) {
+          if (showProgress) onProgress(true, Math.min(1, (cutIdx - runFrom) / Math.max(1, want - runFrom)));
+          await yieldToUi();
+          lastYield = performance.now();
+        }
       }
     } finally {
       running = false;
     }
+    if (showProgress) { showProgress = false; onProgress(false, 1); }
     if (dirty || !mesh) refreshMesh();
     else onChange();
   }
@@ -192,8 +207,9 @@ export function createSimLayer(parent: THREE.Object3D, onChange: () => void): Si
       void pump();
     },
     setLive(on) { live = on; },
-    setTarget(seq) {
-      if (target === seq) return;
+    setTarget(seq, show = false) {
+      if (show && enabled) showProgress = true;
+      if (target === seq && !show) return;
       target = seq;
       if (enabled) void pump();
     },

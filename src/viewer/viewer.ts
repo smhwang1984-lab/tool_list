@@ -98,16 +98,40 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
   let result: ToolpathResult | null = null;
   let machine = '';
 
-  const marker = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffe14a, depthTest: false }));
-  marker.renderOrder = 10;
+  // 공구 위치 표시: 구(날끝) + 구에서 공구 축 방향(날끝 반대쪽, 홀더 쪽)으로 뻗은 막대
+  const marker = new THREE.Group();
+  const markerMat = new THREE.MeshBasicMaterial({ color: 0xffe14a, depthTest: false });
+  const markerBall = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), markerMat);
+  const markerStick = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 6, 8), markerMat);
+  markerStick.rotation.x = Math.PI / 2; // 원기둥(Y 축)을 +Z 로 눕힌다
+  markerStick.position.z = 3.5;
+  markerBall.renderOrder = 10;
+  markerStick.renderOrder = 10;
+  marker.add(markerBall, markerStick);
   marker.visible = false;
   scene.add(marker);
+  /** 구 크기: 기본 선굵기(90%)일 때 이전 기준 크기의 50%, 선굵기에 비례해 줄고 늘어난다 */
+  let markerBase = 1;
+  const applyMarkerScale = (): void => {
+    marker.scale.setScalar(markerBase * 0.5 * (getViewerSettings().lineWidthPct / 90));
+  };
+  const Z_UP = new THREE.Vector3(0, 0, 1);
+  const axisVec = new THREE.Vector3();
   const axes = new THREE.AxesHelper(1);
   scene.add(axes);
 
   const group = new THREE.Group();
   scene.add(group);
-  const sim: SimLayer = createSimLayer(scene, () => { dirty = true; hooks.onSimChange?.(); });
+  const sim: SimLayer = createSimLayer(scene, () => { dirty = true; instantBtn.disabled = !sim.hasStock(); hooks.onSimChange?.(); }, (busy, pct) => {
+    progressBox.hidden = !busy;
+    if (busy) progressBox.textContent = `가공 형상 ${Math.round(pct * 100)}%`;
+  });
+  // 화면 가운데 진행률(가공 형상 계산 중)
+  const progressBox = el('div', { class: 'v-progress' });
+  progressBox.hidden = true;
+  const instantBtn = el('button', { type: 'button', class: 'v-instant', title: '소재를 끝까지 깎은 가공 형상을 바로 보여 줍니다' });
+  instantBtn.textContent = '가공형상 즉시 보기';
+  instantBtn.disabled = true;
   let simLive = false;
   let pgMatch = false;
   let toolpathOn = true;
@@ -126,7 +150,14 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
   const projBar = el('div', { class: 'v-proj' });
   const coordBox = el('div', { class: 'v-coord' });
   const playBar = el('div', { class: 'v-play' });
-  host.append(projBar, coordBox, playBar);
+  host.append(projBar, coordBox, playBar, progressBox);
+  instantBtn.addEventListener('click', () => {
+    if (!result) return;
+    let end: number | null = null;
+    for (const path of result.tool_paths.values()) for (let i = path.length - 1; i >= 0; i--) { const n = path[i]!; if (n.valid) { if (end === null || n.seq > end) end = n.seq; break; } }
+    sim.setEnabled(true);
+    sim.setTarget(end, true);
+  });
   const mkBtn = (parent: HTMLElement, label: string, title: string): HTMLButtonElement => {
     const b = el('button', { type: 'button', title });
     b.textContent = label;
@@ -186,6 +217,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
       b.addEventListener('click', () => { pickMode = false; projBar.firstElementChild?.classList.remove('on'); setProjection(name); });
       projButtons.push(b);
     }
+    projBar.append(instantBtn);
   };
 
   const bPrevTool = mkBtn(playBar, '⏮', '이전 공정');
@@ -553,7 +585,8 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     const b = sceneBounds(r);
     radius = b ? Math.sqrt(Math.max(...b.min.map(Math.abs), ...b.max.map(Math.abs)) ** 2 * 3) : 0;
     const markerSize = Math.max(0.5, Math.min(6, (b ? Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]) : 100) / 120));
-    marker.scale.setScalar(markerSize);
+    markerBase = markerSize;
+    applyMarkerScale();
     axes.scale.setScalar(Math.max(10, radius / 6));
     updateSlider();
     setProjection(lathe ? 'LATHE' : 'XY');
@@ -623,6 +656,9 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
       for (let k = seqNow - 1; k >= 0 && !c; k--) c = result.seq_to_coord_map.get(k);
     }
     if (c) { marker.position.set(c[0], c[1], c[2]); marker.visible = true; } else marker.visible = false;
+    const ax = result.line_axis_map.get(result.seq_to_line[seqNow] ?? -1);
+    if (ax && Math.hypot(ax[0], ax[1], ax[2]) > 1e-9) axisVec.set(ax[0], ax[1], ax[2]).normalize(); else axisVec.copy(Z_UP);
+    marker.quaternion.setFromUnitVectors(Z_UP, axisVec);
     const modal = result.seq_to_modal_state.get(seqNow);
     coordBox.textContent = modal ? `X ${modal[0]}  Y ${modal[1]}  Z ${modal[2]}${lathe ? '' : `  A ${modal[3]}  B ${modal[4]}  C ${modal[5]}`}` : '';
     timeText.textContent = formatElapsedOverTotal(elapsedSecondsAtSeq(result, seqNow, sortedKeys), result.total_time_sec);
@@ -694,6 +730,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
   const offSettings = onViewerSettings((s) => {
     fovDeg = s.fovDeg;
     for (const { m, base } of materials) m.linewidth = toolpathLineWidth(base, s.lineWidthPct);
+    applyMarkerScale();
     apply();
   });
   const resize = (): void => {
@@ -738,7 +775,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
         distance = distanceForRadius(r, host.clientWidth, host.clientHeight);
         apply();
       }
-      sim.setStock(bounds, resolution, on); sim.setTarget(simLive ? seqNow : selectionEndSeq()); },
+      sim.setStock(bounds, resolution, on); sim.setTarget(simLive ? seqNow : selectionEndSeq(), true); },
     setToolpathVisible(on) { toolpathOn = on; showSeq(seqNow, false); },
     setPgMatch(on) { pgMatch = on; showSeq(seqNow, false); },
     setSimEnabled(on) { sim.setEnabled(on); },
