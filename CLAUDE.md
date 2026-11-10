@@ -1,7 +1,7 @@
 # tool_list_android (Sum Path Android) 작업 규칙
 
 원본 데스크톱 앱 `smhwang1984-lab/tool_list`(PyQt5)를 Android APK로 옮기는 저장소다.
-전환 계획과 승인 상태는 `ANDROID_PLAN.md`에 있다. **승인 전에는 구현하지 않는다.**
+전환 계획은 `ANDROID_PLAN.md`(2026-11-10 승인됨)에 있다. 단계(P0~P7) 순서대로 진행하고, 진행 기록은 그 문서의 10절에 적는다.
 
 ## 1. Git 동기화 규칙 (tool_list와 같다)
 

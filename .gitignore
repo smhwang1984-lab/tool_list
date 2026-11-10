@@ -13,3 +13,4 @@ keystore.properties
 *.pem
 *.lic
 .DS_Store
+out/

@@ -1,4 +1,4 @@
-# Sum Path Android (tool_list_android) — 전환 플랜 v0.1 (승인 대기)
+# Sum Path Android (tool_list_android) — 전환 플랜 v1.0 (**승인됨 2026-11-10**)
 
 - 작성일: 2026-11-10
 - 원본: `smhwang1984-lab/tool_list` `master` @ `0a1d5a3` (Sum Path **v2.3.5**, PyQt5 데스크톱)
@@ -6,7 +6,8 @@
 - 작업 환경: **Windows 11 Home PC** (빌드·서명·기기 테스트 모두 Windows에서)
 - **라이선스(sumpath_license / license_server / 체험판 창)는 이번 범위에서 보류** — 코드에서 아예 빼고, 나중에 붙일 자리만 남긴다.
 
-> 이 문서는 승인 전 초안이다. 맨 아래 **§9 승인 요청 항목**에 답을 주면 그대로 확정하고 P0부터 시작한다.
+> 2026-11-10 사용자가 §9를 **전부 권장안대로** 승인했다. 배포는 우선 **테스트용 debug APK**로 하고, 나중에 Play 스토어용 **AAB**로 빌드한다.
+> 진행 상황은 §10에 적는다.
 
 ---
 
@@ -32,24 +33,24 @@
 
 ## 2. 기술 스택 결정 (권장안)
 
-### 권장: **Capacitor + TypeScript(Node.js 툴체인) + Three.js**
+### 확정: **Capacitor 8 + TypeScript(Node.js 툴체인) + Three.js**
 
 ```
 tool_list_android/
-├─ web/                 ← 앱 본체 (Vite + TypeScript)
-│  ├─ src/core/         ← G코드 파싱·공구 리스트·선반 규격 (Python 로직 1:1 이식, UI 없음)
-│  ├─ src/sim/          ← nc_sim / nc_sim3d / nc_lathe_sim 이식 (Web Worker)
-│  ├─ src/viewer/       ← Three.js 3D 뷰어 + 방향 큐브 + 재생바 + 제스처
-│  ├─ src/ui/           ← 툴바·입력창·공구표·대화상자 (원본 화면 재현)
-│  └─ src/platform/     ← 파일 열기/저장/공유, PDF, 클립보드 (Capacitor 플러그인)
-├─ android/             ← `npx cap add android` 로 생성되는 Gradle 프로젝트
+├─ src/                 ← 앱 본체 (Vite + TypeScript)
+│  ├─ core/             ← G코드 파싱·공구 리스트·선반 규격 (Python 로직 1:1 이식, UI 없음)
+│  ├─ sim/              ← nc_sim / nc_sim3d / nc_lathe_sim 이식 (Web Worker)
+│  ├─ viewer/           ← Three.js 3D 뷰어 + 방향 큐브 + 재생바 + 제스처
+│  ├─ ui/               ← 툴바·입력창·공구표·대화상자 (원본 화면 재현)
+│  └─ platform/         ← 파일 열기/저장/공유, PDF, 클립보드 (Capacitor 플러그인)
+├─ android/             ← `npx cap add android` 로 생성한 Gradle 프로젝트 (커밋함)
 ├─ tools/golden/        ← 원본 Python으로 정답(JSON) 만드는 스크립트
 └─ tests/               ← Vitest: 이식한 TS 결과 == 원본 Python 결과
 ```
 
 | 영역 | 라이브러리 (오픈소스) | 이유 |
 |---|---|---|
-| 앱 껍데기 | **Capacitor 7** | 웹 코드로 APK를 만든다. Windows에서 `gradlew`로 빌드할 수 있다 |
+| 앱 껍데기 | **Capacitor 8** (Node 22 이상 필요) | 웹 코드로 APK를 만든다. Windows에서 `gradlew`로 빌드할 수 있다 |
 | 빌드 | **Vite + TypeScript**, Node.js 20 LTS | 빠른 개발 서버. PC 브라우저에서 바로 확인할 수 있다 |
 | 3D | **Three.js** (`LineSegments2` 굵은 선, `InstancedMesh`) | pyqtgraph GLLinePlotItem / GLMeshItem 대체 |
 | 프로그램 입력창 | **CodeMirror 6** | 60만 바이트급 NC도 가볍다. 코드 색칠·검색·편집 모드·핀치 폰트 크기 |
@@ -200,35 +201,41 @@ tool_list_android/
 
 | 항목 | 버전 | 비고 |
 |---|---|---|
-| Node.js | 20 LTS 이상 | `node -v` |
-| Android Studio | 최신 안정판 | SDK Platform 35, Build-Tools, Platform-Tools(adb) |
+| Node.js | **22 LTS** 이상 (Capacitor 8 요구) | `node -v` |
+| Android Studio | 최신 안정판 | SDK Platform 36, Build-Tools, Platform-Tools(adb) |
 | JDK | 21 (Android Studio 내장 JBR) | `JAVA_HOME` 설정 |
 | Python | 3.x (이미 설치됨) | 골든 정답 생성용으로만 사용 |
 | 기기 | Android 8.0(API 26) 이상 | USB 디버깅 켬 |
 
 ```bat
 :: 개발 (PC 브라우저에서 바로 확인)
-cd web && npm install && npm run dev
-:: APK 빌드
+npm install && npm run dev
+:: 테스트 APK 빌드 → out\SumPath_vX.Y.Z_debug.apk
 build_apk.bat           :: = npm run build → npx cap sync android → android\gradlew assembleDebug
-:: 기기에 설치
-adb install -r android\app\build\outputs\apk\debug\app-debug.apk
+:: 빌드 + USB 기기에 설치
+build_apk.bat install
 ```
+
+자세한 설치 순서는 `SETUP_WINDOWS.md`에 있다.
+
+**배포 단계**
+1. 지금: **debug APK**(debug 서명)를 직접 설치해 테스트한다.
+2. 나중(P7): 업로드 키스토어를 만들고 `build_aab.bat`(`gradlew bundleRelease`)로 **AAB**를 만든다. 사내 직접 배포용 release APK(`assembleRelease`)도 같은 키로 만든다. 키스토어와 비밀번호 파일은 커밋하지 않는다.
 
 ---
 
 ## 8. 저장소·버전 규칙 (tool_list와 같은 방식)
 
 - 메인 브랜치는 **`master`** 다. 작업이 끝나면 commit → push → master에 병합 → push. Windows PC는 `git_sync.bat` / `git_publish.bat`로 맞춘다.
-- 버전은 `MAJOR.MINOR.PATCH`(각 자리 0~9)로 **0.1.0**에서 시작한다. 원본 기능을 다 갖추면 1.0.0. 원본 버전과는 따로 매기고, 기준으로 삼은 원본 버전은 About에 표시한다(예: "기준 원본 v2.3.5").
+- 버전은 `MAJOR.MINOR.PATCH`(각 자리 0~9)로 **0.1.0**에서 시작한다. `package.json` / `src/version.ts` / `android/app/build.gradle`(versionName, versionCode = M×100+m×10+p)을 함께 올린다. 원본 기능을 다 갖추면 1.0.0. 원본 버전과는 따로 매기고, 기준으로 삼은 원본 버전은 About에 표시한다(예: "기준 원본 v2.3.5").
 - 서명 키스토어(`*.jks`, `*.keystore`), `keystore.properties`, 빌드 결과물은 커밋하지 않는다.
 - 원본 Python 코드는 이 저장소에 복사하지 않는다. 골든 스크립트가 원본 저장소 경로(`..\tool_list`)를 읽어서 정답을 만든다.
 
 ---
 
-## 9. 승인 요청 항목 (답 주시면 확정)
+## 9. 승인 결과 (2026-11-10, 전부 권장안)
 
-| # | 질문 | 제안(권장) |
+| # | 항목 | 결정 |
 |---|---|---|
 | 1 | 기술 스택 | **Capacitor + TypeScript + Three.js** (§2) |
 | 2 | 주 대상 기기 | **태블릿 가로 + 폰 둘 다** (태블릿 = PC와 같은 2단, 폰 세로 = 탭) |
@@ -238,6 +245,10 @@ adb install -r android\app\build\outputs\apk\debug\app-debug.apk
 | 6 | 자동 업데이트 | **보류** (사내 공유폴더는 폰에서 접근이 어렵다. 나중에 GitHub Releases 방식 검토) |
 | 7 | 형상 시뮬레이션(P6) 1차 포함 | **1차는 P1~P5(+P7)로 먼저 배포하고 P6는 2차** — 모바일 성능 검증이 따로 필요해서 |
 | 8 | 앱 이름 / 패키지 ID | **Sum Path** / `com.sumpath.nctoollist` |
-| 9 | 배포 방식 | **APK 직접 설치(사내 배포)**. Play 스토어는 나중에 |
+| 9 | 배포 방식 | **우선 테스트용 debug APK**, 나중에 **AAB**로 빌드(사용자 지정) |
 
-승인되면 P0부터 시작하고, 각 단계가 끝날 때마다 `master`에 병합한 뒤 Windows PC에서 확인할 수 있게 안내한다.
+## 10. 진행 기록
+
+| 버전 | 날짜 | 단계 | 내용 |
+|---|---|---|---|
+| 0.1.0 | 2026-11-10 | **P0** | Capacitor 8 + Vite + TypeScript 뼈대. 원본 배치(제목 줄/툴바/2단·폰 세로 탭), 원본 THEMES 다크모드, 원본 아이콘 SVG 이식, Three.js WebGL 확인 화면, Android 프로젝트(`com.sumpath.nctoollist`, minSdk 26, target 36), 런처 아이콘·시작 화면, `build_apk.bat` / `git_sync.bat` / `git_publish.bat`, `SETUP_WINDOWS.md`. **APK 빌드는 Windows PC에서 확인 필요**(클라우드에서는 Android SDK 다운로드가 막혀 있음) |
