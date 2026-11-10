@@ -657,12 +657,23 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     if (!c) {
       for (let k = seqNow - 1; k >= 0 && !c; k--) c = result.seq_to_coord_map.get(k);
     }
-    if (c) { marker.position.set(c[0], c[1], c[2]); marker.visible = true; } else marker.visible = false;
+    // 선반 C축: 공구는 +X 센터에 고정되고 경로가 도는 것처럼 — 마커는 C 역회전, 진행 선은 C 만큼 회전(원본 v1.6.6)
+    const cRot = lathe ? (result.seq_to_c_rot.get(seqNow) ?? 0) : 0;
+    if (c) {
+      let [mx, my, mz] = c;
+      if (cRot) {
+        const r = (cRot * Math.PI) / 180;
+        const sn = Math.sin(r), cs = Math.cos(r);
+        [my, mz] = [my * cs - mz * sn, my * sn + mz * cs];
+      }
+      marker.position.set(mx, my, mz); marker.visible = true;
+    } else marker.visible = false;
+    for (const p of processes) for (const t of p.trace) t.obj.rotation.x = (cRot * Math.PI) / 180;
     const ax = result.line_axis_map.get(result.seq_to_line[seqNow] ?? -1);
     if (ax && Math.hypot(ax[0], ax[1], ax[2]) > 1e-9) axisVec.set(ax[0], ax[1], ax[2]).normalize(); else axisVec.copy(Z_UP);
     marker.quaternion.setFromUnitVectors(Z_UP, axisVec);
     const modal = result.seq_to_modal_state.get(seqNow);
-    coordBox.textContent = modal ? `X ${modal[0]}  Y ${modal[1]}  Z ${modal[2]}${lathe ? '' : `  A ${modal[3]}  B ${modal[4]}  C ${modal[5]}`}` : '';
+    coordBox.textContent = modal ? `X ${modal[0]}  Y ${modal[1]}  Z ${modal[2]}${lathe ? `  C ${modal[5]}` : `  A ${modal[3]}  B ${modal[4]}  C ${modal[5]}`}` : '';
     timeText.textContent = formatElapsedOverTotal(elapsedSecondsAtSeq(result, seqNow, sortedKeys), result.total_time_sec);
     dirty = true;
     if (emit) hooks.onLine?.(lineAtSeq(result, seqNow));
