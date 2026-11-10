@@ -9,7 +9,6 @@ html, body {
 }
 #app {
   display: flex; flex-direction: column; height: 100%;
-  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
 /* ---------- 제목 줄 ---------- */
@@ -63,10 +62,10 @@ html, body {
   display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 10px;
   font-weight: 700; font-size: 14px; border-bottom: 1px solid var(--border);
 }
-.program-pane { flex: 0 0 34%; min-width: 300px; }
+.program-pane { flex: 0 0 34%; min-width: 180px; }
 .right-pane { flex: 1; }
 .splitter {
-  flex: 0 0 14px; cursor: col-resize; touch-action: none;
+  flex: 0 0 26px; cursor: col-resize; touch-action: none;
   display: flex; align-items: center; justify-content: center;
 }
 .splitter::after { content: ''; width: 4px; height: 48px; border-radius: 2px; background: var(--toolbar_sep); }
@@ -277,3 +276,18 @@ dialog .dlg-foot button.primary { border-color: var(--accent); background: var(-
   background: rgba(45, 108, 223, 0.35); border: 1px solid #7fa6f0; backface-visibility: hidden; cursor: pointer; user-select: none;
 }
 .viewer-host .v-region { position: absolute; border: 2px dashed #ffe14a; background: rgba(255, 225, 74, 0.12); z-index: 4; pointer-events: none; }
+
+.popover {
+  position: fixed; z-index: 50; width: 330px; max-width: calc(100vw - 8px); max-height: calc(100vh - 90px); overflow: auto;
+  background: var(--editor_bg); color: var(--text); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,0.35); padding: 6px;
+}
+.popover[hidden] { display: none; }
+.popover .machine-toggle { display: none; }
+.popover .machine-body[hidden] { display: flex !important; }
+.popover .machine-body { display: flex; }
+.popover .filter-row { flex-direction: column; align-items: stretch; gap: 8px; }
+.splitter, .vsplitter { touch-action: none; }
+.filter-panel .filter-row { flex-wrap: nowrap; gap: 6px; }
+.filter-panel .filter-row .filter-title { white-space: nowrap; }
+.filter-panel .filter-row button, .filter-panel .filter-row label { white-space: nowrap; flex: 0 0 auto; }
+.filter-panel .filter-row button { padding: 0 8px; font-size: 13px; }

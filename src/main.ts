@@ -125,6 +125,10 @@ function mount(root: HTMLElement): void {
   btnEditSave.hidden = true;
   btnEditPw.hidden = true;
   editLabel.hidden = true;
+  const btnMachine = toolButton('장비', 'gear', '장비 타입 및 스펙 설정');
+  const btnStop = toolButton('정지 옵션', 'run', '텍스트 정지 · 정지 · 옵션정지 · 실시간 형상');
+  const btnStockTb = toolButton('소재', 'document', '소재(STOCK) 설정 — 시뮬레이션 단계에서 켜집니다');
+  btnStockTb.disabled = true;
   const btnRun = toolButton('Tool List', 'run', '공구 리스트 산출', { accent: true });
   const btnExample = toolButton('예제', 'document', '예제 프로그램 불러오기');
   const btnClear = toolButton('지우기', 'eraser', '프로그램과 공구 리스트 지우기');
@@ -136,6 +140,7 @@ function mount(root: HTMLElement): void {
       btnExample,
       btnClear,
     ),
+    group(btnMachine, btnStop, btnStockTb),
     group(btnEdit, btnEditSave, btnEditPw, editLabel),
     group(btnRun),
     group(btnTool, btnViewer),
@@ -158,7 +163,7 @@ function mount(root: HTMLElement): void {
   programPane.innerHTML = '<div class="pane-head">① 프로그램 입력</div>';
   const editorHost = el('div', { class: 'editor-host' });
   const editor = createEditor(editorHost, {
-    fontSize: getPrefNumber('editor_font_px', 14, 9, 32),
+    fontSize: getPrefNumber('editor_font_px', 9, 9, 32),
     onFontSize: (px) => setPref('editor_font_px', String(px)),
     onChange: () => { viewerStale = true; scheduleViewerRefresh(); },
   });
@@ -174,7 +179,7 @@ function mount(root: HTMLElement): void {
   const searchBar = createSearchBar(editor, isLathe);
   const filterPanel = createFilterPanel();
   const vSplitter = el('div', { class: 'vsplitter', role: 'separator', 'aria-orientation': 'horizontal' });
-  programPane.append(machinePanel.root, searchBar.root, editorHost, vSplitter, filterPanel.root);
+  programPane.append(searchBar.root, editorHost, vSplitter, filterPanel.root);
   const setFilterHeight = (h: number): void => {
     filterPanel.root.style.flex = `0 0 ${h}px`;
   };
@@ -386,9 +391,36 @@ function mount(root: HTMLElement): void {
     viewerView.hidden = mode !== 'viewer';
     vSplitter.hidden = mode !== 'viewer';
     filterPanel.root.hidden = mode !== 'viewer'; // 필터 영역은 Viewer 모드에서만 (원본과 같다)
-    machinePanel.root.hidden = mode !== 'viewer'; // 원본: 산출 모드에서는 장비 패널을 숨기고 표 위 콤보를 쓴다
     if (mode === 'viewer') void ensureViewer().then(() => refreshViewer());
   };
+  // ---------- 툴바 드롭다운 (장비 설정 / 정지 옵션) ----------
+  let openPopover: HTMLElement | null = null;
+  const attachPopover = (button: HTMLElement, content: HTMLElement): void => {
+    const pop = el('div', { class: 'popover' });
+    pop.hidden = true;
+    pop.append(content);
+    document.body.append(pop);
+    button.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const show = pop.hidden;
+      if (openPopover) openPopover.hidden = true;
+      openPopover = null;
+      if (show) {
+        const r = button.getBoundingClientRect();
+        pop.style.top = `${r.bottom + 4}px`;
+        pop.style.left = `${Math.max(4, Math.min(r.left, window.innerWidth - 340))}px`;
+        pop.hidden = false;
+        openPopover = pop;
+      }
+    });
+    pop.addEventListener('click', (ev) => ev.stopPropagation());
+  };
+  document.addEventListener('click', () => { if (openPopover) { openPopover.hidden = true; openPopover = null; } });
+  machinePanel.setExpanded(true);
+  machinePanel.root.classList.add('in-popover');
+  attachPopover(btnMachine, machinePanel.root);
+  attachPopover(btnStop, filterPanel.stopMenu);
+
   filterPanel.onSelectionChange = (keys) => viewer?.setVisible(keys);
   filterPanel.onReset = () => viewer?.reset();
   filterPanel.onPgMatch = (on) => { pgMatchOn = on; if (on) viewer?.setLine(editor.view.state.doc.lineAt(editor.view.state.selection.main.head).number - 1); };
@@ -506,8 +538,8 @@ function mount(root: HTMLElement): void {
     const startX = ev.clientX;
     const startW = programPane.getBoundingClientRect().width;
     const move = (e: PointerEvent) => {
-      const max = body.getBoundingClientRect().width - 320;
-      const w = Math.max(300, Math.min(max, startW + e.clientX - startX));
+      const max = body.getBoundingClientRect().width - 200;
+      const w = Math.max(180, Math.min(max, startW + e.clientX - startX));
       programPane.style.flex = `0 0 ${w}px`;
     };
     const up = () => {

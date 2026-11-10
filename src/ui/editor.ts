@@ -112,7 +112,7 @@ export function createEditor(parent: HTMLElement, opts: EditorOptions): Editor {
     lineNumbers(), highlightActiveLine(), history(),
     keymap.of([...defaultKeymap, ...historyKeymap]),
     baseTheme, colorPlugin(() => lathe),
-    readOnly.of([EditorState.readOnly.of(true), EditorView.editable.of(true)]),
+    readOnly.of([EditorState.readOnly.of(true), EditorView.editable.of(true), EditorView.contentAttributes.of({ inputmode: 'none' })]),
     fontTheme.of(fontExt(size)),
     EditorView.updateListener.of((u) => {
       if (u.selectionSet && !u.docChanged) {
@@ -174,7 +174,7 @@ export function createEditor(parent: HTMLElement, opts: EditorOptions): Editor {
     },
     setReadOnly(ro) {
       view.dispatch({
-        effects: readOnly.reconfigure([EditorState.readOnly.of(ro), EditorView.editable.of(true)]),
+        effects: readOnly.reconfigure([EditorState.readOnly.of(ro), EditorView.editable.of(true), EditorView.contentAttributes.of({ inputmode: ro ? 'none' : 'text' })]),
       });
     },
     select(start, end) {

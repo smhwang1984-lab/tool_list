@@ -27,6 +27,10 @@ export interface FilterPanel {
   onSelectionChange: (keys: string[]) => void;
   onReset: () => void;
   onPgMatch: (on: boolean) => void;
+  /** 툴바 드롭다운에 넣을 정지 옵션(텍스트 정지·정지·옵션정지·실시간 형상) */
+  stopMenu: HTMLElement;
+  /** 툴바에 둘 소재 단추 */
+  stockButton: HTMLButtonElement;
 }
 
 const asBool = (raw: string, fallback: boolean): boolean => (raw === '' ? fallback : raw === '1' || raw === 'true');
@@ -67,10 +71,10 @@ export function createFilterPanel(): FilterPanel {
   const btnStock = btn('소재', '소재(STOCK) 설정과 가공 형상 시뮬레이션은 P6에서 켜집니다.');
   btnStock.disabled = true;
   const filterBar = el('div', { class: 'filter-row' });
-  filterBar.append(title, el('span', { class: 'spacer' }), btnReset, pgLabel, btnAll, btnNone, btnStock);
+  filterBar.append(title, el('span', { class: 'spacer' }), btnReset, pgLabel, btnAll, btnNone);
 
   const list = el('div', { class: 'filter-list', role: 'listbox', 'aria-multiselectable': 'true' });
-  root.append(stopBar, filterBar, list);
+  root.append(filterBar, list);
 
   let items: FilterItem[] = [];
   const selected = new Set<string>();
@@ -100,6 +104,8 @@ export function createFilterPanel(): FilterPanel {
       stopText: textCheck.checked, stopTextValue: textInput.value, stopM00: m00Check.checked, stopM01: m01Check.checked,
     }),
     pgMatch: () => pgCheck.checked,
+    stopMenu: stopBar,
+    stockButton: btnStock,
     selectedKeys: () => items.filter((i) => selected.has(i.key)).map((i) => i.key),
     onSelectionChange: () => {},
     onReset: () => {},
