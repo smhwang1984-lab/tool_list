@@ -242,8 +242,39 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     center.addScaledVector(right, -dx * worldPerPx).addScaledVector(up, dy * worldPerPx);
     apply();
   };
-  const zoomBy = (factor: number): void => {
-    distance = Math.max(1, Math.min(distance * factor, 1e6));
+  // 제스처 위치 기준 계산: 화면 점 → 보는 방향에 수직이고 중심을 지나는 평면 위의 월드 좌표
+  const frame = (): { r: THREE.Vector3; u: THREE.Vector3 } => {
+    const e = (elevation * Math.PI) / 180;
+    const a = (azimuth * Math.PI) / 180;
+    return {
+      r: new THREE.Vector3(-Math.sin(a), Math.cos(a), 0),
+      u: new THREE.Vector3(-Math.sin(e) * Math.cos(a), -Math.sin(e) * Math.sin(a), Math.cos(e)),
+    };
+  };
+  const screenOffset = (cx: number, cy: number): { sx: number; sy: number } => {
+    const box = renderer.domElement.getBoundingClientRect();
+    const wpp = (2 * distance * Math.tan((camera.fov * Math.PI) / 360)) / Math.max(box.height, 1);
+    return { sx: (cx - box.left - box.width / 2) * wpp, sy: -(cy - box.top - box.height / 2) * wpp };
+  };
+  /** 손가락 위치를 고정한 채 확대·축소 */
+  const zoomAt = (factor: number, cx: number, cy: number): void => {
+    const { r, u } = frame();
+    const { sx, sy } = screenOffset(cx, cy);
+    const next = Math.max(1, Math.min(distance * factor, 1e6));
+    const f = next / distance;
+    center.addScaledVector(r, sx * (1 - f)).addScaledVector(u, sy * (1 - f));
+    distance = next;
+    apply();
+  };
+  /** 손가락을 댄 지점을 중심으로 회전 */
+  const orbitAbout = (cx: number, cy: number, dAz: number, dEl: number): void => {
+    const f0 = frame();
+    const { sx, sy } = screenOffset(cx, cy);
+    const pivot = center.clone().addScaledVector(f0.r, sx).addScaledVector(f0.u, sy);
+    azimuth += dAz;
+    elevation = Math.max(-90, Math.min(90, elevation + dEl));
+    const f1 = frame();
+    center.copy(pivot).addScaledVector(f1.r, -sx).addScaledVector(f1.u, -sy);
     apply();
   };
   const dom = renderer.domElement;
@@ -302,6 +333,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     window.clearTimeout(longTimer);
     if (pointers.size === 1) {
       moved = false;
+      downPos = { x: e.clientX, y: e.clientY };
       downTime = performance.now();
       zoomDrag = downTime - lastTapEnd < DOUBLE_TAP_MS && Math.hypot(e.clientX - lastTapPos.x, e.clientY - lastTapPos.y) < 24;
       if (!zoomDrag) {
@@ -347,22 +379,21 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     } else if (pointers.size === 2) {
       const [a, b] = [...pointers.values()];
       const d = Math.hypot(a!.x - b!.x, a!.y - b!.y);
-      if (lastPinch > 0 && d > 0) zoomBy(lastPinch / d);
+      if (lastPinch > 0 && d > 0) zoomAt(lastPinch / d, (a!.x + b!.x) / 2, (a!.y + b!.y) / 2);
       lastPinch = d;
       panBy(dx / 2, dy / 2);
     } else if (!moved) {
       /* 아직 탭인지 드래그인지 정해지지 않았다 */
     } else if (zoomDrag) {
-      zoomBy(1.01 ** (dy * sens * 2.5));
+      zoomAt(1.01 ** (dy * sens * 2.5), e.clientX, e.clientY);
     } else if (e.buttons & 6 || orbitLocked) {
       panBy(dx, dy);
     } else {
-      azimuth -= dx * sens;
-      elevation += dy * sens;
-      apply();
+      orbitAbout(downPos.x, downPos.y, -dx * sens, dy * sens);
     }
   });
   let tapOrigin: { x: number; y: number } | null = null;
+  let downPos = { x: 0, y: 0 };
   const updateViewerSettingsFov = (delta: number): number => {
     const fov = Math.max(FOV_MIN, Math.min(FOV_MAX, camera.fov + delta));
     camera.fov = fov;
@@ -431,7 +462,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
   dom.addEventListener('pointerup', endPointer);
   dom.addEventListener('pointercancel', endPointer);
   dom.addEventListener('contextmenu', (e) => e.preventDefault());
-  dom.addEventListener('wheel', (e) => { e.preventDefault(); zoomBy(Math.exp(e.deltaY * 0.0015)); }, { passive: false });
+  dom.addEventListener('wheel', (e) => { e.preventDefault(); zoomAt(Math.exp(e.deltaY * 0.0015), e.clientX, e.clientY); }, { passive: false });
 
   // ---------------------------------------------------------------- 경로 그리기
   const lineWidth = (base: number): number => toolpathLineWidth(base, getViewerSettings().lineWidthPct);
@@ -486,7 +517,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     marker.scale.setScalar(markerSize);
     axes.scale.setScalar(Math.max(10, radius / 6));
     updateSlider();
-    setProjection('ISO');
+    setProjection(lathe ? 'LATHE' : 'XY');
     seqNow = 0;
     showSeq(0, false);
   }
@@ -628,7 +659,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     },
     seq: () => seqNow,
     resize,
-    reset() { stopPlaying(); showSeq(0, true); setProjection('ISO'); },
+    reset() { stopPlaying(); showSeq(0, true); setProjection(lathe ? 'LATHE' : 'XY'); },
     togglePlay() { if (playing) stopPlaying(); else startPlaying(); },
     jumpTool,
     cancelPick() {
