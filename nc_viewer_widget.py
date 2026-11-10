@@ -12,7 +12,7 @@ import pyqtgraph.opengl as gl
 from OpenGL import GL
 from pyqtgraph import Vector
 from PyQt5.QtCore import (
-    Qt, QEvent, QObject, QPointF, QRect, QRectF, QSettings, QSignalBlocker, QSize, QTimer,
+    Qt, QEvent, QObject, QPoint, QPointF, QRect, QRectF, QSettings, QSignalBlocker, QSize, QTimer,
     pyqtSignal,
 )
 from PyQt5.QtGui import (
@@ -22,6 +22,10 @@ from PyQt5.QtGui import (
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QButtonGroup,
+    QMenu,
+    QProgressBar,
+    QToolButton,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -59,6 +63,17 @@ PX_PER_CM = 96.0 / 2.54
 MAX_PLAYBACK_SPEED = 5000
 # v2.3.6: 배속 표기만 이 값으로 나눠 보인다(최대 5000 -> "x50"). 내부 값은 그대로.
 PLAYBACK_SPEED_DISPLAY_DIVISOR = 100
+# v2.4.2: 재생바 앞 드롭업에서 고르는 배속(= 초당 실행 줄 수). 5000x가 이전 최대(슬라이더 5000)와 같다.
+PLAYBACK_SPEED_CHOICES = (1, 5, 10, 50, 100, 500, 1000, 5000)
+
+
+def snap_playback_speed(value):
+    """저장돼 있던 임의 배속을 가장 가까운 선택지로 맞춘다."""
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        value = 1.0
+    return min(PLAYBACK_SPEED_CHOICES, key=lambda choice: abs(choice - value))
 
 # v1.6.2: 1920x1080 실사용에서 뷰어 컨트롤(감도/큐브 바, 재생바 버튼, 다크
 # 모드 아이콘)이 지나치게 크다는 피드백으로 크기를 40% 줄인다(= 0.6배).
@@ -1371,22 +1386,24 @@ class ProjectionOverlayWidget(QWidget):
         self.setAttribute(Qt.WA_TranslucentBackground)
         # 버튼 자체만 옅게 보이는 배경을 주고, 위젯 전체(라벨 주변 여백)는
         # 완전히 투명하게 둬 공구 경로를 가리지 않는다.
+        # v2.4.2: 버튼 크기를 이전의 2.5배로 키우고, 눌린(활성) 버튼은 파란색으로 보인다.
         self.setStyleSheet(
             "ProjectionOverlayWidget { background: transparent; }"
-            " QLabel { background: transparent; color: white; font-size: 12px; }"
-            " QPushButton { color: white; background-color: rgba(40, 44, 52, 90);"
-            " border: 1px solid rgba(255, 255, 255, 70); border-radius: 5px;"
-            " padding: 3px 7px; font-size: 12px; }"
+            " QLabel { background: transparent; color: white; font-size: 30px; }"
+            " QPushButton { color: white; background-color: rgba(40, 44, 52, 150);"
+            " border: 2px solid rgba(255, 255, 255, 70); border-radius: 12px;"
+            " padding: 8px 18px; font-size: 30px; }"
             " QPushButton:hover { background-color: rgba(255, 255, 255, 65); }"
+            " QPushButton:checked { background-color: #2e86de; border-color: #8ec5ff; color: white; }"
         )
         row = QHBoxLayout(self)
-        row.setContentsMargins(6, 4, 6, 4)
+        row.setContentsMargins(10, 8, 10, 8)
         # v1.6.3: 버튼끼리 너무 붙어 있다는 피드백으로 간격을 4 -> 10px로
         # 넓힌다. "투영" 라벨과 첫 버튼 사이에는 조금 더 띄운다.
-        row.setSpacing(10)
-        self.pick_button = QPushButton("위치")
-        self.pick_button.setIcon(ui_icons.icon("pin", "#e4e8f0", 14))
-        self.pick_button.setIconSize(QSize(14, 14))
+        row.setSpacing(15)
+        self.pick_button = QPushButton("위치 찍기")
+        self.pick_button.setIcon(ui_icons.icon("pin", "#e4e8f0", 35))
+        self.pick_button.setIconSize(QSize(35, 35))
         self.pick_button.setCheckable(True)
         self.pick_button.setFocusPolicy(Qt.NoFocus)
         self.pick_button.setToolTip("위치 찍기 — 켠 뒤 경로를 클릭하면 그 프로그램 줄로 이동 (Esc 끝)")
@@ -1400,6 +1417,8 @@ class ProjectionOverlayWidget(QWidget):
         self._fixed_item_count = row.count()
         self._lathe_mode = False
         self.drag_zoom_button = None
+        self._view_group = QButtonGroup(self)
+        self._view_buttons = {}
         self._rebuild_buttons(self.MILL_BUTTONS)
 
     # 밀링과 선반은 축 개념 자체가 달라 투영 버튼 구성을 다르게 쓴다(v1.6.4).
@@ -1412,7 +1431,17 @@ class ProjectionOverlayWidget(QWidget):
     # (사용자 확정, 2026-09-06). 기존 "선반" 뷰/계산은 변경 없음.
     LATHE_BUTTONS = (("ISO", "ISO"), ("선반", "LATHE"), ("XC", "LATHE_XC"))
 
+    def set_projection_checked(self, view_type):
+        """현재 투영 뷰 버튼을 파란색(활성)으로. None이면 모두 해제."""
+        self._view_group.setExclusive(False)
+        for key, button in self._view_buttons.items():
+            button.setChecked(key == view_type)
+        self._view_group.setExclusive(True)
+
     def _rebuild_buttons(self, buttons):
+        for old in list(self._view_buttons.values()):
+            self._view_group.removeButton(old)
+        self._view_buttons = {}
         row = self._row
         while row.count() > self._fixed_item_count:
             item = row.takeAt(self._fixed_item_count)
@@ -1430,11 +1459,14 @@ class ProjectionOverlayWidget(QWidget):
                 button.setIcon(plane_icon("CX"))
             else:
                 button.setIcon(plane_icon(view_type))
-            button.setIconSize(QSize(14, 14))
+            button.setIconSize(QSize(35, 35))
+            button.setCheckable(True)
+            self._view_group.addButton(button)
+            self._view_buttons[view_type] = button
             # 방향키로 프로그램 커서를 옮기는 도중 이 버튼이 포커스를 가져가면
             # 다음 방향키가 커서 대신 버튼 포커스 이동에 쓰이므로 항상 막아둔다.
             button.setFocusPolicy(Qt.NoFocus)
-            button.clicked.connect(lambda _checked=False, value=view_type: self.projection_clicked.emit(value))
+            button.clicked.connect(lambda _checked=False, value=view_type: self._on_view_clicked(value))
             # 스타일시트(폰트/패딩)가 적용되기 전에는 버튼의 sizeHint가 거의
             # 0이라, 지금 바로 크기를 재면 오버레이가 찌그러진다. 새 버튼을
             # 즉시 polish 해서 제대로 된 hint를 갖게 한다.
@@ -1450,8 +1482,8 @@ class ProjectionOverlayWidget(QWidget):
             # v1.6.5: 선반 뷰 전용 — 드래그로 그린 사각형만큼 한 번에
             # 확대하는 토글 버튼(밀링에는 없음, 기존 오빗/휠줌 그대로).
             drag_zoom_button = QPushButton("드래그줌")
-            drag_zoom_button.setIcon(ui_icons.icon("drag_zoom", "#e4e8f0", 14))
-            drag_zoom_button.setIconSize(QSize(14, 14))
+            drag_zoom_button.setIcon(ui_icons.icon("drag_zoom", "#e4e8f0", 35))
+            drag_zoom_button.setIconSize(QSize(35, 35))
             drag_zoom_button.setCheckable(True)
             drag_zoom_button.setFocusPolicy(Qt.NoFocus)
             drag_zoom_button.toggled.connect(self.drag_zoom_toggled.emit)
@@ -1498,6 +1530,10 @@ class ProjectionOverlayWidget(QWidget):
             if self._row.itemAt(index).widget() is not None
             and self._row.itemAt(index).widget() is not self.drag_zoom_button
         ]
+
+    def _on_view_clicked(self, value):
+        self.set_projection_checked(value)
+        self.projection_clicked.emit(value)
 
     def set_pick_checked(self, checked):
         with QSignalBlocker(self.pick_button):
@@ -1563,30 +1599,8 @@ class CoordOverlayWidget(QWidget):
 
 
 def format_playback_speed(value):
-    """v2.3.6: 배속 표기 — 내부 값(1~MAX_PLAYBACK_SPEED)을 100으로 나눠 'x50'처럼 보인다
-    (최대 5000 -> x50, 1 -> x0.01). 실제 재생 속도·저장값은 그대로다."""
-    shown = int(value) / float(PLAYBACK_SPEED_DISPLAY_DIVISOR)
-    return "x%s" % ("%.2f" % shown).rstrip("0").rstrip(".")
-
-
-class _ClickJumpSlider(QSlider):
-    """홈(groove)을 누르면 한 칸(pageStep)씩이 아니라 누른 자리로 바로 가는 슬라이더(v2.3.6).
-    범위가 1~5000이라 기본 동작(10씩)으로는 눌러도 거의 안 움직였다."""
-
-    def mousePressEvent(self, ev):
-        if ev.button() == Qt.LeftButton and self.orientation() == Qt.Horizontal:
-            opt = QStyleOptionSlider()
-            self.initStyleOption(opt)
-            handle = self.style().subControlRect(QStyle.CC_Slider, opt, QStyle.SC_SliderHandle, self)
-            pos = ev.pos()
-            if not handle.contains(pos):
-                groove = self.style().subControlRect(QStyle.CC_Slider, opt, QStyle.SC_SliderGroove, self)
-                span = max(groove.width() - handle.width(), 1)
-                x = pos.x() - groove.x() - handle.width() // 2
-                self.setValue(QStyle.sliderValueFromPosition(
-                    self.minimum(), self.maximum(), int(x), span, opt.upsideDown))
-                # 이어서 끌면 핸들을 잡은 것처럼 따라오게 기본 처리로 넘긴다.
-        super().mousePressEvent(ev)
+    """v2.4.2: 배속 표기 — 초당 줄 수 그대로 '5000x'처럼 보인다."""
+    return "%dx" % int(value)
 
 
 class PlaybackBarWidget(QWidget):
@@ -1634,7 +1648,16 @@ class PlaybackBarWidget(QWidget):
             " font-weight: bold; }"
             " QPushButton:hover { background-color: rgba(255, 255, 255, 55); }"
             " QPushButton:disabled { color: rgba(255, 255, 255, 90); }"
+            " QToolButton { color: white; background-color: rgba(255, 255, 255, 30);"
+            " border: 1px solid rgba(255, 255, 255, 60); border-radius: %(btn_radius)dpx;"
+            " padding: %(tb_pad)dpx %(tb_pad_h)dpx; font-size: %(label)dpx; font-weight: bold; }"
+            " QToolButton:hover, QToolButton:checked { background-color: #2e86de; }"
+            " QToolButton::menu-indicator { image: none; }"
+            " QProgressBar { background: rgba(255, 255, 255, 40); border: none;"
+            " border-radius: %(groove_radius)dpx; }"
+            " QProgressBar::chunk { background: #2e86de; border-radius: %(groove_radius)dpx; }"
             % {
+                "tb_pad": shrink(10), "tb_pad_h": shrink(20),
                 "radius": shrink(14), "label": shrink(15),
                 "groove": shrink(12), "groove_radius": shrink(6),
                 "handle": shrink(22), "handle_margin": shrink(6),
@@ -1656,28 +1679,35 @@ class PlaybackBarWidget(QWidget):
         outer.setSpacing(shrink(26))
 
         speed_row = QHBoxLayout()
-        speed_row.addWidget(QLabel("속도"))
-        self.speed_slider = _ClickJumpSlider(Qt.Horizontal)
-        self.speed_slider.setRange(1, MAX_PLAYBACK_SPEED)
-        self.speed_slider.setValue(1)
-        # v1.6.0: 속도바 두께를 기존의 2배로 키운다(34 -> 68).
-        # v1.6.2: 다른 컨트롤과 같은 비율로 40% 줄인다(68 -> 41).
-        self.speed_slider.setFixedHeight(shrink(68))
-        self.speed_slider.setFocusPolicy(Qt.NoFocus)
-        self.speed_slider.valueChanged.connect(self._on_speed_changed)
-        speed_row.addWidget(self.speed_slider, 1)
-        self.speed_value_label = QLabel(format_playback_speed(1))
-        # v1.6.0: 속도 값 폰트를 기존의 1.7배(15px -> 26px)로 키운다. 이 바의
-        # 다른 QLabel(예: "속도")까지 함께 커지지 않도록 인스턴스 스타일시트로
-        # 개별 지정한다(인스턴스 지정값이 클래스 규칙보다 우선한다).
-        self._speed_label_style = (
-            "background: transparent; color: white; font-size: %dpx; font-weight: bold;"
-            % shrink(26)
-        )
+        speed_row.setSpacing(shrink(20))
+        # v2.4.2: 배속은 재생바 앞의 드롭업(위로 펼침)에서 고르고, 바는 시뮬레이션 진행 상태를 보인다.
+        self._speed_value = 1
         self._speed_cap = None
-        self.speed_value_label.setStyleSheet(self._speed_label_style)
-        self.speed_value_label.setFixedWidth(shrink(122))
-        speed_row.addWidget(self.speed_value_label)
+        self.speed_button = QToolButton()
+        self.speed_button.setFocusPolicy(Qt.NoFocus)
+        self.speed_button.clicked.connect(self._show_speed_menu)
+        self.speed_menu = QMenu(self)
+        self._speed_actions = {}
+        for choice in PLAYBACK_SPEED_CHOICES:
+            action = self.speed_menu.addAction(format_playback_speed(choice))
+            action.setCheckable(True)
+            action.triggered.connect(lambda _c=False, value=choice: self._on_speed_chosen(value))
+            self._speed_actions[choice] = action
+        speed_row.addWidget(self.speed_button)
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 1000)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setFocusPolicy(Qt.NoFocus)
+        self.progress_bar.setFixedHeight(shrink(40))
+        self.progress_bar.setToolTip("시뮬레이션 진행 상태")
+        speed_row.addWidget(self.progress_bar, 1)
+        self.progress_label = QLabel("0%")
+        self.progress_label.setStyleSheet(
+            "background: transparent; color: white; font-size: %dpx; font-weight: bold;" % shrink(22))
+        self.progress_label.setFixedWidth(shrink(100))
+        speed_row.addWidget(self.progress_label)
+        self._refresh_speed_label()
         outer.addLayout(speed_row)
 
         # 유니코드 기호(◀◀/▶ 등)는 폰트마다 굵기·정렬이 들쭉날쭉해 시인성이
@@ -1721,29 +1751,47 @@ class PlaybackBarWidget(QWidget):
             button.setEnabled(bool(enabled))
 
     def _refresh_speed_label(self):
-        """v2.3.3: [실시간 형상] 상한이 걸려 있으면 실제로 도는 배속(상한)을 주황색으로
+        """배속 버튼 글자. [실시간 형상] 상한이 걸려 있으면 실제로 도는 배속(상한)을 주황색으로
         보이고, 툴팁에 고른 배속과 상한을 함께 적는다."""
-        value = self.speed_slider.value()
-        cap = getattr(self, '_speed_cap', None)
+        value = self._speed_value
+        cap = self._speed_cap
         if cap is not None and value > cap:
-            self.speed_value_label.setText(format_playback_speed(cap))
-            self.speed_value_label.setStyleSheet(self._speed_label_style + " color: #ffb74d;")
-            self.speed_value_label.setToolTip(
+            self.speed_button.setText("%s ▲" % format_playback_speed(cap))
+            self.speed_button.setStyleSheet("QToolButton { color: #ffb74d; }")
+            self.speed_button.setToolTip(
                 "실시간 형상: 최대 %s로 재생합니다 (고른 배속 %s)"
                 % (format_playback_speed(cap), format_playback_speed(value)))
         else:
-            self.speed_value_label.setText(format_playback_speed(value))
-            self.speed_value_label.setStyleSheet(self._speed_label_style)
-            self.speed_value_label.setToolTip(
-                "" if cap is None else "실시간 형상: 최대 %s" % format_playback_speed(cap))
+            self.speed_button.setText("%s ▲" % format_playback_speed(value))
+            self.speed_button.setStyleSheet("")
+            self.speed_button.setToolTip(
+                "배속 선택" if cap is None else "배속 선택 (실시간 형상: 최대 %s)" % format_playback_speed(cap))
+        for choice, action in self._speed_actions.items():
+            action.setChecked(choice == value)
+
+    def _show_speed_menu(self):
+        menu = self.speed_menu
+        menu.ensurePolished()
+        height = menu.sizeHint().height()
+        menu.popup(self.speed_button.mapToGlobal(QPoint(0, -height)))
+
+    def _on_speed_chosen(self, value):
+        self._speed_value = int(value)
+        self._refresh_speed_label()
+        self.speed_changed.emit(self._speed_value)
 
     def set_speed_cap(self, cap):
         self._speed_cap = None if cap is None else int(cap)
         self._refresh_speed_label()
 
-    def _on_speed_changed(self, value):
-        self._refresh_speed_label()
-        self.speed_changed.emit(value)
+    def set_progress(self, current, total):
+        """시뮬레이션 진행(실행 순서 current / 전체 total) 표시."""
+        if not total or total <= 1:
+            ratio = 0.0
+        else:
+            ratio = max(0.0, min(1.0, float(current) / float(total - 1)))
+        self.progress_bar.setValue(int(round(ratio * 1000)))
+        self.progress_label.setText("%d%%" % int(round(ratio * 100)))
 
     def _on_play_pause_clicked(self):
         if self._playing:
@@ -1757,8 +1805,7 @@ class PlaybackBarWidget(QWidget):
         self.play_pause_button.setToolTip("일시정지" if self._playing else "재생")
 
     def set_speed(self, value):
-        with QSignalBlocker(self.speed_slider):
-            self.speed_slider.setValue(value)
+        self._speed_value = snap_playback_speed(value)
         self._refresh_speed_label()
 
 
@@ -3361,6 +3408,10 @@ class NCViewerWidget(QWidget):
         self.raw_lines = text.splitlines()
         self.process_nc_lines(self.raw_lines)
         self.last_render_signature = signature
+        # v2.4.2: 다시 그리면 투영 뷰 버튼(파란 활성)은 풀린다. 위치 찍기는 유지.
+        overlay = getattr(self, "projection_overlay", None)
+        if overlay is not None:
+            overlay.set_projection_checked(None)
         self._rebuild_sim_nodes()
         self.set_cursor_line(self.current_cursor_line)
         return True
@@ -4547,7 +4598,7 @@ class NCViewerWidget(QWidget):
 
     def set_camera_angles(self, elevation, azimuth, distance=None, recenter=False):
         """카메라 방향만 바꾼다. distance를 안 주면 현재 줌 배율을 유지한다.
-        v2.3.4: 뷰를 바꾸면(투영 버튼·방향 큐브 면) 위치 찍기 모드는 끝난다(D-3).
+        v2.4.2: 뷰를 바꿔도 위치 찍기 모드는 그대로 유지한다.
 
         recenter=True면 카메라 중심(pos)을 원점으로 되돌려, 그동안 드래그로
         치우쳐 있던 좌표가 화면 정중앙으로 다시 온다(v1.6.2, ISO 버튼 요청)."""
@@ -4556,7 +4607,6 @@ class NCViewerWidget(QWidget):
             kwargs["distance"] = distance
         if recenter:
             kwargs["pos"] = Vector(0, 0, 0)
-        self.set_pick_mode(False)
         self.gl_view.setCameraPosition(**kwargs)
 
     # v1.6.3: 투영 버튼을 누르면 경로 전체가 화면 안에 들어오도록 거리도

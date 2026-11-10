@@ -1799,7 +1799,7 @@ G02 X0 Y10 I-10 J0
                 window.pg_match_check.setChecked(False)
                 self.assertFalse(window.play_timer.isActive())
                 self.assertFalse(window.viewer.playback_bar.play_pause_button.isEnabled())
-                self.assertTrue(window.viewer.playback_bar.speed_slider.isEnabled())
+                self.assertTrue(window.viewer.playback_bar.speed_button.isEnabled())
             finally:
                 window.deleteLater()
                 qapp.processEvents()
@@ -2069,7 +2069,7 @@ G02 X0 Y10 I-10 J0
         try:
             self.assertEqual(viewer.gl_view.focusPolicy(), app.Qt.NoFocus)
             self.assertIsNotNone(viewer.playback_bar)
-            self.assertEqual(viewer.playback_bar.speed_slider.focusPolicy(), app.Qt.NoFocus)
+            self.assertEqual(viewer.playback_bar.speed_button.focusPolicy(), app.Qt.NoFocus)
             for button in (
                 viewer.playback_bar.prev_tool_button, viewer.playback_bar.rewind_button,
                 viewer.playback_bar.play_pause_button, viewer.playback_bar.next_tool_button,
@@ -2086,8 +2086,9 @@ G02 X0 Y10 I-10 J0
         qapp = app.QApplication.instance() or app.QApplication([])
         viewer = NCViewerWidget()
         try:
-            self.assertEqual(viewer.playback_bar.speed_slider.minimum(), 1)
-            self.assertEqual(viewer.playback_bar.speed_slider.maximum(), 5000)
+            from nc_viewer_widget import PLAYBACK_SPEED_CHOICES
+            self.assertEqual(PLAYBACK_SPEED_CHOICES, (1, 5, 10, 50, 100, 500, 1000, 5000))
+            self.assertEqual(sorted(viewer.playback_bar._speed_actions), list(PLAYBACK_SPEED_CHOICES))
         finally:
             viewer.deleteLater()
             qapp.processEvents()
@@ -2501,10 +2502,9 @@ G02 X0 Y10 I-10 J0
 
             self._right_drag(viewer.gl_view, QPoint(100, 100), QPoint(300, 250))
             viewer.set_camera_projection('XY')
-            self.assertFalse(viewer.pick_mode)
-            self._right_drag(viewer.gl_view, QPoint(100, 100), QPoint(300, 250))
+            self.assertTrue(viewer.pick_mode)         # v2.4.2: 뷰를 바꿔도 위치 찍기는 유지
             viewer.set_camera_angles(90, 0)                       # 방향 큐브 면 클릭과 같은 경로
-            self.assertFalse(viewer.pick_mode)
+            self.assertTrue(viewer.pick_mode)
         finally:
             viewer.deleteLater()
             qapp.processEvents()

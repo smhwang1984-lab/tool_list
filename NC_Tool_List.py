@@ -33,7 +33,7 @@ import lathe_insert_spec
 import sumpath_license
 
 
-APP_VERSION = '2.4.1'
+APP_VERSION = '2.4.2'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-11-11'
 APP_CREATOR = 'Hwang.seonmun'
@@ -4579,6 +4579,7 @@ else:
             )
             if seq is not None:
                 self.playback_seq = seq
+            self._update_playback_progress()
 
         def toggle_pg_match_mode(self, enabled):
             """PG 매칭 모드를 켜고 끈다.
@@ -4644,6 +4645,7 @@ else:
             total = self.viewer.sequence_length()
             seq = max(0, min(int(seq), total - 1)) if total else max(0, int(seq))
             self.playback_seq = seq
+            self._update_playback_progress()
             # v2.2.5: 다른 위치로 옮기면 진행 중이던 휴즈 대기는 끝난다
             # (재생 틱은 이 호출 뒤에 새 휴즈를 건다).
             self._dwell_remaining = 0.0
@@ -4674,7 +4676,19 @@ else:
                 value = int(float(raw))
             except (TypeError, ValueError):
                 value = 1
-            return max(1, min(MAX_PLAYBACK_SPEED, value))
+            value = max(1, min(MAX_PLAYBACK_SPEED, value))
+            try:
+                from nc_viewer_widget import snap_playback_speed
+                return snap_playback_speed(value)      # v2.4.2: 드롭업 선택지로 맞춘다
+            except ImportError:
+                return value
+
+        def _update_playback_progress(self):
+            """v2.4.2: 재생바 = 시뮬레이션 진행 상태(실행 순서 위치 / 전체)."""
+            bar = getattr(self.viewer, 'playback_bar', None)
+            if bar is None:
+                return
+            bar.set_progress(self.playback_seq, self.viewer.sequence_length())
 
         def set_playback_speed(self, value):
             self.play_speed = max(1, min(MAX_PLAYBACK_SPEED, int(value)))
@@ -5053,6 +5067,7 @@ else:
             # (없으면 0으로, 기존 동작과 동일).
             seq = self.viewer.set_cursor_line(self.src.textCursor().blockNumber())
             self.playback_seq = seq if seq is not None else 0
+            self._update_playback_progress()
 
         def mill_check_counts(self):
             """v2.3.2: (S값 불일치 공구 수, H번호 불일치 공구 수). 선반은 (0, 0)."""

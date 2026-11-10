@@ -36,21 +36,32 @@ def viewer():
     qapp.processEvents()
 
 
-def test_speed_text_is_value_over_100():
-    assert format_playback_speed(MAX_PLAYBACK_SPEED) == 'x50'
-    assert format_playback_speed(1) == 'x0.01'
-    assert format_playback_speed(100) == 'x1'
-    assert format_playback_speed(250) == 'x2.5'
-    assert format_playback_speed(200) == 'x2'
+def test_speed_text_is_lines_per_second():
+    assert format_playback_speed(MAX_PLAYBACK_SPEED) == '5000x'
+    assert format_playback_speed(1) == '1x'
+    assert format_playback_speed(50) == '50x'
 
 
-def test_speed_label_and_cap_use_new_text(viewer):
+def test_speed_button_and_cap_text(viewer):
     bar = viewer.playback_bar
     bar.set_speed(MAX_PLAYBACK_SPEED)
-    assert bar.speed_value_label.text() == 'x50'
+    assert bar.speed_button.text().startswith('5000x')
     bar.set_speed_cap(200)
-    assert bar.speed_value_label.text() == 'x2'
-    assert 'x50' in bar.speed_value_label.toolTip()
+    assert bar.speed_button.text().startswith('200x')
+    assert '5000x' in bar.speed_button.toolTip()
+    bar.set_speed_cap(None)
+
+
+def test_speed_choice_emits_and_progress_shows(viewer):
+    bar = viewer.playback_bar
+    seen = []
+    bar.speed_changed.connect(seen.append)
+    bar._speed_actions[500].trigger()
+    assert seen == [500] and bar.speed_button.text().startswith('500x')
+    bar.set_speed(3334)                    # 저장돼 있던 값은 가까운 선택지로
+    assert bar.speed_button.text().startswith('5000x') or bar.speed_button.text().startswith('1000x')
+    bar.set_progress(5, 11)
+    assert bar.progress_bar.value() == 500 and bar.progress_label.text() == '50%'
 
 
 @pytest.mark.parametrize('pg_mode', [False, True])
@@ -68,14 +79,3 @@ def test_mouse_on_bar_does_not_reach_3d_view(viewer, pg_mode):
     assert not gl_view.zoom_marker.isVisible()
     assert gl_view.opts['azimuth'] == azimuth and gl_view.opts['distance'] == distance
     assert bar.testAttribute(Qt.WA_NoMousePropagation)
-
-
-def test_clicking_slider_track_jumps_to_that_spot(viewer):
-    viewer.set_pg_match_mode(True)
-    slider = viewer.playback_bar.speed_slider
-    slider.setValue(1)
-    QTest.mouseClick(slider, Qt.LeftButton, Qt.NoModifier, QPoint(slider.width() * 3 // 4, slider.height() // 2))
-    assert 0.6 * MAX_PLAYBACK_SPEED < slider.value() < 0.9 * MAX_PLAYBACK_SPEED
-    QTest.mouseClick(slider, Qt.LeftButton, Qt.NoModifier, QPoint(slider.width() // 4, slider.height() // 2))
-    assert 0.1 * MAX_PLAYBACK_SPEED < slider.value() < 0.4 * MAX_PLAYBACK_SPEED
-    assert viewer.gl_view._orbit_pivot is None
