@@ -108,6 +108,23 @@ export function pyInt(s: string): number {
   return Number(t);
 }
 
+/** int(x) — 숫자/불리언/문자열을 정수로. 못 읽으면 PyError(ValueError/TypeError/OverflowError) */
+export function pyIntFrom(x: unknown): number {
+  if (typeof x === 'boolean') return x ? 1 : 0;
+  if (typeof x === 'number') {
+    if (Number.isNaN(x)) throw new PyError('ValueError', 'cannot convert float NaN to integer');
+    if (!Number.isFinite(x)) throw new PyError('OverflowError', 'cannot convert float infinity to integer');
+    return Math.trunc(x) + 0; // -0 → 0
+  }
+  if (typeof x === 'string') return pyInt(x);
+  throw new PyError('TypeError', 'int() argument');
+}
+
+/** re.escape(s) (Python 3.7+) — 정규식 특수 문자만 \ 를 붙인다 */
+export function pyReEscape(s: string): string {
+  return s.replace(/[()[\]{}?*+\-|^$\\.&~# \t\n\r\v\f]/g, '\\$&');
+}
+
 /** float(x) — 숫자로 못 읽으면 PyError(ValueError/TypeError) */
 export function pyFloat(x: unknown): number {
   if (typeof x === 'number') return x;
@@ -291,6 +308,11 @@ export function pyRe(src: string, flags = 0): RegExp {
     RE_CACHE.set(key, rx);
   }
   return rx;
+}
+
+/** 캐시에 넣지 않는 pyRe — 사용자가 입력한 검색어처럼 계속 바뀌는 패턴용 */
+export function pyReOnce(src: string, flags = 0): RegExp {
+  return new RegExp(translatePyPattern(src, flags), 'gu' + ((flags & RE_I) !== 0 ? 'i' : ''));
 }
 
 export type PyMatch = RegExpExecArray;

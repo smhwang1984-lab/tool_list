@@ -16,6 +16,13 @@ import {
   latheToolNameMapFromRows, latheValueRange, rowSources, stripLatheToolPrefix,
 } from '../src/core/latheParser';
 
+import { ncColorLine } from '../src/core/ncColor';
+import {
+  findNextLiteralSpan, findNextRegexSpan, findNextToolChangeSpan, findPrevRegexSpan, findPrevToolChangeSpan,
+  lineHasM00Stop, lineHasM01Stop, lineHasProgramStop, lineStopsPlayback,
+} from '../src/core/search';
+import { pySplitlines } from '../src/core/py';
+
 /** 선반 행 -> 골든과 같은 모양: 출처가 있는 행은 {row, sources}, 빈 행은 그대로 */
 function wrapLatheRows(rows: LatheRow[]): unknown[] {
   return rows.map((row) => {
@@ -58,6 +65,25 @@ const IMPL: Record<string, Fn> = {
     parseProgram(text as string, (types ?? kw.name_types ?? null) as never, Boolean(kw.lathe)),
   tool_name_map_from_rows: ([rows]) => toolNameMapFromRows(rows as never),
   tool_shape_map_from_rows: ([rows]) => toolShapeMapFromRows(rows as never),
+  // ncColor / search
+  nc_color_line: ([line, state, lathe], kw) =>
+    ncColorLine(line as string, state as number | null, Boolean(lathe ?? kw.lathe)),
+  find_next_regex_span: ([text, pattern, start], kw) =>
+    findNextRegexSpan(text as string, pattern as RegExp, start ?? kw.start ?? 0),
+  find_prev_regex_span: ([text, pattern, start], kw) =>
+    findPrevRegexSpan(text as string, pattern as RegExp, start ?? kw.start ?? 0),
+  find_next_tool_change_span: ([text, start, lathe], kw) =>
+    findNextToolChangeSpan(text as string, start ?? kw.start ?? 0, Boolean(lathe ?? kw.lathe)),
+  find_prev_tool_change_span: ([text, start, lathe], kw) =>
+    findPrevToolChangeSpan(text as string, start ?? kw.start ?? 0, Boolean(lathe ?? kw.lathe)),
+  line_has_m00_stop: ([line]) => lineHasM00Stop(line),
+  line_has_m01_stop: ([line]) => lineHasM01Stop(line),
+  line_has_program_stop: ([line]) => lineHasProgramStop(line),
+  line_stops_playback: ([line, needle, stopText, stopM00, stopM01], kw) =>
+    lineStopsPlayback(line, needle ?? kw.needle ?? '', Boolean(stopText ?? kw.stop_text ?? false),
+      (stopM00 ?? kw.stop_m00 ?? true) as boolean, (stopM01 ?? kw.stop_m01 ?? true) as boolean),
+  find_next_literal_span: ([text, needle, start], kw) =>
+    findNextLiteralSpan(text as string, needle, start ?? kw.start ?? 0),
   // latheParser
   _lathe_collect_spindle_feed: ([code]) => latheCollectSpindleFeed(code as string),
   _lathe_numeric_value: ([w]) => latheNumericValue(w as string),
@@ -344,6 +370,55 @@ describe('골든: 샘플 NC 전체 산출', () => {
       it('선반 공구 리스트 (행 + 값 출처)', () => {
         const d = diff(normalize(wrapLatheRows(parseLatheProgram(text))), g('lathe_rows'));
         expect(d).toBeNull();
+      });
+      it('코드 색 (밀링·선반)', () => {
+        const lines = pySplitlines(text);
+        for (const lathe of [false, true]) {
+          let state = 0;
+          const got: unknown[] = [];
+          for (const line of lines.slice(0, 4000)) {
+            const [spans, next] = ncColorLine(line, state, lathe);
+            state = next;
+            got.push([...spans, state]);
+          }
+          expect(diff(normalize(got), g(lathe ? 'color_lathe' : 'color_mill'))).toBeNull();
+        }
+      });
+      it('공구 교체 이동 (다음·이전, 밀링·선반)', () => {
+        for (const lathe of [false, true]) {
+          const chain: unknown[] = [];
+          let pos = 0;
+          for (let i = 0; i < 400; i++) {
+            const span = findNextToolChangeSpan(text, pos, lathe);
+            if (span === null) {
+              chain.push(null);
+              break;
+            }
+            chain.push([span, findPrevToolChangeSpan(text, span[0], lathe)]);
+            if (span[2]) break;
+            pos = span[1];
+          }
+          expect(diff(normalize(chain), g(lathe ? 'tool_search_lathe' : 'tool_search_mill'))).toBeNull();
+        }
+      });
+      it('정지 줄 (M00·M01)과 문자 검색', () => {
+        const lines = pySplitlines(text);
+        const idx = (fn: (l: string) => boolean) => lines.flatMap((l, i) => (fn(l) ? [i] : []));
+        expect(idx(lineHasM00Stop)).toStrictEqual(gold.stop_m00);
+        expect(idx(lineHasM01Stop)).toStrictEqual(gold.stop_m01);
+        const literal: unknown[] = [];
+        for (const needle of ['G43', 'm30', 'T1', '(', 'SPINDL', 'x']) {
+          let pos = 0;
+          const chain: unknown[] = [];
+          for (let i = 0; i < 30; i++) {
+            const span = findNextLiteralSpan(text, needle, pos);
+            chain.push(span);
+            if (span === null || span[2]) break;
+            pos = span[1];
+          }
+          literal.push({ needle, chain });
+        }
+        expect(diff(normalize(literal), g('literal_search'))).toBeNull();
       });
       it('선반 공정 필터 이름표', () => {
         expect(latheToolNameMapFromRows(parseLatheProgram(text))).toStrictEqual(g('lathe_tool_name_map'));
