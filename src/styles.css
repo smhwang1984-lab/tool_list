@@ -276,3 +276,4 @@ dialog .dlg-foot button.primary { border-color: var(--accent); background: var(-
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font: 700 12px sans-serif; color: #dfe6f2;
   background: rgba(45, 108, 223, 0.35); border: 1px solid #7fa6f0; backface-visibility: hidden; cursor: pointer; user-select: none;
 }
+.viewer-host .v-region { position: absolute; border: 2px dashed #ffe14a; background: rgba(255, 225, 74, 0.12); z-index: 4; pointer-events: none; }

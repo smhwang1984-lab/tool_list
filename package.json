@@ -1,6 +1,6 @@
 {
   "name": "sumpath-android",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "private": true,
   "description": "Sum Path (NC Tool List) Android",
   "type": "module",
@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@capacitor/android": "^8.6.0",
+    "@capacitor/app": "^8.1.2",
     "@capacitor/core": "^8.6.0",
     "@capacitor/preferences": "^8.0.1",
     "@codemirror/commands": "^6.11.1",

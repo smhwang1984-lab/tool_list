@@ -6,7 +6,7 @@ import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 import { elapsedSecondsAtSeq, formatElapsedOverTotal, lineAtSeq, resolveSeqForLine, sequenceLength } from '../core/playback';
 import { isLatheMachine, type ToolpathResult } from '../core/toolpath';
-import { CUT_LINE_BASE_WIDTH, toolpathLineWidth } from '../core/viewerSettings';
+import { CUT_LINE_BASE_WIDTH, FOV_MAX, FOV_MIN, toolpathLineWidth } from '../core/viewerSettings';
 import { getViewerSettings, onViewerSettings } from '../platform/viewerSettings';
 import { el } from '../ui/dialog';
 import { RAPID_MOVE_COLOR, sceneBounds, segmentBuckets, toolColorForIndex } from './segments';
@@ -40,6 +40,10 @@ export interface Viewer {
   seq(): number;
   resize(): void;
   reset(): void;
+  togglePlay(): void;
+  jumpTool(dir: -1 | 1): void;
+  /** 위치 찍기 모드가 켜져 있으면 끄고 true */
+  cancelPick(): boolean;
   dispose(): void;
 }
 
@@ -244,9 +248,76 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
   };
   const dom = renderer.domElement;
   dom.style.touchAction = 'none';
+  // 제스처 상태 — 탭/드래그 구분은 8dp
+  const TAP_SLOP = 8;
+  const DOUBLE_TAP_MS = 320;
+  let lastTapEnd = 0;
+  let lastTapPos = { x: 0, y: 0 };
+  let zoomDrag = false;
+  let moved = false;
+  let downTime = 0;
+  let longTimer = 0;
+  let region: { x0: number; y0: number; x1: number; y1: number } | null = null;
+  const regionBox = el('div', { class: 'v-region' });
+  regionBox.hidden = true;
+  host.append(regionBox);
+  const drawRegion = (): void => {
+    if (!region) { regionBox.hidden = true; return; }
+    const r = dom.getBoundingClientRect();
+    regionBox.hidden = false;
+    regionBox.style.left = `${Math.min(region.x0, region.x1) - r.left}px`;
+    regionBox.style.top = `${Math.min(region.y0, region.y1) - r.top}px`;
+    regionBox.style.width = `${Math.abs(region.x1 - region.x0)}px`;
+    regionBox.style.height = `${Math.abs(region.y1 - region.y0)}px`;
+  };
+  const zoomToRegion = (r: { x0: number; y0: number; x1: number; y1: number }): void => {
+    const box = dom.getBoundingClientRect();
+    const w = box.width, h = box.height;
+    const rw = Math.abs(r.x1 - r.x0), rh = Math.abs(r.y1 - r.y0);
+    if (rw < 12 || rh < 12) return;
+    const cxp = (r.x0 + r.x1) / 2 - box.left - w / 2;
+    const cyp = (r.y0 + r.y1) / 2 - box.top - h / 2;
+    const worldPerPx = (2 * distance * Math.tan((camera.fov * Math.PI) / 360)) / Math.max(h, 1);
+    const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
+    const up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
+    center.addScaledVector(right, cxp * worldPerPx).addScaledVector(up, -cyp * worldPerPx);
+    distance = Math.max(1, distance * Math.max(rw / w, rh / h));
+    apply();
+  };
+  const fitView = (): void => {
+    const w = host.clientWidth, h = host.clientHeight;
+    if (lathe) {
+      const { c, r } = boundsCenterRadius();
+      center.copy(c);
+      distance = distanceForRadius(r, w, h);
+    } else {
+      center.set(0, 0, 0);
+      distance = distanceForRadius(radius, w, h);
+    }
+    apply();
+  };
   dom.addEventListener('pointerdown', (e) => {
     dom.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    window.clearTimeout(longTimer);
+    if (pointers.size === 1) {
+      moved = false;
+      downTime = performance.now();
+      zoomDrag = downTime - lastTapEnd < DOUBLE_TAP_MS && Math.hypot(e.clientX - lastTapPos.x, e.clientY - lastTapPos.y) < 24;
+      if (!zoomDrag) {
+        longTimer = window.setTimeout(() => {
+          if (pointers.size === 1 && !moved) {
+            region = { x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY };
+            navigator.vibrate?.(15);
+            drawRegion();
+          }
+        }, 400);
+      }
+    } else {
+      zoomDrag = false;
+      region = null;
+      drawRegion();
+    }
     if (pointers.size === 2) {
       const [a, b] = [...pointers.values()];
       lastPinch = Math.hypot(a!.x - b!.x, a!.y - b!.y);
@@ -260,12 +331,29 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     p.x = e.clientX;
     p.y = e.clientY;
     const sens = getViewerSettings().sensitivityPct / 100;
-    if (pointers.size >= 2) {
+    if (pointers.size === 1 && !moved && Math.hypot(e.clientX - lastTapPos.x, e.clientY - lastTapPos.y) < 0) moved = true;
+    if (pointers.size === 1 && !region) {
+      // 눌린 자리에서 8dp 넘게 움직이면 탭이 아니라 드래그
+      if (Math.abs(dx) + Math.abs(dy) > 0) {
+        const first = tapOrigin ?? (tapOrigin = { x: e.clientX - dx, y: e.clientY - dy });
+        if (Math.hypot(e.clientX - first.x, e.clientY - first.y) > TAP_SLOP) { moved = true; window.clearTimeout(longTimer); }
+      }
+    }
+    if (region) {
+      region.x1 = e.clientX; region.y1 = e.clientY; drawRegion();
+    } else if (pointers.size >= 3) {
+      const s = updateViewerSettingsFov(-dy * 0.15);
+      void s;
+    } else if (pointers.size === 2) {
       const [a, b] = [...pointers.values()];
       const d = Math.hypot(a!.x - b!.x, a!.y - b!.y);
       if (lastPinch > 0 && d > 0) zoomBy(lastPinch / d);
       lastPinch = d;
       panBy(dx / 2, dy / 2);
+    } else if (!moved) {
+      /* 아직 탭인지 드래그인지 정해지지 않았다 */
+    } else if (zoomDrag) {
+      zoomBy(1.01 ** (dy * sens * 2.5));
     } else if (e.buttons & 6 || orbitLocked) {
       panBy(dx, dy);
     } else {
@@ -274,6 +362,13 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
       apply();
     }
   });
+  let tapOrigin: { x: number; y: number } | null = null;
+  const updateViewerSettingsFov = (delta: number): number => {
+    const fov = Math.max(FOV_MIN, Math.min(FOV_MAX, camera.fov + delta));
+    camera.fov = fov;
+    apply();
+    return fov;
+  };
   let downAt: { x: number; y: number } | null = null;
   dom.addEventListener('pointerdown', (e) => { downAt = pointers.size === 0 ? { x: e.clientX, y: e.clientY } : null; }, true);
   const pickAt = (cx: number, cy: number): void => {
@@ -307,7 +402,28 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     if (bestSeq >= 0) { stopPlaying(); showSeq(bestSeq, false); hooks.onPick?.(lineAtSeq(result, bestSeq)); }
   };
   const endPointer = (e: PointerEvent): void => {
-    if (pickMode && downAt && pointers.size === 1 && Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) < 6) pickAt(e.clientX, e.clientY);
+    window.clearTimeout(longTimer);
+    const single = pointers.size === 1;
+    const wasTap = single && !moved && !region && performance.now() - downTime < 350;
+    if (region) {
+      zoomToRegion(region);
+      region = null;
+      drawRegion();
+      pickMode = true; // 영역 확대 뒤에는 위치 찍기 모드가 켜진다
+      projBar.firstElementChild?.classList.add('on');
+    } else if (pickMode && downAt && single && Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) < TAP_SLOP) {
+      pickAt(e.clientX, e.clientY);
+    } else if (wasTap && !zoomDrag) {
+      const now = performance.now();
+      if (now - lastTapEnd < DOUBLE_TAP_MS && Math.hypot(e.clientX - lastTapPos.x, e.clientY - lastTapPos.y) < 24) { fitView(); lastTapEnd = 0; }
+      else { lastTapEnd = now; lastTapPos = { x: e.clientX, y: e.clientY }; }
+    } else if (wasTap && zoomDrag) {
+      fitView(); // 두 번째 탭을 누른 채 끌지 않고 뗐다 = 두 번 탭
+      lastTapEnd = 0;
+    }
+    if (zoomDrag && moved) lastTapEnd = 0;
+    zoomDrag = false;
+    tapOrigin = null;
     downAt = null;
     pointers.delete(e.pointerId);
     lastPinch = 0;
@@ -513,6 +629,14 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     seq: () => seqNow,
     resize,
     reset() { stopPlaying(); showSeq(0, true); setProjection('ISO'); },
+    togglePlay() { if (playing) stopPlaying(); else startPlaying(); },
+    jumpTool,
+    cancelPick() {
+      if (!pickMode) return false;
+      pickMode = false;
+      projBar.firstElementChild?.classList.remove('on');
+      return true;
+    },
     dispose() {
       cancelAnimationFrame(raf);
       ro.disconnect();

@@ -50,13 +50,52 @@ function group(...buttons: HTMLElement[]): HTMLElement {
 }
 
 const HELP_TEXT = [
-  '■ 이 버전은 P0(앱 뼈대)입니다.',
-  '  화면 배치와 다크모드, 화면 모드 전환만 동작합니다.',
-  '  공구 리스트 산출(P1·P2), 파일·PDF(P3), 3D 뷰어(P4), 제스처(P5)를 차례로 채웁니다.',
+  '■ 화면 (가로 전용)',
+  '  제목 줄 오른쪽: 설정 / 도움말 / About / 다크모드.',
+  '  툴바: [파일 열기 · 예제 · 지우기] [편집 모드] [Tool List] [툴리스트 산출 · Viewer].',
+  '  버튼을 길게 누르면 설명이 나옵니다. 가운데 손잡이를 끌어 폭을 조절합니다.',
   '',
-  '■ 화면 배치',
-  '  가로 화면: 원본과 같은 2단(프로그램 입력 │ 툴리스트·Viewer). 가운데 손잡이를 끌어 폭 조절.',
-  '  폰 세로 화면: 프로그램 / 툴리스트 / Viewer 탭.',
+  '■ 파일',
+  '  파일 열기: 저장소에서 NC 파일을 고릅니다(UTF-8·CP949 자동 판별).',
+  '  다른 앱(파일 앱·메일·메신저)에서 NC 파일을 "Sum Path로 열기"/공유해도 열립니다.',
+  '  앱으로 돌아왔을 때 파일이 바뀌었으면 새로고침할지 묻습니다.',
+  '',
+  '■ 편집 모드',
+  '  앱은 항상 읽기 모드로 시작합니다. 편집 모드 → 비밀번호(기본 1234) → 프로그램을 직접 고칠 수 있고',
+  '  고친 내용은 잠시 뒤 공구 리스트와 경로에 반영됩니다. 저장은 원래 인코딩·줄바꿈을 유지하며',
+  '  기존 내용을 앱 폴더(Android/data/com.sumpath.nctoollist/files/backup)에 .bak로 남깁니다.',
+  '',
+  '■ 공구 리스트',
+  '  Tool List 버튼으로 산출합니다. 행을 두 번 탭하거나 길게 누르면 수정합니다.',
+  '  삭제 / 수정 / 행 추가 / 이름 경우의 수 / 복사(엑셀 붙여넣기) / PDF(저장 위치 선택).',
+  '',
+  '■ 3D Viewer 손동작',
+  '  한 손가락 드래그: 회전   두 손가락 드래그: 이동   핀치: 확대·축소',
+  '  두 번 탭: 전체 맞춤   두 번 탭 후 누른 채 위아래로 끌기: 연속 확대·축소',
+  '  세 손가락 위아래: 원근감(FOV)',
+  '  길게 누른 뒤(0.4초) 끌기: 사각형 영역 확대 → 위치 찍기 모드가 켜집니다.',
+  '  📍 버튼(또는 영역 확대 뒤)에서 경로를 탭하면 가장 가까운 선의 프로그램 줄로 이동합니다.',
+  '  방향 큐브의 면을 탭하면 해당 방향으로 바뀝니다. 뒤로 버튼으로 위치 찍기를 끝냅니다.',
+  '',
+  '■ 재생 (PG 매칭)',
+  '  ▶ 재생/정지, ↺ 처음으로, ⏮⏭ 이전/다음 공정, 속도 1x~5000x, 막대를 끌어 위치 이동.',
+  '  텍스트 정지 / 정지(M00) / 옵션정지(M01)에서 자동으로 멈춥니다.',
+  '  "PG 매칭"을 켜면 입력창의 커서 줄과 경로 위치가 서로 따라갑니다.',
+  '',
+  '■ 공정 필터',
+  '  목록에서 공정을 여러 개 골라 표시합니다. 전체 / 해제 / Reset.',
+  '',
+  '■ 입력창',
+  '  두 손가락 핀치로 글자 크기를 바꿉니다(저장됨). 읽기 모드에서 입력창을 탭하면 장비 설정 패널이 접힙니다.',
+  '',
+  '■ 키보드(블루투스)',
+  '  F5 처음으로(Viewer)  F6 이전 공구/공정  F7 재생·정지  F8 다음 공구/공정  Ctrl+S 저장(편집 모드)',
+  '',
+  '■ 설정',
+  '  툴패스 선 굵기·감도·방향 큐브 크기·FOV, 선반 스펙 저장소 내보내기/가져오기.',
+  '',
+  '■ 안드로이드 뒤로 버튼',
+  '  위치 찍기 종료 → 열린 창 닫기 → Tool List 화면으로 → 종료 확인 순서입니다.',
 ].join('\n');
 
 function mount(root: HTMLElement): void {
@@ -411,10 +450,24 @@ function mount(root: HTMLElement): void {
     if (document.visibilityState === 'visible') void doc.checkExternalChange();
   });
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'F6') { e.preventDefault(); searchBar.prevTool(); }
-    if (e.key === 'F8') { e.preventDefault(); searchBar.nextTool(); }
+    const inViewer = mode === 'viewer' && viewer;
+    if (e.key === 'F5' && inViewer) { e.preventDefault(); viewer!.reset(); editor.selectLine(0); }
+    if (e.key === 'F6') { e.preventDefault(); if (inViewer) viewer!.jumpTool(-1); else searchBar.prevTool(); }
+    if (e.key === 'F7' && inViewer) { e.preventDefault(); viewer!.togglePlay(); }
+    if (e.key === 'F8') { e.preventDefault(); if (inViewer) viewer!.jumpTool(1); else searchBar.nextTool(); }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's' && doc.editing()) { e.preventDefault(); void doc.save(); }
   });
   installLongPressHints(root);
+  // Android 뒤로 버튼: 위치 찍기 종료 → 열린 대화상자 닫기 → Tool List 화면으로 → 종료 확인
+  void import('@capacitor/app').then(({ App }) => {
+    void App.addListener('backButton', async () => {
+      if (viewer?.cancelPick()) return;
+      const dialogs = [...document.querySelectorAll<HTMLDialogElement>('dialog[open]')];
+      if (dialogs.length) { dialogs[dialogs.length - 1]!.close(); return; }
+      if (mode === 'viewer') { setMode('tool'); return; }
+      if (await confirmDialog('종료', 'Sum Path를 종료할까요?', '종료')) void App.exitApp();
+    });
+  }).catch(() => undefined);
   btnSettings.addEventListener('click', () => showSettings({
     exportStore: async () => {
       const { saveAs } = await import('./platform/files');
