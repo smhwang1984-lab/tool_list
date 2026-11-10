@@ -412,6 +412,115 @@ def export_store_golden(app):
     print('  lathe_store', len(pairs), 'pairs,', len(cases), 'cases')
 
 
+def export_program_text_golden(app):
+    """인코딩 판별·저장·다이제스트·편집 비밀번호 정답 → tests/golden/program_text.json
+    (PG ADD용 compose_program_texts / append_nc_programs 는 Android 버전에서 제외했으므로 만들지 않는다)"""
+    import tempfile
+    import unittest.mock as mock
+
+    # --- 읽기: 바이트 -> (본문, 인코딩, 줄바꿈, 손실)
+    samples = [
+        b'', b'abc\n', b'abc\r\ndef\r\n', b'a\rb', b'a\r\nb\nc\r', b'\r\n', b'\n\n\n',
+        b'\xef\xbb\xbfG0 X1\r\nM30\r\n', b'\xef\xbb\xbf', b'\xef\xbb\xbf\xef\xbb\xbfx',
+        '(한글 주석)\nG0\n'.encode('utf-8'), '(한글 주석)\r\nG0\r\n'.encode('cp949'),
+        '가나다라 한글'.encode('cp949'), '€ ® 한'.encode('cp949', errors='ignore'),
+        b'\xa2\xe6\xa2\xe7', b'\xff\xfe', b'\x80', b'\xc3', b'\xc3\xa9', b'(\xc7\xd1\xb1\xdb)',
+        b'\xed\xa0\x80', b'\xe2\x82', b'\xe2\x82\xac', b'\xef\xbb\xbf\xff', b'\xff\xff\xe2\x82abc',
+        b'ab\x81', b'\x81\x40', b'\xfe\xfe', b'\xc8\xfe', b'\xa1', b'\x00\x01\x02',
+        b'abc\xe2\x82\xe2\x82\xac\xff\xc3(\xc3\xa9', '%\nO1234 (한글)\n'.encode('cp949'),
+    ]
+    decode_cases = []
+    for raw in samples:
+        text, encoding, newline, lossy = app.decode_program_bytes(raw)
+        decode_cases.append({'hex': raw.hex(), 'result': [text, encoding, newline, lossy]})
+
+    # --- 저장: save_program_text 를 임시 파일에 실제로 실행해 나온 바이트
+    texts = ['G0 X1\nG1 Y2\n', '(한글 주석)\nM30\n', '', '\n', 'é', '€', '😀', '한', 'ÿ', ' ', '①', '漢字',
+             'Á', '﻿', 'x\ny\n\nz', '♥', 'ㅋㅋ', '　']
+    encode_cases = []
+    for text in texts:
+        for encoding in ('utf-8', 'utf-8-sig', 'cp949'):
+            for newline in ('\n', '\r\n'):
+                with tempfile.TemporaryDirectory() as tmp:
+                    path = os.path.join(tmp, 'x.nc')
+                    case = {'text': text, 'encoding': encoding, 'newline': newline}
+                    try:
+                        app.save_program_text(path, text, encoding, newline)
+                        case['hex'] = Path(path).read_bytes().hex()
+                    except UnicodeEncodeError:
+                        case['error'] = 'UnicodeEncodeError'
+                        case['written'] = os.path.exists(path)
+                    encode_cases.append(case)
+
+    # --- 다이제스트
+    digest_cases = [{'text': t, 'sha1': app.program_text_digest(t)}
+                    for t in ('', 'a', 'G0 X1\n', '(한글)\n', '😀', 'x' * 5000)]
+
+    # --- CP949 표: 모든 1바이트 + (0x81~0xFE) x (0x00~0xFF) 2바이트 조합의 디코딩 결과 해시
+    import hashlib
+    lines, mapped, injective, seen = [], 0, True, {}
+    singles = [bytes([b]) for b in range(256)]
+    pairs = [bytes([a, b]) for a in range(0x81, 0xFF) for b in range(256)]
+    for raw in singles + pairs:
+        try:
+            ch = raw.decode('cp949')
+            lines.append('%s:%s' % (raw.hex(), ch.encode('utf-8').hex()))
+            if len(raw) == 2:
+                mapped += 1
+                if ch in seen:
+                    injective = False
+                seen[ch] = raw
+        except UnicodeDecodeError:
+            lines.append('%s:ERR' % raw.hex())
+    cp949 = {'lines': len(lines), 'pairs_mapped': mapped, 'injective': injective,
+             'sha1': hashlib.sha1('\n'.join(lines).encode('ascii')).hexdigest()}
+
+    # --- 편집 비밀번호
+    fixed_salt = bytes(range(1, 17))
+    hash_cases = []
+    for password, salt, iterations in (('1234', fixed_salt, 1000), ('', b'', 1), ('한글 비번', fixed_salt, 50),
+                                       ('abc', b'NCToolList-edit-default', 1000), ('x' * 100, fixed_salt, 200000)):
+        hash_cases.append({'password': password, 'salt': salt.hex(), 'iterations': iterations,
+                           'hash': app._edit_password_hash(password, salt, iterations).hex()})
+
+    def entry_for(password, salt=fixed_salt, iterations=2000):
+        return {'algo': 'pbkdf2_sha256', 'iter': iterations, 'salt': salt.hex(),
+                'hash': app._edit_password_hash(password, salt, iterations).hex()}
+
+    good = entry_for('비번abc')
+    setting_variants = [
+        None, {}, 'not a dict', 5, [], good,
+        dict(good, algo='md5'), dict(good, iter='2000'), dict(good, iter=2000.0), dict(good, iter=0),
+        dict(good, iter=-5), dict(good, iter=None), dict(good, iter='x'), dict(good, iter=True),
+        dict(good, salt='zz'), dict(good, salt='abc'), dict(good, salt=5), dict(good, hash='00'),
+        dict(good, hash=good['hash'].upper()), dict(good, salt=' '.join(good['salt'][i:i + 2] for i in range(0, 32, 2))),
+        {k: v for k, v in good.items() if k != 'hash'}, {k: v for k, v in good.items() if k != 'iter'},
+        {'algo': 'pbkdf2_sha256'}, entry_for('1234'), entry_for('', b'', 1),
+    ]
+    verify_cases = []
+    for settings in setting_variants:
+        for password in ('1234', '비번abc', '', 'wrong', 'abc'):
+            with mock.patch.object(app, 'load_app_settings',
+                                   return_value={} if settings is None else {'edit_password': settings}):
+                verify_cases.append({'entry': settings, 'password': password,
+                                     'result': app.verify_edit_password(password)})
+    create_cases = []
+    for password in ('1234', '새 비밀번호', ''):
+        saved = {}
+        with mock.patch.object(app.os, 'urandom', return_value=fixed_salt), \
+                mock.patch.object(app, 'load_app_settings', return_value={}), \
+                mock.patch.object(app, 'save_app_settings', side_effect=lambda s: saved.update(s)):
+            app.set_edit_password(password)
+        create_cases.append({'password': password, 'salt': fixed_salt.hex(), 'entry': saved['edit_password']})
+
+    write_json(GOLDEN / 'program_text.json', {
+        'decode': decode_cases, 'encode': encode_cases, 'digest': digest_cases, 'cp949': cp949,
+        'password': {'hash': hash_cases, 'verify': verify_cases, 'create': create_cases},
+    })
+    print('  program_text decode %d encode %d verify %d cp949 injective=%s' %
+          (len(decode_cases), len(encode_cases), len(verify_cases), injective))
+
+
 def main(argv):
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -463,6 +572,7 @@ def main(argv):
                   ', '.join('%s %d' % kv for kv in sorted(recorder.skipped.items())))
 
     export_store_golden(app)
+    export_program_text_golden(app)
     export_fixtures(app)
 
     (GOLDEN / 'SOURCE_REV').write_text(

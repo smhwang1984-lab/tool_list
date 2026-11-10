@@ -1,0 +1,2163 @@
+{
+ "decode": [
+  {
+   "hex": "",
+   "result": [
+    "",
+    "utf-8",
+    "\n",
+    false
+   ]
+  },
+  {
+   "hex": "6162630a",
+   "result": [
+    "abc\n",
+    "utf-8",
+    "\n",
+    false
+   ]
+  },
+  {
+   "hex": "6162630d0a6465660d0a",
+   "result": [
+    "abc\ndef\n",
+    "utf-8",
+    "\r\n",
+    false
+   ]
+  },
+  {
+   "hex": "610d62",
+   "result": [
+    "a\nb",
+    "utf-8",
+    "\n",
+    false
+   ]
+  },
+  {
+   "hex": "610d0a620a630d",
+   "result": [
+    "a\nb\nc\n",
+    "utf-8",
+    "\r\n",
+    false
+   ]
+  },
+  {
+   "hex": "0d0a",
+   "result": [
+    "\n",
+    "utf-8",
+    "\r\n",
+    false
+   ]
+  },
+  {
+   "hex": "0a0a0a",
+   "result": [
+    "\n\n\n",
+    "utf-8",
+    "\n",
+    false
+   ]
+  },
+  {
+   "hex": "efbbbf47302058310d0a4d33300d0a",
+   "result": [
+    "G0 X1\nM30\n",
+    "utf-8-sig",
+    "\r\n",
+    false
+   ]
+  },
+  {
+   "hex": "efbbbf",
+   "result": [
+    "",
+    "utf-8-sig",
+    "\n",
+    false
+   ]
+  },
+  {
+   "hex": "efbbbfefbbbf78",
+   "result": [
+    "﻿x",
+    "utf-8-sig",
+    "\n",
+    false
+   ]
+  },
+  {
+   "hex": "28ed959ceab88020eca3bcec849d290a47300a",
+   "result": [
+    "(한글 주석)\nG0\n",
+    "utf-8",
+    "\n",
+    false
+   ]
+  },
+  {
+   "hex": "28c7d1b1db20c1d6bcae290d0a47300d0a",
+   "result": [
+    "(한글 주석)\nG0\n",
+    "cp949",
+    "\r\n",
+    false
+   ]
+  },
+  {
+   "hex": "b0a1b3aab4d9b6f320c7d1b1db",
+   "result": [
+    "가나다라 한글",
+    "cp949",
+    "\n",
+    false
+   ]
+  },
+  {
+   "hex": "a2e620a2e720c7d1",
+   "result": [
+    "€ ® 한",
+    "cp949",
+    "\n",
+    false
+   ]
+  },
+  {
+   "hex": "a2e6a2e7",
+   "result": [
+    "€®",
+    "cp949",
+    "\n",
+    false
+   ]
+  },
+  {
+   "hex": "fffe",
+   "result": [
+    "��",
+    "utf-8",
+    "\n",
+    true
+   ]
+  },
+  {
+   "hex": "80",
+   "result": [
+    "�",
+    "utf-8",
+    "\n",
+    true
+   ]
+  },
+  {
+   "hex": "c3",
+   "result": [
+    "�",
+    "utf-8",
+    "\n",
+    true
+   ]
+  },
+  {
+   "hex": "c3a9",
+   "result": [
+    "é",
+    "utf-8",
+    "\n",
+    false
+   ]
+  },
+  {
+   "hex": "28c7d1b1db29",
+   "result": [
+    "(한글)",
+    "cp949",
+    "\n",
+    false
+   ]
+  },
+  {
+   "hex": "eda080",
+   "result": [
+    "���",
+    "utf-8",
+    "\n",
+    true
+   ]
+  },
+  {
+   "hex": "e282",
+   "result": [
+    "�",
+    "utf-8",
+    "\n",
+    true
+   ]
+  },
+  {
+   "hex": "e282ac",
+   "result": [
+    "€",
+    "utf-8",
+    "\n",
+    false
+   ]
+  },
+  {
+   "hex": "efbbbfff",
+   "result": [
+    "﻿�",
+    "utf-8",
+    "\n",
+    true
+   ]
+  },
+  {
+   "hex": "ffffe282616263",
+   "result": [
+    "���abc",
+    "utf-8",
+    "\n",
+    true
+   ]
+  },
+  {
+   "hex": "616281",
+   "result": [
+    "ab�",
+    "utf-8",
+    "\n",
+    true
+   ]
+  },
+  {
+   "hex": "8140",
+   "result": [
+    "�@",
+    "utf-8",
+    "\n",
+    true
+   ]
+  },
+  {
+   "hex": "fefe",
+   "result": [
+    "��",
+    "utf-8",
+    "\n",
+    true
+   ]
+  },
+  {
+   "hex": "c8fe",
+   "result": [
+    "힝",
+    "cp949",
+    "\n",
+    false
+   ]
+  },
+  {
+   "hex": "a1",
+   "result": [
+    "�",
+    "utf-8",
+    "\n",
+    true
+   ]
+  },
+  {
+   "hex": "000102",
+   "result": [
+    "\u0000\u0001\u0002",
+    "utf-8",
+    "\n",
+    false
+   ]
+  },
+  {
+   "hex": "616263e282e282acffc328c3a9",
+   "result": [
+    "abc�€��(é",
+    "utf-8",
+    "\n",
+    true
+   ]
+  },
+  {
+   "hex": "250a4f313233342028c7d1b1db290a",
+   "result": [
+    "%\nO1234 (한글)\n",
+    "cp949",
+    "\n",
+    false
+   ]
+  }
+ ],
+ "encode": [
+  {
+   "text": "G0 X1\nG1 Y2\n",
+   "encoding": "utf-8",
+   "newline": "\n",
+   "hex": "47302058310a47312059320a"
+  },
+  {
+   "text": "G0 X1\nG1 Y2\n",
+   "encoding": "utf-8",
+   "newline": "\r\n",
+   "hex": "47302058310d0a47312059320d0a"
+  },
+  {
+   "text": "G0 X1\nG1 Y2\n",
+   "encoding": "utf-8-sig",
+   "newline": "\n",
+   "hex": "efbbbf47302058310a47312059320a"
+  },
+  {
+   "text": "G0 X1\nG1 Y2\n",
+   "encoding": "utf-8-sig",
+   "newline": "\r\n",
+   "hex": "efbbbf47302058310d0a47312059320d0a"
+  },
+  {
+   "text": "G0 X1\nG1 Y2\n",
+   "encoding": "cp949",
+   "newline": "\n",
+   "hex": "47302058310a47312059320a"
+  },
+  {
+   "text": "G0 X1\nG1 Y2\n",
+   "encoding": "cp949",
+   "newline": "\r\n",
+   "hex": "47302058310d0a47312059320d0a"
+  },
+  {
+   "text": "(한글 주석)\nM30\n",
+   "encoding": "utf-8",
+   "newline": "\n",
+   "hex": "28ed959ceab88020eca3bcec849d290a4d33300a"
+  },
+  {
+   "text": "(한글 주석)\nM30\n",
+   "encoding": "utf-8",
+   "newline": "\r\n",
+   "hex": "28ed959ceab88020eca3bcec849d290d0a4d33300d0a"
+  },
+  {
+   "text": "(한글 주석)\nM30\n",
+   "encoding": "utf-8-sig",
+   "newline": "\n",
+   "hex": "efbbbf28ed959ceab88020eca3bcec849d290a4d33300a"
+  },
+  {
+   "text": "(한글 주석)\nM30\n",
+   "encoding": "utf-8-sig",
+   "newline": "\r\n",
+   "hex": "efbbbf28ed959ceab88020eca3bcec849d290d0a4d33300d0a"
+  },
+  {
+   "text": "(한글 주석)\nM30\n",
+   "encoding": "cp949",
+   "newline": "\n",
+   "hex": "28c7d1b1db20c1d6bcae290a4d33300a"
+  },
+  {
+   "text": "(한글 주석)\nM30\n",
+   "encoding": "cp949",
+   "newline": "\r\n",
+   "hex": "28c7d1b1db20c1d6bcae290d0a4d33300d0a"
+  },
+  {
+   "text": "",
+   "encoding": "utf-8",
+   "newline": "\n",
+   "hex": ""
+  },
+  {
+   "text": "",
+   "encoding": "utf-8",
+   "newline": "\r\n",
+   "hex": ""
+  },
+  {
+   "text": "",
+   "encoding": "utf-8-sig",
+   "newline": "\n",
+   "hex": "efbbbf"
+  },
+  {
+   "text": "",
+   "encoding": "utf-8-sig",
+   "newline": "\r\n",
+   "hex": "efbbbf"
+  },
+  {
+   "text": "",
+   "encoding": "cp949",
+   "newline": "\n",
+   "hex": ""
+  },
+  {
+   "text": "",
+   "encoding": "cp949",
+   "newline": "\r\n",
+   "hex": ""
+  },
+  {
+   "text": "\n",
+   "encoding": "utf-8",
+   "newline": "\n",
+   "hex": "0a"
+  },
+  {
+   "text": "\n",
+   "encoding": "utf-8",
+   "newline": "\r\n",
+   "hex": "0d0a"
+  },
+  {
+   "text": "\n",
+   "encoding": "utf-8-sig",
+   "newline": "\n",
+   "hex": "efbbbf0a"
+  },
+  {
+   "text": "\n",
+   "encoding": "utf-8-sig",
+   "newline": "\r\n",
+   "hex": "efbbbf0d0a"
+  },
+  {
+   "text": "\n",
+   "encoding": "cp949",
+   "newline": "\n",
+   "hex": "0a"
+  },
+  {
+   "text": "\n",
+   "encoding": "cp949",
+   "newline": "\r\n",
+   "hex": "0d0a"
+  },
+  {
+   "text": "é",
+   "encoding": "utf-8",
+   "newline": "\n",
+   "hex": "c3a9"
+  },
+  {
+   "text": "é",
+   "encoding": "utf-8",
+   "newline": "\r\n",
+   "hex": "c3a9"
+  },
+  {
+   "text": "é",
+   "encoding": "utf-8-sig",
+   "newline": "\n",
+   "hex": "efbbbfc3a9"
+  },
+  {
+   "text": "é",
+   "encoding": "utf-8-sig",
+   "newline": "\r\n",
+   "hex": "efbbbfc3a9"
+  },
+  {
+   "text": "é",
+   "encoding": "cp949",
+   "newline": "\n",
+   "error": "UnicodeEncodeError",
+   "written": false
+  },
+  {
+   "text": "é",
+   "encoding": "cp949",
+   "newline": "\r\n",
+   "error": "UnicodeEncodeError",
+   "written": false
+  },
+  {
+   "text": "€",
+   "encoding": "utf-8",
+   "newline": "\n",
+   "hex": "e282ac"
+  },
+  {
+   "text": "€",
+   "encoding": "utf-8",
+   "newline": "\r\n",
+   "hex": "e282ac"
+  },
+  {
+   "text": "€",
+   "encoding": "utf-8-sig",
+   "newline": "\n",
+   "hex": "efbbbfe282ac"
+  },
+  {
+   "text": "€",
+   "encoding": "utf-8-sig",
+   "newline": "\r\n",
+   "hex": "efbbbfe282ac"
+  },
+  {
+   "text": "€",
+   "encoding": "cp949",
+   "newline": "\n",
+   "hex": "a2e6"
+  },
+  {
+   "text": "€",
+   "encoding": "cp949",
+   "newline": "\r\n",
+   "hex": "a2e6"
+  },
+  {
+   "text": "😀",
+   "encoding": "utf-8",
+   "newline": "\n",
+   "hex": "f09f9880"
+  },
+  {
+   "text": "😀",
+   "encoding": "utf-8",
+   "newline": "\r\n",
+   "hex": "f09f9880"
+  },
+  {
+   "text": "😀",
+   "encoding": "utf-8-sig",
+   "newline": "\n",
+   "hex": "efbbbff09f9880"
+  },
+  {
+   "text": "😀",
+   "encoding": "utf-8-sig",
+   "newline": "\r\n",
+   "hex": "efbbbff09f9880"
+  },
+  {
+   "text": "😀",
+   "encoding": "cp949",
+   "newline": "\n",
+   "error": "UnicodeEncodeError",
+   "written": false
+  },
+  {
+   "text": "😀",
+   "encoding": "cp949",
+   "newline": "\r\n",
+   "error": "UnicodeEncodeError",
+   "written": false
+  },
+  {
+   "text": "한",
+   "encoding": "utf-8",
+   "newline": "\n",
+   "hex": "ed959c"
+  },
+  {
+   "text": "한",
+   "encoding": "utf-8",
+   "newline": "\r\n",
+   "hex": "ed959c"
+  },
+  {
+   "text": "한",
+   "encoding": "utf-8-sig",
+   "newline": "\n",
+   "hex": "efbbbfed959c"
+  },
+  {
+   "text": "한",
+   "encoding": "utf-8-sig",
+   "newline": "\r\n",
+   "hex": "efbbbfed959c"
+  },
+  {
+   "text": "한",
+   "encoding": "cp949",
+   "newline": "\n",
+   "hex": "c7d1"
+  },
+  {
+   "text": "한",
+   "encoding": "cp949",
+   "newline": "\r\n",
+   "hex": "c7d1"
+  },
+  {
+   "text": "ÿ",
+   "encoding": "utf-8",
+   "newline": "\n",
+   "hex": "c3bf"
+  },
+  {
+   "text": "ÿ",
+   "encoding": "utf-8",
+   "newline": "\r\n",
+   "hex": "c3bf"
+  },
+  {
+   "text": "ÿ",
+   "encoding": "utf-8-sig",
+   "newline": "\n",
+   "hex": "efbbbfc3bf"
+  },
+  {
+   "text": "ÿ",
+   "encoding": "utf-8-sig",
+   "newline": "\r\n",
+   "hex": "efbbbfc3bf"
+  },
+  {
+   "text": "ÿ",
+   "encoding": "cp949",
+   "newline": "\n",
+   "error": "UnicodeEncodeError",
+   "written": false
+  },
+  {
+   "text": "ÿ",
+   "encoding": "cp949",
+   "newline": "\r\n",
+   "error": "UnicodeEncodeError",
+   "written": false
+  },
+  {
+   "text": " ",
+   "encoding": "utf-8",
+   "newline": "\n",
+   "hex": "c2a0"
+  },
+  {
+   "text": " ",
+   "encoding": "utf-8",
+   "newline": "\r\n",
+   "hex": "c2a0"
+  },
+  {
+   "text": " ",
+   "encoding": "utf-8-sig",
+   "newline": "\n",
+   "hex": "efbbbfc2a0"
+  },
+  {
+   "text": " ",
+   "encoding": "utf-8-sig",
+   "newline": "\r\n",
+   "hex": "efbbbfc2a0"
+  },
+  {
+   "text": " ",
+   "encoding": "cp949",
+   "newline": "\n",
+   "error": "UnicodeEncodeError",
+   "written": false
+  },
+  {
+   "text": " ",
+   "encoding": "cp949",
+   "newline": "\r\n",
+   "error": "UnicodeEncodeError",
+   "written": false
+  },
+  {
+   "text": "①",
+   "encoding": "utf-8",
+   "newline": "\n",
+   "hex": "e291a0"
+  },
+  {
+   "text": "①",
+   "encoding": "utf-8",
+   "newline": "\r\n",
+   "hex": "e291a0"
+  },
+  {
+   "text": "①",
+   "encoding": "utf-8-sig",
+   "newline": "\n",
+   "hex": "efbbbfe291a0"
+  },
+  {
+   "text": "①",
+   "encoding": "utf-8-sig",
+   "newline": "\r\n",
+   "hex": "efbbbfe291a0"
+  },
+  {
+   "text": "①",
+   "encoding": "cp949",
+   "newline": "\n",
+   "hex": "a8e7"
+  },
+  {
+   "text": "①",
+   "encoding": "cp949",
+   "newline": "\r\n",
+   "hex": "a8e7"
+  },
+  {
+   "text": "漢字",
+   "encoding": "utf-8",
+   "newline": "\n",
+   "hex": "e6bca2e5ad97"
+  },
+  {
+   "text": "漢字",
+   "encoding": "utf-8",
+   "newline": "\r\n",
+   "hex": "e6bca2e5ad97"
+  },
+  {
+   "text": "漢字",
+   "encoding": "utf-8-sig",
+   "newline": "\n",
+   "hex": "efbbbfe6bca2e5ad97"
+  },
+  {
+   "text": "漢字",
+   "encoding": "utf-8-sig",
+   "newline": "\r\n",
+   "hex": "efbbbfe6bca2e5ad97"
+  },
+  {
+   "text": "漢字",
+   "encoding": "cp949",
+   "newline": "\n",
+   "hex": "f9d3edae"
+  },
+  {
+   "text": "漢字",
+   "encoding": "cp949",
+   "newline": "\r\n",
+   "hex": "f9d3edae"
+  },
+  {
+   "text": "Á",
+   "encoding": "utf-8",
+   "newline": "\n",
+   "hex": "41cc81"
+  },
+  {
+   "text": "Á",
+   "encoding": "utf-8",
+   "newline": "\r\n",
+   "hex": "41cc81"
+  },
+  {
+   "text": "Á",
+   "encoding": "utf-8-sig",
+   "newline": "\n",
+   "hex": "efbbbf41cc81"
+  },
+  {
+   "text": "Á",
+   "encoding": "utf-8-sig",
+   "newline": "\r\n",
+   "hex": "efbbbf41cc81"
+  },
+  {
+   "text": "Á",
+   "encoding": "cp949",
+   "newline": "\n",
+   "error": "UnicodeEncodeError",
+   "written": false
+  },
+  {
+   "text": "Á",
+   "encoding": "cp949",
+   "newline": "\r\n",
+   "error": "UnicodeEncodeError",
+   "written": false
+  },
+  {
+   "text": "﻿",
+   "encoding": "utf-8",
+   "newline": "\n",
+   "hex": "efbbbf"
+  },
+  {
+   "text": "﻿",
+   "encoding": "utf-8",
+   "newline": "\r\n",
+   "hex": "efbbbf"
+  },
+  {
+   "text": "﻿",
+   "encoding": "utf-8-sig",
+   "newline": "\n",
+   "hex": "efbbbfefbbbf"
+  },
+  {
+   "text": "﻿",
+   "encoding": "utf-8-sig",
+   "newline": "\r\n",
+   "hex": "efbbbfefbbbf"
+  },
+  {
+   "text": "﻿",
+   "encoding": "cp949",
+   "newline": "\n",
+   "error": "UnicodeEncodeError",
+   "written": false
+  },
+  {
+   "text": "﻿",
+   "encoding": "cp949",
+   "newline": "\r\n",
+   "error": "UnicodeEncodeError",
+   "written": false
+  },
+  {
+   "text": "x\ny\n\nz",
+   "encoding": "utf-8",
+   "newline": "\n",
+   "hex": "780a790a0a7a"
+  },
+  {
+   "text": "x\ny\n\nz",
+   "encoding": "utf-8",
+   "newline": "\r\n",
+   "hex": "780d0a790d0a0d0a7a"
+  },
+  {
+   "text": "x\ny\n\nz",
+   "encoding": "utf-8-sig",
+   "newline": "\n",
+   "hex": "efbbbf780a790a0a7a"
+  },
+  {
+   "text": "x\ny\n\nz",
+   "encoding": "utf-8-sig",
+   "newline": "\r\n",
+   "hex": "efbbbf780d0a790d0a0d0a7a"
+  },
+  {
+   "text": "x\ny\n\nz",
+   "encoding": "cp949",
+   "newline": "\n",
+   "hex": "780a790a0a7a"
+  },
+  {
+   "text": "x\ny\n\nz",
+   "encoding": "cp949",
+   "newline": "\r\n",
+   "hex": "780d0a790d0a0d0a7a"
+  },
+  {
+   "text": "♥",
+   "encoding": "utf-8",
+   "newline": "\n",
+   "hex": "e299a5"
+  },
+  {
+   "text": "♥",
+   "encoding": "utf-8",
+   "newline": "\r\n",
+   "hex": "e299a5"
+  },
+  {
+   "text": "♥",
+   "encoding": "utf-8-sig",
+   "newline": "\n",
+   "hex": "efbbbfe299a5"
+  },
+  {
+   "text": "♥",
+   "encoding": "utf-8-sig",
+   "newline": "\r\n",
+   "hex": "efbbbfe299a5"
+  },
+  {
+   "text": "♥",
+   "encoding": "cp949",
+   "newline": "\n",
+   "hex": "a2be"
+  },
+  {
+   "text": "♥",
+   "encoding": "cp949",
+   "newline": "\r\n",
+   "hex": "a2be"
+  },
+  {
+   "text": "ㅋㅋ",
+   "encoding": "utf-8",
+   "newline": "\n",
+   "hex": "e3858be3858b"
+  },
+  {
+   "text": "ㅋㅋ",
+   "encoding": "utf-8",
+   "newline": "\r\n",
+   "hex": "e3858be3858b"
+  },
+  {
+   "text": "ㅋㅋ",
+   "encoding": "utf-8-sig",
+   "newline": "\n",
+   "hex": "efbbbfe3858be3858b"
+  },
+  {
+   "text": "ㅋㅋ",
+   "encoding": "utf-8-sig",
+   "newline": "\r\n",
+   "hex": "efbbbfe3858be3858b"
+  },
+  {
+   "text": "ㅋㅋ",
+   "encoding": "cp949",
+   "newline": "\n",
+   "hex": "a4bba4bb"
+  },
+  {
+   "text": "ㅋㅋ",
+   "encoding": "cp949",
+   "newline": "\r\n",
+   "hex": "a4bba4bb"
+  },
+  {
+   "text": "　",
+   "encoding": "utf-8",
+   "newline": "\n",
+   "hex": "e38080"
+  },
+  {
+   "text": "　",
+   "encoding": "utf-8",
+   "newline": "\r\n",
+   "hex": "e38080"
+  },
+  {
+   "text": "　",
+   "encoding": "utf-8-sig",
+   "newline": "\n",
+   "hex": "efbbbfe38080"
+  },
+  {
+   "text": "　",
+   "encoding": "utf-8-sig",
+   "newline": "\r\n",
+   "hex": "efbbbfe38080"
+  },
+  {
+   "text": "　",
+   "encoding": "cp949",
+   "newline": "\n",
+   "hex": "a1a1"
+  },
+  {
+   "text": "　",
+   "encoding": "cp949",
+   "newline": "\r\n",
+   "hex": "a1a1"
+  }
+ ],
+ "digest": [
+  {
+   "text": "",
+   "sha1": "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+  },
+  {
+   "text": "a",
+   "sha1": "86f7e437faa5a7fce15d1ddcb9eaeaea377667b8"
+  },
+  {
+   "text": "G0 X1\n",
+   "sha1": "a675d667540bbcc88c872521affd4998c49c6cc7"
+  },
+  {
+   "text": "(한글)\n",
+   "sha1": "89e4980328007b50eb02989f79443e33ed2b8b5b"
+  },
+  {
+   "text": "😀",
+   "sha1": "9c533688a979a858cbd6a43c9f91aba624651f18"
+  },
+  {
+   "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "sha1": "c068a1f54d77965b428a7969125313ce29abb93b"
+  }
+ ],
+ "cp949": {
+  "lines": 32512,
+  "pairs_mapped": 17048,
+  "injective": true,
+  "sha1": "70dc8f28bb3b13e4da5e37e3a0d474824d0388a9"
+ },
+ "password": {
+  "hash": [
+   {
+    "password": "1234",
+    "salt": "0102030405060708090a0b0c0d0e0f10",
+    "iterations": 1000,
+    "hash": "c47bfbd6f94230a911c40d9714120aaec6a6a4ad68221675fb4dba7ccdcc53fe"
+   },
+   {
+    "password": "",
+    "salt": "",
+    "iterations": 1,
+    "hash": "f7ce0b653d2d72a4108cf5abe912ffdd777616dbbb27a70e8204f3ae2d0f6fad"
+   },
+   {
+    "password": "한글 비번",
+    "salt": "0102030405060708090a0b0c0d0e0f10",
+    "iterations": 50,
+    "hash": "2fef14f1b2247f08bfc475663224cb4f8d48a7a0dcb2fb4956057cc203e881fa"
+   },
+   {
+    "password": "abc",
+    "salt": "4e43546f6f6c4c6973742d656469742d64656661756c74",
+    "iterations": 1000,
+    "hash": "8e57145e33bbe640dc3a66927e1220bfa0d9b4988f940307c8b79142e030bacc"
+   },
+   {
+    "password": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "salt": "0102030405060708090a0b0c0d0e0f10",
+    "iterations": 200000,
+    "hash": "3d6b52143a833affb27d8dee5efe8303814eff538a6eff5f1c03a7bd3665ba94"
+   }
+  ],
+  "verify": [
+   {
+    "entry": null,
+    "password": "1234",
+    "result": true
+   },
+   {
+    "entry": null,
+    "password": "비번abc",
+    "result": false
+   },
+   {
+    "entry": null,
+    "password": "",
+    "result": false
+   },
+   {
+    "entry": null,
+    "password": "wrong",
+    "result": false
+   },
+   {
+    "entry": null,
+    "password": "abc",
+    "result": false
+   },
+   {
+    "entry": {},
+    "password": "1234",
+    "result": true
+   },
+   {
+    "entry": {},
+    "password": "비번abc",
+    "result": false
+   },
+   {
+    "entry": {},
+    "password": "",
+    "result": false
+   },
+   {
+    "entry": {},
+    "password": "wrong",
+    "result": false
+   },
+   {
+    "entry": {},
+    "password": "abc",
+    "result": false
+   },
+   {
+    "entry": "not a dict",
+    "password": "1234",
+    "result": true
+   },
+   {
+    "entry": "not a dict",
+    "password": "비번abc",
+    "result": false
+   },
+   {
+    "entry": "not a dict",
+    "password": "",
+    "result": false
+   },
+   {
+    "entry": "not a dict",
+    "password": "wrong",
+    "result": false
+   },
+   {
+    "entry": "not a dict",
+    "password": "abc",
+    "result": false
+   },
+   {
+    "entry": 5,
+    "password": "1234",
+    "result": true
+   },
+   {
+    "entry": 5,
+    "password": "비번abc",
+    "result": false
+   },
+   {
+    "entry": 5,
+    "password": "",
+    "result": false
+   },
+   {
+    "entry": 5,
+    "password": "wrong",
+    "result": false
+   },
+   {
+    "entry": 5,
+    "password": "abc",
+    "result": false
+   },
+   {
+    "entry": [],
+    "password": "1234",
+    "result": true
+   },
+   {
+    "entry": [],
+    "password": "비번abc",
+    "result": false
+   },
+   {
+    "entry": [],
+    "password": "",
+    "result": false
+   },
+   {
+    "entry": [],
+    "password": "wrong",
+    "result": false
+   },
+   {
+    "entry": [],
+    "password": "abc",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "1234",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "비번abc",
+    "result": true
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "wrong",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "abc",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "md5",
+     "iter": 2000,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "1234",
+    "result": true
+   },
+   {
+    "entry": {
+     "algo": "md5",
+     "iter": 2000,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "비번abc",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "md5",
+     "iter": 2000,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "md5",
+     "iter": 2000,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "wrong",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "md5",
+     "iter": 2000,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "abc",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": "2000",
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "1234",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": "2000",
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "비번abc",
+    "result": true
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": "2000",
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": "2000",
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "wrong",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": "2000",
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "abc",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000.0,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "1234",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000.0,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "비번abc",
+    "result": true
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000.0,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000.0,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "wrong",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000.0,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "abc",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 0,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "1234",
+    "result": true
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 0,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "비번abc",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 0,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 0,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "wrong",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 0,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "abc",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": -5,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "1234",
+    "result": true
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": -5,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "비번abc",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": -5,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": -5,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "wrong",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": -5,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "abc",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": null,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "1234",
+    "result": true
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": null,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "비번abc",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": null,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": null,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "wrong",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": null,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "abc",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": "x",
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "1234",
+    "result": true
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": "x",
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "비번abc",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": "x",
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": "x",
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "wrong",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": "x",
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "abc",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": true,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "1234",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": true,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "비번abc",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": true,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": true,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "wrong",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": true,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "abc",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "zz",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "1234",
+    "result": true
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "zz",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "비번abc",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "zz",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "zz",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "wrong",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "zz",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "abc",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "abc",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "1234",
+    "result": true
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "abc",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "비번abc",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "abc",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "abc",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "wrong",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "abc",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "abc",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": 5,
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "1234",
+    "result": true
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": 5,
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "비번abc",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": 5,
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": 5,
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "wrong",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": 5,
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "abc",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "00"
+    },
+    "password": "1234",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "00"
+    },
+    "password": "비번abc",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "00"
+    },
+    "password": "",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "00"
+    },
+    "password": "wrong",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "00"
+    },
+    "password": "abc",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6B53707326B93B0FE2EAF5EA173E400439FBBB45373B25892479BA9B9A5BDB32"
+    },
+    "password": "1234",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6B53707326B93B0FE2EAF5EA173E400439FBBB45373B25892479BA9B9A5BDB32"
+    },
+    "password": "비번abc",
+    "result": true
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6B53707326B93B0FE2EAF5EA173E400439FBBB45373B25892479BA9B9A5BDB32"
+    },
+    "password": "",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6B53707326B93B0FE2EAF5EA173E400439FBBB45373B25892479BA9B9A5BDB32"
+    },
+    "password": "wrong",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6B53707326B93B0FE2EAF5EA173E400439FBBB45373B25892479BA9B9A5BDB32"
+    },
+    "password": "abc",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f 10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "1234",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f 10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "비번abc",
+    "result": true
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f 10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f 10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "wrong",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f 10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "abc",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "0102030405060708090a0b0c0d0e0f10"
+    },
+    "password": "1234",
+    "result": true
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "0102030405060708090a0b0c0d0e0f10"
+    },
+    "password": "비번abc",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "0102030405060708090a0b0c0d0e0f10"
+    },
+    "password": "",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "0102030405060708090a0b0c0d0e0f10"
+    },
+    "password": "wrong",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "0102030405060708090a0b0c0d0e0f10"
+    },
+    "password": "abc",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "1234",
+    "result": true
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "비번abc",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "wrong",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "6b53707326b93b0fe2eaf5ea173e400439fbbb45373b25892479ba9b9a5bdb32"
+    },
+    "password": "abc",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256"
+    },
+    "password": "1234",
+    "result": true
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256"
+    },
+    "password": "비번abc",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256"
+    },
+    "password": "",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256"
+    },
+    "password": "wrong",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256"
+    },
+    "password": "abc",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "2bb3e2a56e698c920ec179f874a6336a550865efd15cd63843b83166265d257a"
+    },
+    "password": "1234",
+    "result": true
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "2bb3e2a56e698c920ec179f874a6336a550865efd15cd63843b83166265d257a"
+    },
+    "password": "비번abc",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "2bb3e2a56e698c920ec179f874a6336a550865efd15cd63843b83166265d257a"
+    },
+    "password": "",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "2bb3e2a56e698c920ec179f874a6336a550865efd15cd63843b83166265d257a"
+    },
+    "password": "wrong",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 2000,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "2bb3e2a56e698c920ec179f874a6336a550865efd15cd63843b83166265d257a"
+    },
+    "password": "abc",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 1,
+     "salt": "",
+     "hash": "f7ce0b653d2d72a4108cf5abe912ffdd777616dbbb27a70e8204f3ae2d0f6fad"
+    },
+    "password": "1234",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 1,
+     "salt": "",
+     "hash": "f7ce0b653d2d72a4108cf5abe912ffdd777616dbbb27a70e8204f3ae2d0f6fad"
+    },
+    "password": "비번abc",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 1,
+     "salt": "",
+     "hash": "f7ce0b653d2d72a4108cf5abe912ffdd777616dbbb27a70e8204f3ae2d0f6fad"
+    },
+    "password": "",
+    "result": true
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 1,
+     "salt": "",
+     "hash": "f7ce0b653d2d72a4108cf5abe912ffdd777616dbbb27a70e8204f3ae2d0f6fad"
+    },
+    "password": "wrong",
+    "result": false
+   },
+   {
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 1,
+     "salt": "",
+     "hash": "f7ce0b653d2d72a4108cf5abe912ffdd777616dbbb27a70e8204f3ae2d0f6fad"
+    },
+    "password": "abc",
+    "result": false
+   }
+  ],
+  "create": [
+   {
+    "password": "1234",
+    "salt": "0102030405060708090a0b0c0d0e0f10",
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 200000,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "325f1665d4315bb04f2b3b002d148953a28b3398bb85ef6d50b4c174a956e608"
+    }
+   },
+   {
+    "password": "새 비밀번호",
+    "salt": "0102030405060708090a0b0c0d0e0f10",
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 200000,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "0cbe23e175aad09f397cc49b34c335f2da8f5cdd32e2a13f6f36f293bef29b5d"
+    }
+   },
+   {
+    "password": "",
+    "salt": "0102030405060708090a0b0c0d0e0f10",
+    "entry": {
+     "algo": "pbkdf2_sha256",
+     "iter": 200000,
+     "salt": "0102030405060708090a0b0c0d0e0f10",
+     "hash": "5ddc4c2499076afd3a936ce364e9d245fdde734475b5d106dc6d873d0ebe35e3"
+    }
+   }
+  ]
+ }
+}

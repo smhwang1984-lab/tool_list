@@ -18,7 +18,7 @@
 | P0 앱 뼈대 | 1.0.0 | ✅ 완료 | — | — |
 | **P1 핵심 로직 이식** | 1.1.0 | 공구 리스트 산출 엔진(TS) + 골든 테스트 | P0 | 5~7 |
 | **P2 화면** | 1.2.0 | 입력창·공구표·대화상자·설정 (원본과 같은 구성) | P1 | 5~7 |
-| **P3 파일·출력** | 1.3.0 | 열기/PG ADD/공유 받기/저장/편집 모드/PDF/표 복사 | P2 | 3~4 |
+| **P3 파일·출력** | 1.3.0 | 열기/공유 받기/저장/편집 모드/PDF/표 복사 | P2 | 3~4 |
 | **P4 3D 뷰어** | 1.4.0 | 툴패스·뷰 전환·방향 큐브·공정 필터·위치 찍기·PG 매칭 재생 | P1 (P2와 병행 가능) | 7~10 |
 | **P5 제스처** | 1.5.0 | 마우스 → 터치 대응 전부 | P4 | 3~4 |
 | **1차 테스트 배포** | 1.6.0 | 현장 테스트용 debug APK | P1~P5 | 1~2 |
@@ -88,7 +88,7 @@ tools/golden/   정답 생성 스크립트 (Python, 원본 저장소를 읽음)
 | `latheInsertSpec.ts` | `lathe_insert_spec.py` 전체(855줄). 단 `LatheSpecStore`는 P3의 `platform/`로 | ISO 인서트·홀더 해석, 자동 추천 |
 | `ncColor.ts` | `nc_color_line` 1388 | 코드 색 구간 계산(입력창 색칠에 사용) |
 | `search.ts` | `find_next/prev_regex_span` 1071~, `find_next/prev_tool_change_span` 1111~, `line_has_m00/m01/program_stop` 1131~, `line_stops_playback` 1146, `find_next_literal_span` 1157 | 공구 이동, 문자 검색, 재생 정지 판정 |
-| `programText.ts` | `compose_program_texts` 1319, `append_nc_programs` 1879, `program_text_digest` 1332, `decode_program_bytes` 1345, `save_program_text`의 인코딩 부분 1363 | PG ADD 이어붙이기, 인코딩 판별·저장 |
+| `programText.ts` | `program_text_digest` 1332, `decode_program_bytes` 1345, `save_program_text`의 인코딩 부분 1363 | 인코딩 판별·저장, 변경 감지용 다이제스트 (**PG ADD 이어붙이기 `compose_program_texts`·`append_nc_programs`는 Android 버전에서 제외** — 2026-11-10 결정) |
 | `password.ts` | `_edit_password_hash` 1287, `verify_edit_password` 1291, `set_edit_password` 1307 | 편집 모드 비밀번호(PBKDF2) |
 | `machineSpecs.ts` | `nc_viewer_widget.py` `DEFAULT_MACHINE_SPECS` 179, `RENAMED_MACHINE_TYPES` 167 | 장비 타입·스펙 기본값 |
 
@@ -105,9 +105,9 @@ tools/golden/   정답 생성 스크립트 (Python, 원본 저장소를 읽음)
 | **T4** | **`latheInsertSpec`** (원본 테스트 67개 → 골든) + 직접 입력 저장소 `latheSpecStore`(메모리 부분) | 100% 일치 ✅ (함수 28개 약 1,400건 + 저장소 6사례·갱신 2건; 파일 입출력은 P3-T9) |
 | **T5** | **`latheParser`** | 선반 골든 100% 일치 ✅ (샘플 선반 NC 7개 행·값 출처, 저장소 포함 6사례, 원본 호출 기록) |
 | **T6** | `ncColor` · `search` | 골든 100% 일치 ✅ (색 3,000줄 + 샘플 11개×4,000줄, 검색·정지 판정 약 500건) |
-| **T7** | `programText`(CP949는 `iconv-lite`로 인코딩) · `password`(WebCrypto PBKDF2, 원본 해시 형식과 호환) | 원본이 만든 해시를 TS가 검증하고, TS가 만든 해시를 원본이 검증한다 |
-| **T8** | 성능 확인: `ncdata.nc`(600KB) 산출 시간 측정 | PC Node 기준 200ms 이하. 넘으면 P2에서 Worker로 돌린다 |
-| **T9** | 버전 1.1.0, 진행 기록, 병합 | 공통 완료 조건 |
+| **T7** | `programText`(CP949는 원본 Python 표를 `cp949Table.ts`로 내장 — WebView·Node `euc-kr`은 표가 달라 못 씀) · `password`(WebCrypto PBKDF2, 원본 해시 형식과 호환) | 100% 일치 ✅ (읽기 33·저장 108·비밀번호 확인 125건, CP949 2바이트 17,048글자 전체). PG ADD는 제외 |
+| **T8** | 성능 확인: `ncdata.nc`(600KB) 산출 시간 측정 | PC Node 기준 200ms 이하 ✅ (65ms, `tests/perf.test.ts`). 폰은 느릴 수 있어 P2에서 실기기 확인 |
+| **T9** | 버전 1.1.0, 진행 기록, 병합 | 공통 완료 조건 ✅ |
 
 ### 1.1 골든 생성 방식 (T1)
 
@@ -157,7 +157,7 @@ tools/golden/   정답 생성 스크립트 (Python, 원본 저장소를 읽음)
 | ID | 작업 | Android 구현 | 완료 기준 |
 |---|---|---|---|
 | **T1** | 파일 열기 | `@capawesome/capacitor-file-picker`(SAF), 바이트 → `decode_program_bytes` | UTF-8 / CP949 / UTF-16 파일이 모두 열린다 |
-| **T2** | PG ADD | 다중 선택 → `append_nc_programs` | 원본과 같은 이어붙이기 결과 |
+| **T2** | ~~PG ADD~~ **제외** (2026-11-10 결정, Android 버전에는 넣지 않는다) | — | — |
 | **T3** | **다른 앱에서 열기** | `AndroidManifest.xml` intent-filter(VIEW/SEND, `.nc .mpf .tap`, `text/plain`, `application/octet-stream`) + 앱 시작/재개 시 받기 | 파일 앱·카카오톡·메일 첨부에서 "Sum Path로 열기"가 된다 |
 | **T4** | 편집 모드·비밀번호 | `password.ts`, 기본 1234, "✎ 편집 중" 표시, 입력창 테두리 강조 | 원본과 같은 흐름 |
 | **T5** | 저장 | 원래 인코딩·줄바꿈을 유지하고 `.bak`를 남긴다. 쓰기 권한이 없으면 "다른 이름으로 저장"(SAF CreateDocument) | 저장한 파일을 PC 원본 앱에서 열어도 같다 |

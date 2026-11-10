@@ -18,6 +18,10 @@ import {
 
 import { ncColorLine } from '../src/core/ncColor';
 import {
+  decodeCp949, decodeProgramBytes, encodeCp949, encodeProgramText, programTextDigest,
+} from '../src/core/programText';
+import { bytesToHex, createEditPasswordEntry, editPasswordHash, hexToBytes, verifyEditPassword } from '../src/core/password';
+import {
   findNextLiteralSpan, findNextRegexSpan, findNextToolChangeSpan, findPrevRegexSpan, findPrevToolChangeSpan,
   lineHasM00Stop, lineHasM01Stop, lineHasProgramStop, lineStopsPlayback,
 } from '../src/core/search';
@@ -65,6 +69,14 @@ const IMPL: Record<string, Fn> = {
     parseProgram(text as string, (types ?? kw.name_types ?? null) as never, Boolean(kw.lathe)),
   tool_name_map_from_rows: ([rows]) => toolNameMapFromRows(rows as never),
   tool_shape_map_from_rows: ([rows]) => toolShapeMapFromRows(rows as never),
+  // programText / password (PG ADD용 compose_program_texts·append_nc_programs 는 Android 버전에서 제외)
+  decode_program_bytes: ([raw]) => {
+    const d = decodeProgramBytes(raw as Uint8Array);
+    return [d.text, d.encoding, d.newline, d.lossy];
+  },
+  program_text_digest: ([text]) => programTextDigest(text as string),
+  _edit_password_hash: async ([password, salt, iterations]) =>
+    editPasswordHash(password, salt as Uint8Array, iterations as number),
   // ncColor / search
   nc_color_line: ([line, state, lathe], kw) =>
     ncColorLine(line as string, state as number | null, Boolean(lathe ?? kw.lathe)),
@@ -127,6 +139,8 @@ const IMPL: Record<string, Fn> = {
 
 /** 일부러 TS로 옮기지 않는 함수 (이유) */
 const NOT_PORTED: Record<string, string> = {
+  compose_program_texts: 'PG ADD(파일 이어붙이기)는 Android 버전에서 제외 (2026-11-10 결정)',
+  append_nc_programs: 'PG ADD(파일 이어붙이기)는 Android 버전에서 제외 (2026-11-10 결정)',
   'lis.specs_path': '저장 파일 경로 조립은 platform/ 에서(Android는 Preferences/앱 폴더)',
 };
 
@@ -157,6 +171,7 @@ function decode(v: unknown): unknown {
 
 /** TS 결과를 비교 가능한 모양으로 (Map → 객체, 튜플/배열 그대로) */
 function normalize(v: unknown): unknown {
+  if (v instanceof Uint8Array) return { bytes: bytesToHex(v) };
   if (v instanceof Map) return Object.fromEntries([...v].map(([k, x]) => [String(k), normalize(x)]));
   if (Array.isArray(v)) return v.map(normalize);
   if (v && typeof v === 'object') {
@@ -211,7 +226,7 @@ describe('골든: 원본 함수 호출 기록', () => {
       it.todo(`${data.func} (${data.calls.length}건)`);
       continue;
     }
-    it(`${data.func} — ${data.calls.length}건 일치`, () => {
+    it(`${data.func} — ${data.calls.length}건 일치`, async () => {
       const failures: string[] = [];
       for (const call of data.calls) {
         const args = decode(call.args) as unknown[];
@@ -219,7 +234,7 @@ describe('골든: 원본 함수 호출 기록', () => {
         let got: unknown;
         let threw: unknown = null;
         try {
-          got = normalize(impl(args, kwargs));
+          got = normalize(await impl(args, kwargs));
         } catch (error) {
           threw = error;
         }
@@ -318,20 +333,117 @@ describe('골든: 선반 스펙 저장소 (직접 입력 저장값)', () => {
   });
 });
 
+// ---------------------------------------------------------------- 파일 인코딩·다이제스트·편집 비밀번호
+const PROGRAM_TEXT_FILE = new URL('./golden/program_text.json', import.meta.url);
+
+describe('골든: 파일 인코딩·다이제스트·편집 비밀번호', () => {
+  const gold = existsSync(PROGRAM_TEXT_FILE)
+    ? (JSON.parse(readFileSync(PROGRAM_TEXT_FILE, 'utf8')) as {
+        decode: { hex: string; result: [string, string, string, boolean] }[];
+        encode: { text: string; encoding: string; newline: string; hex?: string; error?: string; written?: boolean }[];
+        digest: { text: string; sha1: string }[];
+        cp949: { lines: number; pairs_mapped: number; injective: boolean; sha1: string };
+        password: {
+          hash: { password: string; salt: string; iterations: number; hash: string }[];
+          verify: { entry: unknown; password: string; result: boolean }[];
+          create: { password: string; salt: string; entry: unknown }[];
+        };
+      })
+    : null;
+  it('골든이 있다', () => {
+    expect(gold).not.toBeNull();
+  });
+  if (!gold) return;
+
+  it(`바이트 읽기 ${gold.decode.length}건 (UTF-8 / BOM / CP949 / 손실)`, () => {
+    for (const c of gold.decode) {
+      const d = decodeProgramBytes(hexToBytes(c.hex));
+      expect([d.text, d.encoding, d.newline, d.lossy], c.hex).toStrictEqual(c.result);
+    }
+  });
+  it(`저장용 인코딩 ${gold.encode.length}건`, () => {
+    for (const c of gold.encode) {
+      const label = JSON.stringify([c.text, c.encoding, c.newline]);
+      if (c.error) {
+        expect(() => encodeProgramText(c.text, c.encoding, c.newline), label).toThrow();
+      } else {
+        expect(bytesToHex(encodeProgramText(c.text, c.encoding, c.newline)), label).toBe(c.hex);
+      }
+    }
+  });
+  it('저장했다가 다시 읽으면 같다 (본문·인코딩·줄바꿈)', () => {
+    for (const encoding of ['utf-8', 'utf-8-sig', 'cp949'] as const) {
+      for (const newline of ['\n', '\r\n'] as const) {
+        const text = '%\nO1234 (한글 주석)\nG0 X1.\nM30\n';
+        const d = decodeProgramBytes(encodeProgramText(text, encoding, newline));
+        expect([d.text, d.encoding, d.newline, d.lossy]).toStrictEqual([text, encoding, newline, false]);
+      }
+    }
+  });
+  it(`SHA-1 다이제스트 ${gold.digest.length}건`, async () => {
+    for (const c of gold.digest) expect(await programTextDigest(c.text)).toBe(c.sha1);
+  });
+  it('CP949 표: 1바이트 256개 + 2바이트 조합 전체가 원본 Python cp949 와 같고 글자마다 바이트가 하나다', async () => {
+    const lines: string[] = [];
+    const seen = new Map<string, string>();
+    let injective = true;
+    let mapped = 0;
+    const raws: number[][] = [];
+    for (let b = 0; b < 256; b++) raws.push([b]);
+    for (let a = 0x81; a <= 0xfe; a++) for (let b = 0; b < 256; b++) raws.push([a, b]);
+    for (const raw of raws) {
+      const hex = bytesToHex(Uint8Array.from(raw));
+      try {
+        const ch = decodeCp949(Uint8Array.from(raw));
+        if (ch === null) throw new Error('invalid');
+        lines.push(`${hex}:${bytesToHex(new TextEncoder().encode(ch))}`);
+        if (raw.length === 2) {
+          mapped++;
+          if (seen.has(ch)) injective = false;
+          seen.set(ch, hex);
+        }
+      } catch {
+        lines.push(`${hex}:ERR`);
+      }
+    }
+    const digest = await crypto.subtle.digest('SHA-1', new TextEncoder().encode(lines.join('\n')));
+    expect({ lines: lines.length, mapped, injective, sha1: bytesToHex(new Uint8Array(digest)) }).toStrictEqual({
+      lines: gold.cp949.lines, mapped: gold.cp949.pairs_mapped, injective: gold.cp949.injective, sha1: gold.cp949.sha1,
+    });
+    // 표에 있는 모든 글자를 되돌리면 원래 바이트가 나온다
+    for (const [ch, hex] of seen) expect(bytesToHex(encodeCp949(ch))).toBe(hex);
+  });
+  it(`비밀번호 해시(PBKDF2) ${gold.password.hash.length}건`, async () => {
+    for (const c of gold.password.hash) {
+      const got = await editPasswordHash(c.password, hexToBytes(c.salt), c.iterations);
+      expect(bytesToHex(got)).toBe(c.hash);
+    }
+  });
+  it(`비밀번호 확인 ${gold.password.verify.length}건 (정상·깨진 설정·기본값 1234)`, async () => {
+    const failures: string[] = [];
+    for (const c of gold.password.verify) {
+      const got = await verifyEditPassword(c.password, c.entry === null ? undefined : c.entry);
+      if (got !== c.result) failures.push(`${JSON.stringify(c.entry)} / ${c.password}: ${got} != ${c.result}`);
+    }
+    expect(failures.slice(0, 10).join('\n')).toBe('');
+  });
+  it('새 비밀번호 설정 항목이 원본과 똑같이 만들어진다 (같은 salt)', async () => {
+    for (const c of gold.password.create) {
+      expect(await createEditPasswordEntry(c.password, hexToBytes(c.salt))).toStrictEqual(c.entry);
+    }
+  });
+});
+
 // ---------------------------------------------------------------- 샘플 NC 전체 산출
 const FIX_DIR = new URL('./golden/fixtures/', import.meta.url);
 const fixtureFiles = existsSync(FIX_DIR) ? readdirSync(FIX_DIR).filter((f) => f.endsWith('.json')) : [];
 
-/** 임시 디코더 — 인코딩 판별·저장은 P1-T7(programText)에서 원본과 똑같이 이식한다. */
+function readFixtureBytes(name: string): Uint8Array {
+  return new Uint8Array(readFileSync(new URL(`./fixtures/${name}`, import.meta.url)));
+}
+
 function readFixtureText(name: string): string {
-  const raw = readFileSync(new URL(`./fixtures/${name}`, import.meta.url));
-  let text: string;
-  try {
-    text = new TextDecoder('utf-8', { fatal: true }).decode(raw);
-  } catch {
-    text = new TextDecoder('euc-kr').decode(raw);
-  }
-  return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  return decodeProgramBytes(readFixtureBytes(name)).text;
 }
 
 describe('골든: 샘플 NC 전체 산출', () => {
@@ -345,8 +457,13 @@ describe('골든: 샘플 NC 전체 산출', () => {
     describe(gold.file, () => {
       const text = readFixtureText(gold.file);
       const g = (key: string) => normalize(decode(gold[key]));
-      it('글자 수가 같다', () => {
-        expect(Array.from(text).length).toBe(gold.decode.length);
+      it('인코딩·줄바꿈 판별과 글자 수·SHA-1이 같다', async () => {
+        const d = decodeProgramBytes(readFixtureBytes(gold.file));
+        const want = gold.decode as unknown as { encoding: string; newline: string; lossy: boolean; length: number; lines: number; sha1: string };
+        expect([d.encoding, d.newline, d.lossy]).toStrictEqual([want.encoding, want.newline, want.lossy]);
+        expect(Array.from(d.text).length).toBe(want.length);
+        expect(pySplitlines(d.text).length).toBe(want.lines);
+        expect(await programTextDigest(d.text)).toBe(want.sha1);
       });
       it('출력 정보·좌상단 문구·PDF 파일명', () => {
         const metadata = parseProgramMetadata(text);

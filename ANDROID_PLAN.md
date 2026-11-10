@@ -57,7 +57,7 @@ tool_list_android/
 | 프로그램 입력창 | **CodeMirror 6** | 60만 바이트급 NC도 가볍다. 코드 색칠·검색·편집 모드·핀치 폰트 크기 |
 | 제스처 | **Pointer Events 직접 구현** (+ 필요하면 Hammer.js) | 원본 카메라 수식(회전 기준점, 커서 기준 줌)을 그대로 쓰려고 직접 구현 |
 | PDF | **pdfmake** + Noto Sans KR(서브셋) | ReportLab 표 레이아웃을 재현하고 한글을 넣는다 |
-| 파일 | `@capacitor/filesystem`, `@capawesome/capacitor-file-picker`, `@capacitor/share` | 파일 열기 / PG ADD / 저장(.bak) / PDF 공유 |
+| 파일 | `@capacitor/filesystem`, `@capawesome/capacitor-file-picker`, `@capacitor/share` | 파일 열기 / 저장(.bak) / PDF 공유 |
 | 설정 저장 | `@capacitor/preferences` | `app_settings.json` / QSettings 대체 |
 | 테스트 | **Vitest** + Playwright(웹 화면) | 골든 비교, 제스처 시나리오 |
 
@@ -79,7 +79,7 @@ tool_list_android/
 
 ```
 [제목 줄]  Sum Path vX.Y.Z ............................ ⚙설정 ?도움말 ⓘAbout ◐다크
-[툴바]     [파일 열기·PG ADD·예제·지우기] [편집 모드·저장·비밀번호] [Tool List] [툴리스트 산출|Viewer]
+[툴바]     [파일 열기·예제·지우기] [편집 모드·저장·비밀번호] [Tool List] [툴리스트 산출|Viewer]
 [본문]     ① 프로그램 입력(코드 색, 검색, 이전/다음 공구) │ 공구 리스트 표  또는  3D Viewer
            장비 타입·스펙 패널(▶/▼ 접기)                 │ (공정 필터, PG 매칭, 재생바, 방향 큐브)
 ```
@@ -103,7 +103,7 @@ tool_list_android/
 | 원본 기능 | Android 구현 |
 |---|---|
 | 파일 열기 / 드래그&드롭 | 시스템 파일 선택기(SAF). `.nc/.mpf/.tap/.txt` 및 모든 파일 |
-| PG ADD (여러 파일 이어붙이기) | 파일 선택기 다중 선택 → `append_nc_programs` 이식 |
+| PG ADD (여러 파일 이어붙이기) | **제외** — Android 버전에는 넣지 않는다 (2026-11-10 사용자 결정) |
 | 탐색기 더블클릭 열기(파일 연결) | **Android "연결 프로그램 / 공유"** intent-filter(`.nc/.mpf/.tap`). 파일 앱·메신저 첨부에서 바로 열린다 |
 | 예제 / 지우기 | 그대로 (예제 NC를 앱에 넣는다) |
 | 인코딩 판별(`decode_program_bytes`) | 이식(UTF-8 / CP949 / UTF-16). CP949는 `TextDecoder('euc-kr')` |
@@ -188,7 +188,7 @@ tool_list_android/
 | **P0 준비** | 저장소 뼈대, Windows 툴체인 안내(`SETUP_WINDOWS.md`), `build_apk.bat`, `git_sync.bat` / `git_publish.bat` | Windows PC에서 빈 앱 APK가 설치·실행된다 |
 | **P1 핵심 로직 이식** | `parse_program`, `parse_lathe_program`, 메타데이터, 경고(스핀들/H/SO), 반경보정 REMARK, 이름→TYPE, `lathe_insert_spec`, 인코딩, 공구 교체 검색 | `tools/golden`으로 원본 Python 결과를 JSON으로 뽑고, TS 결과와 **100% 일치**(원본 tests 케이스 + 샘플 NC) |
 | **P2 화면 껍데기** | 제목 줄·툴바·입력창(코드 색)·공구표·장비 패널·대화상자(수정/추가/이름 경우/설정/도움말/About)·다크모드·반응형 | 원본 스크린샷과 나란히 비교해 구성이 같다 |
-| **P3 파일·출력** | 열기 / PG ADD / 공유받아 열기 / 저장(.bak) / 편집 모드·비밀번호 / PDF / 표 복사 | 실기기에서 NC 열기 → 산출 → PDF 공유까지 된다 |
+| **P3 파일·출력** | 열기 / 공유받아 열기 / 저장(.bak) / 편집 모드·비밀번호 / PDF / 표 복사 | 실기기에서 NC 열기 → 산출 → PDF 공유까지 된다 |
 | **P4 3D 뷰어** | 툴패스·색, 뷰 전환, 방향 큐브, 좌표 표시, 공정 필터, 위치 찍기 → 줄 이동, PG 매칭 재생 | 원본과 같은 NC로 같은 경로·같은 재생 정지 지점 |
 | **P5 제스처** | §5 전부, 감도·FOV, 테스트 | 제스처 시나리오 테스트 통과 + 실기기 손 테스트 |
 | **P6 형상 시뮬** | 밀링 Z-map → 3D 복셀 → 선반 → 턴밀 순서. Web Worker로 백그라운드 계산, 모바일 격자 상한, 스냅샷/되감기 | 원본과 형상 비교(높이맵 오차 허용치 안), 중급 기기에서 화면이 멈추지 않는다 |
@@ -259,3 +259,4 @@ build_apk.bat install
 | 1.0.0 | 2026-11-10 | **P1-T4** | `latheInsertSpec`(ISO 1832 인서트·나사·홈·ISO 5608 홀더 해석, 종류/방향/인선/D 자동 추천, 출처 우선순위, 형상 맵)·`latheSpecStore`(직접 입력 저장값, 메모리 부분) 이식 — 원본 함수 28개 약 1,400건과 저장소 정답 일치. `py.ts`에 Python `%.3f`·`round()` 정확 반올림(정확히 절반이면 짝수 쪽) 추가. 골든 생성기에 `--skip-pytest`(5초) 옵션과 저장소 정답 추가 |
 | 1.0.0 | 2026-11-10 | **P1-T5** | `latheParser`(parse_lathe_program, SPINDL/FEED 합치기, 공구번호 정렬·빈 행, 값 출처 `rowSources`, 선반 필터 이름표, 선반 장비 판정) 이식 — 샘플 선반 NC 7개(행과 값 출처), 저장소를 넣은 6사례×7개, 원본 호출 기록 모두 일치 |
 | 1.0.0 | 2026-11-10 | **P1-T6** | `ncColor`(NC 코드 색 구간, 모달 색·주석·사이클·스핀들/냉각)·`search`(다음/이전 공구 이동, 문자 검색, M00/M01 재생 정지 판정) 이식 — 원본 호출 기록과 샘플 NC 11개(색 줄 단위, 공구 이동 사슬, 정지 줄, 문자 검색) 모두 일치. 위치는 UTF-16 인덱스(입력창과 같음) |
+| 1.1.0 | 2026-11-10 | **P1-T7~T9 (P1 완료)** | `programText`(UTF-8/BOM/CP949 판별·줄바꿈 보존·저장 인코딩·SHA-1)·`password`(PBKDF2-SHA256, 원본 해시 형식 호환) 이식 — 골든 100% 일치. CP949는 WebView/Node `euc-kr` 표가 원본과 달라(2바이트 12,994 vs 17,048) 원본 표를 `cp949Table.ts`로 내장. **PG ADD는 사용자 결정으로 Android 버전에서 제외.** ncdata.nc(650KB) 읽기+산출 65ms. P1 완료로 MINOR 1.1.0 |
