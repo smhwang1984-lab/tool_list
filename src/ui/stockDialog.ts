@@ -188,7 +188,7 @@ export function showStockDialog(ctx: StockDialogContext): void {
 
   const timer = window.setInterval(refreshStatus, 700);
   const dlg = showDialog('소재 (STOCK)', body, [
-    { label: '소재 지우기', onClick: () => { ctx.clear(); toast('소재를 지웠습니다.'); } },
+    { label: '소재 지우기', onClick: () => { ctx.clear(); } },
     { label: '닫기' },
     {
       label: '적용', primary: true,

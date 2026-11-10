@@ -194,7 +194,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
   const bNextTool = mkBtn(playBar, '⏭', '다음 공정');
   const speedSel = el('select', { title: '재생 속도' });
   for (const s of PLAY_SPEEDS) speedSel.append(new Option(`${s}x`, String(s)));
-  speedSel.value = '100';
+  speedSel.value = '50';
   const slider = el('input', { type: 'range', min: '0', max: '0', value: '0', title: '재생 위치' });
   const timeText = el('span', { class: 'v-time' });
   timeText.textContent = '00:00 / 00:00';

@@ -137,6 +137,8 @@ function mount(root: HTMLElement): void {
   const btnMachine = toolButton('장비', 'gear', '장비 타입 및 스펙 설정');
   const btnStop = toolButton('정지 옵션', 'run', '텍스트 정지 · 정지 · 옵션정지 · 실시간 형상');
   const btnStockTb = toolButton('소재', 'document', '소재(STOCK) 설정과 가공 형상 시뮬레이션');
+  const btnStockClear = toolButton('소재 지우기', 'eraser', '소재와 가공 형상을 지우고 툴패스 선을 다시 보이게 합니다');
+  btnStockClear.disabled = true;
   const btnRun = toolButton('Tool List', 'run', '공구 리스트 산출', { accent: true });
   const btnExample = toolButton('예제', 'document', '예제 프로그램 불러오기');
   const btnClear = toolButton('지우기', 'eraser', '프로그램과 공구 리스트 지우기');
@@ -148,7 +150,7 @@ function mount(root: HTMLElement): void {
       btnExample,
       btnClear,
     ),
-    group(btnMachine, btnStop, btnStockTb),
+    group(btnMachine, btnStop, btnStockTb, btnStockClear),
     group(btnEdit, btnEditSave, btnEditPw, editLabel),
     group(btnRun),
     group(btnTool, btnViewer),
@@ -368,6 +370,7 @@ function mount(root: HTMLElement): void {
           return { text: o.stopText, textValue: o.stopTextValue, m00: o.stopM00, m01: o.stopM01 };
         },
         lineText: (line) => editor.view.state.doc.line(Math.min(editor.view.state.doc.lines, line + 1)).text,
+        onSimChange: () => { btnStockClear.disabled = !viewer?.simStatus().hasStock; },
       });
       viewer?.setSimLive(filterPanel.liveOn());
       viewer?.setPgMatch(pgMatchOn);
@@ -400,8 +403,17 @@ function mount(root: HTMLElement): void {
     viewer.setVisible(null);
   };
   filterPanel.onLive = (on) => viewer?.setSimLive(on);
+  /** 소재를 지우면 숨겨 둔 툴패스 선을 자동으로 다시 보이게 한다 */
+  const clearStock = (): void => {
+    viewer?.applyStock(null, null, false);
+    setPref('sim_toolpath_visible', '1');
+    viewer?.setToolpathVisible(true);
+    btnStockClear.disabled = true;
+    toast('소재를 지웠습니다. 툴패스 선을 다시 표시합니다.');
+  };
+  btnStockClear.addEventListener('click', clearStock);
   btnStockTb.addEventListener('click', () => {
-    if (machinePanel.isLathe()) { toast('선반 소재(회전체)는 다음 단계(1.7.2)에서 지원합니다.'); return; }
+    if (machinePanel.isLathe()) { toast('선반 소재(회전체)는 다음 단계에서 지원합니다.'); return; }
     void ensureViewer().then(() => {
       viewerStale = true;
       refreshViewer();
@@ -409,7 +421,7 @@ function mount(root: HTMLElement): void {
         lines: () => editor.getText().split(/\r\n|\r|\n/),
         toolpathBounds: (margin) => (lastResult ? toolpathBounds(lastResult, margin) : null),
         apply: (spec, res, enabled) => { viewer?.applyStock(spec.bounds(), res, enabled); },
-        clear: () => { viewer?.applyStock(null, 1, false); },
+        clear: clearStock,
         status: () => viewer!.simStatus(),
         gotoLine: (line) => editor.selectLine(line),
         setToolpathVisible: (on) => viewer?.setToolpathVisible(on),
