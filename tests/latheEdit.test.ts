@@ -24,8 +24,11 @@ describe('선반 행 수정 (저장·전파)', () => {
     expect(result.changed).toContain('TIP');
     expect(sources.TIP).not.toBeUndefined();
     rows[a] = row;
+    const before = rows[b]!.TIP;
     propagateLatheSpecs(rows, a, original, row, sources, result.changed);
-    expect([row.TIP, original.TIP]).toContain(rows[b]!.TIP);
+    // 원본 규칙: 비었거나 옛 값 그대로인 칸만 새 값으로 바뀌고, 다른 값이 들어 있으면 그대로 둔다
+    const shouldChange = before === '' || before === original.TIP;
+    expect(rows[b]!.TIP).toBe(shouldChange ? row.TIP : before);
   });
   it('바뀐 칸이 없으면 아무것도 하지 않는다', () => {
     const store = new LatheSpecStore();
