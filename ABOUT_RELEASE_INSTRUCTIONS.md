@@ -47,7 +47,16 @@ Last updated: 2026-11-05 (NC_Tool_List v2.3.0 — 로컬 v2.2.9(STOCK SIZE)와 G
 
 ## Version history
 
-### 2026-11-10 (latest, v2.3.9)
+### 2026-11-11 (latest, v2.4.0)
+
+- Version: 2.3.9 → 2.4.0
+- Summary: 사용자 요청 — 장비 · 정지 옵션 · 소재 3종 아이콘을 3D 화면 위가 아니라 **상단 툴바, 편집 모드 앞**으로 되돌림(Viewer 모드에서만 보임).
+  v2.3.9의 장비 드롭다운 메뉴(타입 콤보+스펙+저장)와 공정 필터 클릭 동작(켤 때만 이동, 끄면 위치 유지)은 그대로.
+- Installer/package status: **생성 완료**. `installer\NC_Tool_List_Setup_v2.4.0.exe`. dist exe 기동 10초 뒤 실행 중.
+  - Setup EXE SHA-256: 7AFFED01A234CB754063BC41B805EB8C3EEEA3565389B734078A8A861D93E39F
+- Verification: pytest 840 통과 / 2 실패(이번 변경과 무관한 기존 2건).
+
+### 2026-11-10 (v2.3.9)
 
 - Version: 2.3.8 → 2.3.9
 - Summary: 사용자 요청.

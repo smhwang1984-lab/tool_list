@@ -305,11 +305,10 @@ X60 Y10 Z0
             self.assertFalse(hasattr(window, 'btn_machine_settings'))
             self.assertEqual(window.machine_settings_panel.title(), '')
             self.assertIn('장비 타입 및 스펙 설정', window.machine_panel_toggle.text())
-            # v2.3.9: 패널은 3D 화면 왼쪽 위 [장비] 아이콘의 드롭다운 메뉴 안에 있고, 기본은 닫혀 있다.
+            # v2.3.9: 패널은 상단 툴바 [장비] 아이콘의 드롭다운 메뉴 안에 있고, 기본은 닫혀 있다.
             self.assertFalse(window.machine_menu.isVisible())
             self.assertFalse(window.machine_panel_toggle.isChecked())
-            self.assertIs(window.btn_machine.parent(), window.view_icon_bar)
-            self.assertIn(window.view_icon_bar, window.viewer.gl_view.top_left_widgets)
+            self.assertTrue(window.btn_machine.isHidden())  # 툴바 아이콘은 Viewer 모드에서만 보인다
             window.set_mode('viewer')
             self.assertGreater(window.machine_type_combo.count(), 0)
             self.assertGreater(window.machine_spec_form.rowCount(), 0)
@@ -346,7 +345,7 @@ X60 Y10 Z0
 
             self.assertEqual(
                 button_texts(row),
-                ['파일 열기', 'PG ADD', '예제', '지우기', '편집 모드', '저장', '비밀번호',
+                ['파일 열기', 'PG ADD', '예제', '지우기', '장비', '정지 옵션', '소재', '편집 모드', '저장', '비밀번호',
                  'Tool List', '툴리스트 산출', 'Viewer'],
             )
         finally:
