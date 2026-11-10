@@ -1,0 +1,158 @@
+{
+ "func": "find_prev_regex_span",
+ "calls": [
+  {
+   "args": [
+    "M6 T1\nG0 X0\nM06T12\nM6T3",
+    {
+     "__re__": "^\\s*M0?6\\s*T0*\\d+\\b",
+     "flags": 42
+    },
+    23
+   ],
+   "result": [
+    19,
+    23,
+    false
+   ]
+  },
+  {
+   "args": [
+    "M6 T1\nG0 X0\nM06T12\nM6T3",
+    {
+     "__re__": "^\\s*M0?6\\s*T0*\\d+\\b",
+     "flags": 42
+    },
+    19
+   ],
+   "result": [
+    12,
+    18,
+    false
+   ]
+  },
+  {
+   "args": [
+    "M6 T1\nG0 X0\nM06T12\nM6T3",
+    {
+     "__re__": "^\\s*M0?6\\s*T0*\\d+\\b",
+     "flags": 42
+    },
+    12
+   ],
+   "result": [
+    0,
+    5,
+    false
+   ]
+  },
+  {
+   "args": [
+    "M6 T1\nG0 X0\nM06T12\nM6T3",
+    {
+     "__re__": "^\\s*M0?6\\s*T0*\\d+\\b",
+     "flags": 42
+    },
+    0
+   ],
+   "result": [
+    19,
+    23,
+    true
+   ]
+  },
+  {
+   "args": [
+    "M06T01",
+    {
+     "__re__": "^\\s*M0?6\\s*T0*\\d+\\b",
+     "flags": 42
+    },
+    6
+   ],
+   "result": [
+    0,
+    6,
+    false
+   ]
+  },
+  {
+   "args": [
+    "G0 X0",
+    {
+     "__re__": "^\\s*M0?6\\s*T0*\\d+\\b",
+     "flags": 42
+    },
+    5
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "%\nO2001\n(PART NO. : SHAFT-2001)\nN1(#1: Tool Change)\n (T0101 // OD ROUGH [SO 40] // T01 CNMG120408 )\nG50 S2500 T0100 M08\nG00 X100. Z5.\nT0101\nG01 X100. Z-20. F0.25\nG00 X120. Z20. T0100\nN2(#2: Tool Change)\n (T0303 // OD FINISH [SO 40] // T03 DNMG150404 )\nT0300\nG00 X40. Z5.\nT0303\nG01 X36. Z-30. F0.12\nG00 X120. Z20. T0000\nM30\n%\n",
+    {
+     "__re__": "T(?!0000)\\d{2}00(?!\\d)",
+     "flags": 42
+    },
+    325
+   ],
+   "result": [
+    252,
+    257,
+    false
+   ]
+  },
+  {
+   "args": [
+    "%\nO2001\n(PART NO. : SHAFT-2001)\nN1(#1: Tool Change)\n (T0101 // OD ROUGH [SO 40] // T01 CNMG120408 )\nG50 S2500 T0100 M08\nG00 X100. Z5.\nT0101\nG01 X100. Z-20. F0.25\nG00 X120. Z20. T0100\nN2(#2: Tool Change)\n (T0303 // OD FINISH [SO 40] // T03 DNMG150404 )\nT0300\nG00 X40. Z5.\nT0303\nG01 X36. Z-30. F0.12\nG00 X120. Z20. T0000\nM30\n%\n",
+    {
+     "__re__": "T(?!0000)\\d{2}00(?!\\d)",
+     "flags": 42
+    },
+    252
+   ],
+   "result": [
+    177,
+    182,
+    false
+   ]
+  },
+  {
+   "args": [
+    "%\nO2001\n(PART NO. : SHAFT-2001)\nN1(#1: Tool Change)\n (T0101 // OD ROUGH [SO 40] // T01 CNMG120408 )\nG50 S2500 T0100 M08\nG00 X100. Z5.\nT0101\nG01 X100. Z-20. F0.25\nG00 X120. Z20. T0100\nN2(#2: Tool Change)\n (T0303 // OD FINISH [SO 40] // T03 DNMG150404 )\nT0300\nG00 X40. Z5.\nT0303\nG01 X36. Z-30. F0.12\nG00 X120. Z20. T0000\nM30\n%\n",
+    {
+     "__re__": "T(?!0000)\\d{2}00(?!\\d)",
+     "flags": 42
+    },
+    177
+   ],
+   "result": [
+    110,
+    115,
+    false
+   ]
+  },
+  {
+   "args": [
+    "%\nO2001\n(PART NO. : SHAFT-2001)\nN1(#1: Tool Change)\n (T0101 // OD ROUGH [SO 40] // T01 CNMG120408 )\nG50 S2500 T0100 M08\nG00 X100. Z5.\nT0101\nG01 X100. Z-20. F0.25\nG00 X120. Z20. T0100\nN2(#2: Tool Change)\n (T0303 // OD FINISH [SO 40] // T03 DNMG150404 )\nT0300\nG00 X40. Z5.\nT0303\nG01 X36. Z-30. F0.12\nG00 X120. Z20. T0000\nM30\n%\n",
+    {
+     "__re__": "^\\s*M0?6\\s*T0*\\d+\\b",
+     "flags": 42
+    },
+    325
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "G0 X0 Y0\nG1 X10",
+    {
+     "__re__": "^\\s*M0?6\\s*T0*\\d+\\b",
+     "flags": 42
+    },
+    0
+   ],
+   "result": null
+  }
+ ]
+}

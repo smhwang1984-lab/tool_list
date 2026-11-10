@@ -1,0 +1,161 @@
+{
+ "func": "derive_d",
+ "calls": [
+  {
+   "args": [
+    "FACE MILL"
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "D16.8 FLAT EM"
+   ],
+   "result": "16.8"
+  },
+  {
+   "args": [
+    "D6 REAMER"
+   ],
+   "result": "6"
+  },
+  {
+   "args": [
+    "D13 DR"
+   ],
+   "result": "13"
+  },
+  {
+   "args": [
+    "D7 DR"
+   ],
+   "result": "7"
+  },
+  {
+   "args": [
+    ""
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "D5 DR"
+   ],
+   "result": "5"
+  },
+  {
+   "args": [
+    "OD ROUGH"
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "OD FINISH"
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "D10 EM"
+   ],
+   "result": "10"
+  },
+  {
+   "args": [
+    "D50 F.MIL"
+   ],
+   "result": "50"
+  },
+  {
+   "args": [
+    "D10 F.EM"
+   ],
+   "result": "10"
+  },
+  {
+   "args": [
+    "D12 F.MIL"
+   ],
+   "result": "12"
+  },
+  {
+   "args": [
+    "d 6.5 r.em"
+   ],
+   "result": "6.5"
+  },
+  {
+   "args": [
+    "DY.EM D12"
+   ],
+   "result": "12"
+  },
+  {
+   "args": [
+    "C.MIL"
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "T.CUT D20"
+   ],
+   "result": "20"
+  },
+  {
+   "args": [
+    null
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "FACE MILL D80"
+   ],
+   "result": "80"
+  },
+  {
+   "args": [
+    "CENTER DRILL"
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "DRILL D3.3"
+   ],
+   "result": "3.3"
+  },
+  {
+   "args": [
+    "ＤＲ"
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "f.mil D50"
+   ],
+   "result": "50"
+  },
+  {
+   "args": [
+    "D.5"
+   ],
+   "result": ".5"
+  },
+  {
+   "args": [
+    "D"
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "DD12"
+   ],
+   "result": "12"
+  }
+ ]
+}

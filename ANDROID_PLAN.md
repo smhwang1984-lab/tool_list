@@ -254,3 +254,4 @@ build_apk.bat install
 |---|---|---|---|
 | 0.1.0 | 2026-11-10 | **P0** | Capacitor 8 + Vite + TypeScript 뼈대. 원본 배치(제목 줄/툴바/2단·폰 세로 탭), 원본 THEMES 다크모드, 원본 아이콘 SVG 이식, Three.js WebGL 확인 화면, Android 프로젝트(`com.sumpath.nctoollist`, minSdk 26, target 36), 런처 아이콘·시작 화면, `build_apk.bat` / `git_sync.bat` / `git_publish.bat`, `SETUP_WINDOWS.md`. **APK 빌드는 Windows PC에서 확인 필요**(클라우드에서는 Android SDK 다운로드가 막혀 있음) |
 | 1.0.0 | 2026-11-10 | **P1-T0** | 별도 프로그램으로 보고 버전을 1.0.0에서 새로 시작(원본 버전 표시 제거). `tools/bump_version.mjs`(`npm run bump`, `--minor`, `--set`, `--check`) + 테스트. 단계별 버전을 P1=1.1.0 … P7=1.8.0으로 다시 매김 |
+| 1.0.0 | 2026-11-10 | **P1-T1·T2** | 골든 생성기(원본 pytest 기록 모드 + 샘플 NC 11개 전체 산출, 기준 원본 `3d189d4`). `src/core/py.ts`(Python 정규식·float·repr·strip 동작 맞추기), `text`·`columns`·`metadata`·`nameTypes` 이식 — 골든 100% 일치. T3 일부(`radiusComp`·`alerts`)도 일치 |

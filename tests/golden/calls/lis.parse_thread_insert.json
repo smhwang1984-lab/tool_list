@@ -1,0 +1,829 @@
+{
+ "func": "lis.parse_thread_insert",
+ "calls": [
+  {
+   "args": [
+    "6.0 R0.5 E/M / D-6. / R-0.5"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "6.0 R0.5 E/M / D-6. / R-0.5 BMT STRAIGHT"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "CNMG 120408 | R-0.8"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "CNMG 120408 | R-0.8 PCLNR 2525M 12"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "CNMG 120404 | R-0.4"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "CNMG 120404 | R-0.4 PCLNR 2525M 12 (FINISH)"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D50.0 X H103 T-DRILL"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D50.0 X H103 T-DRILL SLEEVE"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "INSERT B"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "INSERT B S07J SWUBR 06-D08"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "10.0 R0.5 E/M / D-10. / R-0.5"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "10.0 R0.5 E/M / D-10. / R-0.5 BMT STRAIGHT"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "4.0 R0.5 E/M / D-4. / R-0.5"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "4.0 R0.5 E/M / D-4. / R-0.5 BMT STRAIGHT"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "VCMT 16 04 04 | R-0.4"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "VCMT 16 04 04 | R-0.4 SVJCR 2525 M16"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "CNMG 120408 | R-0.8 G41 COMPENSATION HOLDER"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "VCMT 160404 | R-0.4"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "VCMT 160404 | R-0.4 SVJCR 2525 M16"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D5.5 CARBIDE DRILL, ANGLE"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D5.5 CARBIDE DRILL, ANGLE MILL TOOL CHECK"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D4.5 CARBIDE DRILL, ANGLE"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D4.5 CARBIDE DRILL, ANGLE MILL TOOL CHECK"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "TPGT 110302 | R-0.2"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "TPGT 110302 | R-0.2 S16R STFPR 11 - D20"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D3. FLAT END MILL, ANGLE"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D3. FLAT END MILL, ANGLE MILL TOOL CHECK"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "CNMG 120408 | R-0.8 S40T PCLNR 12 - 50"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D10 X 90 NC DRILL"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D10 X 90 NC DRILL MILL TOOL CHECK"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "16ER 1.5 ISO"
+   ],
+   "result": {
+    "side": "외경",
+    "hand": "R",
+    "pitch": 1.5,
+    "form": "ISO",
+    "length": 16,
+    "angle": 60.0
+   }
+  },
+  {
+   "args": [
+    "16IL 1.0ISO"
+   ],
+   "result": {
+    "side": "내경",
+    "hand": "L",
+    "pitch": 1.0,
+    "form": "ISO",
+    "length": 16,
+    "angle": 60.0
+   }
+  },
+  {
+   "args": [
+    "16ER 14W"
+   ],
+   "result": {
+    "side": "외경",
+    "hand": "R",
+    "pitch": 1.8142857142857143,
+    "form": "W",
+    "length": 16,
+    "angle": 55.0
+   }
+  },
+  {
+   "args": [
+    "16ER AG60"
+   ],
+   "result": {
+    "side": "외경",
+    "hand": "R",
+    "pitch": null,
+    "form": "PARTIAL",
+    "length": 16,
+    "angle": 60.0
+   }
+  },
+  {
+   "args": [
+    "CNMG 120408"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "WBGT 060102 | R-0.2"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "WBGT 060102 | R-0.2 S07J SWUBR 06-D08"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "VCMT 160404"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "VCMT 160404 SVJCR 2525 M16"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D12 CARBIDE DRILL"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D12 CARBIDE DRILL ER25"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D1.5 CENTER"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D1.5 CENTER ER25-75"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D16 FLAT END MILL, ANGLE"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D16 FLAT END MILL, ANGLE MILL TOOL CHECK"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D12 X R1.5 FILLET END MILL"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D12 X R1.5 FILLET END MILL ER25"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D50. FACE CUTTER, STRAIGHT | R-0.8"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D50. FACE CUTTER, STRAIGHT | R-0.8 MILL TOOL CHECK"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D10.SETTING PIN | R-0."
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D10.SETTING PIN | R-0. ER25"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "ROLLE NULLING  | R-0.12"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "ROLLE NULLING  | R-0.12 NULLING TOOL"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "MTI 0808 D30 A60 MT8, STRAIGHT"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "MTI 0808 D30 A60 MT8, STRAIGHT MILL TOOL CHECK"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "MTI 0808 D30 A60 MT8"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "MTI 0808 D30 A60 MT8 MILL TOOL CHECK"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D10 X 90 NC DRILL "
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "CNMG 120408 PCLNR 2525M 12"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "CNMG 120408 PCLNL 2525M 12"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "DNMG150404"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "DNMG150404 S25T-PCLNR 12"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D12 FLAT EN, STRAIGHT | DIA-12."
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D12 FLAT EN, STRAIGHT | DIA-12. MILL TOOL CHECK"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D10.BALL EN, STRAIGHT | DIA-10. | R-5."
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D10.BALL EN, STRAIGHT | DIA-10. | R-5. MILL TOOL CHECK"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D10XR0.8 FILLET EN, STRAIGHT | DIA-10. | R-0.8"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D10XR0.8 FILLET EN, STRAIGHT | DIA-10. | R-0.8 MILL TOOL CHECK"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D2X90X6 CHAMF EN, STRAIGHT | DIA-6."
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D2X90X6 CHAMF EN, STRAIGHT | DIA-6. MILL TOOL CHECK"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    ".2500-28 UNJF_3B, STRAIGHT | DIA-6.35"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    ".2500-28 UNJF_3B, STRAIGHT | DIA-6.35 MILL TOOL CHECK"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D5.2 CARBIDE DRILL, STRAIGHT | DIA-5.2"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D5.2 CARBIDE DRILL, STRAIGHT | DIA-5.2 MILL TOOL CHECK"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    ".3125-24 UNJF_3B, STRAIGHT"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    ".3125-24 UNJF_3B, STRAIGHT MILL TOOL CHECK"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "M6X1.0 TAP"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "M6X1.0 TAP "
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    ".2500-28 UNJF_3B | DIA-6.35"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    ".2500-28 UNJF_3B | DIA-6.35 ER25"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "16ER 16UNJ | R-0.24"
+   ],
+   "result": {
+    "side": "외경",
+    "hand": "R",
+    "pitch": 1.5875,
+    "form": "UNJ",
+    "length": 16,
+    "angle": 60.0
+   }
+  },
+  {
+   "args": [
+    "16IR 20UNF"
+   ],
+   "result": {
+    "side": "내경",
+    "hand": "R",
+    "pitch": 1.27,
+    "form": "UNF",
+    "length": 16,
+    "angle": 60.0
+   }
+  },
+  {
+   "args": [
+    "16ER 16UNJ | R-0.24 SER 2525 M16"
+   ],
+   "result": {
+    "side": "외경",
+    "hand": "R",
+    "pitch": 1.5875,
+    "form": "UNJ",
+    "length": 16,
+    "angle": 60.0
+   }
+  },
+  {
+   "args": [
+    "DNMG 150404"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "DNMG 150404 BORING BAR S25T-PCLNR 12"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "CNMG 120400"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "CNMG 120400 "
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    ""
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    " MGEHR 2525-3"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "VNMG160404 MVJNL 2525M16"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "16EL 1.5 ISO "
+   ],
+   "result": {
+    "side": "외경",
+    "hand": "L",
+    "pitch": 1.5,
+    "form": "ISO",
+    "length": 16,
+    "angle": 60.0
+   }
+  },
+  {
+   "args": [
+    "N123G2-0300-0004-GM MGEHL 2525-3"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "CUT-OFF "
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    " "
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "CNMG 120408 "
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    " 드릴 홀더"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "CUT-OFF 3MM "
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "정면 홈 3 "
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "내경 홈 "
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "16ER 1.5 ISO SER 2525M16"
+   ],
+   "result": {
+    "side": "외경",
+    "hand": "R",
+    "pitch": 1.5,
+    "form": "ISO",
+    "length": 16,
+    "angle": 60.0
+   }
+  },
+  {
+   "args": [
+    "16IR 1.5 ISO SIR 0016 M16"
+   ],
+   "result": {
+    "side": "내경",
+    "hand": "R",
+    "pitch": 1.5,
+    "form": "ISO",
+    "length": 16,
+    "angle": 60.0
+   }
+  },
+  {
+   "args": [
+    "N123G2-0300-0004-GM MGEHR 2525-3"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "MGMN300-M S25T-MGEHR 3"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "MY-GROOVE INSERT"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "MY-GROOVE INSERT MGEHR 2525-3"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "N123G2-0300-0004-GM"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "N123G2-0300-0004-GM "
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "16ER AG60 "
+   ],
+   "result": {
+    "side": "외경",
+    "hand": "R",
+    "pitch": null,
+    "form": "PARTIAL",
+    "length": 16,
+    "angle": 60.0
+   }
+  },
+  {
+   "args": [
+    "16ER 1.0 ISO"
+   ],
+   "result": {
+    "side": "외경",
+    "hand": "R",
+    "pitch": 1.0,
+    "form": "ISO",
+    "length": 16,
+    "angle": 60.0
+   }
+  },
+  {
+   "args": [
+    "16ER 1.0 ISO "
+   ],
+   "result": {
+    "side": "외경",
+    "hand": "R",
+    "pitch": 1.0,
+    "form": "ISO",
+    "length": 16,
+    "angle": 60.0
+   }
+  },
+  {
+   "args": [
+    "CNMG 120408 | R-1.2"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "CNMG 120408 | R-1.2 "
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "CNMG 120408 S25T-PCLNR 12"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "CNMG 120404"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "MY-GROOVE"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "MGMN300-M"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "16ER AG60 SER 2525M16"
+   ],
+   "result": {
+    "side": "외경",
+    "hand": "R",
+    "pitch": null,
+    "form": "PARTIAL",
+    "length": 16,
+    "angle": 60.0
+   }
+  },
+  {
+   "args": [
+    "MY-GROOVE INSERT S25T-MGEHR 3"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "DNMG150404 PCLNR 2525M 12"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "TNMG160404"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "TNMG160404 PCLNL 2525M 12"
+   ],
+   "result": null
+  }
+ ]
+}

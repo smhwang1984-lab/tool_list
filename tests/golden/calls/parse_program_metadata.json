@@ -1,0 +1,461 @@
+{
+ "func": "parse_program_metadata",
+ "calls": [
+  {
+   "args": [
+    "%\n O1017\n(PART NO. : K10M41017)\n(OPERATION : OP10)\n(PROGRAM : O1017)\n(RUN TIME : 160)\n(DATE : 2026-08-25)\nN1(#1: Tool Change)\n (T11 // D13 DR [SO 140] // T11 BT50 DMG32-105 )\nM6 T11\nN2(#2: Tool Change)\n (T3 // D16.8 FLAT EM [SO 80] // T3 BT50 SLN16-90 )\nM6 T3\nN3(#3: Tool Change)\n (T1 // FACE MILL [SO 200] // T1 BT50 FMH-60 )\nM6 T1\nN4(#4: Tool Change)\n (T12 // D7 DR [SO 120] // T12 BT50 DMG32-105 )\nM6 T12\nN5(#5: Tool Change)\n (T4 // D6 REAMER [SO 70] // T4 BT50 SLN06-90 )\nM6 T4\nN6(#6: Tool Change)\n (T16 // D13 DR [SO 30] // T16 BT50 NPU-90 )\nM6 T16\nN7(#7: Tool Change)\n (T3 // D16.8 FLAT EM [SO 80] // T3 BT50 SLN16-90 )\nM6 T3\n"
+   ],
+   "result": {
+    "part_no": "K10M41017",
+    "operation": "OP10",
+    "program": "O1017",
+    "runtime": "160",
+    "date": "2026-08-25"
+   }
+  },
+  {
+   "args": [
+    "G00 X0 Y0 Z0\nM6T1\nG43\nG00 X10 Y0 Z0\nG01 X20 Y0 Z0\nG01 X20 Y10 Z0\nG01 X20 Y20 Z0\nM6T2\nG43\nG00 X30 Y0 Z0\nG01 X40 Y0 Z0\n"
+   ],
+   "result": {
+    "part_no": "",
+    "operation": "",
+    "program": "",
+    "runtime": "",
+    "date": ""
+   }
+  },
+  {
+   "args": [
+    "G00 X0 Y0 Z0\nM6T1\nG43\nG00 X10 Y0 Z0\nG01 X20 Y0 Z0\nM6T2\nG43\nG00 X30 Y0 Z0\n"
+   ],
+   "result": {
+    "part_no": "",
+    "operation": "",
+    "program": "",
+    "runtime": "",
+    "date": ""
+   }
+  },
+  {
+   "args": [
+    "M6T1\nG43\nG00 X0 Y0 Z0\nM98 P0001\nG01 X99 Y0 Z0\nM30\n\nO0001\nG01 X50 Y0 Z0\nM99"
+   ],
+   "result": {
+    "part_no": "",
+    "operation": "",
+    "program": "O0001",
+    "runtime": "",
+    "date": ""
+   }
+  },
+  {
+   "args": [
+    "( PGM NO : OP10_SSTR4171 )\n( COMPLETE TIME : 11:15:01 )"
+   ],
+   "result": {
+    "part_no": "SSTR4171",
+    "operation": "OP10",
+    "program": "OP10_SSTR4171",
+    "runtime": "11:15:01",
+    "date": ""
+   }
+  },
+  {
+   "args": [
+    "%\nO2000\nN0 G01 X0 Y0\nN1 G01 X1 Y0\nN2 G01 X2 Y0\nN3 G01 X3 Y0\nN4 G01 X4 Y0\nN5 G01 X5 Y0\nN6 G01 X6 Y0\nN7 G01 X7 Y0\nN8 G01 X8 Y0\nN9 G01 X9 Y0\nN10 G01 X10 Y0\nN11 G01 X11 Y0\nN12 G01 X12 Y0\nN13 G01 X13 Y0\nN14 G01 X14 Y0\nN15 G01 X15 Y0\nN16 G01 X16 Y0\nN17 G01 X17 Y0\nN18 G01 X18 Y0\nN19 G01 X19 Y0\nN20 G01 X20 Y0\nN21 G01 X21 Y0\nN22 G01 X22 Y0\nN23 G01 X23 Y0\nN24 G01 X24 Y0\nN25 G01 X25 Y0\nN26 G01 X26 Y0\nN27 G01 X27 Y0\nN28 G01 X28 Y0\nN29 G01 X29 Y0\nN30 G01 X30 Y0\nN31 G01 X31 Y0\nN32 G01 X32 Y0\nN33 G01 X33 Y0\nN34 G01 X34 Y0\nN35 G01 X35 Y0\nN36 G01 X36 Y0\nN37 G01 X37 Y0\nN38 G01 X38 Y0\nN39 G01 X39 Y0\nN40 G01 X40 Y0\nN41 G01 X41 Y0\nN42 G01 X42 Y0\nN43 G01 X43 Y0\nN44 G01 X44 Y0\nN45 G01 X45 Y0\nN46 G01 X46 Y0\nN47 G01 X47 Y0\nN48 G01 X48 Y0\nN49 G01 X49 Y0\nN50 G01 X50 Y0\nN51 G01 X51 Y0\nN52 G01 X52 Y0\nN53 G01 X53 Y0\nN54 G01 X54 Y0\nN55 G01 X55 Y0\nN56 G01 X56 Y0\nN57 G01 X57 Y0\nN58 G01 X58 Y0\nN59 G01 X59 Y0\nN60 G01 X60 Y0\nN61 G01 X61 Y0\nN62 G01 X62 Y0\nN63 G01 X63 Y0\nN64 G01 X64 Y0\nN65 G01 X65 Y0\nN66 G01 X66 Y0\nN67 G01 X67 Y0\nN68 G01 X68 Y0\nN69 G01 X69 Y0\nN70 G01 X70 Y0\nN71 G01 X71 Y0\nN72 G01 X72 Y0\nN73 G01 X73 Y0\nN74 G01 X74 Y0\nN75 G01 X75 Y0\nN76 G01 X76 Y0\nN77 G01 X77 Y0\nN78 G01 X78 Y0\nN79 G01 X79 Y0\nN80 G01 X80 Y0\nN81 G01 X81 Y0\nN82 G01 X82 Y0\nN83 G01 X83 Y0\nN84 G01 X84 Y0\nN85 G01 X85 Y0\nN86 G01 X86 Y0\nN87 G01 X87 Y0\nN88 G01 X88 Y0\nN89 G01 X89 Y0\nN90 G01 X90 Y0\nN91 G01 X91 Y0\nN92 G01 X92 Y0\nN93 G01 X93 Y0\nN94 G01 X94 Y0\nN95 G01 X95 Y0\nN96 G01 X96 Y0\nN97 G01 X97 Y0\nN98 G01 X98 Y0\nN99 G01 X99 Y0\nN100 G01 X100 Y0\nN101 G01 X101 Y0\nN102 G01 X102 Y0\nN103 G01 X103 Y0\nN104 G01 X104 Y0\nN105 G01 X105 Y0\nN106 G01 X106 Y0\nN107 G01 X107 Y0\nN108 G01 X108 Y0\nN109 G01 X109 Y0\nN110 G01 X110 Y0\nN111 G01 X111 Y0\nN112 G01 X112 Y0\nN113 G01 X113 Y0\nN114 G01 X114 Y0\nN115 G01 X115 Y0\nN116 G01 X116 Y0\nN117 G01 X117 Y0\nN118 G01 X118 Y0\nN119 G01 X119 Y0\nN120 G01 X120 Y0\nN121 G01 X121 Y0\nN122 G01 X122 Y0\nN123 G01 X123 Y0\nN124 G01 X124 Y0\nN125 G01 X125 Y0\nN126 G01 X126 Y0\nN127 G01 X127 Y0\nN128 G01 X128 Y0\nN129 G01 X129 Y0\nN130 G01 X130 Y0\nN131 G01 X131 Y0\nN132 G01 X132 Y0\nN133 G01 X133 Y0\nN134 G01 X134 Y0\nN135 G01 X135 Y0\nN136 G01 X136 Y0\nN137 G01 X137 Y0\nN138 G01 X138 Y0\nN139 G01 X139 Y0\nN140 G01 X140 Y0\nN141 G01 X141 Y0\nN142 G01 X142 Y0\nN143 G01 X143 Y0\nN144 G01 X144 Y0\nN145 G01 X145 Y0\nN146 G01 X146 Y0\nN147 G01 X147 Y0\nN148 G01 X148 Y0\nN149 G01 X149 Y0\nN150 G01 X150 Y0\nN151 G01 X151 Y0\nN152 G01 X152 Y0\nN153 G01 X153 Y0\nN154 G01 X154 Y0\nN155 G01 X155 Y0\nN156 G01 X156 Y0\nN157 G01 X157 Y0\nN158 G01 X158 Y0\nN159 G01 X159 Y0\nN160 G01 X160 Y0\nN161 G01 X161 Y0\nN162 G01 X162 Y0\nN163 G01 X163 Y0\nN164 G01 X164 Y0\nN165 G01 X165 Y0\nN166 G01 X166 Y0\nN167 G01 X167 Y0\nN168 G01 X168 Y0\nN169 G01 X169 Y0\nN170 G01 X170 Y0\nN171 G01 X171 Y0\nN172 G01 X172 Y0\nN173 G01 X173 Y0\nN174 G01 X174 Y0\nN175 G01 X175 Y0\nN176 G01 X176 Y0\nN177 G01 X177 Y0\nN178 G01 X178 Y0\nN179 G01 X179 Y0\nN180 G01 X180 Y0\nN181 G01 X181 Y0\nN182 G01 X182 Y0\nN183 G01 X183 Y0\nN184 G01 X184 Y0\nN185 G01 X185 Y0\nN186 G01 X186 Y0\nN187 G01 X187 Y0\nN188 G01 X188 Y0\nN189 G01 X189 Y0\nN190 G01 X190 Y0\nN191 G01 X191 Y0\nN192 G01 X192 Y0\nN193 G01 X193 Y0\nN194 G01 X194 Y0\nN195 G01 X195 Y0\nN196 G01 X196 Y0\nN197 G01 X197 Y0\nN198 G01 X198 Y0\nN199 G01 X199 Y0\nM01\nN200 G01 X200 Y0\nM30"
+   ],
+   "result": {
+    "part_no": "",
+    "operation": "",
+    "program": "O2000",
+    "runtime": "",
+    "date": ""
+   }
+  },
+  {
+   "args": [
+    "M6T1\nG43\nM98 P0001\nM30\n\nO0001\nM98 P0002\nM99\n\nO0002\nG01 X77\nM99"
+   ],
+   "result": {
+    "part_no": "",
+    "operation": "",
+    "program": "O0001",
+    "runtime": "",
+    "date": ""
+   }
+  },
+  {
+   "args": [
+    "%\nO2000\nN0 G01 X0 Y0\nN1 G01 X1 Y0\nN2 G01 X2 Y0\nN3 G01 X3 Y0\nN4 G01 X4 Y0\nN5 G01 X5 Y0\nN6 G01 X6 Y0\nN7 G01 X7 Y0\nN8 G01 X8 Y0\nN9 G01 X9 Y0\nN10 G01 X10 Y0\nN11 G01 X11 Y0\nN12 G01 X12 Y0\nN13 G01 X13 Y0\nN14 G01 X14 Y0\nN15 G01 X15 Y0\nN16 G01 X16 Y0\nN17 G01 X17 Y0\nN18 G01 X18 Y0\nN19 G01 X19 Y0\nN20 G01 X20 Y0\nN21 G01 X21 Y0\nN22 G01 X22 Y0\nN23 G01 X23 Y0\nN24 G01 X24 Y0\nN25 G01 X25 Y0\nN26 G01 X26 Y0\nN27 G01 X27 Y0\nN28 G01 X28 Y0\nN29 G01 X29 Y0\nN30 G01 X30 Y0\nN31 G01 X31 Y0\nN32 G01 X32 Y0\nN33 G01 X33 Y0\nN34 G01 X34 Y0\nN35 G01 X35 Y0\nN36 G01 X36 Y0\nN37 G01 X37 Y0\nN38 G01 X38 Y0\nN39 G01 X39 Y0\nN40 G01 X40 Y0\nN41 G01 X41 Y0\nN42 G01 X42 Y0\nN43 G01 X43 Y0\nN44 G01 X44 Y0\nN45 G01 X45 Y0\nN46 G01 X46 Y0\nN47 G01 X47 Y0\nN48 G01 X48 Y0\nN49 G01 X49 Y0\nN50 G01 X50 Y0\nN51 G01 X51 Y0\nN52 G01 X52 Y0\nN53 G01 X53 Y0\nN54 G01 X54 Y0\nN55 G01 X55 Y0\nN56 G01 X56 Y0\nN57 G01 X57 Y0\nN58 G01 X58 Y0\nN59 G01 X59 Y0\nN60 G01 X60 Y0\nN61 G01 X61 Y0\nN62 G01 X62 Y0\nN63 G01 X63 Y0\nN64 G01 X64 Y0\nN65 G01 X65 Y0\nN66 G01 X66 Y0\nN67 G01 X67 Y0\nN68 G01 X68 Y0\nN69 G01 X69 Y0\nN70 G01 X70 Y0\nN71 G01 X71 Y0\nN72 G01 X72 Y0\nN73 G01 X73 Y0\nN74 G01 X74 Y0\nN75 G01 X75 Y0\nN76 G01 X76 Y0\nN77 G01 X77 Y0\nN78 G01 X78 Y0\nN79 G01 X79 Y0\nN80 G01 X80 Y0\nN81 G01 X81 Y0\nN82 G01 X82 Y0\nN83 G01 X83 Y0\nN84 G01 X84 Y0\nN85 G01 X85 Y0\nN86 G01 X86 Y0\nN87 G01 X87 Y0\nN88 G01 X88 Y0\nN89 G01 X89 Y0\nN90 G01 X90 Y0\nN91 G01 X91 Y0\nN92 G01 X92 Y0\nN93 G01 X93 Y0\nN94 G01 X94 Y0\nN95 G01 X95 Y0\nN96 G01 X96 Y0\nN97 G01 X97 Y0\nN98 G01 X98 Y0\nN99 G01 X99 Y0\nM01\nN100 G01 X100 Y0\nM30"
+   ],
+   "result": {
+    "part_no": "",
+    "operation": "",
+    "program": "O2000",
+    "runtime": "",
+    "date": ""
+   }
+  },
+  {
+   "args": [
+    "M6T1\nG43\nM98 P0001 L2\nM30\n\nO0001\nG01 X10 F100\nM99"
+   ],
+   "result": {
+    "part_no": "",
+    "operation": "",
+    "program": "O0001",
+    "runtime": "",
+    "date": ""
+   }
+  },
+  {
+   "args": [
+    "%\nO2000\nN0 G01 X0 Y0\nN1 G01 X1 Y0\nN2 G01 X2 Y0\nN3 G01 X3 Y0\nN4 G01 X4 Y0\nN5 G01 X5 Y0\nN6 G01 X6 Y0\nN7 G01 X7 Y0\nN8 G01 X8 Y0\nN9 G01 X9 Y0\nN10 G01 X10 Y0\nN11 G01 X11 Y0\nN12 G01 X12 Y0\nN13 G01 X13 Y0\nN14 G01 X14 Y0\nN15 G01 X15 Y0\nN16 G01 X16 Y0\nN17 G01 X17 Y0\nN18 G01 X18 Y0\nN19 G01 X19 Y0\nN20 G01 X20 Y0\nN21 G01 X21 Y0\nN22 G01 X22 Y0\nN23 G01 X23 Y0\nN24 G01 X24 Y0\nN25 G01 X25 Y0\nN26 G01 X26 Y0\nN27 G01 X27 Y0\nN28 G01 X28 Y0\nN29 G01 X29 Y0\nN30 G01 X30 Y0\nN31 G01 X31 Y0\nN32 G01 X32 Y0\nN33 G01 X33 Y0\nN34 G01 X34 Y0\nN35 G01 X35 Y0\nN36 G01 X36 Y0\nN37 G01 X37 Y0\nN38 G01 X38 Y0\nN39 G01 X39 Y0\nN40 G01 X40 Y0\nN41 G01 X41 Y0\nN42 G01 X42 Y0\nN43 G01 X43 Y0\nN44 G01 X44 Y0\nN45 G01 X45 Y0\nN46 G01 X46 Y0\nN47 G01 X47 Y0\nN48 G01 X48 Y0\nN49 G01 X49 Y0\nM01\nN50 G01 X50 Y0\nN51 G01 X51 Y0\nN52 G01 X52 Y0\nN53 G01 X53 Y0\nN54 G01 X54 Y0\nN55 G01 X55 Y0\nN56 G01 X56 Y0\nN57 G01 X57 Y0\nN58 G01 X58 Y0\nN59 G01 X59 Y0\nN60 G01 X60 Y0\nN61 G01 X61 Y0\nN62 G01 X62 Y0\nN63 G01 X63 Y0\nN64 G01 X64 Y0\nN65 G01 X65 Y0\nN66 G01 X66 Y0\nN67 G01 X67 Y0\nN68 G01 X68 Y0\nN69 G01 X69 Y0\nN70 G01 X70 Y0\nN71 G01 X71 Y0\nN72 G01 X72 Y0\nN73 G01 X73 Y0\nN74 G01 X74 Y0\nN75 G01 X75 Y0\nN76 G01 X76 Y0\nN77 G01 X77 Y0\nN78 G01 X78 Y0\nN79 G01 X79 Y0\nN80 G01 X80 Y0\nN81 G01 X81 Y0\nN82 G01 X82 Y0\nN83 G01 X83 Y0\nN84 G01 X84 Y0\nN85 G01 X85 Y0\nN86 G01 X86 Y0\nN87 G01 X87 Y0\nN88 G01 X88 Y0\nN89 G01 X89 Y0\nN90 G01 X90 Y0\nN91 G01 X91 Y0\nN92 G01 X92 Y0\nN93 G01 X93 Y0\nN94 G01 X94 Y0\nN95 G01 X95 Y0\nN96 G01 X96 Y0\nN97 G01 X97 Y0\nN98 G01 X98 Y0\nN99 G01 X99 Y0\nM30"
+   ],
+   "result": {
+    "part_no": "",
+    "operation": "",
+    "program": "O2000",
+    "runtime": "",
+    "date": ""
+   }
+  },
+  {
+   "args": [
+    "%\nO2000\nN0 G01 X0 Y0\nN1 G01 X1 Y0\nN2 G01 X2 Y0\nN3 G01 X3 Y0\nN4 G01 X4 Y0\nM01\nN5 G01 X5 Y0\nN6 G01 X6 Y0\nN7 G01 X7 Y0\nN8 G01 X8 Y0\nN9 G01 X9 Y0\nM30"
+   ],
+   "result": {
+    "part_no": "",
+    "operation": "",
+    "program": "O2000",
+    "runtime": "",
+    "date": ""
+   }
+  },
+  {
+   "args": [
+    "%\nO2000\nN0 G01 X0 Y0\nN1 G01 X1 Y0\nN2 G01 X2 Y0\nN3 G01 X3 Y0\nN4 G01 X4 Y0\nN5 G01 X5 Y0\nN6 G01 X6 Y0\nN7 G01 X7 Y0\nN8 G01 X8 Y0\nN9 G01 X9 Y0\nN10 G01 X10 Y0\nN11 G01 X11 Y0\nN12 G01 X12 Y0\nN13 G01 X13 Y0\nG43 H1 Z50.\nN14 G01 X14 Y0\nN15 G01 X15 Y0\nN16 G01 X16 Y0\nN17 G01 X17 Y0\nN18 G01 X18 Y0\nN19 G01 X19 Y0\nN20 G01 X20 Y0\nN21 G01 X21 Y0\nN22 G01 X22 Y0\nN23 G01 X23 Y0\nN24 G01 X24 Y0\nN25 G01 X25 Y0\nN26 G01 X26 Y0\nN27 G01 X27 Y0\nN28 G01 X28 Y0\nN29 G01 X29 Y0\nM30"
+   ],
+   "result": {
+    "part_no": "",
+    "operation": "",
+    "program": "O2000",
+    "runtime": "",
+    "date": ""
+   }
+  },
+  {
+   "args": [
+    "%\nO2000\nN0 G01 X0 Y0\nN1 G01 X1 Y0\nN2 G01 X2 Y0\nN3 G01 X3 Y0\nN4 G01 X4 Y0\nN5 G01 X5 Y0\nN6 G01 X6 Y0\nN7 G01 X7 Y0\nN8 G01 X8 Y0\nN9 G01 X9 Y0\nN10 G01 X10 Y0\nN11 G01 X11 Y0\nN12 G01 X12 Y0\nN13 G01 X13 Y0\nN14 G01 X14 Y0\nN15 G01 X15 Y0\nN16 G01 X16 Y0\nN17 G01 X17 Y0\nN18 G01 X18 Y0\nN19 G01 X19 Y0\nN20 G01 X20 Y0\nN21 G01 X21 Y0\nN22 G01 X22 Y0\nN23 G01 X23 Y0\nN24 G01 X24 Y0\nN25 G01 X25 Y0\nN26 G01 X26 Y0\nN27 G01 X27 Y0\nN28 G01 X28 Y0\nN29 G01 X29 Y0\nM01\nN30 G01 X30 Y0\nM30"
+   ],
+   "result": {
+    "part_no": "",
+    "operation": "",
+    "program": "O2000",
+    "runtime": "",
+    "date": ""
+   }
+  },
+  {
+   "args": [
+    "NC PGM\n%\nO0001\n( ** TECH STAR ** )\n( PGM NO :  OP10_SSTR4171 )\n( COMPLETE TIME : 11:15:01 )\n( DATE : 2026-08-25 )\n( PROGRAMER : S M.HWANG)\n( MACHINE : M2-5AX / WORK CODE: 501 )\nG0 G90 G49 G69 G80 G40 G17\nM111\nN1(#1: Tool Change)\n (T2 // D10 F.EM [SO 40] // T2 BT40-SK16-120 )\n (LCF   38.500000 FL   26.000000 GL  160.000000 F 3)\n (DC   10.000000 RE    0.000000 SIG PL )\n (SPINDL 10000.000000 FEED  4100.000000)\nM6 T2\nN2(#2: Tool Change)\n (T3 // D6 B.EM [SO 30] // T3 BT40-SK10-120 )\n (LCF   30.000000 FL   10.000000 GL  150.000000 F 2)\n (DC    6.000000 RE    3.000000 SIG PL )\n (SPINDL 10000.000000 FEED  3600.000000)\nM6 T3\nN3(#3: Tool Change)\n (T4 // D2.3 DRILL [SO 20] // T4 BT40-SK10-90 )\n (LCF   20.000000 FL   15.000000 GL  140.000000 F 2)\n (DC    2.300000 RE SIG  118.000000 PL    0.691000 )\n (SPINDL  3800.000000 FEED   152.000000)\nM6 T4\nN4(#4: Tool Change)\n (T2 // D10 F.EM [SO 40] // T2 BT40-SK16-120 )\n (LCF   38.500000 FL   26.000000 GL  160.000000 F 3)\n (DC   10.000000 RE    0.000000 SIG PL )\n (SPINDL 10000.000000 FEED  3600.000000)\nM6 T2\nN5(#5: Tool Change)\n (T6 // D1 B.EM [SO 22] // T6 BT40-SK10-120 )\n (LCF   22.000000 FL    4.000000 GL  142.000000 F 2)\n (DC    1.000000 RE    0.500000 SIG PL )\n (SPINDL  8000.000000 FEED   320.000000)\nM6 T6\nN6(#6: Tool Change)\n (T4 // D2.3 DRILL [SO 20] // T4 BT40-SK10-90 )\n (LCF   20.000000 FL   15.000000 GL  140.000000 F 2)\n (DC    2.300000 RE SIG  118.000000 PL    0.691000 )\n (SPINDL  3800.000000 FEED   152.000000)\nM6 T4\nN7(#7: Tool Change)\n (T2 // D10 F.EM [SO 40] // T2 BT40-SK16-120 )\n (LCF   38.500000 FL   26.000000 GL  160.000000 F 3)\n (DC   10.000000 RE    0.000000 SIG PL )\n (SPINDL 10000.000000 FEED  1500.000000)\nM6 T2\nN8(#8: Tool Change)\n (T5 // D6 F.EM [SO 35] // T5 BT40-SK13-120 )\n (LCF   35.000000 FL   15.000000 GL  155.000000 F 3)\n (DC    6.000000 RE    0.000000 SIG PL )\n (SPINDL 10000.000000 FEED  1500.000000)\nM6 T5\nN9(#9: Tool Change)\n (T5 // D6 F.EM [SO 35] // T5 BT40-SK13-120 )\n (LCF   35.000000 FL   15.000000 GL  155.000000 F 3)\n (DC    6.000000 RE    0.000000 SIG PL )\n (SPINDL 10000.000000 FEED  1500.000000)\nM6 T5\nN10(#10: Tool Change)\n (T5 // D6 F.EM [SO 35] // T5 BT40-SK13-120 )\n (LCF   35.000000 FL   15.000000 GL  155.000000 F 3)\n (DC    6.000000 RE    0.000000 SIG PL )\n (SPINDL 10000.000000 FEED  1500.000000)\nM6 T5\nM30\n%"
+   ],
+   "result": {
+    "part_no": "SSTR4171",
+    "operation": "OP10",
+    "program": "OP10_SSTR4171",
+    "runtime": "11:15:01",
+    "date": "2026-08-25"
+   }
+  },
+  {
+   "args": [
+    ""
+   ],
+   "result": {
+    "part_no": "",
+    "operation": "",
+    "program": "",
+    "runtime": "",
+    "date": ""
+   }
+  },
+  {
+   "args": [
+    "%\nO4811(232A4811-21)\nG0G99G40G18\n"
+   ],
+   "result": {
+    "part_no": "",
+    "operation": "",
+    "program": "O4811",
+    "runtime": "",
+    "date": ""
+   }
+  },
+  {
+   "args": [
+    "N1\n( T01 - SER 2525M16 [R 0.1] )\n( T01 - 16ER AG60 [SO 40] )\nG0X400.Z200.\nT0100\nG97S800M3\nT0101\nG0X50.Z5.\nG76 P010060 Q100 R0.05\nG76 X47.5 Z-30. P920 Q300 F1.5\nG0X400.Z200.T0100\nM1\n\nN2\n( T02 - MGEHR 2525-3 )\n( T02 - N123G2-0300-0004-GM [T 3.2] )\nT0202\nG75 R0.5\nG75 X30. P500 F0.1\nM1\n\nN3\n( T03 - PCLNR 2525M 12 )\n( T03 - CNMG 120408 )\nT0303\nG71 U1. R0.5\nM1\n\nN4\n( T04 - PCLNR 2525M 12 )\n( T04 - CNMG 120408 )\nT0404\nG71 U1. R0.5\nM1\n\nN5\n( T05 - S25T-MGEHR 3 )\n( T05 - MY-GROOVE INSERT )\nT0505\nG75 R0.5\nM1\n"
+   ],
+   "result": {
+    "part_no": "",
+    "operation": "",
+    "program": "",
+    "runtime": "",
+    "date": ""
+   }
+  },
+  {
+   "args": [
+    "N1\n( T07 - MGEHR 2525-3 )\nT0707\nG75 R0.5\nM1\n"
+   ],
+   "result": {
+    "part_no": "",
+    "operation": "",
+    "program": "",
+    "runtime": "",
+    "date": ""
+   }
+  },
+  {
+   "args": [
+    "N1\n( T01 - SER 2525M16 [R 0.1] )\n( T01 - 16ER AG60 [SO 40] )\nG0X400.Z200.\nT0100\nG97S800M3\nT0101\nG0X50.Z5.\nG76 P010060 Q100 R0.05\nG76 X47.5 Z-30. P920 Q300 F1.5\nG0X400.Z200.T0100\nM1\n\nN2\n( T02 - MGEHR 2525-3 )\n( T02 - N123G2-0300-0004-GM [T 3.2] )\nT0202\nG75 R0.5\nG75 X30. P500 F0.1\nM1\n\nN3\n( T03 - PCLNR 2525M 12 )\n( T03 - CNMG 120408 )\nT0303\nG71 U1. R0.5\nM1\n\nN4\n( T04 - PCLNR 2525M 12 )\n( T04 - CNMG 120408 )\nT0404\nG71 U1. R0.5\nM1\n\nN5\n( T05 - S25T-MGEHR 3 )\n( T05 - MY-GROOVE INSERT )\nT0505\nG75 R0.5\nM1\n\nN9\n( T09 - SER 2525M16 )\n( T09 - 16ER AG60 )\nT0909\nG32 Z-20. F1.0\nM1\n"
+   ],
+   "result": {
+    "part_no": "",
+    "operation": "",
+    "program": "",
+    "runtime": "",
+    "date": ""
+   }
+  },
+  {
+   "args": [
+    "N1\n( T01 - PCLNR 2525M 12 )\n( T01 - CNMG 120408 [R 0.8] )\nT0101\nG71 U1. R0.5\nM1\nN2\n( T02 - PCLNR 2525M 12 )\n( T02 - CNMG 120408 )\nT0202\nG71 U1. R0.5\nM1\n"
+   ],
+   "result": {
+    "part_no": "",
+    "operation": "",
+    "program": "",
+    "runtime": "",
+    "date": ""
+   }
+  },
+  {
+   "args": [
+    "N1(#1: Tool Change)\n (T1 // D10 F.EM [SO 40] // T1 BT40-SK16-120 )\n (LCF   38.500000 FL   26.000000 GL  160.000000 F 3)\n (SPINDL 1500 FEED  1000.000000)\nM6 T1\nS300 M3\nG43 Z50. H01\nN2(#2: Tool Change)\n (T2 // D10 F.EM [SO 40] // T2 BT40-SK16-120 )\n (LCF   38.500000 FL   26.000000 GL  160.000000 F 3)\n (SPINDL 8000 FEED  1000.000000)\nM6 T2\nS8000 M3\nG43 Z50. H05\n"
+   ],
+   "result": {
+    "part_no": "",
+    "operation": "",
+    "program": "",
+    "runtime": "",
+    "date": ""
+   }
+  },
+  {
+   "args": [
+    "N1(#1: Tool Change)\n (T1 // D50 F.MIL [SO 90] // T1 BT40-FMC22-90)\n (SO    90.000000 GL   115.000000 PL )\nM6 T1\nG0 X0 Y0\nG1 X10 F300\nM30\n"
+   ],
+   "result": {
+    "part_no": "",
+    "operation": "",
+    "program": "",
+    "runtime": "",
+    "date": ""
+   }
+  },
+  {
+   "args": [
+    "N1(#1: Tool Change)\n (T1 // D12 F.MIL [SO 90] // T1 BT40-FMC22-90)\n (SO    90.000000 GL   115.000000 PL )\nM6 T1\nG0 X0 Y0\nG1 X10 F300\nM30\n"
+   ],
+   "result": {
+    "part_no": "",
+    "operation": "",
+    "program": "",
+    "runtime": "",
+    "date": ""
+   }
+  },
+  {
+   "args": [
+    "N1(#1: Tool Change)\n (T1 // D50 F.MIL [SO 90] // T1 BT40-FMC22-90)\n (SO    90.000000 GL   115.000000 PL )\nM6 T1\nG0 X0 Y0\nG1 X25 F300\nM30\n"
+   ],
+   "result": {
+    "part_no": "",
+    "operation": "",
+    "program": "",
+    "runtime": "",
+    "date": ""
+   }
+  },
+  {
+   "args": [
+    "N1(#1: Tool Change)\n (T1 // D50 F.MIL [SO 90] // T1 BT40-FMC22-90)\n (SO    90.000000 GL   115.000000 PL )\nM6 T1\nG0 X0 Y0\nG1 X10 F300\nM30\n\n\nO2000\nG0 X1\nM30"
+   ],
+   "result": {
+    "part_no": "",
+    "operation": "",
+    "program": "O2000",
+    "runtime": "",
+    "date": ""
+   }
+  },
+  {
+   "args": [
+    "N1(#1: Tool Change)\n (T1 // D50 F.MIL [SO 90] // T1 BT40-FMC22-90)\n (SO    90.000000 GL   115.000000 PL )\nM6 T1\nG0 X0 Y0\nG1 X10 F300\nM30\n\n\nO2000\nG0 X7\nM30"
+   ],
+   "result": {
+    "part_no": "",
+    "operation": "",
+    "program": "O2000",
+    "runtime": "",
+    "date": ""
+   }
+  },
+  {
+   "args": [
+    "M6T1\nG43 H1 Z10.\nG00 X-20. Y-20.\nG00 Z2.\nG01 Z-2. F500\nG01 X20.\nG01 Y-10.\nG01 X-20.\nG01 Y0.\nG01 X20.\nG00 Z10.\nM6T2\nG43 H2 Z10.\nG00 X0. Y10.\nG01 Z-3. F300\nG01 X15. Y15.\nG01 X-15. Y5.\nG00 Z10.\nM30\n"
+   ],
+   "result": {
+    "part_no": "",
+    "operation": "",
+    "program": "",
+    "runtime": "",
+    "date": ""
+   }
+  },
+  {
+   "args": [
+    "%\nO1234(TEST)\n(PART NO. : ABC-OP20)\n(DATE = 2026-01-01)\n"
+   ],
+   "result": {
+    "part_no": "ABC-OP20",
+    "operation": "",
+    "program": "O1234",
+    "runtime": "",
+    "date": "2026-01-01"
+   }
+  },
+  {
+   "args": [
+    "%\n O0001\n(PROGRAM : K10M_OP10A)\n"
+   ],
+   "result": {
+    "part_no": "K10M",
+    "operation": "OP10A",
+    "program": "K10M_OP10A",
+    "runtime": "",
+    "date": ""
+   }
+  },
+  {
+   "args": [
+    "(program:   X  Y\n  Z )\n(Cycle Time: 1:00:00)\n(OPERATION NO : OP-30)\nO9999\n"
+   ],
+   "result": {
+    "part_no": "",
+    "operation": "OP-30",
+    "program": "X Y Z",
+    "runtime": "1:00:00",
+    "date": ""
+   }
+  },
+  {
+   "args": [
+    "(PGM = OP 5 BODY)\n"
+   ],
+   "result": {
+    "part_no": "BODY",
+    "operation": "OP5",
+    "program": "OP 5 BODY",
+    "runtime": "",
+    "date": ""
+   }
+  },
+  {
+   "args": [
+    "(PART=)\n(PART = P1)\n(PART = P2)\n"
+   ],
+   "result": {
+    "part_no": "P1",
+    "operation": "",
+    "program": "",
+    "runtime": "",
+    "date": ""
+   }
+  },
+  {
+   "args": [
+    "no comments"
+   ],
+   "result": {
+    "part_no": "",
+    "operation": "",
+    "program": "",
+    "runtime": "",
+    "date": ""
+   }
+  },
+  {
+   "args": [
+    null
+   ],
+   "result": {
+    "part_no": "",
+    "operation": "",
+    "program": "",
+    "runtime": "",
+    "date": ""
+   }
+  },
+  {
+   "args": [
+    "(A:B:C)\n(=X)\n(:Y)\n(TOTAL TIME : 12 min)\n(CREATION DATE: 2026/11/10)\n"
+   ],
+   "result": {
+    "part_no": "",
+    "operation": "",
+    "program": "",
+    "runtime": "12 min",
+    "date": "2026/11/10"
+   }
+  },
+  {
+   "args": [
+    "%\nO12AB\nO3210 (  )\n"
+   ],
+   "result": {
+    "part_no": "",
+    "operation": "",
+    "program": "O3210",
+    "runtime": "",
+    "date": ""
+   }
+  },
+  {
+   "args": [
+    "o5555 (lower)\n"
+   ],
+   "result": {
+    "part_no": "",
+    "operation": "",
+    "program": "O5555",
+    "runtime": "",
+    "date": ""
+   }
+  },
+  {
+   "args": [
+    "(PROGRAM : OPERATION7_PART)\n"
+   ],
+   "result": {
+    "part_no": "PART",
+    "operation": "OP7",
+    "program": "OPERATION7_PART",
+    "runtime": "",
+    "date": ""
+   }
+  }
+ ]
+}

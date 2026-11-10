@@ -1,0 +1,91 @@
+{
+ "func": "default_pdf_filename",
+ "calls": [
+  {
+   "args": [
+    {
+     "part_no": "K10M41017",
+     "operation": "OP10",
+     "program": "O1017",
+     "runtime": "160",
+     "date": "2026-08-25"
+    }
+   ],
+   "result": "K10M41017_OP10_O1017_TOOL_LIST.pdf"
+  },
+  {
+   "args": [
+    {
+     "part_no": "B",
+     "operation": "",
+     "program": ""
+    }
+   ],
+   "result": "B_TOOL_LIST.pdf"
+  },
+  {
+   "args": [
+    {
+     "part_no": "K10M41017",
+     "operation": "OP10",
+     "program": "O1017"
+    }
+   ],
+   "result": "K10M41017_OP10_O1017_TOOL_LIST.pdf"
+  },
+  {
+   "args": [
+    {
+     "part_no": "A",
+     "operation": "",
+     "program": ""
+    }
+   ],
+   "result": "A_TOOL_LIST.pdf"
+  },
+  {
+   "args": [
+    {
+     "part_no": "A/B C",
+     "operation": "OP10",
+     "program": "O1"
+    }
+   ],
+   "result": "A_B_C_OP10_O1_TOOL_LIST.pdf"
+  },
+  {
+   "args": [
+    {
+     "part_no": "",
+     "operation": "",
+     "program": ""
+    }
+   ],
+   "result": "NC_TOOL_LIST.pdf"
+  },
+  {
+   "args": [
+    {}
+   ],
+   "result": "NC_TOOL_LIST.pdf"
+  },
+  {
+   "args": [
+    {
+     "part_no": "..__",
+     "program": "부품 1"
+    }
+   ],
+   "result": "부품_1_TOOL_LIST.pdf"
+  },
+  {
+   "args": [
+    {
+     "part_no": "  x  ",
+     "operation": null
+    }
+   ],
+   "result": "x_TOOL_LIST.pdf"
+  }
+ ]
+}

@@ -99,9 +99,9 @@ tools/golden/   정답 생성 스크립트 (Python, 원본 저장소를 읽음)
 | ID | 작업 | 완료 기준 |
 |---|---|---|
 | **T0** | `tools/bump_version.mjs`(3곳 동시 갱신 + 0~9 자리올림), `npm run bump`. 테스트 추가 | `node tools/bump_version.mjs`를 실행하면 PATCH가 오르고(자리올림 포함) 테스트가 통과한다. ✅ 이 도구로 1.0.0 설정 |
-| **T1** | **골든 생성기** `tools/golden/export_golden.py` 작성 (아래 1.1) | Windows에서 실행하면 `tests/golden/*.json`이 생긴다 |
-| **T2** | `text` · `columns` · `metadata` · `nameTypes` | 해당 골든 100% 일치 |
-| **T3** | `radiusComp` · `alerts` · **`millParser`** | 밀링 골든(원본 테스트 입력 + `O3210_excerpt.nc` + `ncdata.nc`) 100% 일치 |
+| **T1** | **골든 생성기** `tools/golden/export_golden.py` 작성 (아래 1.1) | Windows에서 실행하면 `tests/golden/*.json`이 생긴다 ✅ (함수 72개·호출 8,880건, 샘플 NC 11개) |
+| **T2** | `text` · `columns` · `metadata` · `nameTypes` (+ Python 동작 맞추기 `py.ts`) | 해당 골든 100% 일치 ✅ |
+| **T3** | `radiusComp` ✅ · `alerts` ✅ · **`millParser`** | 밀링 골든(원본 테스트 입력 + `O3210_excerpt.nc` + `ncdata.nc`) 100% 일치 |
 | **T4** | **`latheInsertSpec`** (원본 테스트 67개 → 골든) | 100% 일치 |
 | **T5** | **`latheParser`** | 선반 골든 100% 일치 |
 | **T6** | `ncColor` · `search` | 골든 100% 일치 |
@@ -119,13 +119,15 @@ tools/golden/   정답 생성 스크립트 (Python, 원본 저장소를 읽음)
 3. 결과는 `tests/golden/<모듈>.json`에 쓰고, 기준 원본 커밋을 `tests/golden/SOURCE_REV`에 적는다.
 4. TS 쪽 `tests/golden.test.ts`는 JSON을 읽어 같은 이름의 TS 함수로 다시 계산하고 비교한다.
 
-- 실행 위치는 Windows PC다. 원본 `tool_list`를 같은 상위 폴더에 받아 두고 `python tools\golden\export_golden.py ..\tool_list`로 실행한다(원본 데스크톱 빌드용 Python 환경을 그대로 쓴다). 클라우드 세션에서도 원본을 클론해 실행할 수 있다.
+- 실행 위치는 Windows PC다. 원본 `tool_list`를 같은 상위 폴더에 받아 두고 `..\nc_build_venv\Scripts\python.exe tools\golden\export_golden.py ..\tool_list`로 실행한다(원본 데스크톱 빌드용 Python 환경, 약 4~5분). 클라우드 세션에서도 원본을 클론해 실행할 수 있다.
+- 원본 pytest 중 1건(`test_switching_to_lathe_changes_table_schema_and_machine`)은 이 PC에 저장된 장비 선택값 때문에 실패한다. 골든 내용과는 무관하다.
+- 원본 테스트가 거의 부르지 않는 함수와 경계값(`fmt_num('1e-05')`, `clean_name_types` 등)은 `extra_calls()`에서 직접 불러 기록한다.
 - Python과 JS의 차이 대응:
   - 숫자 포맷: `fmt_num`과 `'%g'` 계열은 TS 쪽에 같은 규칙의 함수를 만든다.
   - dict 순서: Python 3.7 이상의 삽입 순서를 그대로 따른다.
   - 정규식: Python `re`와 JS `RegExp`는 lookbehind와 `\d` 범위가 다르다. 정규식마다 골든으로 확인한다.
   - 반올림: Python `round`는 은행가 반올림이다. TS에 같은 반올림 함수를 둔다.
-- 샘플 NC는 `tool_list/tests/data/O3210_excerpt.nc`와 `ncdata.nc`를 `tests/fixtures/`로 복사한다(이 저장소는 Private). 선반 샘플이 없으면 사용자에게 받는다(→ §8 확인 사항 1).
+- 샘플 NC: 원본 `tests/data/O3210_excerpt.nc`, `ncdata.nc`, `test files/`의 밀링(O3210, 5ax A To C)과 선반(O1699, O2222, O4006, O4811, O4812, TurnMill Test, sub_pg test)을 `tests/fixtures/`로 복사했다(이 저장소는 Private, 바이트를 그대로 두도록 `.gitattributes`에 `-text`).
 
 ---
 

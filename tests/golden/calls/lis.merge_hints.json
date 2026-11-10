@@ -1,0 +1,187 @@
+{
+ "func": "lis.merge_hints",
+ "calls": [
+  {
+   "args": [
+    {},
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": true,
+     "pitch": ""
+    }
+   ],
+   "result": {
+    "thread": false,
+    "groove": false,
+    "face_groove": false,
+    "turning": false,
+    "milling": true,
+    "pitch": ""
+   }
+  },
+  {
+   "args": [
+    {},
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": ""
+    }
+   ],
+   "result": {
+    "thread": false,
+    "groove": false,
+    "face_groove": false,
+    "turning": false,
+    "milling": false,
+    "pitch": ""
+   }
+  },
+  {
+   "args": [
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": ""
+    },
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": ""
+    }
+   ],
+   "result": {
+    "thread": false,
+    "groove": false,
+    "face_groove": false,
+    "turning": false,
+    "milling": false,
+    "pitch": ""
+   }
+  },
+  {
+   "args": [
+    {
+     "thread": true,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": "2"
+    },
+    {
+     "thread": true,
+     "groove": true,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": "1"
+    }
+   ],
+   "result": {
+    "thread": true,
+    "groove": true,
+    "face_groove": false,
+    "turning": false,
+    "milling": false,
+    "pitch": "2"
+   }
+  },
+  {
+   "args": [
+    {},
+    {
+     "thread": true,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": "1.5"
+    }
+   ],
+   "result": {
+    "thread": true,
+    "groove": false,
+    "face_groove": false,
+    "turning": false,
+    "milling": false,
+    "pitch": "1.5"
+   }
+  },
+  {
+   "args": [
+    {},
+    {
+     "thread": false,
+     "groove": true,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": ""
+    }
+   ],
+   "result": {
+    "thread": false,
+    "groove": true,
+    "face_groove": false,
+    "turning": false,
+    "milling": false,
+    "pitch": ""
+   }
+  },
+  {
+   "args": [
+    {},
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": true,
+     "milling": false,
+     "pitch": ""
+    }
+   ],
+   "result": {
+    "thread": false,
+    "groove": false,
+    "face_groove": false,
+    "turning": true,
+    "milling": false,
+    "pitch": ""
+   }
+  },
+  {
+   "args": [
+    {},
+    {
+     "thread": true,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": "1"
+    }
+   ],
+   "result": {
+    "thread": true,
+    "groove": false,
+    "face_groove": false,
+    "turning": false,
+    "milling": false,
+    "pitch": "1"
+   }
+  }
+ ]
+}

@@ -1,0 +1,2072 @@
+{
+ "func": "derive_type",
+ "calls": [
+  {
+   "args": [
+    "FACE MILL",
+    null
+   ],
+   "result": "FACE MILL"
+  },
+  {
+   "args": [
+    "D16.8 FLAT EM",
+    null
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "D6 REAMER",
+    null
+   ],
+   "result": "REAMER"
+  },
+  {
+   "args": [
+    "D13 DR",
+    null
+   ],
+   "result": "DRILL"
+  },
+  {
+   "args": [
+    "D7 DR",
+    null
+   ],
+   "result": "DRILL"
+  },
+  {
+   "args": [
+    "FACE MILL",
+    [
+     [
+      "F.EM",
+      "FLAT E/M"
+     ],
+     [
+      "FLAT E/M",
+      "FLAT E/M"
+     ],
+     [
+      "FLAT END MILL",
+      "FLAT E/M"
+     ],
+     [
+      "R.EM",
+      "FILLET E/M"
+     ],
+     [
+      "FILLET E/M",
+      "FILLET E/M"
+     ],
+     [
+      "RADIUS E/M",
+      "FILLET E/M"
+     ],
+     [
+      "B.EM",
+      "BALL E/M"
+     ],
+     [
+      "BALL E/M",
+      "BALL E/M"
+     ],
+     [
+      "BALL END MILL",
+      "BALL E/M"
+     ],
+     [
+      "DR",
+      "DRILL"
+     ],
+     [
+      "DRILL",
+      "DRILL"
+     ],
+     [
+      "F.MIL",
+      "FACE MILL"
+     ],
+     [
+      "FACE MILL",
+      "FACE MILL"
+     ],
+     [
+      "CUT",
+      "CUTTER"
+     ],
+     [
+      "CUTTER",
+      "CUTTER"
+     ],
+     [
+      "RM",
+      "REAMER"
+     ],
+     [
+      "REAMER",
+      "REAMER"
+     ],
+     [
+      "C.D",
+      "CENTER"
+     ],
+     [
+      "CENTER DRILL",
+      "CENTER"
+     ],
+     [
+      "T.CUT",
+      "T-CUTTER"
+     ],
+     [
+      "T-CUTTER",
+      "T-CUTTER"
+     ],
+     [
+      "DY.EM",
+      "DYNAMIC E/M"
+     ],
+     [
+      "DYNAMIC E/M",
+      "DYNAMIC E/M"
+     ],
+     [
+      "C.MIL",
+      "CHAMF MILL"
+     ],
+     [
+      "CHAMF MILL",
+      "CHAMF MILL"
+     ]
+    ]
+   ],
+   "result": "FACE MILL"
+  },
+  {
+   "args": [
+    "D16.8 FLAT EM",
+    [
+     [
+      "F.EM",
+      "FLAT E/M"
+     ],
+     [
+      "FLAT E/M",
+      "FLAT E/M"
+     ],
+     [
+      "FLAT END MILL",
+      "FLAT E/M"
+     ],
+     [
+      "R.EM",
+      "FILLET E/M"
+     ],
+     [
+      "FILLET E/M",
+      "FILLET E/M"
+     ],
+     [
+      "RADIUS E/M",
+      "FILLET E/M"
+     ],
+     [
+      "B.EM",
+      "BALL E/M"
+     ],
+     [
+      "BALL E/M",
+      "BALL E/M"
+     ],
+     [
+      "BALL END MILL",
+      "BALL E/M"
+     ],
+     [
+      "DR",
+      "DRILL"
+     ],
+     [
+      "DRILL",
+      "DRILL"
+     ],
+     [
+      "F.MIL",
+      "FACE MILL"
+     ],
+     [
+      "FACE MILL",
+      "FACE MILL"
+     ],
+     [
+      "CUT",
+      "CUTTER"
+     ],
+     [
+      "CUTTER",
+      "CUTTER"
+     ],
+     [
+      "RM",
+      "REAMER"
+     ],
+     [
+      "REAMER",
+      "REAMER"
+     ],
+     [
+      "C.D",
+      "CENTER"
+     ],
+     [
+      "CENTER DRILL",
+      "CENTER"
+     ],
+     [
+      "T.CUT",
+      "T-CUTTER"
+     ],
+     [
+      "T-CUTTER",
+      "T-CUTTER"
+     ],
+     [
+      "DY.EM",
+      "DYNAMIC E/M"
+     ],
+     [
+      "DYNAMIC E/M",
+      "DYNAMIC E/M"
+     ],
+     [
+      "C.MIL",
+      "CHAMF MILL"
+     ],
+     [
+      "CHAMF MILL",
+      "CHAMF MILL"
+     ]
+    ]
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "D6 REAMER",
+    [
+     [
+      "F.EM",
+      "FLAT E/M"
+     ],
+     [
+      "FLAT E/M",
+      "FLAT E/M"
+     ],
+     [
+      "FLAT END MILL",
+      "FLAT E/M"
+     ],
+     [
+      "R.EM",
+      "FILLET E/M"
+     ],
+     [
+      "FILLET E/M",
+      "FILLET E/M"
+     ],
+     [
+      "RADIUS E/M",
+      "FILLET E/M"
+     ],
+     [
+      "B.EM",
+      "BALL E/M"
+     ],
+     [
+      "BALL E/M",
+      "BALL E/M"
+     ],
+     [
+      "BALL END MILL",
+      "BALL E/M"
+     ],
+     [
+      "DR",
+      "DRILL"
+     ],
+     [
+      "DRILL",
+      "DRILL"
+     ],
+     [
+      "F.MIL",
+      "FACE MILL"
+     ],
+     [
+      "FACE MILL",
+      "FACE MILL"
+     ],
+     [
+      "CUT",
+      "CUTTER"
+     ],
+     [
+      "CUTTER",
+      "CUTTER"
+     ],
+     [
+      "RM",
+      "REAMER"
+     ],
+     [
+      "REAMER",
+      "REAMER"
+     ],
+     [
+      "C.D",
+      "CENTER"
+     ],
+     [
+      "CENTER DRILL",
+      "CENTER"
+     ],
+     [
+      "T.CUT",
+      "T-CUTTER"
+     ],
+     [
+      "T-CUTTER",
+      "T-CUTTER"
+     ],
+     [
+      "DY.EM",
+      "DYNAMIC E/M"
+     ],
+     [
+      "DYNAMIC E/M",
+      "DYNAMIC E/M"
+     ],
+     [
+      "C.MIL",
+      "CHAMF MILL"
+     ],
+     [
+      "CHAMF MILL",
+      "CHAMF MILL"
+     ]
+    ]
+   ],
+   "result": "REAMER"
+  },
+  {
+   "args": [
+    "D13 DR",
+    [
+     [
+      "F.EM",
+      "FLAT E/M"
+     ],
+     [
+      "FLAT E/M",
+      "FLAT E/M"
+     ],
+     [
+      "FLAT END MILL",
+      "FLAT E/M"
+     ],
+     [
+      "R.EM",
+      "FILLET E/M"
+     ],
+     [
+      "FILLET E/M",
+      "FILLET E/M"
+     ],
+     [
+      "RADIUS E/M",
+      "FILLET E/M"
+     ],
+     [
+      "B.EM",
+      "BALL E/M"
+     ],
+     [
+      "BALL E/M",
+      "BALL E/M"
+     ],
+     [
+      "BALL END MILL",
+      "BALL E/M"
+     ],
+     [
+      "DR",
+      "DRILL"
+     ],
+     [
+      "DRILL",
+      "DRILL"
+     ],
+     [
+      "F.MIL",
+      "FACE MILL"
+     ],
+     [
+      "FACE MILL",
+      "FACE MILL"
+     ],
+     [
+      "CUT",
+      "CUTTER"
+     ],
+     [
+      "CUTTER",
+      "CUTTER"
+     ],
+     [
+      "RM",
+      "REAMER"
+     ],
+     [
+      "REAMER",
+      "REAMER"
+     ],
+     [
+      "C.D",
+      "CENTER"
+     ],
+     [
+      "CENTER DRILL",
+      "CENTER"
+     ],
+     [
+      "T.CUT",
+      "T-CUTTER"
+     ],
+     [
+      "T-CUTTER",
+      "T-CUTTER"
+     ],
+     [
+      "DY.EM",
+      "DYNAMIC E/M"
+     ],
+     [
+      "DYNAMIC E/M",
+      "DYNAMIC E/M"
+     ],
+     [
+      "C.MIL",
+      "CHAMF MILL"
+     ],
+     [
+      "CHAMF MILL",
+      "CHAMF MILL"
+     ]
+    ]
+   ],
+   "result": "DRILL"
+  },
+  {
+   "args": [
+    "D7 DR",
+    [
+     [
+      "F.EM",
+      "FLAT E/M"
+     ],
+     [
+      "FLAT E/M",
+      "FLAT E/M"
+     ],
+     [
+      "FLAT END MILL",
+      "FLAT E/M"
+     ],
+     [
+      "R.EM",
+      "FILLET E/M"
+     ],
+     [
+      "FILLET E/M",
+      "FILLET E/M"
+     ],
+     [
+      "RADIUS E/M",
+      "FILLET E/M"
+     ],
+     [
+      "B.EM",
+      "BALL E/M"
+     ],
+     [
+      "BALL E/M",
+      "BALL E/M"
+     ],
+     [
+      "BALL END MILL",
+      "BALL E/M"
+     ],
+     [
+      "DR",
+      "DRILL"
+     ],
+     [
+      "DRILL",
+      "DRILL"
+     ],
+     [
+      "F.MIL",
+      "FACE MILL"
+     ],
+     [
+      "FACE MILL",
+      "FACE MILL"
+     ],
+     [
+      "CUT",
+      "CUTTER"
+     ],
+     [
+      "CUTTER",
+      "CUTTER"
+     ],
+     [
+      "RM",
+      "REAMER"
+     ],
+     [
+      "REAMER",
+      "REAMER"
+     ],
+     [
+      "C.D",
+      "CENTER"
+     ],
+     [
+      "CENTER DRILL",
+      "CENTER"
+     ],
+     [
+      "T.CUT",
+      "T-CUTTER"
+     ],
+     [
+      "T-CUTTER",
+      "T-CUTTER"
+     ],
+     [
+      "DY.EM",
+      "DYNAMIC E/M"
+     ],
+     [
+      "DYNAMIC E/M",
+      "DYNAMIC E/M"
+     ],
+     [
+      "C.MIL",
+      "CHAMF MILL"
+     ],
+     [
+      "CHAMF MILL",
+      "CHAMF MILL"
+     ]
+    ]
+   ],
+   "result": "DRILL"
+  },
+  {
+   "args": [
+    "",
+    [
+     [
+      "F.EM",
+      "FLAT E/M"
+     ],
+     [
+      "FLAT E/M",
+      "FLAT E/M"
+     ],
+     [
+      "FLAT END MILL",
+      "FLAT E/M"
+     ],
+     [
+      "R.EM",
+      "FILLET E/M"
+     ],
+     [
+      "FILLET E/M",
+      "FILLET E/M"
+     ],
+     [
+      "RADIUS E/M",
+      "FILLET E/M"
+     ],
+     [
+      "B.EM",
+      "BALL E/M"
+     ],
+     [
+      "BALL E/M",
+      "BALL E/M"
+     ],
+     [
+      "BALL END MILL",
+      "BALL E/M"
+     ],
+     [
+      "DR",
+      "DRILL"
+     ],
+     [
+      "DRILL",
+      "DRILL"
+     ],
+     [
+      "F.MIL",
+      "FACE MILL"
+     ],
+     [
+      "FACE MILL",
+      "FACE MILL"
+     ],
+     [
+      "CUT",
+      "CUTTER"
+     ],
+     [
+      "CUTTER",
+      "CUTTER"
+     ],
+     [
+      "RM",
+      "REAMER"
+     ],
+     [
+      "REAMER",
+      "REAMER"
+     ],
+     [
+      "C.D",
+      "CENTER"
+     ],
+     [
+      "CENTER DRILL",
+      "CENTER"
+     ],
+     [
+      "T.CUT",
+      "T-CUTTER"
+     ],
+     [
+      "T-CUTTER",
+      "T-CUTTER"
+     ],
+     [
+      "DY.EM",
+      "DYNAMIC E/M"
+     ],
+     [
+      "DYNAMIC E/M",
+      "DYNAMIC E/M"
+     ],
+     [
+      "C.MIL",
+      "CHAMF MILL"
+     ],
+     [
+      "CHAMF MILL",
+      "CHAMF MILL"
+     ]
+    ]
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "D10 F.EM",
+    [
+     [
+      "F.EM",
+      "FLAT E/M"
+     ],
+     [
+      "FLAT E/M",
+      "FLAT E/M"
+     ],
+     [
+      "FLAT END MILL",
+      "FLAT E/M"
+     ],
+     [
+      "R.EM",
+      "FILLET E/M"
+     ],
+     [
+      "FILLET E/M",
+      "FILLET E/M"
+     ],
+     [
+      "RADIUS E/M",
+      "FILLET E/M"
+     ],
+     [
+      "B.EM",
+      "BALL E/M"
+     ],
+     [
+      "BALL E/M",
+      "BALL E/M"
+     ],
+     [
+      "BALL END MILL",
+      "BALL E/M"
+     ],
+     [
+      "DR",
+      "DRILL"
+     ],
+     [
+      "DRILL",
+      "DRILL"
+     ],
+     [
+      "F.MIL",
+      "FACE MILL"
+     ],
+     [
+      "FACE MILL",
+      "FACE MILL"
+     ],
+     [
+      "CUT",
+      "CUTTER"
+     ],
+     [
+      "CUTTER",
+      "CUTTER"
+     ],
+     [
+      "RM",
+      "REAMER"
+     ],
+     [
+      "REAMER",
+      "REAMER"
+     ],
+     [
+      "C.D",
+      "CENTER"
+     ],
+     [
+      "CENTER DRILL",
+      "CENTER"
+     ],
+     [
+      "T.CUT",
+      "T-CUTTER"
+     ],
+     [
+      "T-CUTTER",
+      "T-CUTTER"
+     ],
+     [
+      "DY.EM",
+      "DYNAMIC E/M"
+     ],
+     [
+      "DYNAMIC E/M",
+      "DYNAMIC E/M"
+     ],
+     [
+      "C.MIL",
+      "CHAMF MILL"
+     ],
+     [
+      "CHAMF MILL",
+      "CHAMF MILL"
+     ]
+    ]
+   ],
+   "result": "FLAT E/M"
+  },
+  {
+   "args": [
+    "D6 B.EM",
+    [
+     [
+      "F.EM",
+      "FLAT E/M"
+     ],
+     [
+      "FLAT E/M",
+      "FLAT E/M"
+     ],
+     [
+      "FLAT END MILL",
+      "FLAT E/M"
+     ],
+     [
+      "R.EM",
+      "FILLET E/M"
+     ],
+     [
+      "FILLET E/M",
+      "FILLET E/M"
+     ],
+     [
+      "RADIUS E/M",
+      "FILLET E/M"
+     ],
+     [
+      "B.EM",
+      "BALL E/M"
+     ],
+     [
+      "BALL E/M",
+      "BALL E/M"
+     ],
+     [
+      "BALL END MILL",
+      "BALL E/M"
+     ],
+     [
+      "DR",
+      "DRILL"
+     ],
+     [
+      "DRILL",
+      "DRILL"
+     ],
+     [
+      "F.MIL",
+      "FACE MILL"
+     ],
+     [
+      "FACE MILL",
+      "FACE MILL"
+     ],
+     [
+      "CUT",
+      "CUTTER"
+     ],
+     [
+      "CUTTER",
+      "CUTTER"
+     ],
+     [
+      "RM",
+      "REAMER"
+     ],
+     [
+      "REAMER",
+      "REAMER"
+     ],
+     [
+      "C.D",
+      "CENTER"
+     ],
+     [
+      "CENTER DRILL",
+      "CENTER"
+     ],
+     [
+      "T.CUT",
+      "T-CUTTER"
+     ],
+     [
+      "T-CUTTER",
+      "T-CUTTER"
+     ],
+     [
+      "DY.EM",
+      "DYNAMIC E/M"
+     ],
+     [
+      "DYNAMIC E/M",
+      "DYNAMIC E/M"
+     ],
+     [
+      "C.MIL",
+      "CHAMF MILL"
+     ],
+     [
+      "CHAMF MILL",
+      "CHAMF MILL"
+     ]
+    ]
+   ],
+   "result": "BALL E/M"
+  },
+  {
+   "args": [
+    "D2.3 DRILL",
+    [
+     [
+      "F.EM",
+      "FLAT E/M"
+     ],
+     [
+      "FLAT E/M",
+      "FLAT E/M"
+     ],
+     [
+      "FLAT END MILL",
+      "FLAT E/M"
+     ],
+     [
+      "R.EM",
+      "FILLET E/M"
+     ],
+     [
+      "FILLET E/M",
+      "FILLET E/M"
+     ],
+     [
+      "RADIUS E/M",
+      "FILLET E/M"
+     ],
+     [
+      "B.EM",
+      "BALL E/M"
+     ],
+     [
+      "BALL E/M",
+      "BALL E/M"
+     ],
+     [
+      "BALL END MILL",
+      "BALL E/M"
+     ],
+     [
+      "DR",
+      "DRILL"
+     ],
+     [
+      "DRILL",
+      "DRILL"
+     ],
+     [
+      "F.MIL",
+      "FACE MILL"
+     ],
+     [
+      "FACE MILL",
+      "FACE MILL"
+     ],
+     [
+      "CUT",
+      "CUTTER"
+     ],
+     [
+      "CUTTER",
+      "CUTTER"
+     ],
+     [
+      "RM",
+      "REAMER"
+     ],
+     [
+      "REAMER",
+      "REAMER"
+     ],
+     [
+      "C.D",
+      "CENTER"
+     ],
+     [
+      "CENTER DRILL",
+      "CENTER"
+     ],
+     [
+      "T.CUT",
+      "T-CUTTER"
+     ],
+     [
+      "T-CUTTER",
+      "T-CUTTER"
+     ],
+     [
+      "DY.EM",
+      "DYNAMIC E/M"
+     ],
+     [
+      "DYNAMIC E/M",
+      "DYNAMIC E/M"
+     ],
+     [
+      "C.MIL",
+      "CHAMF MILL"
+     ],
+     [
+      "CHAMF MILL",
+      "CHAMF MILL"
+     ]
+    ]
+   ],
+   "result": "DRILL"
+  },
+  {
+   "args": [
+    "D6 F.EM",
+    [
+     [
+      "F.EM",
+      "FLAT E/M"
+     ],
+     [
+      "FLAT E/M",
+      "FLAT E/M"
+     ],
+     [
+      "FLAT END MILL",
+      "FLAT E/M"
+     ],
+     [
+      "R.EM",
+      "FILLET E/M"
+     ],
+     [
+      "FILLET E/M",
+      "FILLET E/M"
+     ],
+     [
+      "RADIUS E/M",
+      "FILLET E/M"
+     ],
+     [
+      "B.EM",
+      "BALL E/M"
+     ],
+     [
+      "BALL E/M",
+      "BALL E/M"
+     ],
+     [
+      "BALL END MILL",
+      "BALL E/M"
+     ],
+     [
+      "DR",
+      "DRILL"
+     ],
+     [
+      "DRILL",
+      "DRILL"
+     ],
+     [
+      "F.MIL",
+      "FACE MILL"
+     ],
+     [
+      "FACE MILL",
+      "FACE MILL"
+     ],
+     [
+      "CUT",
+      "CUTTER"
+     ],
+     [
+      "CUTTER",
+      "CUTTER"
+     ],
+     [
+      "RM",
+      "REAMER"
+     ],
+     [
+      "REAMER",
+      "REAMER"
+     ],
+     [
+      "C.D",
+      "CENTER"
+     ],
+     [
+      "CENTER DRILL",
+      "CENTER"
+     ],
+     [
+      "T.CUT",
+      "T-CUTTER"
+     ],
+     [
+      "T-CUTTER",
+      "T-CUTTER"
+     ],
+     [
+      "DY.EM",
+      "DYNAMIC E/M"
+     ],
+     [
+      "DYNAMIC E/M",
+      "DYNAMIC E/M"
+     ],
+     [
+      "C.MIL",
+      "CHAMF MILL"
+     ],
+     [
+      "CHAMF MILL",
+      "CHAMF MILL"
+     ]
+    ]
+   ],
+   "result": "FLAT E/M"
+  },
+  {
+   "args": [
+    "D1 B.EM",
+    [
+     [
+      "F.EM",
+      "FLAT E/M"
+     ],
+     [
+      "FLAT E/M",
+      "FLAT E/M"
+     ],
+     [
+      "FLAT END MILL",
+      "FLAT E/M"
+     ],
+     [
+      "R.EM",
+      "FILLET E/M"
+     ],
+     [
+      "FILLET E/M",
+      "FILLET E/M"
+     ],
+     [
+      "RADIUS E/M",
+      "FILLET E/M"
+     ],
+     [
+      "B.EM",
+      "BALL E/M"
+     ],
+     [
+      "BALL E/M",
+      "BALL E/M"
+     ],
+     [
+      "BALL END MILL",
+      "BALL E/M"
+     ],
+     [
+      "DR",
+      "DRILL"
+     ],
+     [
+      "DRILL",
+      "DRILL"
+     ],
+     [
+      "F.MIL",
+      "FACE MILL"
+     ],
+     [
+      "FACE MILL",
+      "FACE MILL"
+     ],
+     [
+      "CUT",
+      "CUTTER"
+     ],
+     [
+      "CUTTER",
+      "CUTTER"
+     ],
+     [
+      "RM",
+      "REAMER"
+     ],
+     [
+      "REAMER",
+      "REAMER"
+     ],
+     [
+      "C.D",
+      "CENTER"
+     ],
+     [
+      "CENTER DRILL",
+      "CENTER"
+     ],
+     [
+      "T.CUT",
+      "T-CUTTER"
+     ],
+     [
+      "T-CUTTER",
+      "T-CUTTER"
+     ],
+     [
+      "DY.EM",
+      "DYNAMIC E/M"
+     ],
+     [
+      "DYNAMIC E/M",
+      "DYNAMIC E/M"
+     ],
+     [
+      "C.MIL",
+      "CHAMF MILL"
+     ],
+     [
+      "CHAMF MILL",
+      "CHAMF MILL"
+     ]
+    ]
+   ],
+   "result": "BALL E/M"
+  },
+  {
+   "args": [
+    "D5 DR",
+    null
+   ],
+   "result": "DRILL"
+  },
+  {
+   "args": [
+    "OD ROUGH",
+    null
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "OD FINISH",
+    null
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "D10 F.EM",
+    null
+   ],
+   "result": "FLAT E/M"
+  },
+  {
+   "args": [
+    "D6 B.EM",
+    null
+   ],
+   "result": "BALL E/M"
+  },
+  {
+   "args": [
+    "D2.3 DRILL",
+    null
+   ],
+   "result": "DRILL"
+  },
+  {
+   "args": [
+    "D6 F.EM",
+    null
+   ],
+   "result": "FLAT E/M"
+  },
+  {
+   "args": [
+    "D1 B.EM",
+    null
+   ],
+   "result": "BALL E/M"
+  },
+  {
+   "args": [
+    "D10 EM",
+    null
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "D50 F.MIL",
+    null
+   ],
+   "result": "FACE MILL"
+  },
+  {
+   "args": [
+    "D25XR2 CUT",
+    null
+   ],
+   "result": "CUTTER"
+  },
+  {
+   "args": [
+    "D12 F.EM",
+    null
+   ],
+   "result": "FLAT E/M"
+  },
+  {
+   "args": [
+    "D10 B.EM",
+    null
+   ],
+   "result": "BALL E/M"
+  },
+  {
+   "args": [
+    "D16 F.EM",
+    null
+   ],
+   "result": "FLAT E/M"
+  },
+  {
+   "args": [
+    "D7.1 DR",
+    null
+   ],
+   "result": "DRILL"
+  },
+  {
+   "args": [
+    "D10 RM",
+    null
+   ],
+   "result": "REAMER"
+  },
+  {
+   "args": [
+    "",
+    null
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "D9.8 DR",
+    null
+   ],
+   "result": "DRILL"
+  },
+  {
+   "args": [
+    "D2 XR2 CUT",
+    null
+   ],
+   "result": "CUTTER"
+  },
+  {
+   "args": [
+    "D50 F.MIL",
+    [
+     [
+      "F.EM",
+      "FLAT E/M"
+     ],
+     [
+      "FLAT E/M",
+      "FLAT E/M"
+     ],
+     [
+      "FLAT END MILL",
+      "FLAT E/M"
+     ],
+     [
+      "R.EM",
+      "FILLET E/M"
+     ],
+     [
+      "FILLET E/M",
+      "FILLET E/M"
+     ],
+     [
+      "RADIUS E/M",
+      "FILLET E/M"
+     ],
+     [
+      "B.EM",
+      "BALL E/M"
+     ],
+     [
+      "BALL E/M",
+      "BALL E/M"
+     ],
+     [
+      "BALL END MILL",
+      "BALL E/M"
+     ],
+     [
+      "DR",
+      "DRILL"
+     ],
+     [
+      "DRILL",
+      "DRILL"
+     ],
+     [
+      "F.MIL",
+      "FACE MILL"
+     ],
+     [
+      "FACE MILL",
+      "FACE MILL"
+     ],
+     [
+      "CUT",
+      "CUTTER"
+     ],
+     [
+      "CUTTER",
+      "CUTTER"
+     ],
+     [
+      "RM",
+      "REAMER"
+     ],
+     [
+      "REAMER",
+      "REAMER"
+     ],
+     [
+      "C.D",
+      "CENTER"
+     ],
+     [
+      "CENTER DRILL",
+      "CENTER"
+     ],
+     [
+      "T.CUT",
+      "T-CUTTER"
+     ],
+     [
+      "T-CUTTER",
+      "T-CUTTER"
+     ],
+     [
+      "DY.EM",
+      "DYNAMIC E/M"
+     ],
+     [
+      "DYNAMIC E/M",
+      "DYNAMIC E/M"
+     ],
+     [
+      "C.MIL",
+      "CHAMF MILL"
+     ],
+     [
+      "CHAMF MILL",
+      "CHAMF MILL"
+     ]
+    ]
+   ],
+   "result": "FACE MILL"
+  },
+  {
+   "args": [
+    "D12 F.MIL",
+    [
+     [
+      "F.EM",
+      "FLAT E/M"
+     ],
+     [
+      "FLAT E/M",
+      "FLAT E/M"
+     ],
+     [
+      "FLAT END MILL",
+      "FLAT E/M"
+     ],
+     [
+      "R.EM",
+      "FILLET E/M"
+     ],
+     [
+      "FILLET E/M",
+      "FILLET E/M"
+     ],
+     [
+      "RADIUS E/M",
+      "FILLET E/M"
+     ],
+     [
+      "B.EM",
+      "BALL E/M"
+     ],
+     [
+      "BALL E/M",
+      "BALL E/M"
+     ],
+     [
+      "BALL END MILL",
+      "BALL E/M"
+     ],
+     [
+      "DR",
+      "DRILL"
+     ],
+     [
+      "DRILL",
+      "DRILL"
+     ],
+     [
+      "F.MIL",
+      "FACE MILL"
+     ],
+     [
+      "FACE MILL",
+      "FACE MILL"
+     ],
+     [
+      "CUT",
+      "CUTTER"
+     ],
+     [
+      "CUTTER",
+      "CUTTER"
+     ],
+     [
+      "RM",
+      "REAMER"
+     ],
+     [
+      "REAMER",
+      "REAMER"
+     ],
+     [
+      "C.D",
+      "CENTER"
+     ],
+     [
+      "CENTER DRILL",
+      "CENTER"
+     ],
+     [
+      "T.CUT",
+      "T-CUTTER"
+     ],
+     [
+      "T-CUTTER",
+      "T-CUTTER"
+     ],
+     [
+      "DY.EM",
+      "DYNAMIC E/M"
+     ],
+     [
+      "DYNAMIC E/M",
+      "DYNAMIC E/M"
+     ],
+     [
+      "C.MIL",
+      "CHAMF MILL"
+     ],
+     [
+      "CHAMF MILL",
+      "CHAMF MILL"
+     ]
+    ]
+   ],
+   "result": "FACE MILL"
+  },
+  {
+   "args": [
+    "D10 F.EM"
+   ],
+   "result": "FLAT E/M"
+  },
+  {
+   "args": [
+    "D10 F.EM",
+    [
+     [
+      "EM",
+      "END"
+     ],
+     [
+      "F.EM",
+      "FLAT"
+     ],
+     [
+      "D",
+      "DX"
+     ]
+    ]
+   ],
+   "result": "FLAT"
+  },
+  {
+   "args": [
+    "D10 F.EM",
+    []
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "d 6.5 r.em"
+   ],
+   "result": "FILLET E/M"
+  },
+  {
+   "args": [
+    "d 6.5 r.em",
+    [
+     [
+      "EM",
+      "END"
+     ],
+     [
+      "F.EM",
+      "FLAT"
+     ],
+     [
+      "D",
+      "DX"
+     ]
+    ]
+   ],
+   "result": "END"
+  },
+  {
+   "args": [
+    "d 6.5 r.em",
+    []
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "DY.EM D12"
+   ],
+   "result": "DYNAMIC E/M"
+  },
+  {
+   "args": [
+    "DY.EM D12",
+    [
+     [
+      "EM",
+      "END"
+     ],
+     [
+      "F.EM",
+      "FLAT"
+     ],
+     [
+      "D",
+      "DX"
+     ]
+    ]
+   ],
+   "result": "END"
+  },
+  {
+   "args": [
+    "DY.EM D12",
+    []
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "C.MIL"
+   ],
+   "result": "CHAMF MILL"
+  },
+  {
+   "args": [
+    "C.MIL",
+    [
+     [
+      "EM",
+      "END"
+     ],
+     [
+      "F.EM",
+      "FLAT"
+     ],
+     [
+      "D",
+      "DX"
+     ]
+    ]
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "C.MIL",
+    []
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "T.CUT D20"
+   ],
+   "result": "T-CUTTER"
+  },
+  {
+   "args": [
+    "T.CUT D20",
+    [
+     [
+      "EM",
+      "END"
+     ],
+     [
+      "F.EM",
+      "FLAT"
+     ],
+     [
+      "D",
+      "DX"
+     ]
+    ]
+   ],
+   "result": "DX"
+  },
+  {
+   "args": [
+    "T.CUT D20",
+    []
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    ""
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "",
+    [
+     [
+      "EM",
+      "END"
+     ],
+     [
+      "F.EM",
+      "FLAT"
+     ],
+     [
+      "D",
+      "DX"
+     ]
+    ]
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "",
+    []
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    null
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    null,
+    [
+     [
+      "EM",
+      "END"
+     ],
+     [
+      "F.EM",
+      "FLAT"
+     ],
+     [
+      "D",
+      "DX"
+     ]
+    ]
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    null,
+    []
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "FACE MILL D80"
+   ],
+   "result": "FACE MILL"
+  },
+  {
+   "args": [
+    "FACE MILL D80",
+    [
+     [
+      "EM",
+      "END"
+     ],
+     [
+      "F.EM",
+      "FLAT"
+     ],
+     [
+      "D",
+      "DX"
+     ]
+    ]
+   ],
+   "result": "DX"
+  },
+  {
+   "args": [
+    "FACE MILL D80",
+    []
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "CENTER DRILL"
+   ],
+   "result": "CENTER"
+  },
+  {
+   "args": [
+    "CENTER DRILL",
+    [
+     [
+      "EM",
+      "END"
+     ],
+     [
+      "F.EM",
+      "FLAT"
+     ],
+     [
+      "D",
+      "DX"
+     ]
+    ]
+   ],
+   "result": "DX"
+  },
+  {
+   "args": [
+    "CENTER DRILL",
+    []
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "DRILL D3.3"
+   ],
+   "result": "DRILL"
+  },
+  {
+   "args": [
+    "DRILL D3.3",
+    [
+     [
+      "EM",
+      "END"
+     ],
+     [
+      "F.EM",
+      "FLAT"
+     ],
+     [
+      "D",
+      "DX"
+     ]
+    ]
+   ],
+   "result": "DX"
+  },
+  {
+   "args": [
+    "DRILL D3.3",
+    []
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "ＤＲ"
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "ＤＲ",
+    [
+     [
+      "EM",
+      "END"
+     ],
+     [
+      "F.EM",
+      "FLAT"
+     ],
+     [
+      "D",
+      "DX"
+     ]
+    ]
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "ＤＲ",
+    []
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "f.mil D50"
+   ],
+   "result": "FACE MILL"
+  },
+  {
+   "args": [
+    "f.mil D50",
+    [
+     [
+      "EM",
+      "END"
+     ],
+     [
+      "F.EM",
+      "FLAT"
+     ],
+     [
+      "D",
+      "DX"
+     ]
+    ]
+   ],
+   "result": "DX"
+  },
+  {
+   "args": [
+    "f.mil D50",
+    []
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "D.5"
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "D.5",
+    [
+     [
+      "EM",
+      "END"
+     ],
+     [
+      "F.EM",
+      "FLAT"
+     ],
+     [
+      "D",
+      "DX"
+     ]
+    ]
+   ],
+   "result": "DX"
+  },
+  {
+   "args": [
+    "D.5",
+    []
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "D"
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "D",
+    [
+     [
+      "EM",
+      "END"
+     ],
+     [
+      "F.EM",
+      "FLAT"
+     ],
+     [
+      "D",
+      "DX"
+     ]
+    ]
+   ],
+   "result": "DX"
+  },
+  {
+   "args": [
+    "D",
+    []
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "DD12"
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "DD12",
+    [
+     [
+      "EM",
+      "END"
+     ],
+     [
+      "F.EM",
+      "FLAT"
+     ],
+     [
+      "D",
+      "DX"
+     ]
+    ]
+   ],
+   "result": "DX"
+  },
+  {
+   "args": [
+    "DD12",
+    []
+   ],
+   "result": ""
+  }
+ ]
+}

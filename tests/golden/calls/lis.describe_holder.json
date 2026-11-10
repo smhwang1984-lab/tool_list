@@ -1,0 +1,47 @@
+{
+ "func": "lis.describe_holder",
+ "calls": [
+  {
+   "args": [
+    "PCLNR 2525M 12"
+   ],
+   "result": "ISO 5608 PCLNR 2525M 12: 접근각 95° / 우수(R) / 섕크 25×25 / 길이 150"
+  },
+  {
+   "args": [
+    "SLEEVE"
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "SER 2525M16"
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "MGEHR 2525-3"
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "S25T-MGEHR 3"
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    ""
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "PCLNL 2525M 12"
+   ],
+   "result": "ISO 5608 PCLNL 2525M 12: 접근각 95° / 좌수(L) / 섕크 25×25 / 길이 150"
+  }
+ ]
+}

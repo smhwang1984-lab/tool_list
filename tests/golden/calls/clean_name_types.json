@@ -1,0 +1,324 @@
+{
+ "func": "clean_name_types",
+ "calls": [
+  {
+   "args": [
+    [
+     [
+      "F.EM",
+      "FLAT E/M"
+     ],
+     [
+      "FLAT E/M",
+      "FLAT E/M"
+     ],
+     [
+      "FLAT END MILL",
+      "FLAT E/M"
+     ],
+     [
+      "R.EM",
+      "FILLET E/M"
+     ],
+     [
+      "FILLET E/M",
+      "FILLET E/M"
+     ],
+     [
+      "RADIUS E/M",
+      "FILLET E/M"
+     ],
+     [
+      "B.EM",
+      "BALL E/M"
+     ],
+     [
+      "BALL E/M",
+      "BALL E/M"
+     ],
+     [
+      "BALL END MILL",
+      "BALL E/M"
+     ],
+     [
+      "DR",
+      "DRILL"
+     ],
+     [
+      "DRILL",
+      "DRILL"
+     ],
+     [
+      "F.MIL",
+      "FACE MILL"
+     ],
+     [
+      "FACE MILL",
+      "FACE MILL"
+     ],
+     [
+      "CUT",
+      "CUTTER"
+     ],
+     [
+      "CUTTER",
+      "CUTTER"
+     ],
+     [
+      "RM",
+      "REAMER"
+     ],
+     [
+      "REAMER",
+      "REAMER"
+     ],
+     [
+      "C.D",
+      "CENTER"
+     ],
+     [
+      "CENTER DRILL",
+      "CENTER"
+     ],
+     [
+      "T.CUT",
+      "T-CUTTER"
+     ],
+     [
+      "T-CUTTER",
+      "T-CUTTER"
+     ],
+     [
+      "DY.EM",
+      "DYNAMIC E/M"
+     ],
+     [
+      "DYNAMIC E/M",
+      "DYNAMIC E/M"
+     ],
+     [
+      "C.MIL",
+      "CHAMF MILL"
+     ],
+     [
+      "CHAMF MILL",
+      "CHAMF MILL"
+     ]
+    ]
+   ],
+   "result": [
+    [
+     "F.EM",
+     "FLAT E/M"
+    ],
+    [
+     "FLAT E/M",
+     "FLAT E/M"
+    ],
+    [
+     "FLAT END MILL",
+     "FLAT E/M"
+    ],
+    [
+     "R.EM",
+     "FILLET E/M"
+    ],
+    [
+     "FILLET E/M",
+     "FILLET E/M"
+    ],
+    [
+     "RADIUS E/M",
+     "FILLET E/M"
+    ],
+    [
+     "B.EM",
+     "BALL E/M"
+    ],
+    [
+     "BALL E/M",
+     "BALL E/M"
+    ],
+    [
+     "BALL END MILL",
+     "BALL E/M"
+    ],
+    [
+     "DR",
+     "DRILL"
+    ],
+    [
+     "DRILL",
+     "DRILL"
+    ],
+    [
+     "F.MIL",
+     "FACE MILL"
+    ],
+    [
+     "FACE MILL",
+     "FACE MILL"
+    ],
+    [
+     "CUT",
+     "CUTTER"
+    ],
+    [
+     "CUTTER",
+     "CUTTER"
+    ],
+    [
+     "RM",
+     "REAMER"
+    ],
+    [
+     "REAMER",
+     "REAMER"
+    ],
+    [
+     "C.D",
+     "CENTER"
+    ],
+    [
+     "CENTER DRILL",
+     "CENTER"
+    ],
+    [
+     "T.CUT",
+     "T-CUTTER"
+    ],
+    [
+     "T-CUTTER",
+     "T-CUTTER"
+    ],
+    [
+     "DY.EM",
+     "DYNAMIC E/M"
+    ],
+    [
+     "DYNAMIC E/M",
+     "DYNAMIC E/M"
+    ],
+    [
+     "C.MIL",
+     "CHAMF MILL"
+    ],
+    [
+     "CHAMF MILL",
+     "CHAMF MILL"
+    ]
+   ]
+  },
+  {
+   "args": [
+    [
+     [
+      "F.EM",
+      "FLAT"
+     ],
+     [
+      "f.em",
+      "DUP"
+     ],
+     [
+      " DR ",
+      " DRILL "
+     ],
+     [
+      "",
+      "X"
+     ],
+     [
+      "A",
+      ""
+     ],
+     {
+      "name": "B.EM",
+      "type": "BALL"
+     },
+     {
+      "name": "x"
+     },
+     "ab",
+     "abc",
+     3,
+     null,
+     [
+      "only"
+     ]
+    ]
+   ],
+   "result": [
+    [
+     "F.EM",
+     "FLAT"
+    ],
+    [
+     "DR",
+     "DRILL"
+    ],
+    [
+     "B.EM",
+     "BALL"
+    ],
+    [
+     "a",
+     "b"
+    ]
+   ]
+  },
+  {
+   "args": [
+    [
+     {
+      "name": "  C.D",
+      "type": "CENTER"
+     },
+     {
+      "type": "T"
+     },
+     {
+      "name": 1,
+      "type": 2
+     }
+    ]
+   ],
+   "result": [
+    [
+     "C.D",
+     "CENTER"
+    ],
+    [
+     "1",
+     "2"
+    ]
+   ]
+  },
+  {
+   "args": [
+    "not a list"
+   ],
+   "result": []
+  },
+  {
+   "args": [
+    null
+   ],
+   "result": []
+  },
+  {
+   "args": [
+    {
+     "a": 1
+    }
+   ],
+   "result": []
+  },
+  {
+   "args": [
+    []
+   ],
+   "result": []
+  }
+ ]
+}

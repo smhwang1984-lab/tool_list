@@ -1,0 +1,1435 @@
+{
+ "func": "lis.parse_insert",
+ "calls": [
+  {
+   "args": [
+    "6.0 R0.5 E/M / D-6. / R-0.5"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "CNMG 120408 | R-0.8"
+   ],
+   "result": {
+    "code": "CNMG 120408",
+    "shape": "C",
+    "shape_name": "80° 마름모",
+    "angle": 80.0,
+    "clearance": "N",
+    "clearance_angle": 0.0,
+    "tolerance": "M",
+    "mounting": "G",
+    "size_code": 12,
+    "ic": 12.7,
+    "ic_alt": [
+     12.0
+    ],
+    "edge_length": 12.895917970948961,
+    "thickness": 4.76,
+    "nose_r": 0.8
+   }
+  },
+  {
+   "args": [
+    "CNMG 120408 | R-0.8 PCLNR 2525M 12"
+   ],
+   "result": {
+    "code": "CNMG 120408",
+    "shape": "C",
+    "shape_name": "80° 마름모",
+    "angle": 80.0,
+    "clearance": "N",
+    "clearance_angle": 0.0,
+    "tolerance": "M",
+    "mounting": "G",
+    "size_code": 12,
+    "ic": 12.7,
+    "ic_alt": [
+     12.0
+    ],
+    "edge_length": 12.895917970948961,
+    "thickness": 4.76,
+    "nose_r": 0.8
+   }
+  },
+  {
+   "args": [
+    "CNMG 120404 | R-0.4"
+   ],
+   "result": {
+    "code": "CNMG 120404",
+    "shape": "C",
+    "shape_name": "80° 마름모",
+    "angle": 80.0,
+    "clearance": "N",
+    "clearance_angle": 0.0,
+    "tolerance": "M",
+    "mounting": "G",
+    "size_code": 12,
+    "ic": 12.7,
+    "ic_alt": [
+     12.0
+    ],
+    "edge_length": 12.895917970948961,
+    "thickness": 4.76,
+    "nose_r": 0.4
+   }
+  },
+  {
+   "args": [
+    "CNMG 120404 | R-0.4 PCLNR 2525M 12 (FINISH)"
+   ],
+   "result": {
+    "code": "CNMG 120404",
+    "shape": "C",
+    "shape_name": "80° 마름모",
+    "angle": 80.0,
+    "clearance": "N",
+    "clearance_angle": 0.0,
+    "tolerance": "M",
+    "mounting": "G",
+    "size_code": 12,
+    "ic": 12.7,
+    "ic_alt": [
+     12.0
+    ],
+    "edge_length": 12.895917970948961,
+    "thickness": 4.76,
+    "nose_r": 0.4
+   }
+  },
+  {
+   "args": [
+    "D50.0 X H103 T-DRILL"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "INSERT B"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "INSERT B S07J SWUBR 06-D08"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "10.0 R0.5 E/M / D-10. / R-0.5"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "4.0 R0.5 E/M / D-4. / R-0.5"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "VCMT 16 04 04 | R-0.4"
+   ],
+   "result": {
+    "code": "VCMT 160404",
+    "shape": "V",
+    "shape_name": "35° 마름모",
+    "angle": 35.0,
+    "clearance": "C",
+    "clearance_angle": 7.0,
+    "tolerance": "M",
+    "mounting": "T",
+    "size_code": 16,
+    "ic": 9.525,
+    "ic_alt": [],
+    "edge_length": 16.60633072829096,
+    "thickness": 4.76,
+    "nose_r": 0.4
+   }
+  },
+  {
+   "args": [
+    "VCMT 16 04 04 | R-0.4 SVJCR 2525 M16"
+   ],
+   "result": {
+    "code": "VCMT 160404",
+    "shape": "V",
+    "shape_name": "35° 마름모",
+    "angle": 35.0,
+    "clearance": "C",
+    "clearance_angle": 7.0,
+    "tolerance": "M",
+    "mounting": "T",
+    "size_code": 16,
+    "ic": 9.525,
+    "ic_alt": [],
+    "edge_length": 16.60633072829096,
+    "thickness": 4.76,
+    "nose_r": 0.4
+   }
+  },
+  {
+   "args": [
+    "CNMG 120408 | R-0.8 G41 COMPENSATION HOLDER"
+   ],
+   "result": {
+    "code": "CNMG 120408",
+    "shape": "C",
+    "shape_name": "80° 마름모",
+    "angle": 80.0,
+    "clearance": "N",
+    "clearance_angle": 0.0,
+    "tolerance": "M",
+    "mounting": "G",
+    "size_code": 12,
+    "ic": 12.7,
+    "ic_alt": [
+     12.0
+    ],
+    "edge_length": 12.895917970948961,
+    "thickness": 4.76,
+    "nose_r": 0.8
+   }
+  },
+  {
+   "args": [
+    "VCMT 160404 | R-0.4"
+   ],
+   "result": {
+    "code": "VCMT 160404",
+    "shape": "V",
+    "shape_name": "35° 마름모",
+    "angle": 35.0,
+    "clearance": "C",
+    "clearance_angle": 7.0,
+    "tolerance": "M",
+    "mounting": "T",
+    "size_code": 16,
+    "ic": 9.525,
+    "ic_alt": [],
+    "edge_length": 16.60633072829096,
+    "thickness": 4.76,
+    "nose_r": 0.4
+   }
+  },
+  {
+   "args": [
+    "VCMT 160404 | R-0.4 SVJCR 2525 M16"
+   ],
+   "result": {
+    "code": "VCMT 160404",
+    "shape": "V",
+    "shape_name": "35° 마름모",
+    "angle": 35.0,
+    "clearance": "C",
+    "clearance_angle": 7.0,
+    "tolerance": "M",
+    "mounting": "T",
+    "size_code": 16,
+    "ic": 9.525,
+    "ic_alt": [],
+    "edge_length": 16.60633072829096,
+    "thickness": 4.76,
+    "nose_r": 0.4
+   }
+  },
+  {
+   "args": [
+    "D5.5 CARBIDE DRILL, ANGLE"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D4.5 CARBIDE DRILL, ANGLE"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "TPGT 110302 | R-0.2"
+   ],
+   "result": {
+    "code": "TPGT 110302",
+    "shape": "T",
+    "shape_name": "정삼각형",
+    "angle": 60.0,
+    "clearance": "P",
+    "clearance_angle": 11.0,
+    "tolerance": "G",
+    "mounting": "T",
+    "size_code": 11,
+    "ic": 6.35,
+    "ic_alt": [],
+    "edge_length": 10.99852262806237,
+    "thickness": 3.18,
+    "nose_r": 0.2
+   }
+  },
+  {
+   "args": [
+    "TPGT 110302 | R-0.2 S16R STFPR 11 - D20"
+   ],
+   "result": {
+    "code": "TPGT 110302",
+    "shape": "T",
+    "shape_name": "정삼각형",
+    "angle": 60.0,
+    "clearance": "P",
+    "clearance_angle": 11.0,
+    "tolerance": "G",
+    "mounting": "T",
+    "size_code": 11,
+    "ic": 6.35,
+    "ic_alt": [],
+    "edge_length": 10.99852262806237,
+    "thickness": 3.18,
+    "nose_r": 0.2
+   }
+  },
+  {
+   "args": [
+    "D3. FLAT END MILL, ANGLE"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "CNMG 120408 | R-0.8 S40T PCLNR 12 - 50"
+   ],
+   "result": {
+    "code": "CNMG 120408",
+    "shape": "C",
+    "shape_name": "80° 마름모",
+    "angle": 80.0,
+    "clearance": "N",
+    "clearance_angle": 0.0,
+    "tolerance": "M",
+    "mounting": "G",
+    "size_code": 12,
+    "ic": 12.7,
+    "ic_alt": [
+     12.0
+    ],
+    "edge_length": 12.895917970948961,
+    "thickness": 4.76,
+    "nose_r": 0.8
+   }
+  },
+  {
+   "args": [
+    "D10 X 90 NC DRILL"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "CNMG120408"
+   ],
+   "result": {
+    "code": "CNMG 120408",
+    "shape": "C",
+    "shape_name": "80° 마름모",
+    "angle": 80.0,
+    "clearance": "N",
+    "clearance_angle": 0.0,
+    "tolerance": "M",
+    "mounting": "G",
+    "size_code": 12,
+    "ic": 12.7,
+    "ic_alt": [
+     12.0
+    ],
+    "edge_length": 12.895917970948961,
+    "thickness": 4.76,
+    "nose_r": 0.8
+   }
+  },
+  {
+   "args": [
+    "TNMG160404"
+   ],
+   "result": {
+    "code": "TNMG 160404",
+    "shape": "T",
+    "shape_name": "정삼각형",
+    "angle": 60.0,
+    "clearance": "N",
+    "clearance_angle": 0.0,
+    "tolerance": "M",
+    "mounting": "G",
+    "size_code": 16,
+    "ic": 9.525,
+    "ic_alt": [],
+    "edge_length": 16.497783942093555,
+    "thickness": 4.76,
+    "nose_r": 0.4
+   }
+  },
+  {
+   "args": [
+    "WNMG080408"
+   ],
+   "result": {
+    "code": "WNMG 080408",
+    "shape": "W",
+    "shape_name": "80° 트라이곤",
+    "angle": 80.0,
+    "clearance": "N",
+    "clearance_angle": 0.0,
+    "tolerance": "M",
+    "mounting": "G",
+    "size_code": 8,
+    "ic": 12.7,
+    "ic_alt": [
+     12.0
+    ],
+    "edge_length": 8.687311640471986,
+    "thickness": 4.76,
+    "nose_r": 0.8
+   }
+  },
+  {
+   "args": [
+    "SNMG120408"
+   ],
+   "result": {
+    "code": "SNMG 120408",
+    "shape": "S",
+    "shape_name": "정사각형",
+    "angle": 90.0,
+    "clearance": "N",
+    "clearance_angle": 0.0,
+    "tolerance": "M",
+    "mounting": "G",
+    "size_code": 12,
+    "ic": 12.7,
+    "ic_alt": [
+     12.0
+    ],
+    "edge_length": 12.7,
+    "thickness": 4.76,
+    "nose_r": 0.8
+   }
+  },
+  {
+   "args": [
+    "CNMG 120404"
+   ],
+   "result": {
+    "code": "CNMG 120404",
+    "shape": "C",
+    "shape_name": "80° 마름모",
+    "angle": 80.0,
+    "clearance": "N",
+    "clearance_angle": 0.0,
+    "tolerance": "M",
+    "mounting": "G",
+    "size_code": 12,
+    "ic": 12.7,
+    "ic_alt": [
+     12.0
+    ],
+    "edge_length": 12.895917970948961,
+    "thickness": 4.76,
+    "nose_r": 0.4
+   }
+  },
+  {
+   "args": [
+    "CNMG190612"
+   ],
+   "result": {
+    "code": "CNMG 190612",
+    "shape": "C",
+    "shape_name": "80° 마름모",
+    "angle": 80.0,
+    "clearance": "N",
+    "clearance_angle": 0.0,
+    "tolerance": "M",
+    "mounting": "G",
+    "size_code": 19,
+    "ic": 19.05,
+    "ic_alt": [],
+    "edge_length": 19.343876956423443,
+    "thickness": 6.35,
+    "nose_r": 1.2
+   }
+  },
+  {
+   "args": [
+    "DNMG150404"
+   ],
+   "result": {
+    "code": "DNMG 150404",
+    "shape": "D",
+    "shape_name": "55° 마름모",
+    "angle": 55.0,
+    "clearance": "N",
+    "clearance_angle": 0.0,
+    "tolerance": "M",
+    "mounting": "G",
+    "size_code": 15,
+    "ic": 12.7,
+    "ic_alt": [],
+    "edge_length": 15.503837277270492,
+    "thickness": 4.76,
+    "nose_r": 0.4
+   }
+  },
+  {
+   "args": [
+    "DCMT11T304"
+   ],
+   "result": {
+    "code": "DCMT 11T304",
+    "shape": "D",
+    "shape_name": "55° 마름모",
+    "angle": 55.0,
+    "clearance": "C",
+    "clearance_angle": 7.0,
+    "tolerance": "M",
+    "mounting": "T",
+    "size_code": 11,
+    "ic": 9.525,
+    "ic_alt": [],
+    "edge_length": 11.627877957952869,
+    "thickness": 3.97,
+    "nose_r": 0.4
+   }
+  },
+  {
+   "args": [
+    "DCMT070204"
+   ],
+   "result": {
+    "code": "DCMT 070204",
+    "shape": "D",
+    "shape_name": "55° 마름모",
+    "angle": 55.0,
+    "clearance": "C",
+    "clearance_angle": 7.0,
+    "tolerance": "M",
+    "mounting": "T",
+    "size_code": 7,
+    "ic": 6.35,
+    "ic_alt": [
+     6.0
+    ],
+    "edge_length": 7.751918638635246,
+    "thickness": 2.38,
+    "nose_r": 0.4
+   }
+  },
+  {
+   "args": [
+    "TNMG220408"
+   ],
+   "result": {
+    "code": "TNMG 220408",
+    "shape": "T",
+    "shape_name": "정삼각형",
+    "angle": 60.0,
+    "clearance": "N",
+    "clearance_angle": 0.0,
+    "tolerance": "M",
+    "mounting": "G",
+    "size_code": 22,
+    "ic": 12.7,
+    "ic_alt": [],
+    "edge_length": 21.99704525612474,
+    "thickness": 4.76,
+    "nose_r": 0.8
+   }
+  },
+  {
+   "args": [
+    "TCMT110204"
+   ],
+   "result": {
+    "code": "TCMT 110204",
+    "shape": "T",
+    "shape_name": "정삼각형",
+    "angle": 60.0,
+    "clearance": "C",
+    "clearance_angle": 7.0,
+    "tolerance": "M",
+    "mounting": "T",
+    "size_code": 11,
+    "ic": 6.35,
+    "ic_alt": [],
+    "edge_length": 10.99852262806237,
+    "thickness": 2.38,
+    "nose_r": 0.4
+   }
+  },
+  {
+   "args": [
+    "VNMG160408"
+   ],
+   "result": {
+    "code": "VNMG 160408",
+    "shape": "V",
+    "shape_name": "35° 마름모",
+    "angle": 35.0,
+    "clearance": "N",
+    "clearance_angle": 0.0,
+    "tolerance": "M",
+    "mounting": "G",
+    "size_code": 16,
+    "ic": 9.525,
+    "ic_alt": [],
+    "edge_length": 16.60633072829096,
+    "thickness": 4.76,
+    "nose_r": 0.8
+   }
+  },
+  {
+   "args": [
+    "VBMT110304"
+   ],
+   "result": {
+    "code": "VBMT 110304",
+    "shape": "V",
+    "shape_name": "35° 마름모",
+    "angle": 35.0,
+    "clearance": "B",
+    "clearance_angle": 5.0,
+    "tolerance": "M",
+    "mounting": "T",
+    "size_code": 11,
+    "ic": 6.35,
+    "ic_alt": [],
+    "edge_length": 11.070887152193972,
+    "thickness": 3.18,
+    "nose_r": 0.4
+   }
+  },
+  {
+   "args": [
+    "WNMG060408"
+   ],
+   "result": {
+    "code": "WNMG 060408",
+    "shape": "W",
+    "shape_name": "80° 트라이곤",
+    "angle": 80.0,
+    "clearance": "N",
+    "clearance_angle": 0.0,
+    "tolerance": "M",
+    "mounting": "G",
+    "size_code": 6,
+    "ic": 9.525,
+    "ic_alt": [
+     10.0
+    ],
+    "edge_length": 6.51548373035399,
+    "thickness": 4.76,
+    "nose_r": 0.8
+   }
+  },
+  {
+   "args": [
+    "SNMG090308"
+   ],
+   "result": {
+    "code": "SNMG 090308",
+    "shape": "S",
+    "shape_name": "정사각형",
+    "angle": 90.0,
+    "clearance": "N",
+    "clearance_angle": 0.0,
+    "tolerance": "M",
+    "mounting": "G",
+    "size_code": 9,
+    "ic": 9.525,
+    "ic_alt": [],
+    "edge_length": 9.525,
+    "thickness": 3.18,
+    "nose_r": 0.8
+   }
+  },
+  {
+   "args": [
+    "CCMT09T304"
+   ],
+   "result": {
+    "code": "CCMT 09T304",
+    "shape": "C",
+    "shape_name": "80° 마름모",
+    "angle": 80.0,
+    "clearance": "C",
+    "clearance_angle": 7.0,
+    "tolerance": "M",
+    "mounting": "T",
+    "size_code": 9,
+    "ic": 9.525,
+    "ic_alt": [],
+    "edge_length": 9.671938478211722,
+    "thickness": 3.97,
+    "nose_r": 0.4
+   }
+  },
+  {
+   "args": [
+    "CPMH090308"
+   ],
+   "result": {
+    "code": "CPMH 090308",
+    "shape": "C",
+    "shape_name": "80° 마름모",
+    "angle": 80.0,
+    "clearance": "P",
+    "clearance_angle": 11.0,
+    "tolerance": "M",
+    "mounting": "H",
+    "size_code": 9,
+    "ic": 9.525,
+    "ic_alt": [],
+    "edge_length": 9.671938478211722,
+    "thickness": 3.18,
+    "nose_r": 0.8
+   }
+  },
+  {
+   "args": [
+    "CNMG1204"
+   ],
+   "result": {
+    "code": "CNMG 1204",
+    "shape": "C",
+    "shape_name": "80° 마름모",
+    "angle": 80.0,
+    "clearance": "N",
+    "clearance_angle": 0.0,
+    "tolerance": "M",
+    "mounting": "G",
+    "size_code": 12,
+    "ic": 12.7,
+    "ic_alt": [
+     12.0
+    ],
+    "edge_length": 12.895917970948961,
+    "thickness": 4.76,
+    "nose_r": null
+   }
+  },
+  {
+   "args": [
+    "RCMT1204MO"
+   ],
+   "result": {
+    "code": "RCMT 1204",
+    "shape": "R",
+    "shape_name": "원형",
+    "angle": null,
+    "clearance": "C",
+    "clearance_angle": 7.0,
+    "tolerance": "M",
+    "mounting": "T",
+    "size_code": 12,
+    "ic": 12.0,
+    "ic_alt": [
+     12.7
+    ],
+    "edge_length": null,
+    "thickness": 4.76,
+    "nose_r": 6.0
+   }
+  },
+  {
+   "args": [
+    "RNMG120400"
+   ],
+   "result": {
+    "code": "RNMG 120400",
+    "shape": "R",
+    "shape_name": "원형",
+    "angle": null,
+    "clearance": "N",
+    "clearance_angle": 0.0,
+    "tolerance": "M",
+    "mounting": "G",
+    "size_code": 12,
+    "ic": 12.7,
+    "ic_alt": [
+     12.0
+    ],
+    "edge_length": null,
+    "thickness": 4.76,
+    "nose_r": 6.35
+   }
+  },
+  {
+   "args": [
+    "T01 - CNMG 120408 | R-0.8"
+   ],
+   "result": {
+    "code": "CNMG 120408",
+    "shape": "C",
+    "shape_name": "80° 마름모",
+    "angle": 80.0,
+    "clearance": "N",
+    "clearance_angle": 0.0,
+    "tolerance": "M",
+    "mounting": "G",
+    "size_code": 12,
+    "ic": 12.7,
+    "ic_alt": [
+     12.0
+    ],
+    "edge_length": 12.895917970948961,
+    "thickness": 4.76,
+    "nose_r": 0.8
+   }
+  },
+  {
+   "args": [
+    "PCLNR 2525M 12"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    ""
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "CNMG 1210"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "WBGT 060102 | R-0.2"
+   ],
+   "result": {
+    "code": "WBGT 060102",
+    "shape": "W",
+    "shape_name": "80° 트라이곤",
+    "angle": 80.0,
+    "clearance": "B",
+    "clearance_angle": 5.0,
+    "tolerance": "G",
+    "mounting": "T",
+    "size_code": 6,
+    "ic": 9.525,
+    "ic_alt": [
+     10.0
+    ],
+    "edge_length": 6.51548373035399,
+    "thickness": 1.59,
+    "nose_r": 0.2
+   }
+  },
+  {
+   "args": [
+    "WBGT 060102 | R-0.2 S07J SWUBR 06-D08"
+   ],
+   "result": {
+    "code": "WBGT 060102",
+    "shape": "W",
+    "shape_name": "80° 트라이곤",
+    "angle": 80.0,
+    "clearance": "B",
+    "clearance_angle": 5.0,
+    "tolerance": "G",
+    "mounting": "T",
+    "size_code": 6,
+    "ic": 9.525,
+    "ic_alt": [
+     10.0
+    ],
+    "edge_length": 6.51548373035399,
+    "thickness": 1.59,
+    "nose_r": 0.2
+   }
+  },
+  {
+   "args": [
+    "VCMT 160404"
+   ],
+   "result": {
+    "code": "VCMT 160404",
+    "shape": "V",
+    "shape_name": "35° 마름모",
+    "angle": 35.0,
+    "clearance": "C",
+    "clearance_angle": 7.0,
+    "tolerance": "M",
+    "mounting": "T",
+    "size_code": 16,
+    "ic": 9.525,
+    "ic_alt": [],
+    "edge_length": 16.60633072829096,
+    "thickness": 4.76,
+    "nose_r": 0.4
+   }
+  },
+  {
+   "args": [
+    "VCMT 160404 SVJCR 2525 M16"
+   ],
+   "result": {
+    "code": "VCMT 160404",
+    "shape": "V",
+    "shape_name": "35° 마름모",
+    "angle": 35.0,
+    "clearance": "C",
+    "clearance_angle": 7.0,
+    "tolerance": "M",
+    "mounting": "T",
+    "size_code": 16,
+    "ic": 9.525,
+    "ic_alt": [],
+    "edge_length": 16.60633072829096,
+    "thickness": 4.76,
+    "nose_r": 0.4
+   }
+  },
+  {
+   "args": [
+    "D12 CARBIDE DRILL"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "CNMG 120408"
+   ],
+   "result": {
+    "code": "CNMG 120408",
+    "shape": "C",
+    "shape_name": "80° 마름모",
+    "angle": 80.0,
+    "clearance": "N",
+    "clearance_angle": 0.0,
+    "tolerance": "M",
+    "mounting": "G",
+    "size_code": 12,
+    "ic": 12.7,
+    "ic_alt": [
+     12.0
+    ],
+    "edge_length": 12.895917970948961,
+    "thickness": 4.76,
+    "nose_r": 0.8
+   }
+  },
+  {
+   "args": [
+    "D1.5 CENTER"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D16 FLAT END MILL, ANGLE"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D12 X R1.5 FILLET END MILL"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D50. FACE CUTTER, STRAIGHT | R-0.8"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D10.SETTING PIN | R-0."
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "ROLLE NULLING  | R-0.12"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "MTI 0808 D30 A60 MT8, STRAIGHT"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "MTI 0808 D30 A60 MT8, STRAIGHT MILL TOOL CHECK"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "CNMG 12 04 08 | R-0.8"
+   ],
+   "result": {
+    "code": "CNMG 120408",
+    "shape": "C",
+    "shape_name": "80° 마름모",
+    "angle": 80.0,
+    "clearance": "N",
+    "clearance_angle": 0.0,
+    "tolerance": "M",
+    "mounting": "G",
+    "size_code": 12,
+    "ic": 12.7,
+    "ic_alt": [
+     12.0
+    ],
+    "edge_length": 12.895917970948961,
+    "thickness": 4.76,
+    "nose_r": 0.8
+   }
+  },
+  {
+   "args": [
+    "MTI 0808 D30 A60 MT8"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "MTI 0808 D30 A60 MT8 MILL TOOL CHECK"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "CNMG 120408 PCLNR 2525M 12"
+   ],
+   "result": {
+    "code": "CNMG 120408",
+    "shape": "C",
+    "shape_name": "80° 마름모",
+    "angle": 80.0,
+    "clearance": "N",
+    "clearance_angle": 0.0,
+    "tolerance": "M",
+    "mounting": "G",
+    "size_code": 12,
+    "ic": 12.7,
+    "ic_alt": [
+     12.0
+    ],
+    "edge_length": 12.895917970948961,
+    "thickness": 4.76,
+    "nose_r": 0.8
+   }
+  },
+  {
+   "args": [
+    "CNMG 120408 PCLNL 2525M 12"
+   ],
+   "result": {
+    "code": "CNMG 120408",
+    "shape": "C",
+    "shape_name": "80° 마름모",
+    "angle": 80.0,
+    "clearance": "N",
+    "clearance_angle": 0.0,
+    "tolerance": "M",
+    "mounting": "G",
+    "size_code": 12,
+    "ic": 12.7,
+    "ic_alt": [
+     12.0
+    ],
+    "edge_length": 12.895917970948961,
+    "thickness": 4.76,
+    "nose_r": 0.8
+   }
+  },
+  {
+   "args": [
+    "DNMG150404 S25T-PCLNR 12"
+   ],
+   "result": {
+    "code": "DNMG 150404",
+    "shape": "D",
+    "shape_name": "55° 마름모",
+    "angle": 55.0,
+    "clearance": "N",
+    "clearance_angle": 0.0,
+    "tolerance": "M",
+    "mounting": "G",
+    "size_code": 15,
+    "ic": 12.7,
+    "ic_alt": [],
+    "edge_length": 15.503837277270492,
+    "thickness": 4.76,
+    "nose_r": 0.4
+   }
+  },
+  {
+   "args": [
+    "D12 FLAT EN, STRAIGHT | DIA-12."
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D10.BALL EN, STRAIGHT | DIA-10. | R-5."
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D10XR0.8 FILLET EN, STRAIGHT | DIA-10. | R-0.8"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D2X90X6 CHAMF EN, STRAIGHT | DIA-6."
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    ".2500-28 UNJF_3B, STRAIGHT | DIA-6.35"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    ".2500-28 UNJF_3B, STRAIGHT | DIA-6.35 MILL TOOL CHECK"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D5.2 CARBIDE DRILL, STRAIGHT | DIA-5.2"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    ".3125-24 UNJF_3B, STRAIGHT"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    ".3125-24 UNJF_3B, STRAIGHT MILL TOOL CHECK"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "M6X1.0 TAP"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    ".2500-28 UNJF_3B | DIA-6.35"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    ".2500-28 UNJF_3B | DIA-6.35 ER25"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "16ER 16UNJ | R-0.24"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "DNMG 150404"
+   ],
+   "result": {
+    "code": "DNMG 150404",
+    "shape": "D",
+    "shape_name": "55° 마름모",
+    "angle": 55.0,
+    "clearance": "N",
+    "clearance_angle": 0.0,
+    "tolerance": "M",
+    "mounting": "G",
+    "size_code": 15,
+    "ic": 12.7,
+    "ic_alt": [],
+    "edge_length": 15.503837277270492,
+    "thickness": 4.76,
+    "nose_r": 0.4
+   }
+  },
+  {
+   "args": [
+    "DNMG 150404 BORING BAR S25T-PCLNR 12"
+   ],
+   "result": {
+    "code": "DNMG 150404",
+    "shape": "D",
+    "shape_name": "55° 마름모",
+    "angle": 55.0,
+    "clearance": "N",
+    "clearance_angle": 0.0,
+    "tolerance": "M",
+    "mounting": "G",
+    "size_code": 15,
+    "ic": 12.7,
+    "ic_alt": [],
+    "edge_length": 15.503837277270492,
+    "thickness": 4.76,
+    "nose_r": 0.4
+   }
+  },
+  {
+   "args": [
+    "CNMG 120400"
+   ],
+   "result": {
+    "code": "CNMG 120400",
+    "shape": "C",
+    "shape_name": "80° 마름모",
+    "angle": 80.0,
+    "clearance": "N",
+    "clearance_angle": 0.0,
+    "tolerance": "M",
+    "mounting": "G",
+    "size_code": 12,
+    "ic": 12.7,
+    "ic_alt": [
+     12.0
+    ],
+    "edge_length": 12.895917970948961,
+    "thickness": 4.76,
+    "nose_r": null
+   }
+  },
+  {
+   "args": [
+    "CNMG 120400 "
+   ],
+   "result": {
+    "code": "CNMG 120400",
+    "shape": "C",
+    "shape_name": "80° 마름모",
+    "angle": 80.0,
+    "clearance": "N",
+    "clearance_angle": 0.0,
+    "tolerance": "M",
+    "mounting": "G",
+    "size_code": 12,
+    "ic": 12.7,
+    "ic_alt": [
+     12.0
+    ],
+    "edge_length": 12.895917970948961,
+    "thickness": 4.76,
+    "nose_r": null
+   }
+  },
+  {
+   "args": [
+    "nothing here"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    " MGEHR 2525-3"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    " "
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "CNMG 120408 "
+   ],
+   "result": {
+    "code": "CNMG 120408",
+    "shape": "C",
+    "shape_name": "80° 마름모",
+    "angle": 80.0,
+    "clearance": "N",
+    "clearance_angle": 0.0,
+    "tolerance": "M",
+    "mounting": "G",
+    "size_code": 12,
+    "ic": 12.7,
+    "ic_alt": [
+     12.0
+    ],
+    "edge_length": 12.895917970948961,
+    "thickness": 4.76,
+    "nose_r": 0.8
+   }
+  },
+  {
+   "args": [
+    "MY-GROOVE INSERT"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "N123G2-0300-0004-GM"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "16ER AG60"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "16ER 1.0 ISO"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "CNMG 120408 | R-1.2"
+   ],
+   "result": {
+    "code": "CNMG 120408",
+    "shape": "C",
+    "shape_name": "80° 마름모",
+    "angle": 80.0,
+    "clearance": "N",
+    "clearance_angle": 0.0,
+    "tolerance": "M",
+    "mounting": "G",
+    "size_code": 12,
+    "ic": 12.7,
+    "ic_alt": [
+     12.0
+    ],
+    "edge_length": 12.895917970948961,
+    "thickness": 4.76,
+    "nose_r": 0.8
+   }
+  },
+  {
+   "args": [
+    "CNMG 120408 | R-1.2 "
+   ],
+   "result": {
+    "code": "CNMG 120408",
+    "shape": "C",
+    "shape_name": "80° 마름모",
+    "angle": 80.0,
+    "clearance": "N",
+    "clearance_angle": 0.0,
+    "tolerance": "M",
+    "mounting": "G",
+    "size_code": 12,
+    "ic": 12.7,
+    "ic_alt": [
+     12.0
+    ],
+    "edge_length": 12.895917970948961,
+    "thickness": 4.76,
+    "nose_r": 0.8
+   }
+  },
+  {
+   "args": [
+    "CNMG 120408 S25T-PCLNR 12"
+   ],
+   "result": {
+    "code": "CNMG 120408",
+    "shape": "C",
+    "shape_name": "80° 마름모",
+    "angle": 80.0,
+    "clearance": "N",
+    "clearance_angle": 0.0,
+    "tolerance": "M",
+    "mounting": "G",
+    "size_code": 12,
+    "ic": 12.7,
+    "ic_alt": [
+     12.0
+    ],
+    "edge_length": 12.895917970948961,
+    "thickness": 4.76,
+    "nose_r": 0.8
+   }
+  },
+  {
+   "args": [
+    "MY-GROOVE"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "16ER 1.5 ISO"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "MGMN300-M"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "DNMG150404 PCLNR 2525M 12"
+   ],
+   "result": {
+    "code": "DNMG 150404",
+    "shape": "D",
+    "shape_name": "55° 마름모",
+    "angle": 55.0,
+    "clearance": "N",
+    "clearance_angle": 0.0,
+    "tolerance": "M",
+    "mounting": "G",
+    "size_code": 15,
+    "ic": 12.7,
+    "ic_alt": [],
+    "edge_length": 15.503837277270492,
+    "thickness": 4.76,
+    "nose_r": 0.4
+   }
+  },
+  {
+   "args": [
+    "TNMG160404 PCLNL 2525M 12"
+   ],
+   "result": {
+    "code": "TNMG 160404",
+    "shape": "T",
+    "shape_name": "정삼각형",
+    "angle": 60.0,
+    "clearance": "N",
+    "clearance_angle": 0.0,
+    "tolerance": "M",
+    "mounting": "G",
+    "size_code": 16,
+    "ic": 9.525,
+    "ic_alt": [],
+    "edge_length": 16.497783942093555,
+    "thickness": 4.76,
+    "nose_r": 0.4
+   }
+  }
+ ]
+}

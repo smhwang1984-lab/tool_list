@@ -1,0 +1,233 @@
+{
+ "func": "lis.strip_tags",
+ "calls": [
+  {
+   "args": [
+    "BMT STRAIGHT"
+   ],
+   "result": "BMT STRAIGHT"
+  },
+  {
+   "args": [
+    "6.0 R0.5 E/M / D-6. / R-0.5"
+   ],
+   "result": "6.0 R0.5 E/M / D-6. / R-0.5"
+  },
+  {
+   "args": [
+    "SLEEVE"
+   ],
+   "result": "SLEEVE"
+  },
+  {
+   "args": [
+    "D50.0 X H103 T-DRILL"
+   ],
+   "result": "D50.0 X H103 T-DRILL"
+  },
+  {
+   "args": [
+    "PCLNR 2525M 12"
+   ],
+   "result": "PCLNR 2525M 12"
+  },
+  {
+   "args": [
+    "CNMG 120408 | R-0.8"
+   ],
+   "result": "CNMG 120408 | R-0.8"
+  },
+  {
+   "args": [
+    "PCLNR 2525M 12 (FINISH)"
+   ],
+   "result": "PCLNR 2525M 12 (FINISH)"
+  },
+  {
+   "args": [
+    "CNMG 120404 | R-0.4"
+   ],
+   "result": "CNMG 120404 | R-0.4"
+  },
+  {
+   "args": [
+    "S07J SWUBR 06-D08"
+   ],
+   "result": "S07J SWUBR 06-D08"
+  },
+  {
+   "args": [
+    "INSERT B "
+   ],
+   "result": "INSERT B"
+  },
+  {
+   "args": [
+    "10.0 R0.5 E/M / D-10. / R-0.5"
+   ],
+   "result": "10.0 R0.5 E/M / D-10. / R-0.5"
+  },
+  {
+   "args": [
+    "4.0 R0.5 E/M / D-4. / R-0.5"
+   ],
+   "result": "4.0 R0.5 E/M / D-4. / R-0.5"
+  },
+  {
+   "args": [
+    "SVJCR 2525 M16 "
+   ],
+   "result": "SVJCR 2525 M16"
+  },
+  {
+   "args": [
+    "VCMT 16 04 04 | R-0.4"
+   ],
+   "result": "VCMT 16 04 04 | R-0.4"
+  },
+  {
+   "args": [
+    "SVJCR 2525 M16"
+   ],
+   "result": "SVJCR 2525 M16"
+  },
+  {
+   "args": [
+    "VCMT 16 04 04 | R-0.4 "
+   ],
+   "result": "VCMT 16 04 04 | R-0.4"
+  },
+  {
+   "args": [
+    "G41 COMPENSATION HOLDER"
+   ],
+   "result": "G41 COMPENSATION HOLDER"
+  },
+  {
+   "args": [
+    "S40T PCLNR 12 - 50"
+   ],
+   "result": "S40T PCLNR 12 - 50"
+  },
+  {
+   "args": [
+    "VCMT 160404 | R-0.4"
+   ],
+   "result": "VCMT 160404 | R-0.4"
+  },
+  {
+   "args": [
+    "S16R STFPR 11 - D20"
+   ],
+   "result": "S16R STFPR 11 - D20"
+  },
+  {
+   "args": [
+    "TPGT 110302 | R-0.2"
+   ],
+   "result": "TPGT 110302 | R-0.2"
+  },
+  {
+   "args": [
+    "MILL TOOL CHECK"
+   ],
+   "result": "MILL TOOL CHECK"
+  },
+  {
+   "args": [
+    "D10 X 90 NC DRILL"
+   ],
+   "result": "D10 X 90 NC DRILL"
+  },
+  {
+   "args": [
+    "D5.5 CARBIDE DRILL, ANGLE"
+   ],
+   "result": "D5.5 CARBIDE DRILL, ANGLE"
+  },
+  {
+   "args": [
+    "D4.5 CARBIDE DRILL, ANGLE"
+   ],
+   "result": "D4.5 CARBIDE DRILL, ANGLE"
+  },
+  {
+   "args": [
+    "D3. FLAT END MILL, ANGLE"
+   ],
+   "result": "D3. FLAT END MILL, ANGLE"
+  },
+  {
+   "args": [
+    "D10 X 90 NC DRILL [D 9.8]"
+   ],
+   "result": "D10 X 90 NC DRILL"
+  },
+  {
+   "args": [
+    "CNMG 120408 [R 0.4] [T 3.0] [P 1.5]"
+   ],
+   "result": "CNMG 120408"
+  },
+  {
+   "args": [
+    "SER 2525M16 [R 0.1]"
+   ],
+   "result": "SER 2525M16"
+  },
+  {
+   "args": [
+    "16ER AG60 "
+   ],
+   "result": "16ER AG60"
+  },
+  {
+   "args": [
+    "MGEHR 2525-3"
+   ],
+   "result": "MGEHR 2525-3"
+  },
+  {
+   "args": [
+    "N123G2-0300-0004-GM [T 3.2]"
+   ],
+   "result": "N123G2-0300-0004-GM"
+  },
+  {
+   "args": [
+    "CNMG 120408"
+   ],
+   "result": "CNMG 120408"
+  },
+  {
+   "args": [
+    "S25T-MGEHR 3"
+   ],
+   "result": "S25T-MGEHR 3"
+  },
+  {
+   "args": [
+    "MY-GROOVE INSERT"
+   ],
+   "result": "MY-GROOVE INSERT"
+  },
+  {
+   "args": [
+    "SER 2525M16"
+   ],
+   "result": "SER 2525M16"
+  },
+  {
+   "args": [
+    "16ER AG60"
+   ],
+   "result": "16ER AG60"
+  },
+  {
+   "args": [
+    "CNMG 120408 [R 0.8]"
+   ],
+   "result": "CNMG 120408"
+  }
+ ]
+}

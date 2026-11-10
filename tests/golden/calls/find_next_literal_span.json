@@ -1,0 +1,37 @@
+{
+ "func": "find_next_literal_span",
+ "calls": [
+  {
+   "args": [
+    "FACE MILL\nflat em\nDRILL",
+    "FLAT",
+    1
+   ],
+   "result": [
+    10,
+    14,
+    false
+   ]
+  },
+  {
+   "args": [
+    "FACE MILL\nflat em\nDRILL",
+    "face",
+    23
+   ],
+   "result": [
+    0,
+    4,
+    true
+   ]
+  },
+  {
+   "args": [
+    "FACE MILL\nflat em\nDRILL",
+    "tap",
+    0
+   ],
+   "result": null
+  }
+ ]
+}

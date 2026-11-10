@@ -1,0 +1,15 @@
+{
+ "func": "append_nc_programs",
+ "calls": [
+  {
+   "args": [
+    "%\nO1001\nM30\n%\n",
+    [
+     " %\nO1002\nM30\n%\n ",
+     ""
+    ]
+   ],
+   "result": "%\nO1001\nM30\n%\n\n%\nO1002\nM30\n%"
+  }
+ ]
+}

@@ -1,0 +1,305 @@
+{
+ "func": "lis.parse_tool_diameter",
+ "calls": [
+  {
+   "args": [
+    "6.0 R0.5 E/M / D-6. / R-0.5"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "BMT STRAIGHT"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "CNMG 120408 | R-0.8"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "CNMG 120404 | R-0.4"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D50.0 X H103 T-DRILL"
+   ],
+   "result": 50.0
+  },
+  {
+   "args": [
+    "INSERT B"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "10.0 R0.5 E/M / D-10. / R-0.5"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "4.0 R0.5 E/M / D-4. / R-0.5"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "VCMT 16 04 04 | R-0.4"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "VCMT 160404 | R-0.4"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D5.5 CARBIDE DRILL, ANGLE"
+   ],
+   "result": 5.5
+  },
+  {
+   "args": [
+    "D4.5 CARBIDE DRILL, ANGLE"
+   ],
+   "result": 4.5
+  },
+  {
+   "args": [
+    "TPGT 110302 | R-0.2"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D3. FLAT END MILL, ANGLE"
+   ],
+   "result": 3.0
+  },
+  {
+   "args": [
+    "D10 X 90 NC DRILL"
+   ],
+   "result": 10.0
+  },
+  {
+   "args": [
+    "WBGT 060102 | R-0.2"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "VCMT 160404"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D12 CARBIDE DRILL"
+   ],
+   "result": 12.0
+  },
+  {
+   "args": [
+    "D1.5 CENTER"
+   ],
+   "result": 1.5
+  },
+  {
+   "args": [
+    "D16 FLAT END MILL, ANGLE"
+   ],
+   "result": 16.0
+  },
+  {
+   "args": [
+    "D12 X R1.5 FILLET END MILL"
+   ],
+   "result": 12.0
+  },
+  {
+   "args": [
+    "D50. FACE CUTTER, STRAIGHT | R-0.8"
+   ],
+   "result": 50.0
+  },
+  {
+   "args": [
+    "D10.SETTING PIN | R-0."
+   ],
+   "result": 10.0
+  },
+  {
+   "args": [
+    "ROLLE NULLING  | R-0.12"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "MTI 0808 D30 A60 MT8, STRAIGHT"
+   ],
+   "result": 30.0
+  },
+  {
+   "args": [
+    "MTI 0808 D30 A60 MT8"
+   ],
+   "result": 30.0
+  },
+  {
+   "args": [
+    "CNMG 120408"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "DNMG150404"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D12 FLAT EN, STRAIGHT | DIA-12."
+   ],
+   "result": 12.0
+  },
+  {
+   "args": [
+    "D10.BALL EN, STRAIGHT | DIA-10. | R-5."
+   ],
+   "result": 10.0
+  },
+  {
+   "args": [
+    "D10XR0.8 FILLET EN, STRAIGHT | DIA-10. | R-0.8"
+   ],
+   "result": 10.0
+  },
+  {
+   "args": [
+    "D2X90X6 CHAMF EN, STRAIGHT | DIA-6."
+   ],
+   "result": 6.0
+  },
+  {
+   "args": [
+    ".2500-28 UNJF_3B, STRAIGHT | DIA-6.35"
+   ],
+   "result": 6.35
+  },
+  {
+   "args": [
+    "D5.2 CARBIDE DRILL, STRAIGHT | DIA-5.2"
+   ],
+   "result": 5.2
+  },
+  {
+   "args": [
+    "D10XR0.8 FILLET"
+   ],
+   "result": 10.0
+  },
+  {
+   "args": [
+    "D3. FLAT END MILL"
+   ],
+   "result": 3.0
+  },
+  {
+   "args": [
+    ".2500-28 UNJF_3B, STRAIGHT"
+   ],
+   "result": 6.35
+  },
+  {
+   "args": [
+    ".3125-24 UNJF_3B, STRAIGHT"
+   ],
+   "result": 7.9375
+  },
+  {
+   "args": [
+    "M6X1.0 TAP"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    ""
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "DNMG 150404"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    ".2500-28 UNJF_3B | DIA-6.35"
+   ],
+   "result": 6.35
+  },
+  {
+   "args": [
+    "16ER 16UNJ | R-0.24"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "CNMG 120400"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "MY-GROOVE INSERT"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "N123G2-0300-0004-GM"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "16ER AG60"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "16ER 1.0 ISO"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "CNMG 120408 | R-1.2"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "TNMG160404"
+   ],
+   "result": null
+  }
+ ]
+}

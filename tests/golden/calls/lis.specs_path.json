@@ -1,0 +1,191 @@
+{
+ "func": "lis.specs_path",
+ "calls": [
+  {
+   "args": [
+    "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmplwq2endm"
+   ],
+   "result": "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmplwq2endm\\lathe_insert_specs.json"
+  },
+  {
+   "args": [
+    "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpc185ifts"
+   ],
+   "result": "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpc185ifts\\lathe_insert_specs.json"
+  },
+  {
+   "args": [
+    "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmp6hoac_kj"
+   ],
+   "result": "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmp6hoac_kj\\lathe_insert_specs.json"
+  },
+  {
+   "args": [
+    "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpb_dgtkay"
+   ],
+   "result": "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpb_dgtkay\\lathe_insert_specs.json"
+  },
+  {
+   "args": [
+    "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpuna5z07g"
+   ],
+   "result": "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpuna5z07g\\lathe_insert_specs.json"
+  },
+  {
+   "args": [
+    "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpcz3xwnp8"
+   ],
+   "result": "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpcz3xwnp8\\lathe_insert_specs.json"
+  },
+  {
+   "args": [
+    "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpc05ebkpl"
+   ],
+   "result": "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpc05ebkpl\\lathe_insert_specs.json"
+  },
+  {
+   "args": [
+    "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpt8bk_bkh"
+   ],
+   "result": "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpt8bk_bkh\\lathe_insert_specs.json"
+  },
+  {
+   "args": [
+    "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpqv15jhl_"
+   ],
+   "result": "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpqv15jhl_\\lathe_insert_specs.json"
+  },
+  {
+   "args": [
+    "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpm0fajknv"
+   ],
+   "result": "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpm0fajknv\\lathe_insert_specs.json"
+  },
+  {
+   "args": [
+    "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpk8xkms5q"
+   ],
+   "result": "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpk8xkms5q\\lathe_insert_specs.json"
+  },
+  {
+   "args": [
+    "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpb8vv24ar"
+   ],
+   "result": "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpb8vv24ar\\lathe_insert_specs.json"
+  },
+  {
+   "args": [
+    "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpukfyz___"
+   ],
+   "result": "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpukfyz___\\lathe_insert_specs.json"
+  },
+  {
+   "args": [
+    "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmphz8xtmx1"
+   ],
+   "result": "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmphz8xtmx1\\lathe_insert_specs.json"
+  },
+  {
+   "args": [
+    "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpx9m3t7vh"
+   ],
+   "result": "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpx9m3t7vh\\lathe_insert_specs.json"
+  },
+  {
+   "args": [
+    "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpi24po7rk"
+   ],
+   "result": "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpi24po7rk\\lathe_insert_specs.json"
+  },
+  {
+   "args": [
+    "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpldofw6fi"
+   ],
+   "result": "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpldofw6fi\\lathe_insert_specs.json"
+  },
+  {
+   "args": [
+    "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmphrxfmwrj"
+   ],
+   "result": "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmphrxfmwrj\\lathe_insert_specs.json"
+  },
+  {
+   "args": [
+    "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpq2f3xdba"
+   ],
+   "result": "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpq2f3xdba\\lathe_insert_specs.json"
+  },
+  {
+   "args": [
+    "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmptwpvtoh8"
+   ],
+   "result": "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmptwpvtoh8\\lathe_insert_specs.json"
+  },
+  {
+   "args": [
+    "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmp033zeqdn"
+   ],
+   "result": "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmp033zeqdn\\lathe_insert_specs.json"
+  },
+  {
+   "args": [
+    "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpksty6oh6"
+   ],
+   "result": "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpksty6oh6\\lathe_insert_specs.json"
+  },
+  {
+   "args": [
+    "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmp8o1_w7v7"
+   ],
+   "result": "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmp8o1_w7v7\\lathe_insert_specs.json"
+  },
+  {
+   "args": [
+    "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmp9h0077gr"
+   ],
+   "result": "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmp9h0077gr\\lathe_insert_specs.json"
+  },
+  {
+   "args": [
+    "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpc11l2c9b"
+   ],
+   "result": "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpc11l2c9b\\lathe_insert_specs.json"
+  },
+  {
+   "args": [
+    "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpzzldmpbt"
+   ],
+   "result": "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpzzldmpbt\\lathe_insert_specs.json"
+  },
+  {
+   "args": [
+    "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpweanz8kc"
+   ],
+   "result": "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpweanz8kc\\lathe_insert_specs.json"
+  },
+  {
+   "args": [
+    "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpn4_qcokj"
+   ],
+   "result": "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpn4_qcokj\\lathe_insert_specs.json"
+  },
+  {
+   "args": [
+    "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpg1auzcr_"
+   ],
+   "result": "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpg1auzcr_\\lathe_insert_specs.json"
+  },
+  {
+   "args": [
+    "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpexe5u791"
+   ],
+   "result": "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpexe5u791\\lathe_insert_specs.json"
+  },
+  {
+   "args": [
+    "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpfejkf9ov"
+   ],
+   "result": "C:\\Users\\SumH\\AppData\\Local\\Temp\\tmpfejkf9ov\\lathe_insert_specs.json"
+  }
+ ]
+}
