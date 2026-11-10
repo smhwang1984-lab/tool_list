@@ -64,6 +64,15 @@ export class LatheSpecStore implements SpecStore {
     }
   }
 
+  /** 다른 저장소의 내용으로 통째로 바꾼다(가져오기) */
+  replaceWith(other: LatheSpecStore): void {
+    const data = other.toJson();
+    for (const k of Object.keys(this.insert)) delete this.insert[k];
+    for (const k of Object.keys(this.tool)) delete this.tool[k];
+    Object.assign(this.insert, data.insert);
+    Object.assign(this.tool, data.tool);
+  }
+
   /** 파일에 쓸 내용 (키 정렬은 쓰는 쪽에서) */
   toJson(): { version: number; insert: SpecTable; tool: SpecTable } {
     return { version: 1, insert: this.insert, tool: this.tool };

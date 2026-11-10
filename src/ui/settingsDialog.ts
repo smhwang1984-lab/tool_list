@@ -8,7 +8,13 @@ import { el } from './dialog';
 
 let open: HTMLDialogElement | null = null;
 
-export function showSettings(): void {
+export interface SettingsExtras {
+  /** 선반 스펙 저장소 백업(JSON 파일로 내보내기) / 복원(가져오기) */
+  exportStore?: () => void;
+  importStore?: () => void;
+}
+
+export function showSettings(extras: SettingsExtras = {}): void {
   if (open?.isConnected) return;
   const s = getViewerSettings();
   const dlg = el('dialog', { class: 'settings' });
@@ -65,6 +71,22 @@ export function showSettings(): void {
   cube.addEventListener('input', () => { updateViewerSettings({ cubeSizePx: Number(cube.value) }); paint(); });
   fov.addEventListener('input', () => { updateViewerSettings({ fovDeg: Number(fov.value) }); paint(); });
   body.append(group);
+  if (extras.exportStore || extras.importStore) {
+    const data = el('fieldset');
+    const dl = el('legend');
+    dl.textContent = '선반 스펙 저장소 (직접 입력한 INSERT/홀더 값)';
+    data.append(dl);
+    const line = el('div', { class: 'settings-row' });
+    const ex = el('button', { type: 'button' });
+    ex.textContent = '내보내기';
+    ex.addEventListener('click', () => extras.exportStore?.());
+    const im = el('button', { type: 'button' });
+    im.textContent = '가져오기';
+    im.addEventListener('click', () => extras.importStore?.());
+    line.append(ex, im);
+    data.append(line);
+    body.append(data);
+  }
 
   const foot = el('div', { class: 'dlg-foot' });
   const reset = el('button', { type: 'button' });

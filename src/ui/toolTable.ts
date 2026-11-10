@@ -9,7 +9,7 @@ import { describeHolder, describeInsert, SOURCE_SAVED } from '../core/latheInser
 import { rowSources } from '../core/latheParser';
 import type { ProgramMetadata } from '../core/metadata';
 import { RADIUS_COMP_DISPLAY_RE } from '../core/radiusComp';
-import { el } from './dialog';
+import { el, toast } from './dialog';
 
 export type TableRow = Record<string, unknown>;
 
@@ -45,6 +45,12 @@ export interface ToolTable {
   withHeader(): boolean;
   /** 표에서 직접 고친 내용이 있는가(프로그램에서 다시 산출하면 사라진다) */
   isEdited(): boolean;
+  /** 복사·PDF용: 현재 열 구성, 출력 정보 */
+  isLathe(): boolean;
+  metadata(): ProgramMetadata | null;
+  /** 표를 TSV(엑셀 붙여넣기용)로 만든다. 행이 없으면 null */
+  toTsv(): string | null;
+  onPdf: (() => void) | null;
   /** 편집한 행을 바꿔 넣거나(index) 끝에 넣고(null) 그 행을 선택한다. 넣은 행 번호를 돌려준다. */
   putRow(index: number | null, row: TableRow): number;
   removeRows(indices: readonly number[]): void;
@@ -130,10 +136,12 @@ export function createToolTable(): ToolTable {
   const btnEdit = mkBtn('수정', '선택한 행 수정 (두 번 탭)');
   const btnAdd = mkBtn('행 추가', '빈 행 추가');
   const btnTypes = mkBtn('이름 경우의 수', '공구 이름 → TYPE 변환표 편집');
+  const btnCopy = mkBtn('복사', '표를 복사 (엑셀에 붙여넣기)');
+  const btnPdf = mkBtn('PDF', '공구 리스트 PDF 만들기');
   const headerLabel = el('label', { class: 'with-header' });
   const headerCheck = el('input', { type: 'checkbox' });
   headerLabel.append(headerCheck, document.createTextNode(' 머리글 포함'));
-  actions.append(btnDelete, btnEdit, btnAdd, btnTypes, headerLabel);
+  actions.append(btnDelete, btnEdit, btnAdd, btnTypes, btnCopy, btnPdf, headerLabel);
   const summary = el('div', { class: 'metadata-summary' });
   summary.textContent = '출력 정보: -';
   const scroller = el('div', { class: 'table-scroll' });
@@ -141,10 +149,22 @@ export function createToolTable(): ToolTable {
   scroller.append(table);
   const hint = el('div', { class: 'tool-hint' });
   hint.textContent = '행을 두 번 탭하거나 길게 누르면 편집할 수 있습니다. (N번호 ~ 공구 교체 사이 괄호 주석을 읽음 / 밀링 M6T, 선반 Tnn00)';
+  btnCopy.addEventListener('click', async () => {
+    const tsv = api.toTsv();
+    if (tsv === null) return toast('먼저 공구 리스트를 생성하세요.');
+    try {
+      await navigator.clipboard.writeText(tsv);
+      toast('복사됨! 엑셀에서 붙여넣기');
+    } catch {
+      toast('복사하지 못했습니다');
+    }
+  });
+  btnPdf.addEventListener('click', () => api.onPdf?.());
   root.append(bar, actions, summary, scroller, hint);
 
   let lathe = false;
   let edited = false;
+  let meta: ProgramMetadata | null = null;
   let data: TableRow[] = [];
   let dynamicWidths: Record<string, number> = {};
   const selected = new Set<number>();
@@ -310,6 +330,18 @@ export function createToolTable(): ToolTable {
     onTypes: () => {},
     withHeader: () => headerCheck.checked,
     isEdited: () => edited,
+    isLathe: () => lathe,
+    metadata: () => meta,
+    onPdf: null,
+    toTsv() {
+      if (!data.length) return null;
+      const cols = columns();
+      const cell = (v: unknown) => (v === null || v === undefined ? '' : String(v));
+      const lines: string[] = [];
+      if (headerCheck.checked) lines.push(cols.map(([, label]) => label).join('\t'));
+      for (const row of data) lines.push(cols.map(([key]) => cell(row[key])).join('\t'));
+      return lines.join('\n');
+    },
     putRow(index, row) {
       edited = true;
       let at = index;
@@ -351,6 +383,7 @@ export function createToolTable(): ToolTable {
     setRows(rows, isLathe, metadata) {
       edited = false;
       lathe = isLathe;
+      meta = metadata;
       modeCombo.value = isLathe ? 'lathe' : 'mill';
       data = rows;
       selected.clear();

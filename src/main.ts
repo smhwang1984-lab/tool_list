@@ -7,7 +7,7 @@ import { applyTheme, type ThemeName } from './theme';
 import { icon } from './icons';
 import { EXAMPLE } from './example';
 import { getPref, getPrefNumber, loadPrefs, setPref } from './platform/prefs';
-import { confirmDialog, el, installLongPressHints, showDialog, toast } from './ui/dialog';
+import { alertDialog, confirmDialog, el, installLongPressHints, showDialog, toast } from './ui/dialog';
 import { createEditor } from './ui/editor';
 import { createSearchBar } from './ui/searchBar';
 import { createMachinePanel } from './ui/machinePanel';
@@ -264,6 +264,19 @@ function mount(root: HTMLElement): void {
   };
   toolTable.onTypes = () => showTypeList(nameTypes, saveNameTypes);
 
+  toolTable.onPdf = async () => {
+    if (!toolTable.rows().length) return toast('먼저 공구 리스트를 생성하세요.');
+    toast('PDF를 만드는 중...');
+    try {
+      const { makeToolListPdf } = await import('./platform/pdf');
+      const { saveAs } = await import('./platform/files');
+      const { bytes, filename } = await makeToolListPdf(toolTable.rows(), toolTable.metadata(), toolTable.isLathe());
+      const saved = await saveAs(filename, bytes);
+      if (saved) toast(`PDF를 저장했습니다: ${saved.name}`);
+    } catch (error) {
+      await alertDialog('PDF 실패', String((error as Error).message ?? error));
+    }
+  };
   toolTable.setMode(isLathe());
   btnRun.addEventListener('click', () => {
     hasRun = true;
@@ -350,7 +363,29 @@ function mount(root: HTMLElement): void {
     if (e.key === 'F8') { e.preventDefault(); searchBar.nextTool(); }
   });
   installLongPressHints(root);
-  btnSettings.addEventListener('click', showSettings);
+  btnSettings.addEventListener('click', () => showSettings({
+    exportStore: async () => {
+      const { saveAs } = await import('./platform/files');
+      const bytes = new TextEncoder().encode(JSON.stringify(lathe_store.toJson(), null, 2));
+      const saved = await saveAs('sumpath_lathe_specs.json', bytes);
+      if (saved) toast(`내보냈습니다: ${saved.name}`);
+    },
+    importStore: async () => {
+      const { openFile } = await import('./platform/files');
+      try {
+        const file = await openFile();
+        if (!file) return;
+        const next = new LatheSpecStore(new TextDecoder().decode(file.bytes));
+        if (!(await confirmDialog('가져오기', '지금 저장된 선반 스펙을 이 파일 내용으로 바꿀까요?', '바꾸기'))) return;
+        lathe_store.replaceWith(next);
+        saveStore();
+        if (isLathe() && hasRun) run();
+        toast('가져왔습니다');
+      } catch (error) {
+        await alertDialog('가져오기 실패', String((error as Error).message ?? error));
+      }
+    },
+  }));
   btnHelp.addEventListener('click', () => showDialog('도움말', HELP_TEXT));
   btnAbout.addEventListener('click', () => showDialog('About', [
     `${APP_NAME} v${APP_VERSION} (Android)`,
