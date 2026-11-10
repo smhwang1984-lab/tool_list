@@ -33,7 +33,7 @@ import lathe_insert_spec
 import sumpath_license
 
 
-APP_VERSION = '2.3.8'
+APP_VERSION = '2.3.9'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-11-10'
 APP_CREATOR = 'Hwang.seonmun'
@@ -3059,7 +3059,7 @@ else:
             # 상태에 따라 달라지는 스타일은 해당 상태를 그대로 다시 넣어 갱신한다.
             self._style_mode_buttons()
             if hasattr(self, 'machine_panel_toggle'):
-                self.set_machine_panel_expanded(self.machine_panel_toggle.isChecked())
+                self._style_machine_toggle()
             if hasattr(self, 'search_status'):
                 self.set_search_status(self.search_status.text(), self._search_status_error)
             if hasattr(self, 'viewer') and hasattr(self.viewer, 'set_dark_mode'):
@@ -3129,6 +3129,7 @@ else:
             for button in (self.btn_settings, self.btn_help, self.btn_about):
                 self._style_header_tool_button(button)
             self._style_toolbar(self.main_toolbar)
+            self._style_view_icon_bar()
             self._style_accent_button(self.run_button)
             self._style_accent_button_large(self.copy_button)
             self._style_success_button_large(self.pdf_button)
@@ -3271,23 +3272,17 @@ else:
                 self.btn_open_file, self.btn_add_program, self.btn_example, self.btn_clear,
             ))
 
-            # v2.3.8: 장비 타입·스펙 / 정지 옵션(드롭다운) / 소재 설정을 아이콘 버튼으로 —
-            # 편집 모드 앞에 둔다. Viewer 모드에서만 보인다(set_mode).
+            # v2.3.9: 장비 / 정지 옵션 / 소재 아이콘은 3D 화면(투영뷰) 왼쪽 위에 둔다 — 아래
+            # 뷰어가 만들어진 뒤 self.view_icon_bar에 담는다. 버튼은 여기서 만든다.
             self.btn_machine = self._make_tool_button(
-                '장비', 'machine',
-                lambda: self.set_machine_panel_expanded(not self.machine_dialog.isVisible()),
-                '장비 타입 및 스펙 설정', checkable=True)
+                '장비', 'machine', lambda: None, '장비 타입 및 스펙 설정')
+            self.btn_machine.setPopupMode(QToolButton.InstantPopup)
             self.btn_stop_options = self._make_tool_button(
                 '정지 옵션', 'stop', lambda: None,
                 '재생 정지 옵션 — 텍스트 정지 · 정지(M00) · 옵션정지(M01) · 실시간 형상')
             self.btn_stop_options.setPopupMode(QToolButton.InstantPopup)
             self.stock_button = self._make_tool_button(
                 '소재', 'stock', self.open_stock_dialog, '소재(STOCK) 설정과 가공 형상 시뮬레이션')
-            viewer_separator = self._add_toolbar_group(toolbar_layout, (
-                self.btn_machine, self.btn_stop_options, self.stock_button,
-            ))
-            self._viewer_only_toolbar = [self.btn_machine, self.btn_stop_options, self.stock_button,
-                                         viewer_separator]
 
             self.btn_edit_mode = self._make_tool_button(
                 '편집 모드', 'pencil', self.toggle_edit_mode, '편집 모드 켜기/끄기 (비밀번호)', checkable=True)
@@ -3318,6 +3313,20 @@ else:
             self.main_splitter.setChildrenCollapsible(False)
             root_layout.addWidget(self.main_splitter, 1)
             self.viewer = self._create_viewer()
+            # v2.3.9: 장비 / 정지 옵션 / 소재 아이콘 묶음 — 3D 화면 왼쪽 위에 겹쳐 둔다.
+            self.view_icon_bar = QWidget(getattr(self.viewer, 'gl_view', self.viewer))
+            self.view_icon_bar.setObjectName('viewIconBar')
+            icon_bar_layout = QHBoxLayout(self.view_icon_bar)
+            icon_bar_layout.setContentsMargins(4, 2, 4, 2)
+            icon_bar_layout.setSpacing(2)
+            for button in (self.btn_machine, self.btn_stop_options, self.stock_button):
+                icon_bar_layout.addWidget(button)
+            self.view_icon_bar.adjustSize()
+            gl_view = getattr(self.viewer, 'gl_view', None)
+            if gl_view is not None and hasattr(gl_view, 'top_left_widgets'):
+                gl_view.top_left_widgets.insert(0, self.view_icon_bar)
+                gl_view._reposition_top_left()
+            self.view_icon_bar.raise_()
 
             # v1.6.2: 다크모드 버튼(원래 뷰어 안 감도/큐브 바 옆)을 상단 바의
             # 맨 끝(오른쪽)으로 옮긴다 — self.viewer가 만들어진 뒤에야 가져올 수 있다.
@@ -3350,15 +3359,15 @@ else:
             # 장비 타입 및 스펙 설정 패널을 다음공구검색 행보다 위쪽에
             # 배치한다(v1.6.0 요청 — 두 행의 상하 순서 교체).
             self.machine_settings_panel = self._build_machine_settings_panel(kfont)
-            # v2.3.8: 패널은 왼쪽 위가 아니라 툴바 [장비] 버튼 아래에 뜨는 창에 둔다.
-            self.machine_dialog = QDialog(self, Qt.Tool)
-            self.machine_dialog.setWindowTitle(self.MACHINE_PANEL_TITLE)
-            machine_dialog_layout = QVBoxLayout(self.machine_dialog)
-            machine_dialog_layout.setContentsMargins(6, 6, 6, 6)
-            machine_dialog_layout.addWidget(self.machine_settings_panel)
-            self.machine_dialog.setMinimumWidth(380)
-            self.machine_dialog.finished.connect(lambda _r: self.set_machine_panel_expanded(False))
-            self.set_machine_panel_expanded(False)
+            # v2.3.9: 패널은 3D 화면 왼쪽 위 [장비] 아이콘의 드롭다운 메뉴 안에 둔다
+            # (장비 타입 콤보 + 스펙 + 저장).
+            machine_action = QWidgetAction(self)
+            machine_action.setDefaultWidget(self.machine_settings_panel)
+            self.machine_menu = QMenu(self)
+            self.machine_menu.addAction(machine_action)
+            self.machine_menu.aboutToShow.connect(lambda: self._sync_machine_toggle(True))
+            self.machine_menu.aboutToHide.connect(lambda: self._sync_machine_toggle(False))
+            self.btn_machine.setMenu(self.machine_menu)
 
             search_bar = QHBoxLayout()
             self._search_bar_layout = search_bar  # 테스트에서 버튼 순서를 확인하는 용도
@@ -3625,6 +3634,20 @@ else:
                 '#mainToolbar QToolButton:hover { background: %(toolbar_hover)s; border-color: %(toolbar_sep)s; }'
                 '#mainToolbar QToolButton:disabled { color: %(faint_text)s; }'
                 '#mainToolbar QFrame#toolbarSeparator { color: %(toolbar_sep)s; }'
+                % t
+            )
+
+        def _style_view_icon_bar(self):
+            bar = getattr(self, 'view_icon_bar', None)
+            if bar is None:
+                return
+            t = self.theme
+            bar.setStyleSheet(
+                '#viewIconBar { background: %(toolbar_bg)s; border: 1px solid %(toolbar_sep)s; border-radius: 6px; }'
+                '#viewIconBar QToolButton { background: transparent; color: %(text)s; border: 1px solid transparent;'
+                ' border-radius: 4px; padding: 2px 6px; }'
+                '#viewIconBar QToolButton:hover { background: %(toolbar_hover)s; border-color: %(toolbar_sep)s; }'
+                '#viewIconBar QToolButton:disabled { color: %(faint_text)s; }'
                 % t
             )
 
@@ -4174,7 +4197,7 @@ else:
             self._style_muted(self.machine_settings_status)
             layout.addWidget(self.machine_settings_status)
 
-            self.set_machine_panel_expanded(self._load_machine_panel_expanded())
+            self._sync_machine_toggle(False)
             return panel
 
         def _load_machine_panel_expanded(self):
@@ -4186,27 +4209,25 @@ else:
         def _on_machine_panel_toggled(self, expanded):
             self.set_machine_panel_expanded(expanded)
 
-        def set_machine_panel_expanded(self, expanded):
-            expanded = bool(expanded)
-            arrow = '▼' if expanded else '▶'
-            self.machine_panel_toggle.setText('%s %s' % (arrow, self.MACHINE_PANEL_TITLE))
+        def _sync_machine_toggle(self, expanded):
+            self.machine_panel_toggle.setText('%s %s' % ('▼' if expanded else '▶', self.MACHINE_PANEL_TITLE))
             with QSignalBlocker(self.machine_panel_toggle):
-                self.machine_panel_toggle.setChecked(expanded)
-            self.machine_settings_body.setVisible(expanded)
-            self.layout_settings.setValue('machine_panel_expanded', expanded)
-            dialog = getattr(self, 'machine_dialog', None)
-            if dialog is not None:
-                if expanded and not dialog.isVisible():
-                    button = self.btn_machine
-                    dialog.move(button.mapToGlobal(button.rect().bottomLeft()))
-                    dialog.show()
-                elif not expanded and dialog.isVisible():
-                    dialog.hide()
-            button = getattr(self, 'btn_machine', None)
-            if button is not None:
-                with QSignalBlocker(button):
-                    button.setChecked(expanded)
-            # 채워진 색상 블럭 헤더 — 접힘/펼침 어느 쪽이든 항상 눈에 띄게 한다.
+                self.machine_panel_toggle.setChecked(bool(expanded))
+            self.btn_machine.setDown(bool(expanded))
+
+        def set_machine_panel_expanded(self, expanded):
+            """[장비] 드롭다운 메뉴를 열거나 닫는다(저장·프로그램 창 클릭 때 닫는 용도)."""
+            menu = getattr(self, 'machine_menu', None)
+            if menu is None:
+                return
+            if expanded and not menu.isVisible():
+                button = self.btn_machine
+                menu.popup(button.mapToGlobal(button.rect().bottomLeft()))
+            elif not expanded and menu.isVisible():
+                menu.hide()
+            self._style_machine_toggle()
+
+        def _style_machine_toggle(self):
             t = self.theme
             self.machine_panel_toggle.setStyleSheet(
                 'QPushButton { text-align: left; border: none; border-radius: 4px;'
@@ -4512,9 +4533,6 @@ else:
             is_viewer = mode == 'viewer'
             self.stack.setCurrentIndex(1 if is_viewer else 0)
             self.filter_panel.setVisible(is_viewer)
-            for widget in getattr(self, '_viewer_only_toolbar', ()):
-                if widget is not None:
-                    widget.setVisible(is_viewer)
             if not is_viewer:
                 self.set_machine_panel_expanded(False)
             if is_viewer:

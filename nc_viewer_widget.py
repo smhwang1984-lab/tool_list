@@ -3299,6 +3299,10 @@ class NCViewerWidget(QWidget):
         self._refresh_tool_filter()
 
     def _on_tool_filter_item_clicked(self, item):
+        # v2.3.9: 클릭해서 선택(켜짐)할 때만 그 공정 위치로 이동한다. 켜진 항목을 눌러
+        # 끄면 그냥 꺼지고, 프로그램 위치는 마지막 선택 위치 그대로 둔다.
+        if not item.isSelected():
+            return
         process_key = item.data(Qt.UserRole)
         line_index = self.process_first_line.get(process_key)
         if line_index is not None:

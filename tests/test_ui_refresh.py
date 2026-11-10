@@ -278,7 +278,7 @@ def test_filter_row_fits_at_minimum_program_pane_width(window, qapp):
     for _ in range(5):
         qapp.processEvents()
     for button in (window.reset_program_button, window.btn_select_all_tools,
-                   window.btn_select_no_tools, window.stock_button):
+                   window.btn_select_no_tools):
         assert button.width() >= button.sizeHint().width(), button.text()
 
 

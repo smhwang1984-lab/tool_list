@@ -305,31 +305,32 @@ X60 Y10 Z0
             self.assertFalse(hasattr(window, 'btn_machine_settings'))
             self.assertEqual(window.machine_settings_panel.title(), '')
             self.assertIn('장비 타입 및 스펙 설정', window.machine_panel_toggle.text())
-            # v2.3.8: 패널은 툴바 [장비] 버튼이 여는 창 안에 있고, 기본은 닫혀 있다.
-            self.assertTrue(window.btn_machine.isHidden())
-            self.assertFalse(window.machine_dialog.isVisible())
+            # v2.3.9: 패널은 3D 화면 왼쪽 위 [장비] 아이콘의 드롭다운 메뉴 안에 있고, 기본은 닫혀 있다.
+            self.assertFalse(window.machine_menu.isVisible())
             self.assertFalse(window.machine_panel_toggle.isChecked())
-            self.assertTrue(window.machine_settings_body.isHidden())
+            self.assertIs(window.btn_machine.parent(), window.view_icon_bar)
+            self.assertIn(window.view_icon_bar, window.viewer.gl_view.top_left_widgets)
             window.set_mode('viewer')
-            self.assertFalse(window.btn_machine.isHidden())
             self.assertGreater(window.machine_type_combo.count(), 0)
             self.assertGreater(window.machine_spec_form.rowCount(), 0)
 
+            window.show()
+            qapp.processEvents()
             window.set_machine_panel_expanded(True)
+            qapp.processEvents()
+            self.assertTrue(window.machine_menu.isVisible())
             self.assertTrue(window.machine_panel_toggle.isChecked())
-            self.assertFalse(window.machine_settings_body.isHidden())
             window.save_visible_machine_settings()
+            qapp.processEvents()
+            self.assertFalse(window.machine_menu.isVisible())
             self.assertFalse(window.machine_panel_toggle.isChecked())
-            self.assertTrue(window.machine_settings_body.isHidden())
 
             window.set_machine_panel_expanded(True)
-            window.show()
             qapp.processEvents()
             window.src.setFocus()
             qapp.processEvents()
-            self.assertTrue(window.src.hasFocus())
+            self.assertFalse(window.machine_menu.isVisible())
             self.assertFalse(window.machine_panel_toggle.isChecked())
-            self.assertTrue(window.machine_settings_body.isHidden())
 
             # v2.2.8: 프로그램 버튼(파일/편집/산출/모드)은 왼쪽 패널이 아니라
             # 제목 줄 아래 아이콘 툴바에 있다.
@@ -345,7 +346,7 @@ X60 Y10 Z0
 
             self.assertEqual(
                 button_texts(row),
-                ['파일 열기', 'PG ADD', '예제', '지우기', '장비', '정지 옵션', '소재', '편집 모드', '저장', '비밀번호',
+                ['파일 열기', 'PG ADD', '예제', '지우기', '편집 모드', '저장', '비밀번호',
                  'Tool List', '툴리스트 산출', 'Viewer'],
             )
         finally:
