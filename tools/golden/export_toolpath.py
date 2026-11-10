@@ -91,6 +91,7 @@ def main(argv):
             else:
                 data = {
                     'file': path.name, 'machine': machine, 'line_count': len(lines),
+                    'specs': clean(viewer.machine_specs.get(machine, {})),
                     'tool_paths': clean(viewer.tool_paths),
                     'process_tool_map': clean(viewer.process_tool_map),
                     'process_first_line': clean(viewer.process_first_line),
