@@ -371,6 +371,7 @@ function mount(root: HTMLElement): void {
       });
       viewer?.setSimLive(filterPanel.liveOn());
       viewer?.setPgMatch(pgMatchOn);
+      viewer?.setToolpathVisible(getPref('sim_toolpath_visible') !== '0');
     });
     return viewerLoading;
   };
@@ -411,6 +412,7 @@ function mount(root: HTMLElement): void {
         clear: () => { viewer?.applyStock(null, 1, false); },
         status: () => viewer!.simStatus(),
         gotoLine: (line) => editor.selectLine(line),
+        setToolpathVisible: (on) => viewer?.setToolpathVisible(on),
       });
     });
   });

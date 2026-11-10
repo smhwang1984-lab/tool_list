@@ -36,6 +36,8 @@ export function showDialog(title: string, body: string | HTMLElement, buttons?: 
   dlg.addEventListener('close', () => dlg.remove());
   document.body.append(dlg);
   dlg.showModal();
+  // 열자마자 첫 입력칸에 포커스가 가 키보드가 뜨는 것을 막는다 — 칸을 직접 눌러야 키보드가 뜬다
+  (document.activeElement as HTMLElement | null)?.blur();
   return dlg;
 }
 

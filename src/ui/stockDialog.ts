@@ -15,6 +15,8 @@ export interface StockDialogContext {
   status: () => SimStatus;
   /** 급속 절삭 줄로 이동 */
   gotoLine: (line: number) => void;
+  /** 툴패스 선 표시/숨김 */
+  setToolpathVisible: (on: boolean) => void;
 }
 
 const XY_REFS: [Reference, string][] = [['center', '중심'], ['neg', '-쪽 끝 = 0'], ['pos', '+쪽 끝 = 0']];
@@ -108,7 +110,12 @@ export function showStockDialog(ctx: StockDialogContext): void {
   enable.checked = s.enabled;
   const enableLabel = el('label', { class: 'stock-enable' });
   enableLabel.append(enable, document.createTextNode(' 가공 형상 표시'));
-  body.append(enableLabel, boundsLabel, note, statusLabel);
+  const lineLabel = el('label', { class: 'stock-enable' });
+  const lineCheck = el('input', { type: 'checkbox' });
+  lineCheck.checked = getPref('sim_toolpath_visible') !== '0';
+  lineCheck.addEventListener('change', () => { setPref('sim_toolpath_visible', lineCheck.checked ? '1' : '0'); ctx.setToolpathVisible(lineCheck.checked); });
+  lineLabel.append(lineCheck, document.createTextNode(' 툴패스 선 표시 (끄면 가공 형상이 잘 보입니다)'));
+  body.append(enableLabel, lineLabel, boundsLabel, note, statusLabel);
 
   const readSpec = (): StockSpec => {
     const dims = {} as Record<DimKey, number>;

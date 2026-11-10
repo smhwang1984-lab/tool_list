@@ -55,6 +55,8 @@ export interface Viewer {
   applyStock(bounds: Bounds | null, resolution: number | null, enabled: boolean): void;
   /** PG 매칭: 전체 경로를 지우고 커서가 있는 공정만 커서 위치까지 그린다 */
   setPgMatch(on: boolean): void;
+  /** 툴패스 선 표시/숨김(가공 형상을 가리지 않게) */
+  setToolpathVisible(on: boolean): void;
   setSimEnabled(on: boolean): void;
   setSimLive(on: boolean): void;
   simStatus(): SimStatus;
@@ -108,6 +110,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
   const sim: SimLayer = createSimLayer(scene, () => { dirty = true; hooks.onSimChange?.(); });
   let simLive = false;
   let pgMatch = false;
+  let toolpathOn = true;
   /** seqNow 가 속한 공정 키(공정 첫 seq 가 seqNow 이하인 마지막 공정) */
   const currentProcessKey = (): string | null => {
     if (!result) return null;
@@ -244,9 +247,12 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     const r = Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]) / 2;
     return { c, r };
   };
+  /** 화면 크기가 아직 0 일 때 맞춘 뷰는 크기가 정해지면 다시 맞춘다 */
+  let needFit = false;
   function setProjection(name: string): void {
     const preset = PROJECTIONS[name];
     if (!preset) return;
+    needFit = host.clientWidth < 50 || host.clientHeight < 50;
     [elevation, azimuth] = preset;
     const w = host.clientWidth;
     const h = host.clientHeight;
@@ -599,8 +605,8 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     const curKey = pgMatch ? currentProcessKey() : null;
     for (const p of processes) {
       const on = !keysVisible || keysVisible.has(p.key);
-      for (const o of p.objs) o.visible = on && !pgMatch; // PG 매칭 중에는 전체 경로를 숨긴다
-      const traceOn = on && (!pgMatch || p.key === curKey);
+      for (const o of p.objs) o.visible = on && !pgMatch && toolpathOn; // PG 매칭 중에는 전체 경로를 숨긴다
+      const traceOn = on && toolpathOn && (!pgMatch || p.key === curKey);
       for (const t of p.trace) {
         let count = 0;
         const s = t.seqs;
@@ -695,6 +701,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     const h = Math.max(1, host.clientHeight);
     renderer.setSize(w, h, false);
     aspect = w / h;
+    if (needFit && host.clientWidth >= 50 && host.clientHeight >= 50 && result) { setProjection(lathe ? 'LATHE' : 'XY'); return; }
     for (const { m } of materials) m.resolution.set(w, h);
     apply();
   };
@@ -723,7 +730,16 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
       return true;
     },
     setSimProgram(p) { sim.setProgram(p); if (!simLive) sim.setTarget(selectionEndSeq()); },
-    applyStock(bounds, resolution, on) { sim.setStock(bounds, resolution, on); sim.setTarget(simLive ? seqNow : selectionEndSeq()); },
+    applyStock(bounds, resolution, on) {
+      if (bounds) {
+        // 소재가 화면 가운데에 꽉 차게 맞춘다
+        center.set((bounds.X[0] + bounds.X[1]) / 2, (bounds.Y[0] + bounds.Y[1]) / 2, (bounds.Z[0] + bounds.Z[1]) / 2);
+        const r = Math.hypot(bounds.X[1] - bounds.X[0], bounds.Y[1] - bounds.Y[0], bounds.Z[1] - bounds.Z[0]) / 2;
+        distance = distanceForRadius(r, host.clientWidth, host.clientHeight);
+        apply();
+      }
+      sim.setStock(bounds, resolution, on); sim.setTarget(simLive ? seqNow : selectionEndSeq()); },
+    setToolpathVisible(on) { toolpathOn = on; showSeq(seqNow, false); },
     setPgMatch(on) { pgMatch = on; showSeq(seqNow, false); },
     setSimEnabled(on) { sim.setEnabled(on); },
     setSimLive(on) {
