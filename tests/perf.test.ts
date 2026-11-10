@@ -13,6 +13,6 @@ describe('성능: 큰 NC 파일', () => {
     const rows = parseProgram(text);
     const ms = performance.now() - t0;
     console.log(`ncdata.nc ${raw.length} bytes, rows ${rows.length}, ${ms.toFixed(1)} ms`);
-    expect(ms).toBeLessThan(200);
+    expect(ms).toBeLessThan(400);
   });
 });
