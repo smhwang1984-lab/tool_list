@@ -15,6 +15,10 @@ import { createToolTable } from './ui/toolTable';
 import { createFilterPanel } from './ui/filterPanel';
 import { createDocumentController } from './app/documentController';
 import { onIncoming } from './platform/files';
+import { toolpathFromText } from './core/toolpath';
+import { latheToolNameMapFromRows } from './core/latheParser';
+import { toolNameMapFromRows } from './core/millParser';
+import { cssColor, toolColorForIndex, toolDisplayText } from './viewer/segments';
 import { showSettings } from './ui/settingsDialog';
 import { showRowEditor } from './ui/rowEditor';
 import { showTypeList } from './ui/typeListDialog';
@@ -98,6 +102,17 @@ function mount(root: HTMLElement): void {
     group(btnTool, btnViewer),
   );
 
+  // ---------- 3D 뷰어 상태 (본문보다 먼저 선언) ----------
+  let viewer: import('./viewer/viewer').Viewer | null = null;
+  let viewerLoading: Promise<void> | null = null;
+  let viewerStale = true;
+  let pgMatchOn = false;
+  let viewerTimer = 0;
+  const scheduleViewerRefresh = (): void => {
+    window.clearTimeout(viewerTimer);
+    viewerTimer = window.setTimeout(() => { if (mode === 'viewer') refreshViewer(); }, 350);
+  };
+
   // ---------- 본문 ----------
   const body = el('main', { class: 'body' });
   const programPane = el('section', { class: 'pane program-pane' });
@@ -106,11 +121,14 @@ function mount(root: HTMLElement): void {
   const editor = createEditor(editorHost, {
     fontSize: getPrefNumber('editor_font_px', 14, 9, 32),
     onFontSize: (px) => setPref('editor_font_px', String(px)),
+    onChange: () => { viewerStale = true; scheduleViewerRefresh(); },
   });
   // 장비 타입(밀링/선반)이 공구 교체 기준·표 양식·색칠 기준을 정한다(원본 is_lathe_program).
   const machinePanel = createMachinePanel(() => {
     editor.setLathe(isLathe());
     syncTableModeToMachine();
+    viewerStale = true;
+    scheduleViewerRefresh();
   });
   const isLathe = (): boolean => machinePanel.isLathe();
   editor.setLathe(isLathe());
@@ -287,7 +305,39 @@ function mount(root: HTMLElement): void {
 
   // ---------- 동작 ----------
   let mode: Mode = 'tool';
-  let viewerStarted = false;
+  const ensureViewer = (): Promise<void> => {
+    viewerLoading ??= import('./viewer/viewer').then((m) => {
+      viewer = m.createViewer(viewerView, {
+        onLine: (line) => { if (pgMatchOn) editor.selectLine(line); },
+        stopRule: () => {
+          const o = filterPanel.stopOptions();
+          return { text: o.stopText, textValue: o.stopTextValue, m00: o.stopM00, m01: o.stopM01 };
+        },
+        lineText: (line) => editor.view.state.doc.line(Math.min(editor.view.state.doc.lines, line + 1)).text,
+      });
+    });
+    return viewerLoading;
+  };
+  /** Viewer 를 현재 프로그램·장비로 다시 계산해 그린다 */
+  const refreshViewer = (): void => {
+    if (!viewer || !viewerStale) return;
+    viewerStale = false;
+    const text = editor.getText();
+    const mt = machinePanel.machineType();
+    if (!text.trim()) {
+      viewer.setProgram(null, mt);
+      filterPanel.setItems([]);
+      return;
+    }
+    const res = toolpathFromText(text, mt, machinePanel.spec(mt));
+    const rows = toolTable.rows();
+    const names = machinePanel.isLathe() ? latheToolNameMapFromRows(rows) : toolNameMapFromRows(rows);
+    viewer.setProgram(res, mt);
+    filterPanel.setItems([...res.tool_paths.keys()].map((key, i) => ({
+      key, label: toolDisplayText(res, key, names), color: cssColor(toolColorForIndex(i)),
+    })));
+    viewer.setVisible(null);
+  };
   const setMode = (next: Mode) => {
     mode = next;
     btnTool.classList.toggle('checked', mode === 'tool');
@@ -297,11 +347,12 @@ function mount(root: HTMLElement): void {
     vSplitter.hidden = mode !== 'viewer';
     filterPanel.root.hidden = mode !== 'viewer'; // 필터 영역은 Viewer 모드에서만 (원본과 같다)
     machinePanel.root.hidden = mode !== 'viewer'; // 원본: 산출 모드에서는 장비 패널을 숨기고 표 위 콤보를 쓴다
-    if (mode === 'viewer' && !viewerStarted) {
-      viewerStarted = true;
-      void import('./viewer/placeholder').then((m) => m.startPlaceholderViewer(viewerView));
-    }
+    if (mode === 'viewer') void ensureViewer().then(() => refreshViewer());
   };
+  filterPanel.onSelectionChange = (keys) => viewer?.setVisible(keys);
+  filterPanel.onReset = () => viewer?.reset();
+  filterPanel.onPgMatch = (on) => { pgMatchOn = on; if (on) viewer?.setLine(editor.view.state.doc.lineAt(editor.view.state.selection.main.head).number - 1); };
+  editor.onCursorLine = (line) => { if (pgMatchOn) viewer?.setLine(line); };
   btnTool.addEventListener('click', () => setMode('tool'));
   btnViewer.addEventListener('click', () => setMode('viewer'));
   setMode('tool');

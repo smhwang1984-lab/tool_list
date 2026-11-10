@@ -85,6 +85,10 @@ export interface Editor {
   setFontSize(px: number): void;
   fontSize(): number;
   focus(): void;
+  /** 줄(0부터)로 커서를 옮기고 화면 가운데로 */
+  selectLine(line: number): void;
+  /** 커서가 있는 줄(0부터)이 바뀌면 불린다 */
+  onCursorLine: ((line: number) => void) | null;
   /** 사용자가 직접 고쳤을 때(프로그램이 setText 한 경우는 아님) */
   onUserEdit: (() => void) | null;
 }
@@ -99,6 +103,7 @@ export interface EditorOptions {
 
 export function createEditor(parent: HTMLElement, opts: EditorOptions): Editor {
   let lathe = false;
+  let lastCursorLine = -1;
   let size = Math.min(FONT_MAX, Math.max(FONT_MIN, opts.fontSize));
   const readOnly = new Compartment();
   const fontTheme = new Compartment();
@@ -110,6 +115,10 @@ export function createEditor(parent: HTMLElement, opts: EditorOptions): Editor {
     readOnly.of([EditorState.readOnly.of(true), EditorView.editable.of(true)]),
     fontTheme.of(fontExt(size)),
     EditorView.updateListener.of((u) => {
+      if (u.selectionSet && !u.docChanged) {
+        const line = u.state.doc.lineAt(u.state.selection.main.head).number - 1;
+        if (line !== lastCursorLine) { lastCursorLine = line; api.onCursorLine?.(line); }
+      }
       if (!u.docChanged) return;
       opts.onChange?.();
       if (u.transactions.some((tr) => tr.annotation(Transaction.userEvent) !== undefined)) api.onUserEdit?.();
@@ -183,6 +192,13 @@ export function createEditor(parent: HTMLElement, opts: EditorOptions): Editor {
     setFontSize,
     fontSize: () => size,
     focus: () => view.focus(),
+    selectLine(line) {
+      const doc = view.state.doc;
+      const n = Math.max(1, Math.min(doc.lines, line + 1));
+      const info = doc.line(n);
+      api.select(info.from, info.from);
+    },
+    onCursorLine: null,
     onUserEdit: null,
   };
   return api;
