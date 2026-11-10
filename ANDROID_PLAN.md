@@ -265,3 +265,4 @@ build_apk.bat install
 | 1.1.0 | 2026-11-10 | **P2-T6·T7** | 표 버튼(삭제/수정/행 추가/이름 경우의 수/머리글 포함), 행 수정·추가 대화상자(`ui/rowEditor`), 선반 값 저장·전파(`core/latheEdit`, 원본 `_save_lathe_spec_edits`/`_propagate_lathe_specs` 이식), 이름 경우의 수 대화상자(`ui/typeListDialog`). Edge 자동 조작(`tools/ui_check.mjs`)으로 추가·수정·삭제 확인 |
 | 1.1.0 | 2026-11-10 | **P2-T8·T9** | 설정 창(비모달, `ui/settingsDialog`·`platform/viewerSettings`·`core/viewerSettings`, 원본 `clamp_line_width_pct`/`toolpath_line_width`와 값 일치 시험), Viewer 모드 필터 영역(`ui/filterPanel`, 정지 옵션 저장). Edge 자동 조작으로 저장 확인 |
 | 1.1.0 | 2026-11-10 | **P2-T10 (가로 전용으로 변경)** | 사용자 결정으로 세로 화면 미지원. AndroidManifest `sensorLandscape` 고정, 탭 레이아웃 제거, 낮은 화면(폰 가로 높이 520px 이하) 압축 배치, 입력/필터 상하 분할선(높이 저장). Edge 캡처 800×360·740×340·1280×800 모두 페이지 넘침 없음 |
+| 1.2.0 | 2026-11-10 | **P2 완료 (T12)** | 화면 단계 완료로 MINOR 1.2.0. 가로 전용·입력창·검색·장비 패널·공구 표·행 편집·설정·필터 영역. 빌드·시험 240개 통과. **실기기 확인은 APK 빌드 후 사용자가 진행** |
