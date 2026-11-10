@@ -18,14 +18,14 @@ describe('선반 행 수정 (저장·전파)', () => {
     if (!pair) return; // 샘플에 같은 인서트가 없으면 전파 검사는 생략
     const [a, b] = pair as [number, number];
     const original = { ...rows[a]! };
-    const row: LatheRow = { ...rows[a]!, TIP: '3' };
+    const row: LatheRow = { ...rows[a]!, TIP: original.TIP === '3' ? '2' : '3' };
     const sources = { ...(rowSources(rows[a]!) ?? {}) } as Record<string, string>;
     const result = saveLatheSpecEdits(original, row, sources, store);
     expect(result.changed).toContain('TIP');
     expect(sources.TIP).not.toBeUndefined();
     rows[a] = row;
     propagateLatheSpecs(rows, a, original, row, sources, result.changed);
-    expect(rows[b]!.TIP === '3' || rows[b]!.TIP === original.TIP).toBe(true);
+    expect([row.TIP, original.TIP]).toContain(rows[b]!.TIP);
   });
   it('바뀐 칸이 없으면 아무것도 하지 않는다', () => {
     const store = new LatheSpecStore();
