@@ -38,6 +38,8 @@ from PyQt5.QtWidgets import (
     QRubberBand,
     QShortcut,
     QSlider,
+    QStyle,
+    QStyleOptionSlider,
     QVBoxLayout,
     QWidget,
 )
@@ -55,6 +57,8 @@ PX_PER_CM = 96.0 / 2.54
 
 # PG 매칭 자동 재생 최대 배속. NC_Tool_List.py의 동일 상수와 값을 맞춰서 유지한다.
 MAX_PLAYBACK_SPEED = 5000
+# v2.3.6: 배속 표기만 이 값으로 나눠 보인다(최대 5000 -> "x50"). 내부 값은 그대로.
+PLAYBACK_SPEED_DISPLAY_DIVISOR = 100
 
 # v1.6.2: 1920x1080 실사용에서 뷰어 컨트롤(감도/큐브 바, 재생바 버튼, 다크
 # 모드 아이콘)이 지나치게 크다는 피드백으로 크기를 40% 줄인다(= 0.6배).
@@ -1543,6 +1547,33 @@ class CoordOverlayWidget(QWidget):
         self.adjustSize()
 
 
+def format_playback_speed(value):
+    """v2.3.6: 배속 표기 — 내부 값(1~MAX_PLAYBACK_SPEED)을 100으로 나눠 'x50'처럼 보인다
+    (최대 5000 -> x50, 1 -> x0.01). 실제 재생 속도·저장값은 그대로다."""
+    shown = int(value) / float(PLAYBACK_SPEED_DISPLAY_DIVISOR)
+    return "x%s" % ("%.2f" % shown).rstrip("0").rstrip(".")
+
+
+class _ClickJumpSlider(QSlider):
+    """홈(groove)을 누르면 한 칸(pageStep)씩이 아니라 누른 자리로 바로 가는 슬라이더(v2.3.6).
+    범위가 1~5000이라 기본 동작(10씩)으로는 눌러도 거의 안 움직였다."""
+
+    def mousePressEvent(self, ev):
+        if ev.button() == Qt.LeftButton and self.orientation() == Qt.Horizontal:
+            opt = QStyleOptionSlider()
+            self.initStyleOption(opt)
+            handle = self.style().subControlRect(QStyle.CC_Slider, opt, QStyle.SC_SliderHandle, self)
+            pos = ev.pos()
+            if not handle.contains(pos):
+                groove = self.style().subControlRect(QStyle.CC_Slider, opt, QStyle.SC_SliderGroove, self)
+                span = max(groove.width() - handle.width(), 1)
+                x = pos.x() - groove.x() - handle.width() // 2
+                self.setValue(QStyle.sliderValueFromPosition(
+                    self.minimum(), self.maximum(), int(x), span, opt.upsideDown))
+                # 이어서 끌면 핸들을 잡은 것처럼 따라오게 기본 처리로 넘긴다.
+        super().mousePressEvent(ev)
+
+
 class PlaybackBarWidget(QWidget):
     """PG 매칭 모드에서 프로그램을 자동으로 넘겨주는 재생 컨트롤 바.
 
@@ -1599,6 +1630,9 @@ class PlaybackBarWidget(QWidget):
         )
         self.setEnabled(False)
         self._playing = False
+        # v2.3.6: 바 위의 마우스·휠은 (꺼져 있을 때도) 아래 3D 화면으로 넘기지 않는다 —
+        # 바 여백을 누르면 회전이 시작되고 회전 중심·줌 십자가 뜨던 문제.
+        self.setAttribute(Qt.WA_NoMousePropagation, True)
 
         # 전체 높이(~3배)와 버튼 크기(~2.5배)를 원래(80px 큐브 시절과 같은 시기에
         # 만든 60px 높이 바) 대비로 키워 달라는 사용자 요청 반영. 슬라이더도
@@ -1609,7 +1643,7 @@ class PlaybackBarWidget(QWidget):
 
         speed_row = QHBoxLayout()
         speed_row.addWidget(QLabel("속도"))
-        self.speed_slider = QSlider(Qt.Horizontal)
+        self.speed_slider = _ClickJumpSlider(Qt.Horizontal)
         self.speed_slider.setRange(1, MAX_PLAYBACK_SPEED)
         self.speed_slider.setValue(1)
         # v1.6.0: 속도바 두께를 기존의 2배로 키운다(34 -> 68).
@@ -1618,7 +1652,7 @@ class PlaybackBarWidget(QWidget):
         self.speed_slider.setFocusPolicy(Qt.NoFocus)
         self.speed_slider.valueChanged.connect(self._on_speed_changed)
         speed_row.addWidget(self.speed_slider, 1)
-        self.speed_value_label = QLabel("1x")
+        self.speed_value_label = QLabel(format_playback_speed(1))
         # v1.6.0: 속도 값 폰트를 기존의 1.7배(15px -> 26px)로 키운다. 이 바의
         # 다른 QLabel(예: "속도")까지 함께 커지지 않도록 인스턴스 스타일시트로
         # 개별 지정한다(인스턴스 지정값이 클래스 규칙보다 우선한다).
@@ -1670,15 +1704,16 @@ class PlaybackBarWidget(QWidget):
         value = self.speed_slider.value()
         cap = getattr(self, '_speed_cap', None)
         if cap is not None and value > cap:
-            self.speed_value_label.setText("%dx" % cap)
+            self.speed_value_label.setText(format_playback_speed(cap))
             self.speed_value_label.setStyleSheet(self._speed_label_style + " color: #ffb74d;")
             self.speed_value_label.setToolTip(
-                "실시간 형상: 최대 %dx로 재생합니다 (고른 배속 %dx)" % (cap, value))
+                "실시간 형상: 최대 %s로 재생합니다 (고른 배속 %s)"
+                % (format_playback_speed(cap), format_playback_speed(value)))
         else:
-            self.speed_value_label.setText("%dx" % value)
+            self.speed_value_label.setText(format_playback_speed(value))
             self.speed_value_label.setStyleSheet(self._speed_label_style)
             self.speed_value_label.setToolTip(
-                "" if cap is None else "실시간 형상: 최대 %dx" % cap)
+                "" if cap is None else "실시간 형상: 최대 %s" % format_playback_speed(cap))
 
     def set_speed_cap(self, cap):
         self._speed_cap = None if cap is None else int(cap)

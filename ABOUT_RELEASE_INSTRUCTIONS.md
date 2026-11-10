@@ -47,7 +47,31 @@ Last updated: 2026-11-05 (NC_Tool_List v2.3.0 — 로컬 v2.2.9(STOCK SIZE)와 G
 
 ## Version history
 
-### 2026-11-09 (latest, v2.3.5)
+### 2026-11-10 (latest, v2.3.6)
+
+- Version: 2.3.5 → 2.3.6 (라이선스 서버 v1.1.0, 발급 프로그램 v1.4.2 그대로)
+- Release/build date: 2026-11-10
+- Summary: 사용자 요청 — 속도바(PG 매칭 재생 바) 조작 문제와 배속 표기.
+  1. **속도바 위 마우스가 3D 화면으로 넘어가던 문제**: 바 여백(슬라이더·버튼 밖)을 누르거나 바가 꺼져 있을 때(PG 매칭 해제)
+     좌클릭·휠 누르기·휠이 아래 3D 화면으로 전달돼 회전이 시작되고 회전 중심·줌 십자가 떴다. `PlaybackBarWidget`에
+     `WA_NoMousePropagation`을 걸어 바 범위 안의 마우스·휠은 3D 화면으로 넘기지 않는다.
+  2. **슬라이더 홈을 눌러도 거의 안 움직이던 문제**: 범위 1~5000에서 기본 동작은 한 번에 10씩이었다. `_ClickJumpSlider`로
+     누른 자리로 바로 가고, 이어서 끌 수 있다.
+  3. **배속 표기**: 내부 값(1~5000, 줄/초 배속)은 그대로 두고 표기만 100으로 나눠 `x0.01`~`x50`(`format_playback_speed()`).
+     [실시간 형상] 상한(200/50)은 `x2`/`x0.5`로 보인다. 도움말·툴팁 문구도 같이 바꿨다. 저장된 설정값은 호환된다.
+  4. 정리: `installer\`의 옛 설치파일(Setup v2.2.4~v2.3.4, Portable zip v2.2.4~v2.3.0, 약 1.6GB)을 지웠다(Git 대상 아님).
+     v2.3.5 설치파일·SumPath_License_Maker zip·라이선스 관련 파일, `test files\`, `PLAN_stock_simulation.md`는 그대로 뒀다.
+- Open source software: 변경 없음.
+- Verification: `python -m pytest tests` (빌드 venv) → 840 passed, 1 failed, 2 skipped. 실패는 기존과 같은 이 PC 장비 설정 의존
+  `test_switching_to_lathe_changes_table_schema_and_machine`.
+  신규 `tests/test_v236_speed_bar.py`(표기 x50/x0.01/x1/x2.5, 상한 표기, PG 매칭 켬/끔 모두 바 여백 클릭·휠 누르기가 회전·줌·십자를
+  일으키지 않음, 홈 클릭 이동).
+- Installer/package status: **미생성**. PyInstaller는 끝났다(`dist\NC_Tool_List\NC_Tool_List.exe` 파일 버전 2.3.6.0). Inno Setup 컴파일은
+  PC 메모리 부족으로 중간에 중단돼, 덜 만들어진 `NC_Tool_List_Setup_v2.3.6.exe`(58.7MB)는 지웠다.
+  메모리 여유가 있을 때 `ISCC.exe NC_Tool_List.iss`(필요하면 PyInstaller부터)를 다시 돌린다.
+- 서명 상태: 미서명(기존과 동일).
+
+### 2026-11-09 (v2.3.5)
 
 - Version: 2.3.4 → 2.3.5 (라이선스 서버 v1.1.0, 발급 프로그램 v1.4.2 그대로)
 - Release/build date: 2026-11-09
