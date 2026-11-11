@@ -33,6 +33,15 @@
                 <data android:mimeType="text/plain" />
                 <data android:mimeType="application/octet-stream" />
                 <data android:mimeType="text/*" />
+                <data android:mimeType="application/x-netcdf" />
+                <data android:mimeType="application/netcdf" />
+                <data android:mimeType="application/x-gcode" />
+                <data android:mimeType="application/gcode" />
+                <data android:mimeType="application/x-nc" />
+                <data android:mimeType="application/vnd.nc" />
+                <data android:mimeType="application/x-tap" />
+                <data android:mimeType="application/x-mpf" />
+                <data android:mimeType="application/x-nccode" />
             </intent-filter>
 
             <!-- 확장자로 구분하는 NC 파일(.nc .mpf .tap .min .prg ...) — 종류가 */* 로 오는 경우 -->
