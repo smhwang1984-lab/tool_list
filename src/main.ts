@@ -14,6 +14,7 @@ import { createMachinePanel } from './ui/machinePanel';
 import { showStockDialog } from './ui/stockDialog';
 import { buildSimProgram, toolpathBounds } from './sim/segments';
 import { toolShapeMapFromRows } from './sim/toolShape';
+import { createFallback2D } from './viewer/canvas2d';
 import { buildLatheProgram, latheToolpathExtent, type LatheProgram } from './sim/latheSegments';
 import { geometryMapFromRows } from './core/latheInsertSpec';
 import { showLatheStockDialog } from './ui/latheStockDialog';
@@ -164,6 +165,7 @@ function mount(root: HTMLElement): void {
 
   // ---------- 3D 뷰어 상태 (본문보다 먼저 선언) ----------
   let viewer: import('./viewer/viewer').Viewer | null = null;
+  let fallback2d: import('./viewer/canvas2d').Fallback2D | null = null;
   let viewerLoading: Promise<void> | null = null;
   let viewerStale = true;
   let pgMatchOn = false;
@@ -380,6 +382,7 @@ function mount(root: HTMLElement): void {
           return { text: o.stopText, textValue: o.stopTextValue, m00: o.stopM00, m01: o.stopM01 };
         },
         lineText: (line) => editor.view.state.doc.line(Math.min(editor.view.state.doc.lines, line + 1)).text,
+        onWebglFailed: (msg) => { fallback2d = createFallback2D(viewerView, msg); },
         onSimChange: () => { const has = !!viewer?.simStatus().hasStock; btnStockClear.disabled = !has; btnStl.disabled = !has; },
       });
       viewer?.setSimLive(filterPanel.liveOn());
@@ -390,6 +393,13 @@ function mount(root: HTMLElement): void {
   };
   /** Viewer 를 현재 프로그램·장비로 다시 계산해 그린다 */
   const refreshViewer = (): void => {
+    if (!viewer && fallback2d && viewerStale) {
+      viewerStale = false;
+      const text = editor.getText();
+      const mt = machinePanel.machineType();
+      fallback2d.draw(text.trim() ? toolpathFromText(text, mt, machinePanel.spec(mt)) : null, machinePanel.isLathe());
+      return;
+    }
     if (!viewer || !viewerStale) return;
     viewerStale = false;
     const text = editor.getText();

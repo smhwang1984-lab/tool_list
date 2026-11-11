@@ -1,0 +1,1 @@
+{"file": "sub_pg_test.nc", "engine": "lathe3d", "spec": {"diameter": 100.0, "length": 120.0, "front_z": 5.0, "bore": 0.0}, "resolution": 0.25, "voxel_resolution": 1.0, "nz": 480, "nr": 200, "segments": 1898, "thread_cut_count": 0, "rapid_warnings": [[26, 26]], "removed": 0, "turnmill": true, "voxel_shape": [120, 100, 100], "voxel_removed": 281670}

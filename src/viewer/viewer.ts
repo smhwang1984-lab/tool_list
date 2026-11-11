@@ -33,6 +33,8 @@ export interface StopRule {
   text: boolean; textValue: string; m00: boolean; m01: boolean;
 }
 export interface ViewerHooks {
+  /** WebGL 을 시작하지 못함 → 호출 쪽이 2D 대체 화면을 쓴다 */
+  onWebglFailed?: (message: string) => void;
   /** 재생·찍기로 위치가 바뀜 → 입력창이 그 줄로 이동 (PG 매칭) */
   onLine?: (line: number) => void;
   /** 위치 찍기로 고른 줄 → 입력창 이동(항상) */
@@ -82,7 +84,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
   try {
     renderer = new THREE.WebGLRenderer({ antialias: true });
   } catch (error) {
-    host.innerHTML = `<div class="placeholder" style="color:#c7d0e0">WebGL을 시작할 수 없습니다.<br>${String(error)}</div>`;
+    hooks.onWebglFailed?.(String(error));
     return null;
   }
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));

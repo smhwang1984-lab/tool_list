@@ -1,0 +1,1 @@
+{"file": "O4812.nc", "engine": "lathe3d", "spec": {"diameter": 100.0, "length": 120.0, "front_z": 5.0, "bore": 0.0}, "resolution": 0.25, "voxel_resolution": 1.0, "nz": 480, "nr": 200, "segments": 735, "thread_cut_count": 0, "rapid_warnings": [[52, 52], [83, 83], [88, 88], [107, 107]], "removed": 10696, "turnmill": true, "voxel_shape": [120, 100, 100], "voxel_removed": 330652}
