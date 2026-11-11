@@ -1,6 +1,6 @@
 // 턴밀 소재 — 원본 nc_lathe_sim.TurnMillStock: 선삭(축대칭 격자, 진실 원천) + 턴밀(3D 복셀) 하이브리드
 import { finishMesh } from './mesh';
-import { LatheStock, type LatheBounds } from './latheStock';
+import { LatheStock, type LatheBounds, type SectionMode } from './latheStock';
 import type { LatheProgram } from './latheSegments';
 import type { Bounds } from './stock';
 import { autoResolution3d, UNCUT_COLOR, VoxelStock } from './voxel';
@@ -27,6 +27,7 @@ export class TurnMillStock {
   private iz: Int32Array;
   private ir: Int32Array;
   private sectionCache: { key: string; view: VoxelStock } | null = null;
+  section: SectionMode = '3q';
 
   constructor(b: LatheBounds, resolution: number, voxelResolution: number) {
     this.lathe = new LatheStock(b, resolution);
@@ -120,17 +121,18 @@ export class TurnMillStock {
   }
 
   /** 표시용 복셀 메쉬 — 3/4 단면(앞쪽 사분면 y<0, z>0 을 비운 사본) */
-  displayView(): VoxelStock {
+  displayView(section: SectionMode = '3q'): VoxelStock {
     this.sync();
-    const key = `${this.voxel.version}`;
+    const key = `${this.voxel.version}/${section}`;
     if (this.sectionCache?.key === key) return this.sectionCache.view;
     const v = this.voxel;
+    if (section === 'full') { this.sectionCache = { key, view: v }; return v; }
     const view = Object.assign(Object.create(Object.getPrototypeOf(v)) as VoxelStock, v);
     view.occ = v.occ.slice();
     const { ny, nz } = v;
     for (let i = 0; i < v.nx; i++) for (let j = 0; j < ny; j++) {
       if (v.y0 + (j + 0.5) * v.step[1] >= 0) continue;
-      for (let k = 0; k < nz; k++) if (v.z0 + (k + 0.5) * v.step[2] > 0) view.occ[(i * ny + j) * nz + k] = 0;
+      for (let k = 0; k < nz; k++) if (section === 'half' || v.z0 + (k + 0.5) * v.step[2] > 0) view.occ[(i * ny + j) * nz + k] = 0;
     }
     this.sectionCache = { key, view };
     return view;
@@ -138,9 +140,9 @@ export class TurnMillStock {
 }
 
 export function buildTurnMillMesh(
-  stock: TurnMillStock, colorOf: (id: number) => readonly [number, number, number], quadsMax: number,
+  stock: TurnMillStock, colorOf: (id: number) => readonly [number, number, number], quadsMax: number, section: SectionMode = '3q',
 ): { positions: Float32Array; colors: Float32Array; indices: Uint32Array; edges: Float32Array } {
-  const vm = buildVoxelMesh(stock.displayView(), quadsMax, true);
+  const vm = buildVoxelMesh(stock.displayView(section), quadsMax, true);
   const fin = finishMesh(vm.positions, vm.cid, vm.faces, colorOf);
   return { ...fin, edges: vm.edges };
 }

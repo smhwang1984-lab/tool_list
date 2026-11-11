@@ -2,6 +2,11 @@ package com.sumpath.nctoollist;
 
 import android.app.Activity;
 import android.content.ContentResolver;
+import android.content.Context;
+import android.os.Build;
+import android.os.Environment;
+import android.os.storage.StorageManager;
+import android.os.storage.StorageVolume;
 import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
@@ -128,7 +133,31 @@ public class NcFilesPlugin extends Plugin {
         intent.setType("*/*");
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                 | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        // 외부 저장장치(USB·SD)가 꽂혀 있으면 선택기를 그 장치에서 시작한다. 없으면 기존대로.
+        Uri external = externalStorageRoot();
+        if (external != null) intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI, external);
         startActivityForResult(call, intent, "openResult");
+    }
+
+    /** 마운트된 이동식 저장장치(USB·SD)의 루트 문서 주소. 없으면 null */
+    private Uri externalStorageRoot() {
+        try {
+            StorageManager sm = (StorageManager) getContext().getSystemService(Context.STORAGE_SERVICE);
+            if (sm == null) return null;
+            for (StorageVolume v : sm.getStorageVolumes()) {
+                if (v.isPrimary() || !v.isRemovable() || !Environment.MEDIA_MOUNTED.equals(v.getState())) continue;
+                if (Build.VERSION.SDK_INT >= 29) {
+                    Intent i = v.createOpenDocumentTreeIntent();
+                    Uri u = i.getParcelableExtra(DocumentsContract.EXTRA_INITIAL_URI);
+                    if (u != null) return u;
+                }
+                String uuid = v.getUuid();
+                if (uuid != null) return DocumentsContract.buildDocumentUri("com.android.externalstorage.documents", uuid + ":");
+            }
+        } catch (RuntimeException ignored) {
+            // 저장장치 정보를 못 읽으면 기존 위치로 연다
+        }
+        return null;
     }
 
     @ActivityCallback

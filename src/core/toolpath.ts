@@ -442,6 +442,9 @@ const G43_4 = /G43\.4(?!\d)/;
 const G49 = /G49/;
 const G98 = /G98/;
 const G99 = /G99/;
+/** 선반 G80 줄의 좌표 이동을 급속(G00)으로 본다. 원본은 G80 모션 그대로(F 없으면 시간 0·절삭 취급)라 골든 시험은 끈 채로 비교한다. */
+let latheG80Rapid = false;
+export function setLatheG80Rapid(on: boolean): void { latheG80Rapid = on; }
 const CYCLE = /(G73|G74|G76|G81|G82|G83|G84|G85|G86|G87|G88|G89|G80)/;
 const LATHE_CYCLE = /(G81|G82|G83|G84|G85|G86|G87|G88|G89|G80)/;
 const LATHE_CYCLE_FULL = /^(?:G81|G82|G83|G84|G85|G86|G87|G88|G89|G80)$/;
@@ -658,6 +661,7 @@ export function processNcLines(lines: readonly string[], machineType: string, sp
         else if (!cycleActive) { millCycleR = 0; millCycleDepth = 0; currentMotion = 'G00'; }
       }
       if (isLathe && code === 'G80') {
+        if (latheG80Rapid) currentMotion = 'G00'; // G80 은 이동 지령이 아니다 — 같은 줄의 좌표 이동은 급속(F 없음)
         latheCycleAxis = null; latheCycleRef = null; latheCycleR = 0; latheCycleDepth = 0;
       }
     }

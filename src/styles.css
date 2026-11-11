@@ -313,3 +313,5 @@ dialog.settings::backdrop { background: transparent; }
   padding: 14px 26px; border-radius: 10px; background: rgba(15, 20, 30, 0.82); color: #fff; font-size: 22px; font-weight: 700;
 }
 .viewer-host .v-progress[hidden] { display: none; }
+.viewer-host .v-proj .v-section { margin-left: 6px; background: #1b2230 !important; border-color: #3a4558 !important; }
+.viewer-host .v-proj .v-section[hidden] { display: none; }

@@ -21,7 +21,8 @@ import { createToolTable } from './ui/toolTable';
 import { createFilterPanel } from './ui/filterPanel';
 import { createDocumentController } from './app/documentController';
 import { onIncoming } from './platform/files';
-import { toolpathFromText } from './core/toolpath';
+import { setLatheG80Rapid, toolpathFromText } from './core/toolpath';
+setLatheG80Rapid(true);
 import { latheToolNameMapFromRows } from './core/latheParser';
 import { toolNameMapFromRows } from './core/millParser';
 import { cssColor, toolColorForIndex, toolDisplayText } from './viewer/segments';
@@ -142,6 +143,8 @@ function mount(root: HTMLElement): void {
   const btnStockTb = toolButton('소재', 'document', '소재(STOCK) 설정과 가공 형상 시뮬레이션');
   const btnStockClear = toolButton('소재 지우기', 'eraser', '소재와 가공 형상을 지우고 툴패스 선을 다시 보이게 합니다');
   btnStockClear.disabled = true;
+  const btnStl = toolButton('STL', 'save', '지금 보이는 가공 형상을 STL 파일로 내보내기');
+  btnStl.disabled = true;
   const btnRun = toolButton('Tool List', 'run', '공구 리스트 산출', { accent: true });
   const btnExample = toolButton('예제', 'document', '예제 프로그램 불러오기');
   const btnClear = toolButton('지우기', 'eraser', '프로그램과 공구 리스트 지우기');
@@ -153,7 +156,7 @@ function mount(root: HTMLElement): void {
       btnExample,
       btnClear,
     ),
-    group(btnMachine, btnStop, btnStockTb, btnStockClear),
+    group(btnMachine, btnStop, btnStockTb, btnStockClear, btnStl),
     group(btnEdit, btnEditSave, btnEditPw, editLabel),
     group(btnRun),
     group(btnTool, btnViewer),
@@ -377,7 +380,7 @@ function mount(root: HTMLElement): void {
           return { text: o.stopText, textValue: o.stopTextValue, m00: o.stopM00, m01: o.stopM01 };
         },
         lineText: (line) => editor.view.state.doc.line(Math.min(editor.view.state.doc.lines, line + 1)).text,
-        onSimChange: () => { btnStockClear.disabled = !viewer?.simStatus().hasStock; },
+        onSimChange: () => { const has = !!viewer?.simStatus().hasStock; btnStockClear.disabled = !has; btnStl.disabled = !has; },
       });
       viewer?.setSimLive(filterPanel.liveOn());
       viewer?.setPgMatch(pgMatchOn);
@@ -422,9 +425,18 @@ function mount(root: HTMLElement): void {
     setPref('sim_toolpath_visible', '1');
     viewer?.setToolpathVisible(true);
     btnStockClear.disabled = true;
+    btnStl.disabled = true;
     toast('소재를 지웠습니다. 툴패스 선을 다시 표시합니다.');
   };
   btnStockClear.addEventListener('click', clearStock);
+  btnStl.addEventListener('click', () => {
+    const bytes = viewer?.exportStl();
+    if (!bytes) { toast('내보낼 가공 형상이 없습니다. 소재를 적용하고 가공 형상을 표시하세요.'); return; }
+    void import('./platform/files').then(async ({ saveAs }) => {
+      const saved = await saveAs('sumpath_shape.stl', bytes);
+      if (saved) toast('STL 파일을 저장했습니다.');
+    });
+  });
   btnStockTb.addEventListener('click', () => {
     void ensureViewer().then(() => {
       viewerStale = true;

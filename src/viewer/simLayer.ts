@@ -6,10 +6,11 @@ import { autoResolution, type Bounds } from '../sim/stock';
 import { autoResolution3d, clampResolution3d, VoxelStock } from '../sim/voxel';
 import { buildVoxelMesh } from '../sim/voxelMesh';
 import { SIM_CHUNK_SEGMENTS, ZMapStock } from '../sim/zmap';
-import { buildLatheMesh, LatheStock, latheAutoResolution, type LatheBounds } from '../sim/latheStock';
+import { buildLatheMesh, LatheStock, latheAutoResolution, type LatheBounds, type SectionMode } from '../sim/latheStock';
 import { buildTurnMillMesh, TurnMillStock, turnmillVoxelResolution } from '../sim/turnMillStock';
 import type { LatheProgram } from '../sim/latheSegments';
 import type { LatheTool } from '../sim/latheTool';
+import { writeStlBinary } from '../sim/stl';
 import { toolColorForIndex } from './segments';
 
 const SNAPSHOT_MEMORY_BYTES = 200 * 1024 * 1024;
@@ -40,6 +41,10 @@ export interface SimLayer {
   setStock(bounds: Bounds | LatheBounds | null, resolution: number | null, enabled: boolean): void;
   setEnabled(on: boolean): void;
   setLive(on: boolean): void;
+  /** 선반 소재 단면: 3/4 · 1/2 · 원통(전체) */
+  setSection(m: SectionMode): void;
+  /** 지금 화면에 보이는 가공 형상을 바이너리 STL 로. 형상이 없으면 null */
+  exportStl(): Uint8Array | null;
   /** 목표 seq 까지 깎는다(null 이면 아무 것도 안 깎은 상태) */
   setTarget(seq: number | null, showProgress?: boolean): void;
   status(): SimStatus;
@@ -83,6 +88,7 @@ export function createSimLayer(parent: THREE.Object3D, onChange: () => void, onP
   const engineOf = (s: AnyStock | null): string => (s instanceof TurnMillStock ? 'lathe3d' : s instanceof LatheStock ? 'lathe' : s instanceof VoxelStock ? 'voxel' : s ? 'zmap' : '');
   const stockMatches = (): boolean => !!stock && engineOf(stock) === (program?.engine ?? 'zmap');
   let enabled = false;
+  let section: SectionMode = '3q';
   let live = false;
   let cutIdx = 0;
   let target: number | null = null;
@@ -111,9 +117,9 @@ export function createSimLayer(parent: THREE.Object3D, onChange: () => void, onP
     if (!stock || !enabled) { disposeMesh(); group.visible = false; onChange(); return; }
     let m: { positions: Float32Array; colors: Float32Array; indices: Uint32Array; edges: Float32Array };
     if (stock instanceof TurnMillStock) {
-      m = buildTurnMillMesh(stock, colorOf, live ? 50_000 : 150_000);
+      m = buildTurnMillMesh(stock, colorOf, live ? 50_000 : 150_000, section);
     } else if (stock instanceof LatheStock) {
-      m = buildLatheMesh(stock, colorOf, live ? 300 : 500);
+      m = buildLatheMesh(stock, colorOf, live ? 300 : 500, section);
     } else if (stock instanceof VoxelStock) {
       const vm = buildVoxelMesh(stock, live ? 50_000 : 150_000, true);
       const fin = finishMesh(vm.positions, vm.cid, vm.faces, colorOf);
@@ -179,7 +185,9 @@ export function createSimLayer(parent: THREE.Object3D, onChange: () => void, onP
           snapshots.set(cutIdx, stock.snapshot());
           snapBytes += bytes;
         }
-        let end = Math.min(want, cutIdx + SIM_CHUNK_SEGMENTS);
+        // 3D 복셀·턴밀은 한 선분이 무거워 작게 나눠 화면이 멈추지 않게 한다
+        const chunk = stock instanceof VoxelStock || stock instanceof TurnMillStock ? 150 : SIM_CHUNK_SEGMENTS;
+        let end = Math.min(want, cutIdx + chunk);
         for (const pos of snapAt) if (pos > cutIdx && pos < end) { end = pos; break; }
         if (stock instanceof TurnMillStock) stock.cutRange(program as LatheProgram, cutIdx, end);
         else if (stock instanceof LatheStock) stock.cutRange(program.seg, program.tools as (LatheTool | null)[], cutIdx, end, { pitch: (program as LatheProgram).threadPitch, height: (program as LatheProgram).threadHeight });
@@ -229,6 +237,7 @@ export function createSimLayer(parent: THREE.Object3D, onChange: () => void, onP
       void pump();
     },
     setLive(on) { live = on; },
+    setSection(m) { if (m === section) return; section = m; if (stock && enabled && !running) refreshMesh(); },
     setTarget(seq, show = false) {
       if (show && enabled) showProgress = true;
       if (target === seq && !show) return;
@@ -246,6 +255,13 @@ export function createSimLayer(parent: THREE.Object3D, onChange: () => void, onP
       };
     },
     hasStock: () => !!stock,
+    exportStl() {
+      if (!mesh || !enabled) return null;
+      const pos = mesh.geometry.getAttribute('position');
+      const idx = mesh.geometry.getIndex();
+      if (!idx) return null;
+      return writeStlBinary(pos.array as Float32Array, idx.array as Uint32Array);
+    },
     dispose() { disposeMesh(); parent.remove(group); },
   };
 }

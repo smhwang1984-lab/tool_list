@@ -12,6 +12,7 @@ import type { Bounds } from '../sim/stock';
 import type { LatheProgram } from '../sim/latheSegments';
 import type { LatheBounds } from '../sim/latheStock';
 import { CUT_LINE_BASE_WIDTH, FOV_MAX, FOV_MIN, toolpathLineWidth } from '../core/viewerSettings';
+import { getPref, setPref } from '../platform/prefs';
 import { getViewerSettings, onViewerSettings } from '../platform/viewerSettings';
 import { el } from '../ui/dialog';
 import { RAPID_MOVE_COLOR, sceneBounds, segmentBuckets, toolColorForIndex } from './segments';
@@ -62,6 +63,8 @@ export interface Viewer {
   setSimEnabled(on: boolean): void;
   setSimLive(on: boolean): void;
   simStatus(): SimStatus;
+  exportStl(): Uint8Array | null;
+  setSection(m: '3q' | 'half' | 'full'): void;
   dispose(): void;
 }
 
@@ -135,6 +138,22 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
   instantBtn.textContent = '가공형상 즉시 보기';
   instantBtn.disabled = true;
   let simLive = false;
+  const SECTION_LABEL = { '3q': '단면 3/4', half: '단면 1/2', full: '원통' } as const;
+  const SECTION_ORDER = ['3q', 'half', 'full'] as const;
+  let sectionMode: (typeof SECTION_ORDER)[number] = ((): (typeof SECTION_ORDER)[number] => {
+    const v = getPref('sim_section');
+    return v === 'half' || v === 'full' ? v : '3q';
+  })();
+  const sectionBtn = el('button', { type: 'button', class: 'v-instant v-section', title: '선반 가공 형상 단면: 3/4 → 1/2 → 원통(전체)' });
+  sectionBtn.textContent = SECTION_LABEL[sectionMode];
+  const applySection = (m: (typeof SECTION_ORDER)[number]): void => {
+    sectionMode = m;
+    sectionBtn.textContent = SECTION_LABEL[m];
+    setPref('sim_section', m);
+    sim.setSection(m);
+  };
+  sectionBtn.addEventListener('click', () => applySection(SECTION_ORDER[(SECTION_ORDER.indexOf(sectionMode) + 1) % 3]!));
+  sim.setSection(sectionMode);
   let pgMatch = false;
   let toolpathOn = true;
   /** seqNow 가 속한 공정 키(공정 첫 seq 가 seqNow 이하인 마지막 공정) */
@@ -219,7 +238,8 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
       b.addEventListener('click', () => { pickMode = false; projBar.firstElementChild?.classList.remove('on'); setProjection(name); });
       projButtons.push(b);
     }
-    projBar.append(instantBtn);
+    projBar.append(instantBtn, sectionBtn);
+    sectionBtn.hidden = !lathe;
   };
 
   const bPrevTool = mkBtn(playBar, '⏮', '이전 공정');
@@ -799,6 +819,8 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
       sim.setTarget(on ? seqNow : selectionEndSeq());
     },
     simStatus: () => sim.status(),
+    exportStl: () => sim.exportStl(),
+    setSection: (m) => { applySection(m); },
     dispose() {
       sim.dispose();
       cancelAnimationFrame(raf);
