@@ -410,7 +410,7 @@ M30
         dialog.enable_check.setChecked(True)
         dialog.resolution_combo.setCurrentText('0.1')
         viewer._sim_sync = True
-        dialog._ask_run_simulation = lambda: True
+        dialog._decide_run_simulation = lambda: True
         dialog._apply()
         self.assertTrue(viewer.sim_wait())
         self.assertTrue(viewer.sim_stock.is_lathe)

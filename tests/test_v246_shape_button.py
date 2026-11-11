@@ -65,6 +65,7 @@ def test_center_progress_percent_font_equals_cube_size(viewer):
 def test_stock_dialog_apply_asks_then_switches_to_simulation(viewer, monkeypatch):
     from nc_viewer_widget import StockDialog
     viewer._sim_sync = True
+    viewer.pg_match_mode = True
     dialog = StockDialog(viewer)
     assert dialog.enable_check.isHidden()                   # 화면에는 체크가 없다
     asked = []
@@ -109,3 +110,17 @@ def test_tool_marker_unshaded(viewer):
     viewer.set_source_text(SIM_PROGRAM + ' ', NAMES, shapes)
     mesh = next(iter(viewer.tool_marker_items.values()))[0]
     assert mesh.opts['shader'] is None      # 음영 없음(평평한 색)
+
+
+@needs_viewer
+def test_stock_apply_yes_without_pg_match_does_not_show_whole_shape(viewer, monkeypatch):
+    from nc_viewer_widget import StockDialog
+    from PyQt5.QtWidgets import QMessageBox
+    viewer._sim_sync = True
+    viewer.pg_match_mode = False
+    infos = []
+    monkeypatch.setattr(StockDialog, '_ask_run_simulation', lambda self: True)
+    monkeypatch.setattr(QMessageBox, 'information', lambda *a, **k: infos.append(1))
+    dialog = StockDialog(viewer)
+    dialog._apply()
+    assert viewer.sim_stock is not None and not viewer.sim_enabled and infos == [1]

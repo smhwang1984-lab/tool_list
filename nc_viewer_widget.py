@@ -2278,11 +2278,24 @@ class StockDialog(QDialog):
         except ValueError as exc:
             QMessageBox.warning(self, '소재 설정', str(exc))
             return
-        enabled = self._ask_run_simulation()
+        enabled = self._decide_run_simulation()
         self.enable_check.setChecked(enabled)
         self.viewer.apply_stock_spec(spec, self._resolution_value(), enabled)
         self._save_settings()
         self._refresh_status()
+
+    def _decide_run_simulation(self):
+        """v2.4.9: [예]는 PG 매칭 중일 때만 가공 시뮬레이션을 켠다. PG 매칭이 꺼져 있으면
+        선택 공정 전체가 한꺼번에 깎여 보이므로 켜지 않고, [가공형상즉시보기] 버튼으로 보게 안내한다."""
+        if not self._ask_run_simulation():
+            return False
+        if getattr(self.viewer, 'pg_match_mode', False):
+            return True
+        QMessageBox.information(
+            self, '소재 설정',
+            '소재를 적용했습니다.\nPG 매칭이 꺼져 있어 가공 형상은 켜지 않았습니다.\n'
+            'PG 매칭을 켜거나 [가공형상즉시보기]를 누르면 볼 수 있습니다.')
+        return False
 
     def _ask_run_simulation(self):
         """v2.4.6: 소재를 입력한 뒤 가공 시뮬레이션으로 전환할지 확인한다."""
@@ -2515,6 +2528,7 @@ class LatheStockDialog(QDialog):
     # 밀링 소재 창과 같은 viewer/위젯 이름만 쓰는 동작은 그대로 빌려 쓴다(중복 방지)
     _show_rapid_list = StockDialog._show_rapid_list
     _ask_run_simulation = StockDialog._ask_run_simulation
+    _decide_run_simulation = StockDialog._decide_run_simulation
     _resolution_value = StockDialog._resolution_value
     _on_toolpath_toggled = StockDialog._on_toolpath_toggled
     refresh_status = StockDialog.refresh_status
@@ -2563,7 +2577,7 @@ class LatheStockDialog(QDialog):
         if spec.bore >= spec.diameter and spec.bore > 0:
             QMessageBox.warning(self, '소재 설정', '내경은 소재 지름보다 작아야 합니다.')
             return
-        enabled = self._ask_run_simulation()
+        enabled = self._decide_run_simulation()
         self.enable_check.setChecked(enabled)
         self.viewer.apply_stock_spec(spec, self._resolution_value(), enabled)
         self._save_settings()
