@@ -3,7 +3,6 @@ import { getPref, setPref } from '../platform/prefs';
 import { AXES, DIM_KEYS, StockSpec, parseStockSizeComment, type Axis, type Bounds, type DimKey, type Reference } from '../sim/stock';
 import type { SimStatus } from '../viewer/simLayer';
 import { el, showDialog, toast } from './dialog';
-import { precisionRow } from './precisionRow';
 
 export interface StockDialogContext {
   /** 프로그램 줄(주석에서 소재 치수를 읽는다) */
@@ -103,7 +102,6 @@ export function showStockDialog(ctx: StockDialogContext): void {
   }
   const resSelect = select(RES_ITEMS.map((r) => [r, r] as const), s.resolution);
   { const r = row('해상도(mm)', resSelect); r.classList.add('single'); body.append(r); }
-  body.append(precisionRow());
   const margin = num(2, '1');
   const fitBtn = el('button', { type: 'button' });
   fitBtn.textContent = '툴패스 범위에 맞추기';

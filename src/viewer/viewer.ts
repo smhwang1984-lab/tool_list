@@ -15,6 +15,7 @@ import { CUT_LINE_BASE_WIDTH, FOV_MAX, FOV_MIN, toolpathLineWidth } from '../cor
 import { getPref, setPref } from '../platform/prefs';
 import { getViewerSettings, onViewerSettings } from '../platform/viewerSettings';
 import { el } from '../ui/dialog';
+import { cutGroups, groupAt, type CutGroup } from './entryArrow';
 import { RAPID_MOVE_COLOR, sceneBounds, segmentBuckets, toolColorForIndex } from './segments';
 
 const RAPID_LINE_BASE_WIDTH = 1.5;
@@ -120,6 +121,21 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
   const applyMarkerScale = (): void => {
     marker.scale.setScalar(markerBase * 0.5 * (getViewerSettings().lineWidthPct / 90));
   };
+  // 진입 방향 화살표(밀링): 같은 공구 축으로 가공하는 구간의 첫 절삭 위치에, 그 이동 방향으로. 축이 바뀌면 지우고 다음 절삭에서 다시 그린다.
+  const arrowMat = new THREE.MeshBasicMaterial({ color: 0xffd91a, depthTest: false });
+  const entryArrow = new THREE.Group();
+  const arrowShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.75, 8), arrowMat);
+  arrowShaft.rotation.x = Math.PI / 2;
+  arrowShaft.position.z = 0.375;
+  const arrowHead = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.25, 12), arrowMat);
+  arrowHead.rotation.x = Math.PI / 2;
+  arrowHead.position.z = 0.875;
+  arrowShaft.renderOrder = 11;
+  arrowHead.renderOrder = 11;
+  entryArrow.add(arrowShaft, arrowHead);
+  entryArrow.visible = false;
+  scene.add(entryArrow);
+  let entryGroups = new Map<string, CutGroup[]>();
   const Z_UP = new THREE.Vector3(0, 0, 1);
   const axisVec = new THREE.Vector3();
   const axes = new THREE.AxesHelper(1);
@@ -562,6 +578,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
   const clearScene = (): void => {
     for (const p of processes) for (const o of [...p.objs, ...p.trace.map((t) => t.obj)]) { group.remove(o); o.geometry.dispose(); (o.material as LineMaterial).dispose(); }
     processes = [];
+    entryGroups = new Map();
     materials.length = 0;
   };
   const makeLines = (pos: number[], color: readonly number[], base: number): LineSegments2 => {
@@ -601,6 +618,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
         const t = makeLines(buckets.cut, color, TRACE_CUT_LINE_BASE_WIDTH);
         t.visible = false; entry.trace.push({ obj: t, seqs: buckets.cutSeq }); group.add(t);
       }
+      if (!lathe) entryGroups.set(key, cutGroups(path, r.line_axis_map));
       processes.push(entry);
       idx++;
     }
@@ -689,6 +707,18 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
       marker.position.set(mx, my, mz); marker.visible = true;
     } else marker.visible = false;
     for (const p of processes) for (const t of p.trace) t.obj.rotation.x = (cRot * Math.PI) / 180;
+    // 진입 방향 화살표
+    entryArrow.visible = false;
+    if (!lathe) {
+      const key = result.seq_to_tool_map.get(seqNow);
+      const g = key ? groupAt(entryGroups.get(key) ?? [], seqNow) : null;
+      if (g && (!keysVisible || keysVisible.has(key!))) {
+        entryArrow.position.set(g.entry[0], g.entry[1], g.entry[2]);
+        entryArrow.quaternion.setFromUnitVectors(Z_UP, axisVec.set(g.direction[0], g.direction[1], g.direction[2]));
+        entryArrow.scale.setScalar(axes.scale.x * 0.5);
+        entryArrow.visible = true;
+      }
+    }
     const ax = result.line_axis_map.get(result.seq_to_line[seqNow] ?? -1);
     if (ax && Math.hypot(ax[0], ax[1], ax[2]) > 1e-9) axisVec.set(ax[0], ax[1], ax[2]).normalize(); else axisVec.copy(Z_UP);
     marker.quaternion.setFromUnitVectors(Z_UP, axisVec);

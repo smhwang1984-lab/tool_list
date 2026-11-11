@@ -1,6 +1,6 @@
 {
   "name": "sumpath-android",
-  "version": "1.8.1",
+  "version": "1.8.2",
   "private": true,
   "description": "Sum Path (NC Tool List) Android",
   "type": "module",
@@ -11,8 +11,7 @@
     "test": "vitest run",
     "cap:sync": "cap sync android",
     "apk:debug": "npm run build && cap sync android && cd android && gradlew assembleDebug",
-    "bump": "node tools/bump_version.mjs",
-    "build:wasm": "node tools/build_wasm.mjs"
+    "bump": "node tools/bump_version.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.6.0",
@@ -30,7 +29,6 @@
     "@types/node": "^22.20.5",
     "@types/pdfmake": "^0.2.13",
     "@types/three": "^0.187.0",
-    "assemblyscript": "^0.28.20",
     "playwright-core": "^1.65.0",
     "typescript": "^5.9.3",
     "vite": "^8.3.7",

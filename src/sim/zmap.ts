@@ -1,7 +1,6 @@
 // Z-map 소재 — 원본 nc_sim.py ZMapStock (3축, 공구 축 = +Z). numpy 경로와 같은 산식·같은 순서.
 import type { Bounds } from './stock';
 import type { ToolShape } from './toolShape';
-import { allocKernel, loadLut, type Kernel } from './wasm/kernel';
 
 export const SUB_Z = 0.25;
 export const MAX_SUB = 400;
@@ -38,18 +37,9 @@ export class ZMapStock {
     this.ny = Math.max(2, Math.round((bounds.Y[1] - bounds.Y[0]) / resolution) + 1);
     this.zlo = bounds.Z[0];
     this.ztop = bounds.Z[1];
-    const n = this.nx * this.ny;
-    this.kernel = allocKernel(6 * n);
-    if (this.kernel) {
-      this.heights = new Float32Array(this.kernel.buffer, 0, n).fill(Math.fround(this.ztop));
-      this.colorIds = new Int16Array(this.kernel.buffer, 4 * n, n).fill(-1);
-    } else {
-      this.heights = new Float32Array(n).fill(Math.fround(this.ztop));
-      this.colorIds = new Int16Array(n).fill(-1);
-    }
+    this.heights = new Float32Array(this.nx * this.ny).fill(Math.fround(this.ztop));
+    this.colorIds = new Int16Array(this.nx * this.ny).fill(-1);
   }
-  /** WASM 메모리(heights·colorIds 가 그 안에 있다). 없으면 JS 로 계산 */
-  readonly kernel: Kernel | null;
 
   gridX(i: number): number { return this.x0 + i * this.resolution; }
   gridY(j: number): number { return this.y0 + j * this.resolution; }
@@ -76,19 +66,8 @@ export class ZMapStock {
     this.colorIds.set(s.c);
   }
 
-  /** 수평 선분 (ax,ay)->(bx,by) 를 팁 높이 z 로 훑는다. 깎인 칸이 있으면 true. WASM 이 있으면 WASM. */
+  /** 수평 선분 (ax,ay)->(bx,by) 를 팁 높이 z 로 훑는다. 깎인 칸이 있으면 true. */
   private stamp(
-    ax: number, ay: number, bx: number, by: number, z: number,
-    lut: Float64Array, radius: number, invStep: number, color: number, zlo32: number,
-  ): boolean {
-    const k = this.kernel;
-    if (k && loadLut(k, lut)) {
-      return k.ex.zstamp(0, 4 * this.nx * this.ny, this.nx, this.ny, this.x0, this.y0, this.resolution, ax, ay, bx, by, z, k.lutOff, lut.length, radius, invStep, color, zlo32) !== 0;
-    }
-    return this.stampJs(ax, ay, bx, by, z, lut, radius, invStep, color, zlo32);
-  }
-
-  private stampJs(
     ax: number, ay: number, bx: number, by: number, z: number,
     lut: Float64Array, radius: number, invStep: number, color: number, zlo32: number,
   ): boolean {

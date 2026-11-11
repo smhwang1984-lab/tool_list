@@ -3,7 +3,6 @@
 import type { Bounds } from './stock';
 import type { ToolShape } from './toolShape';
 import { SIM_CHUNK_SEGMENTS, type SimSegments } from './zmap';
-import { allocKernel, loadLut, type Kernel } from './wasm/kernel';
 
 export const SIM3D_TARGET_VOXELS = 3_000_000; // 원본 2천만의 모바일용(메모리·속도)
 export const SIM3D_MAX_VOXELS = 8_000_000;
@@ -14,10 +13,10 @@ export const SIM3D_SUB_AXIAL = 0.25;
 export const SIM3D_MAX_SUB = 400;
 export const UNCUT_COLOR = 255;
 
-export function autoResolution3d(bounds: Bounds, target = SIM3D_TARGET_VOXELS, minRes = SIM3D_MIN_RES): number {
+export function autoResolution3d(bounds: Bounds, target = SIM3D_TARGET_VOXELS): number {
   const l = (['X', 'Y', 'Z'] as const).map((a) => Math.max(bounds[a][1] - bounds[a][0], 1e-6));
   const res = Math.cbrt((l[0]! * l[1]! * l[2]!) / Math.max(target, 1));
-  return Math.round(Math.min(Math.max(res, minRes), SIM3D_MAX_RES) * 1000) / 1000;
+  return Math.round(Math.min(Math.max(res, SIM3D_MIN_RES), SIM3D_MAX_RES) * 1000) / 1000;
 }
 
 export function clampResolution3d(bounds: Bounds, resolution: number, maxVoxels = SIM3D_MAX_VOXELS): number {
@@ -72,18 +71,9 @@ export class VoxelStock {
     this.z0 = bounds.Z[0];
     this.zlo = bounds.Z[0];
     this.ztop = bounds.Z[1];
-    const n = this.nx * this.ny * this.nz;
-    this.kernel = allocKernel(2 * n);
-    if (this.kernel) {
-      this.occ = new Uint8Array(this.kernel.buffer, 0, n).fill(1);
-      this.col = new Uint8Array(this.kernel.buffer, n, n).fill(UNCUT_COLOR);
-    } else {
-      this.occ = new Uint8Array(n).fill(1);
-      this.col = new Uint8Array(n).fill(UNCUT_COLOR);
-    }
+    this.occ = new Uint8Array(this.nx * this.ny * this.nz).fill(1);
+    this.col = new Uint8Array(this.nx * this.ny * this.nz).fill(UNCUT_COLOR);
   }
-  /** WASM 메모리(occ·col 이 그 안에 있다). 없으면 JS 로 계산 */
-  readonly kernel: Kernel | null;
 
   cellCount(): number { return this.nx * this.ny * this.nz; }
   anyCut(): boolean { for (let i = 0; i < this.occ.length; i++) if (!this.occ[i]) return true; return false; }
@@ -99,20 +89,8 @@ export class VoxelStock {
   restore(s: { o: Uint8Array; c: Uint8Array }): void { this.occ.set(s.o); this.col.set(s.c); this.version++; }
   snapshotBytes(): number { return this.occ.length * 2; }
 
-  /** 이동 조각(A→B, 공구 축 u 고정)으로 깎는다. 깎은 복셀 수 — WASM 이 있으면 WASM, 없으면 JS */
+  /** 이동 조각(A→B, 공구 축 u 고정)으로 깎는다. 깎은 복셀 수 */
   private stamp(
-    ax: number, ay: number, az: number, bx: number, by: number, bz: number,
-    ux: number, uy: number, uz: number, lut: Float64Array, radius: number, invStep: number, length: number, color: number,
-  ): number {
-    const k = this.kernel;
-    if (k && loadLut(k, lut)) {
-      return k.ex.stamp(0, this.nx * this.ny * this.nz, this.nx, this.ny, this.nz, this.x0, this.y0, this.z0, this.step[0], this.step[1], this.step[2],
-        ax, ay, az, bx, by, bz, ux, uy, uz, k.lutOff, lut.length, radius, invStep, length, color);
-    }
-    return this.stampJs(ax, ay, az, bx, by, bz, ux, uy, uz, lut, radius, invStep, length, color);
-  }
-
-  private stampJs(
     ax: number, ay: number, az: number, bx: number, by: number, bz: number,
     ux: number, uy: number, uz: number, lut: Float64Array, radius: number, invStep: number, length: number, color: number,
   ): number {

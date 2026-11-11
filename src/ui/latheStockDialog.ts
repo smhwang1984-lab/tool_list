@@ -3,7 +3,6 @@ import { getPref, setPref } from '../platform/prefs';
 import { LatheStockSpec } from '../sim/latheStock';
 import type { SimStatus } from '../viewer/simLayer';
 import { el, showDialog, toast } from './dialog';
-import { precisionRow } from './precisionRow';
 
 export interface LatheStockDialogContext {
   /** 툴패스 (z, r) 범위. 없으면 null */
@@ -42,7 +41,6 @@ export function showLatheStockDialog(ctx: LatheStockDialogContext): void {
   const fit = el('button', { type: 'button' });
   fit.textContent = '툴패스 범위에 맞추기';
   for (const [l, c] of [['소재 지름 (mm)', dia], ['소재 길이 (mm)', len], ['앞면 Z', fz], ['내경 지름', bore]] as const) { const r = row(l, c); r.classList.add('single'); body.append(r); }
-  body.append(precisionRow());
   { const r = row('해상도(mm)', resSel); r.classList.add('single'); body.append(r); }
   body.append(row('여유(mm)', margin, fit));
   const enable = el('input', { type: 'checkbox' });

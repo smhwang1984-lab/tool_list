@@ -5,8 +5,8 @@ import type { LatheProgram } from './latheSegments';
 import type { Bounds } from './stock';
 import { autoResolution3d, UNCUT_COLOR, VoxelStock } from './voxel';
 import { buildVoxelMesh } from './voxelMesh';
-import { precisionParams } from './precision';
 
+export const TURNMILL_TARGET_VOXELS = 3_000_000;
 
 export interface TurnMillSnapshot { lathe: ReturnType<LatheStock['snapshot']>; voxel: ReturnType<VoxelStock['snapshot']>; milled: boolean }
 
@@ -14,7 +14,7 @@ export function turnmillVoxelBounds(b: LatheBounds): Bounds {
   const r = b.r[1];
   return { X: b.z, Y: [-r, r], Z: [-r, r] };
 }
-export function turnmillVoxelResolution(b: LatheBounds): number { const p = precisionParams(); return autoResolution3d(turnmillVoxelBounds(b), p.voxels, p.voxelMinRes); }
+export function turnmillVoxelResolution(b: LatheBounds): number { return autoResolution3d(turnmillVoxelBounds(b), TURNMILL_TARGET_VOXELS); }
 
 export class TurnMillStock {
   readonly lathe: LatheStock;

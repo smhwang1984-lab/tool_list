@@ -1,6 +1,6 @@
 // 가공 형상(소재) 층 — 원본 NCViewerWidget 의 sim_* 상태 (_sim_advance_to_seq / 스냅샷 / 메시 갱신)
 import * as THREE from 'three';
-import { buildSimMesh, finishMesh } from '../sim/mesh';
+import { buildSimMesh, finishMesh, SIM_DISPLAY_GRID_MAX_SAFE } from '../sim/mesh';
 import type { SimProgram } from '../sim/segments';
 import { autoResolution, type Bounds } from '../sim/stock';
 import { autoResolution3d, clampResolution3d, VoxelStock } from '../sim/voxel';
@@ -11,9 +11,9 @@ import { buildTurnMillMesh, TurnMillStock, turnmillVoxelResolution } from '../si
 import type { LatheProgram } from '../sim/latheSegments';
 import type { LatheTool } from '../sim/latheTool';
 import { writeStlBinary } from '../sim/stl';
-import { precisionParams } from '../sim/precision';
 import { toolColorForIndex } from './segments';
 
+const SNAPSHOT_MEMORY_BYTES = 200 * 1024 * 1024;
 const LIVE_MESH_INTERVAL_MS = 120;
 
 export interface SimStatus {
@@ -81,9 +81,9 @@ export function createSimLayer(parent: THREE.Object3D, onChange: () => void, onP
     const sb = stockBounds as Bounds;
     if (!('X' in sb)) return null; // 선반 소재 사양인데 밀링 프로그램: 만들지 않는다
     if (program?.engine === 'voxel') {
-      return new VoxelStock(sb, stockResolution === null ? autoResolution3d(sb, precisionParams().voxels, precisionParams().voxelMinRes) : clampResolution3d(sb, stockResolution, precisionParams().voxelMax));
+      return new VoxelStock(sb, stockResolution === null ? autoResolution3d(sb) : clampResolution3d(sb, stockResolution));
     }
-    return new ZMapStock(sb, stockResolution === null ? autoResolution(sb, precisionParams().zmapCells, false) : stockResolution);
+    return new ZMapStock(sb, stockResolution === null ? autoResolution(sb, 1_000_000, true) : stockResolution);
   };
   const engineOf = (s: AnyStock | null): string => (s instanceof TurnMillStock ? 'lathe3d' : s instanceof LatheStock ? 'lathe' : s instanceof VoxelStock ? 'voxel' : s ? 'zmap' : '');
   const stockMatches = (): boolean => !!stock && engineOf(stock) === (program?.engine ?? 'zmap');
@@ -117,15 +117,15 @@ export function createSimLayer(parent: THREE.Object3D, onChange: () => void, onP
     if (!stock || !enabled) { disposeMesh(); group.visible = false; onChange(); return; }
     let m: { positions: Float32Array; colors: Float32Array; indices: Uint32Array; edges: Float32Array };
     if (stock instanceof TurnMillStock) {
-      m = buildTurnMillMesh(stock, colorOf, live ? Math.round(precisionParams().quads / 3) : precisionParams().quads, section);
+      m = buildTurnMillMesh(stock, colorOf, live ? 50_000 : 150_000, section);
     } else if (stock instanceof LatheStock) {
-      m = buildLatheMesh(stock, colorOf, live ? Math.round(precisionParams().latheGrid * 0.6) : precisionParams().latheGrid, section);
+      m = buildLatheMesh(stock, colorOf, live ? 300 : 500, section);
     } else if (stock instanceof VoxelStock) {
-      const vm = buildVoxelMesh(stock, live ? Math.round(precisionParams().quads / 3) : precisionParams().quads, true);
+      const vm = buildVoxelMesh(stock, live ? 50_000 : 150_000, true);
       const fin = finishMesh(vm.positions, vm.cid, vm.faces, colorOf);
       m = { ...fin, edges: vm.edges };
     } else {
-      m = buildSimMesh(stock, colorOf, precisionParams().zmapGrid, true);
+      m = buildSimMesh(stock, colorOf, SIM_DISPLAY_GRID_MAX_SAFE, true);
     }
     group.visible = true;
     const geo = new THREE.BufferGeometry();
@@ -181,7 +181,7 @@ export function createSimLayer(parent: THREE.Object3D, onChange: () => void, onP
         if (cutIdx === want) break;
         const snapAt = program.snapPositions;
         const bytes = stock.cellCount() * (stock instanceof VoxelStock || stock instanceof LatheStock || stock instanceof TurnMillStock ? 2 : 6);
-        if (snapAt.includes(cutIdx) && !snapshots.has(cutIdx) && snapBytes + bytes <= precisionParams().snapshotBytes) {
+        if (snapAt.includes(cutIdx) && !snapshots.has(cutIdx) && snapBytes + bytes <= SNAPSHOT_MEMORY_BYTES) {
           snapshots.set(cutIdx, stock.snapshot());
           snapBytes += bytes;
         }
@@ -196,7 +196,7 @@ export function createSimLayer(parent: THREE.Object3D, onChange: () => void, onP
         cutIdx = end;
         dirty = true;
         const nowMs = performance.now();
-        if ((live || showProgress) && nowMs - lastMesh > (stock instanceof TurnMillStock || showProgress ? 1500 : LIVE_MESH_INTERVAL_MS)) refreshMesh();
+        if ((live || showProgress) && nowMs - lastMesh > (stock instanceof TurnMillStock ? 1500 : showProgress ? 350 : LIVE_MESH_INTERVAL_MS)) refreshMesh();
         // 화면이 멈추지 않게 30ms 마다 한 번 양보하고 진행률을 알린다
         if (cutIdx !== want && nowMs - lastYield > 30) {
           if (showProgress) onProgress(true, Math.min(1, (cutIdx - runFrom) / Math.max(1, want - runFrom)));
