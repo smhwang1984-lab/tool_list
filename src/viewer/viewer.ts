@@ -16,6 +16,8 @@ import { getPref, setPref } from '../platform/prefs';
 import { getViewerSettings, onViewerSettings } from '../platform/viewerSettings';
 import { el } from '../ui/dialog';
 import { cutGroups, groupAt, type CutGroup } from './entryArrow';
+import { buildToolGeometry } from './toolMesh';
+import { toolShapeFromValues, type ToolValues } from '../sim/toolShape';
 import { RAPID_MOVE_COLOR, sceneBounds, segmentBuckets, toolColorForIndex } from './segments';
 
 const RAPID_LINE_BASE_WIDTH = 1.5;
@@ -55,6 +57,8 @@ export interface Viewer {
   cancelPick(): boolean;
   /** 가공 형상: 절삭 선분·공구 형상(프로그램이 바뀔 때마다) */
   setSimProgram(p: SimProgram | LatheProgram | null): void;
+  /** 밀링 공구 모양을 그리기 위한 툴리스트 공구값(키: T01/T1/1) */
+  setToolValues(v: ReadonlyMap<string, ToolValues> | null): void;
   /** 소재 적용(bounds 가 null 이면 소재 제거) */
   applyStock(bounds: Bounds | LatheBounds | null, resolution: number | null, enabled: boolean): void;
   /** PG 매칭: 전체 경로를 지우고 커서가 있는 공정만 커서 위치까지 그린다 */
@@ -136,6 +140,25 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
   entryArrow.visible = false;
   scene.add(entryArrow);
   let entryGroups = new Map<string, CutGroup[]>();
+  // 공구 모양(밀링): 재생 위치에 팁을 놓고 공구 축 방향으로 몸통을 세운다. 공구 정보가 없으면 구+막대 표시를 쓴다.
+  scene.add(new THREE.AmbientLight(0xffffff, 1.0));
+  const keyLight = new THREE.DirectionalLight(0xffffff, 1.6);
+  keyLight.position.set(1, 2, 3);
+  scene.add(keyLight);
+  const toolMat = new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.95, side: THREE.DoubleSide });
+  const toolMesh = new THREE.Mesh(new THREE.BufferGeometry(), toolMat);
+  toolMesh.visible = false;
+  scene.add(toolMesh);
+  let toolValues: ReadonlyMap<string, ToolValues> | null = null;
+  const toolGeoCache = new Map<string, THREE.BufferGeometry | null>();
+  const toolGeometry = (toolNo: string): THREE.BufferGeometry | null => {
+    if (toolGeoCache.has(toolNo)) return toolGeoCache.get(toolNo)!;
+    const v = toolValues?.get(toolNo);
+    const shape = v ? toolShapeFromValues(v) : null;
+    const g = shape ? buildToolGeometry(shape) : null;
+    toolGeoCache.set(toolNo, g);
+    return g;
+  };
   const Z_UP = new THREE.Vector3(0, 0, 1);
   const axisVec = new THREE.Vector3();
   const axes = new THREE.AxesHelper(1);
@@ -715,13 +738,28 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
       if (g && (!keysVisible || keysVisible.has(key!))) {
         entryArrow.position.set(g.entry[0], g.entry[1], g.entry[2]);
         entryArrow.quaternion.setFromUnitVectors(Z_UP, axisVec.set(g.direction[0], g.direction[1], g.direction[2]));
-        entryArrow.scale.setScalar(axes.scale.x * 0.5);
+        entryArrow.scale.setScalar(axes.scale.x * 0.35);
         entryArrow.visible = true;
       }
     }
     const ax = result.line_axis_map.get(result.seq_to_line[seqNow] ?? -1);
     if (ax && Math.hypot(ax[0], ax[1], ax[2]) > 1e-9) axisVec.set(ax[0], ax[1], ax[2]).normalize(); else axisVec.copy(Z_UP);
     marker.quaternion.setFromUnitVectors(Z_UP, axisVec);
+    toolMesh.visible = false;
+    if (!lathe && marker.visible) {
+      const pk = result.seq_to_tool_map.get(seqNow);
+      const toolNo = pk ? result.process_tool_map.get(pk) : undefined;
+      const geo = toolNo ? toolGeometry(toolNo) : null;
+      if (geo && pk && (!keysVisible || keysVisible.has(pk))) {
+        const base = toolColorForIndex(processes.find((p) => p.key === pk)?.index ?? 0);
+        toolMat.color.setRGB(0.45 + 0.55 * base[0], 0.45 + 0.55 * base[1], 0.45 + 0.55 * base[2]);
+        toolMesh.geometry = geo;
+        toolMesh.position.copy(marker.position);
+        toolMesh.quaternion.copy(marker.quaternion);
+        toolMesh.visible = true;
+        marker.visible = false;
+      }
+    }
     const modal = result.seq_to_modal_state.get(seqNow);
     coordBox.textContent = modal ? `X ${modal[0]}  Y ${modal[1]}  Z ${modal[2]}${lathe ? `  C ${modal[5]}` : `  A ${modal[3]}  B ${modal[4]}  C ${modal[5]}`}` : '';
     timeText.textContent = formatElapsedOverTotal(elapsedSecondsAtSeq(result, seqNow, sortedKeys), result.total_time_sec);
@@ -830,6 +868,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
       projBar.firstElementChild?.classList.remove('on');
       return true;
     },
+    setToolValues(v) { toolValues = v; toolGeoCache.clear(); },
     setSimProgram(p) { sim.setProgram(p); if (!simLive) sim.setTarget(selectionEndSeq()); },
     applyStock(bounds, resolution, on) {
       if (bounds && 'X' in bounds) {

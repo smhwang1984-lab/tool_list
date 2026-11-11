@@ -404,6 +404,7 @@ function mount(root: HTMLElement): void {
     const res = toolpathFromText(text, mt, machinePanel.spec(mt));
     const rows = toolTable.rows();
     const names = machinePanel.isLathe() ? latheToolNameMapFromRows(rows) : toolNameMapFromRows(rows);
+    viewer.setToolValues(machinePanel.isLathe() ? null : toolShapeMapFromRows(rows));
     viewer.setProgram(res, mt);
     lastResult = res;
     if (machinePanel.isLathe()) {
