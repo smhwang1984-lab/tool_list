@@ -51,7 +51,7 @@ Last updated: 2026-11-05 (NC_Tool_List v2.3.0 — 로컬 v2.2.9(STOCK SIZE)와 G
 
 - Version: 2.4.7 → 2.4.8
 - Summary: 사용자 요청. **소재 [적용] 때 가공형상 즉시보기가 묻지 않고 바로 켜지던 문제 수정.** 이미 시뮬레이션이 켜져 있거나 이전 설정에 켜짐이 저장돼 있으면 확인창 없이 켜졌다. 이제 [적용]을 누를 때마다 "가공 시뮬레이션을 하시겠습니까?"를 묻고, [예]면 가공형상 즉시보기 실행, [아니오]면 소재만 적용(시뮬레이션 꺼짐). 밀링/선반 소재 창 공통.
-- Installer/package status: **생성 완료**. `installerNC_Tool_List_Setup_v2.4.8.exe`. dist exe 기동 8초 뒤 실행 중.
+- Installer/package status: **생성 완료**. `installer\NC_Tool_List_Setup_v2.4.8.exe`. dist exe 기동 8초 뒤 실행 중.
   - Setup EXE SHA-256: 252799AFBF500D509AF82D1858DCC21E8E47BC5A4D559A74C5D1B6F2AE90F644
 - Verification: pytest 860 통과 / 1 실패(이번 변경과 무관한 기존 건: 선반↔밀링 장비 타입 복귀 테스트).
 
