@@ -138,3 +138,46 @@ def test_live_shape_no_warning_before_cursor_reaches_cut(viewer):
     viewer.sim_last_seq = -1                  # 커서가 아직 첫 이동 앞
     assert viewer.sim_live_active()
     assert viewer.sim_diagnosis() == ''
+
+
+@needs_viewer
+def test_quality_fast_default_is_coarser_than_precise(viewer):
+    assert viewer.sim_quality == 'fast'
+    viewer.apply_stock_spec(_spec(), None, False)
+    fast_cells = viewer.sim_stock.nx * viewer.sim_stock.ny
+    assert viewer._sim_display_grid_max() == nc_sim.SIM_DISPLAY_GRID_MAX_SAFE
+    viewer.set_sim_quality('precise')
+    viewer.apply_stock_spec(_spec(), None, False)
+    precise_cells = viewer.sim_stock.nx * viewer.sim_stock.ny
+    assert viewer._sim_display_grid_max() == nc_sim.SIM_DISPLAY_GRID_MAX
+    assert precise_cells > fast_cells * 2
+    viewer.set_sim_quality('fast')
+
+
+@needs_viewer
+def test_stock_dialog_has_quality_combo(viewer, monkeypatch):
+    from nc_viewer_widget import StockDialog
+    monkeypatch.setattr(StockDialog, '_decide_run_simulation', lambda self: False)
+    dialog = StockDialog(viewer)
+    assert dialog.quality_combo.currentData() == 'fast'
+    dialog.quality_combo.setCurrentIndex(dialog.quality_combo.findData('precise'))
+    dialog._apply()
+    assert viewer.sim_quality == 'precise'
+    viewer.set_sim_quality('fast')
+
+
+@needs_viewer
+def test_entry_arrow_shown_even_without_tool_shape_and_not_depth_tested(viewer):
+    from tests.test_v233_live_reload import SIM_PROGRAM, NAMES
+    from OpenGL import GL
+    viewer.set_source_text(SIM_PROGRAM + '  ', NAMES, {})          # 공구 정보 없음
+    viewer.pg_match_mode = True
+    assert viewer.tool_marker_items                                 # 화살표용 마커는 있다
+    mesh, arrow = next(iter(viewer.tool_marker_items.values()))
+    assert arrow._GLGraphicsItem__glOpts[GL.GL_DEPTH_TEST] is False       # 소재에 가려지지 않는다
+    seq = max(s for s in viewer.seq_to_tool_map)
+    for s in sorted(viewer.seq_to_tool_map):
+        viewer.set_cursor_seq(s)
+        if arrow.visible():
+            break
+    assert arrow.visible()

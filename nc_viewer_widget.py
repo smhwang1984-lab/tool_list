@@ -2044,6 +2044,15 @@ class StockDialog(QDialog):
         self.resolution_combo = QComboBox()
         self.resolution_combo.addItems(self._RESOLUTION_ITEMS)
         res_bar.addWidget(self.resolution_combo)
+        res_bar.addSpacing(12)
+        res_bar.addWidget(QLabel('품질'))
+        self.quality_combo = QComboBox()
+        for value, label in NCViewerWidget.SIM_QUALITY_ITEMS:
+            self.quality_combo.addItem(label, value)
+        self.quality_combo.setCurrentIndex(max(0, self.quality_combo.findData(self.viewer.sim_quality)))
+        self.quality_combo.setToolTip('빠름: 소재 격자를 거칠게 잡아 빠르게 계산합니다(안드로이드와 비슷).\n'
+                                      '정밀: 격자를 4배 촘촘히 잡아 표면이 곱지만 느립니다. [적용] 때 반영됩니다.')
+        res_bar.addWidget(self.quality_combo)
         res_bar.addStretch()
         layout.addLayout(res_bar)
 
@@ -2278,6 +2287,7 @@ class StockDialog(QDialog):
         except ValueError as exc:
             QMessageBox.warning(self, '소재 설정', str(exc))
             return
+        self.viewer.set_sim_quality(self.quality_combo.currentData())
         enabled = self._decide_run_simulation()
         self.enable_check.setChecked(enabled)
         self.viewer.apply_stock_spec(spec, self._resolution_value(), enabled)
@@ -2476,6 +2486,15 @@ class LatheStockDialog(QDialog):
         self.resolution_combo = QComboBox()
         self.resolution_combo.addItems(self._RESOLUTION_ITEMS)
         res_bar.addWidget(self.resolution_combo)
+        res_bar.addSpacing(12)
+        res_bar.addWidget(QLabel('품질'))
+        self.quality_combo = QComboBox()
+        for value, label in NCViewerWidget.SIM_QUALITY_ITEMS:
+            self.quality_combo.addItem(label, value)
+        self.quality_combo.setCurrentIndex(max(0, self.quality_combo.findData(self.viewer.sim_quality)))
+        self.quality_combo.setToolTip('빠름: 소재 격자를 거칠게 잡아 빠르게 계산합니다(안드로이드와 비슷).\n'
+                                      '정밀: 격자를 4배 촘촘히 잡아 표면이 곱지만 느립니다. [적용] 때 반영됩니다.')
+        res_bar.addWidget(self.quality_combo)
         res_bar.addStretch()
         layout.addLayout(res_bar)
 
@@ -2577,6 +2596,7 @@ class LatheStockDialog(QDialog):
         if spec.bore >= spec.diameter and spec.bore > 0:
             QMessageBox.warning(self, '소재 설정', '내경은 소재 지름보다 작아야 합니다.')
             return
+        self.viewer.set_sim_quality(self.quality_combo.currentData())
         enabled = self._decide_run_simulation()
         self.enable_check.setChecked(enabled)
         self.viewer.apply_stock_spec(spec, self._resolution_value(), enabled)
@@ -3555,7 +3575,15 @@ class NCViewerWidget(QWidget):
     # 색상 모드 이름 -> nc_sim.display_mesh(mode=...)
     SIM_COLOR_MODES = (('tool', '공정 색'), ('depth', '깎인 깊이'), ('solid', '단색'))
 
+    SIM_QUALITY_ITEMS = (('fast', '빠름 (권장 · 안드로이드와 비슷)'), ('precise', '정밀 (느림)'))
+    SIM3D_FAST_TARGET_VOXELS = 3_000_000
+
     def _init_sim_state(self):
+        try:
+            q = str(self.settings.value('sim_quality', 'fast'))
+        except Exception:  # noqa: BLE001
+            q = 'fast'
+        self.sim_quality = q if q in ('fast', 'precise') else 'fast'
         self.sim_enabled = False
         self._toolpath_visible = True
         self.sim_stock_spec = None
@@ -3804,8 +3832,21 @@ class NCViewerWidget(QWidget):
             parts.append('공구 번호(T) 없는 이동 %d개 제외' % self._sim_no_tool_moves)
         self.sim_status_text = ' / '.join(parts)
 
+    def _sim_light(self):
+        """v2.5.1: 가볍게 계산할지 — 그래픽 안전 모드이거나 품질이 '빠름'(기본)이면 True."""
+        return bool(getattr(self, 'safe_mode', False) or self.sim_quality == 'fast')
+
+    def set_sim_quality(self, quality):
+        if quality not in ('fast', 'precise'):
+            return
+        self.sim_quality = quality
+        try:
+            self.settings.setValue('sim_quality', quality)
+        except Exception:  # noqa: BLE001
+            pass
+
     def _sim_display_grid_max(self):
-        if getattr(self, 'safe_mode', False):
+        if self._sim_light():
             return nc_sim.SIM_DISPLAY_GRID_MAX_SAFE
         return nc_sim.SIM_DISPLAY_GRID_MAX
 
@@ -3818,12 +3859,14 @@ class NCViewerWidget(QWidget):
         self._sim_cancel_job()
         self.sim_stock_spec = spec
         bounds = spec.bounds()
-        safe = bool(getattr(self, 'safe_mode', False))
+        safe = self._sim_light()
         if self.sim_engine == '3d':
             # 경사면/5축 이동이 있는 프로그램 — 3D 복셀 소재. numba가 없으면(배포 exe)
             # 계산이 수십 배 느리므로 자동 해상도를 거칠게 잡는다.
             target = nc_sim3d.SIM3D_TARGET_VOXELS
-            if not nc_sim.numba_available() or safe:
+            if safe:
+                target = min(target, self.SIM3D_FAST_TARGET_VOXELS)
+            if not nc_sim.numba_available():
                 target //= 8
             if resolution in (None, 'auto'):
                 resolution = nc_sim3d.auto_resolution_3d(bounds, target)
@@ -4287,7 +4330,7 @@ class NCViewerWidget(QWidget):
         self._sim_cancel_job()
         self.sim_stock_spec = spec
         bounds = spec.bounds()
-        safe = bool(getattr(self, 'safe_mode', False))
+        safe = self._sim_light()
         if resolution in (None, 'auto'):
             resolution = nc_lathe_sim.auto_resolution(bounds, safe_mode=safe)
         self.sim_resolution = float(resolution)
@@ -6420,6 +6463,14 @@ class NCViewerWidget(QWidget):
                 self.create_segment_item(tool, pts_list, motion_type, base_color)
         self._build_tool_markers()
 
+    # v2.5.1: 진입 방향 화살표는 소재(가공 형상) 안·표면에 묻혀도 보이도록 깊이 검사를 끈다.
+    _ARROW_GL_OPTIONS = {
+        GL.GL_DEPTH_TEST: False,
+        GL.GL_BLEND: True,
+        GL.GL_ALPHA_TEST: False,
+        'glBlendFunc': (GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA),
+    }
+
     def _build_tool_markers(self):
         """v2.4.3: 공정마다 공구 모양 메시(원점·+Z 기준)와 진입 방향 화살표 아이템을 만들어 숨겨 둔다.
         공구 모양은 PG 매칭 재생 중에만 현재 위치에 보인다(_refresh_tool_marker)."""
@@ -6441,7 +6492,8 @@ class NCViewerWidget(QWidget):
                 color=(color[0], color[1], color[2], 0.95), shader=None, glOptions='translucent')
             arrow = gl.GLLinePlotItem(
                 pos=np.zeros((2, 3), dtype=np.float32), color=(1.0, 0.85, 0.1, 1.0),
-                width=3.0, antialias=True, mode='lines')
+                width=3.0, antialias=True, mode='lines', glOptions=dict(self._ARROW_GL_OPTIONS))
+            arrow.setDepthValue(20)         # 소재 메쉬 위에 늦게 그린다
             for item in (mesh, arrow):
                 item.setVisible(False)
                 self.gl_view.addItem(item)

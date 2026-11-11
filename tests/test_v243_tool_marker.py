@@ -56,8 +56,10 @@ def test_marker_none_without_tool_or_cut():
     path = _path([(0, 0, 50), (10, 0, 5)], ['G00', 'G00'])
     assert tm.marker_for_process(path, {'type': 'FLAT', 'D': 10}) is None
     cut = _path([(0, 0, 5), (10, 0, 5)], ['G00', 'G01'])
-    assert tm.marker_for_process(cut, None) is None
-    assert tm.marker_for_process(cut, {'type': 'FLAT'}) is None
+    # v2.5.1: 공구 정보가 없어도 화살표용 마커는 만든다(공구 모양만 비어 있다)
+    for values in (None, {'type': 'FLAT'}):
+        data = tm.marker_for_process(cut, values)
+        assert data is not None and data['has_shape'] is False and data['groups']
 
 
 def test_drill_tip_is_cone():

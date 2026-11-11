@@ -171,16 +171,19 @@ def marker_for_process(path_data, values, axis_of_line=None):
     공구 모양은 재생(PG 매칭) 때만 보이므로, 메시는 원점·+Z 기준으로 한 번만 만들고
     재생 위치마다 placement_matrix로 옮긴다.
     반환 dict(verts, faces, groups) 또는 None(공구 정보/절삭 이동 없음)."""
-    if not values:
-        return None
-    shape = nc_sim.tool_shape_from_values(
-        values.get('type'), values.get('D'), fl=values.get('FL'), r=values.get('R'),
-        sig=values.get('SIG'), pl=values.get('PL'), so=values.get('SO'))
-    if shape is None:
-        return None
+    shape = None
+    if values:
+        shape = nc_sim.tool_shape_from_values(
+            values.get('type'), values.get('D'), fl=values.get('FL'), r=values.get('R'),
+            sig=values.get('SIG'), pl=values.get('PL'), so=values.get('SO'))
     groups = cut_groups(path_data, axis_of_line)
     if not groups:
         return None
+    if shape is None:
+        # v2.5.1: 공구 정보가 없어도 진입 방향 화살표는 보여야 한다 — 눈에 안 보이는 빈 메시를 쓴다.
+        verts = np.zeros((3, 3), dtype=np.float32)
+        faces = np.array([[0, 1, 2]], dtype=np.int32)
+        return {'verts': verts, 'faces': faces, 'groups': groups, 'has_shape': False}
     body = max(shape.cut_length, shape.radius * 2.0)
     verts, faces = build_tool_mesh(shape, (0.0, 0.0, 0.0), (0.0, 0.0, 1.0), body)
-    return {'verts': verts, 'faces': faces, 'groups': groups}
+    return {'verts': verts, 'faces': faces, 'groups': groups, 'has_shape': True}
