@@ -17,7 +17,7 @@ const seg = (p0: number[], p1: number[], rapid = false): SimSegments => ({
 
 describe('선반 소재', () => {
   it('외경 인서트 단면은 반시계 볼록 다각형이고 원점은 노즈 끝', () => {
-    const t = latheToolFromGeometry(geo({}));
+    const t = latheToolFromGeometry(geo({})) as { poly: Float64Array };
     expect(t.poly.length).toBeGreaterThanOrEqual(8);
     let area = 0;
     const n = t.poly.length / 2;
@@ -25,7 +25,7 @@ describe('선반 소재', () => {
     expect(area).toBeGreaterThan(0);
   });
   it('홈 공구 / 폭 없음 오류', () => {
-    expect(latheToolFromGeometry(geo({ kind: '외경홈', width: 3, nose_r: 0.2 })).poly.length).toBeGreaterThan(6);
+    expect(latheToolFromGeometry(geo({ kind: "외경홈", width: 3, nose_r: 0.2 })).poly!.length).toBeGreaterThan(6);
     expect(() => latheToolFromGeometry(geo({ kind: '외경홈', width: null }))).toThrow();
     expect(() => latheToolFromGeometry(geo({ kind: '비절삭' }))).toThrow();
   });

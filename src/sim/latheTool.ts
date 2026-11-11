@@ -1,14 +1,20 @@
 // 선반 공구 단면 다각형 — 원본 nc_lathe_sim.py (insert_polygon / groove_polygon / thread_polygon / center_tool_polygon)
 import type { ToolGeometry } from '../core/latheInsertSpec';
-import { toolShapeFromValues } from './toolShape';
+import { toolShapeFromValues, type ToolShape } from './toolShape';
 
 export class ToolShapeError extends Error {}
 
 /** 단면 다각형: 반시계 볼록, 좌표 [z, r] 쌍의 평탄 배열. 프로그램 좌표점이 원점 */
 export interface LatheTool {
-  poly: Float64Array; // [z0, r0, z1, r1, ...]
+  /** 선삭(축대칭) 단면. 페이스커터처럼 선삭에 못 쓰는 공구는 null */
+  poly: Float64Array | null; // [z0, r0, z1, r1, ...]
+  /** 턴밀(3D)용 공구 형상 — 드릴·엔드밀·페이스커터만 */
+  millShape: ToolShape | null;
   kind: string;
   name: string;
+  /** 나사 공구의 날끝 각도(도) */
+  threadAngle: number | null;
+  internal: boolean;
 }
 
 type Pt = [number, number];
@@ -143,13 +149,17 @@ function threadPolygon(g: ToolGeometry): Pt[] {
   return applyFlips([[0, 0], [half, height], [-half, height]], 1, g.kind === '내경나사' ? -1 : 1);
 }
 
-function centerPolygon(g: ToolGeometry): Pt[] {
+function millToolShape(g: ToolGeometry): ToolShape {
   if (!g.diameter || !g.mill_type) throw new ToolShapeError('공구 지름(D) 또는 종류를 모름 — 툴리스트 D·종류 칸을 확인하세요');
   const so = g.so || UNLIMITED_LENGTH;
   let shape;
   if (g.mill_type === 'CHAMF') shape = toolShapeFromValues({ type: 'DRILL', D: g.diameter, FL: null, R: null, SIG: g.chamfer_angle || 90, PL: null, SO: so });
   else shape = toolShapeFromValues({ type: g.mill_type, D: g.diameter, FL: null, R: g.nose_r, SIG: null, PL: null, SO: so });
   if (!shape) throw new ToolShapeError('공구 형상을 만들 수 없음');
+  return shape;
+}
+
+function centerPolygon(shape: ToolShape): Pt[] {
   const { lut, invStep } = shape.radialLut(0.05);
   const pts: Pt[] = linspace(0, shape.radius, 25).map((r): Pt => [lut[Math.min(Math.round(r * invStep), lut.length - 1)] ?? 0, r]);
   pts.push([shape.cutLength, shape.radius], [shape.cutLength, 0]);
@@ -159,15 +169,20 @@ function centerPolygon(g: ToolGeometry): Pt[] {
 /** 툴리스트 형상 한 항목 → 선반 공구. 선삭·홈·나사·중심 드릴/엔드밀을 지원한다(페이스커터·턴밀 3D 는 제외). */
 export function latheToolFromGeometry(g: ToolGeometry, name = ''): LatheTool {
   const kind = g.kind || '';
-  let poly: Pt[];
+  let poly: Pt[] | null;
+  let millShape: ToolShape | null = null;
   if (kind === '외경' || kind === '내경') poly = insertPolygon(g);
   else if (['외경홈', '내경홈', '정면홈', '절단'].includes(kind)) poly = groovePolygon(g);
   else if (kind === '외경나사' || kind === '내경나사') poly = threadPolygon(g);
-  else if (kind === '드릴' || kind === '엔드밀') poly = centerPolygon(g);
-  else if (kind === '페이스커터') throw new ToolShapeError('페이스커터는 턴밀(3D)에서만 지원');
+  else if (kind === '드릴' || kind === '엔드밀') { millShape = millToolShape(g); poly = centerPolygon(millShape); }
+  else if (kind === '페이스커터') { millShape = millToolShape(g); poly = null; }
   else if (kind === '비절삭') throw new ToolShapeError('비절삭 공구');
   else throw new ToolShapeError('공구 종류를 모름 — 툴리스트 종류 칸을 확인하세요');
-  const flat = new Float64Array(poly.length * 2);
-  poly.forEach(([z, r], i) => { flat[i * 2] = z; flat[i * 2 + 1] = r; });
-  return { poly: flat, kind, name };
+  let flat: Float64Array | null = null;
+  if (poly) {
+    flat = new Float64Array(poly.length * 2);
+    poly.forEach(([z, r], i) => { flat![i * 2] = z; flat![i * 2 + 1] = r; });
+  }
+  const isThread = kind === '외경나사' || kind === '내경나사';
+  return { poly: flat, millShape, kind, name, threadAngle: isThread ? g.thread_angle || null : null, internal: kind === '내경나사' };
 }

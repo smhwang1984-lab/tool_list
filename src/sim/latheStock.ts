@@ -56,7 +56,7 @@ export class LatheStock {
   get ny(): number { return this.nr; }
   cellCount(): number { return this.nz * this.nr; }
   anyCut(): boolean { for (let i = 0; i < this.occ.length; i++) if (this.occ[i] !== this.occ0[i]) return true; return false; }
-  reset(): void { this.occ = this.occ0.slice(); this.col.fill(UNCUT); this.rapidWarnings = []; }
+  reset(): void { this.occ = this.occ0.slice(); this.col.fill(UNCUT); this.rapidWarnings = []; this.threadCutCount = 0; }
   snapshot(): LatheSnapshot { return { occ: this.occ.slice(), col: this.col.slice() }; }
   restore(s: LatheSnapshot): void { this.occ = s.occ.slice(); this.col = s.col.slice(); }
 
@@ -104,17 +104,49 @@ export class LatheStock {
   private scratchLo = new Float64Array(0);
   private scratchHi = new Float64Array(0);
 
-  cutRange(seg: SimSegments, tools: (LatheTool | null)[], from: number, to: number): void {
+  threadCutCount = 0;
+
+  /** G76 나사 — z 구간에 피치 간격으로 V홈 고리를 판다(원본 _cut_thread). rEnd = 나사 골(외경)/큰 지름(내경) */
+  private cutThread(zA: number, zB: number, rEnd: number, tool: LatheTool, pitch: number, height: number, color: number): void {
+    const half = ((tool.threadAngle || 60) * Math.PI) / 360;
+    const depth = height > 0 ? height : pitch * 0.6134;
+    const flat = pitch / 8;
+    const sign = zA >= zB ? 1 : -1;
+    const count = Math.floor(Math.abs(zA - zB) / pitch + 1e-9) + 1;
+    const tanHalf = Math.tan(half);
+    const reach = depth * 2.0;
+    const wmax = flat / 2 + reach * tanHalf;
+    const rEndA = Math.abs(rEnd);
+    const { nz, nr, z0, dz, dr } = this;
+    for (let k = 0; k < count; k++) {
+      const zk = zB + sign * pitch * k;
+      const iz0 = Math.max(Math.ceil((zk - wmax - z0) / dz - 0.5), 0);
+      const iz1 = Math.min(Math.floor((zk + wmax - z0) / dz - 0.5), nz - 1);
+      for (let iz = iz0; iz <= iz1; iz++) {
+        const zc = z0 + (iz + 0.5) * dz;
+        const climb = Math.max(Math.abs(zc - zk) - flat / 2, 0) / tanHalf;
+        for (let ir = 0; ir < nr; ir++) {
+          const row = (ir + 0.5) * dr;
+          const inside = tool.internal ? row <= rEndA - climb && row >= rEndA - reach : row >= rEndA + climb && row <= rEndA + reach;
+          if (inside && this.occ[iz * nr + ir] === 1) { this.occ[iz * nr + ir] = 0; this.col[iz * nr + ir] = color; }
+        }
+      }
+    }
+    this.threadCutCount++;
+  }
+
+  cutRange(seg: SimSegments, tools: (LatheTool | null)[], from: number, to: number, thread?: { pitch: Float64Array; height: Float64Array }): void {
     if (this.scratchLo.length < this.nz + 2) { this.scratchLo = new Float64Array(this.nz + 2); this.scratchHi = new Float64Array(this.nz + 2); }
     const minHit = Math.max(1, Math.ceil(RAPID_HIT_MIN_AREA / (this.dz * this.dr)));
     for (let m = from; m < to; m++) {
       const tool = tools[seg.slot[m]!];
-      if (!tool) continue;
+      if (!tool || !tool.poly) continue;
       const a0 = m * 3;
       const y0 = seg.p0[a0 + 1]!, y1 = seg.p1[a0 + 1]!;
       const r0 = Math.abs(y0) < 1e-9 ? seg.p0[a0 + 2]! : Math.hypot(y0, seg.p0[a0 + 2]!);
       const r1 = Math.abs(y1) < 1e-9 ? seg.p1[a0 + 2]! : Math.hypot(y1, seg.p1[a0 + 2]!);
       const z0 = seg.p0[a0]!, z1 = seg.p1[a0]!;
+      if (thread && thread.pitch[m]! > 0) { this.cutThread(z0, z1, r1, tool, thread.pitch[m]!, thread.height[m]!, Math.min(Math.max(seg.color[m]!, 0), UNCUT - 1)); continue; }
       const pts: [number, number][] = [];
       const poly = tool.poly;
       // 날 길이가 무제한(1000mm)인 드릴 등은 소재 길이 + 20mm 로 잘라 계산량을 줄인다(그 너머는 소재와 만나지 않는다)

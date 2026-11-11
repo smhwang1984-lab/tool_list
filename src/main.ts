@@ -437,6 +437,7 @@ function mount(root: HTMLElement): void {
           status: () => viewer!.simStatus(),
           setToolpathVisible: (on) => viewer?.setToolpathVisible(on),
           excludedWhy: () => lastLatheProgram?.excludedWhy ?? {},
+          info: () => lastLatheProgram,
         });
         return;
       }

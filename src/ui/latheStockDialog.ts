@@ -12,6 +12,8 @@ export interface LatheStockDialogContext {
   status: () => SimStatus;
   setToolpathVisible: (on: boolean) => void;
   excludedWhy: () => Record<string, string>;
+  /** 프로그램 진단(턴밀·나사·사용 불가 공구) */
+  info: () => { turnmillMoves: number; turnmillSkipped: number; axisCorrected: number; threadMoves: number; unusable: Record<string, [string, number]> } | null;
 }
 
 const KEY = 'sim_lathe_stock_v1';
@@ -51,7 +53,7 @@ export function showLatheStockDialog(ctx: LatheStockDialogContext): void {
   const lineLabel = el('label', { class: 'stock-enable' });
   lineLabel.append(lineCheck, document.createTextNode(' 툴패스 선 표시 (끄면 가공 형상이 잘 보입니다)'));
   const note = el('div', { class: 'stock-note' });
-  note.textContent = '소재는 앞면 Z 에서 -Z 쪽으로 길이만큼, 중심축은 X0 입니다. 선삭·홈·중심 드릴/엔드밀을 깎고 나사(G76)·턴밀 3D 는 아직 깎지 않습니다. 형상은 3/4 단면으로 보입니다.';
+  note.textContent = '소재는 앞면 Z 에서 -Z 쪽으로 길이만큼, 중심축은 X0 입니다. 선삭·홈·나사(G76, 피치 간격 V홈)·중심 드릴/엔드밀을 깎고, 턴밀(M35) 이동은 3D 복셀로 깎습니다. 형상은 3/4 단면으로 보입니다.';
   const statusLabel = el('div', { class: 'stock-status' });
   body.append(enableLabel, lineLabel, note, statusLabel);
 
@@ -59,6 +61,18 @@ export function showLatheStockDialog(ctx: LatheStockDialogContext): void {
     const st = ctx.status();
     const parts: string[] = [];
     if (st.hasStock) parts.push(`선반 격자 ${st.nx}×${st.ny} (${(st.cells / 1000).toFixed(0)}천 칸, ${st.resolution}mm) · 깎은 선분 ${st.cutSegments}/${st.totalSegments}${st.busy ? ' · 계산 중…' : ''}`);
+    if (st.engine === 'lathe3d') parts.push('턴밀(M35)이 있어 3D 복셀로 계산합니다(선삭 세부는 복셀 크기로 표시됩니다).');
+    const inf = ctx.info();
+    if (inf) {
+      if (inf.turnmillMoves) {
+        const done = inf.turnmillMoves - inf.turnmillSkipped;
+        parts.push(done > 0 ? `턴밀(M35) 이동 ${done}개를 3D 복셀로 계산` : `턴밀(M35) 이동 ${inf.turnmillMoves}개 — 계산할 수 있는 턴밀 공구가 없음`);
+        if (inf.turnmillSkipped && done > 0) parts.push(`공구 형상이 없어 제외된 턴밀 이동 ${inf.turnmillSkipped}개`);
+        if (inf.axisCorrected) parts.push(`진입 방향이 평면과 어긋나 평면 기준으로 공구 축을 정한 가공 ${inf.axisCorrected}곳`);
+      }
+      for (const k of Object.keys(inf.unusable)) parts.push(`${k}: ${inf.unusable[k]![0]}(이동 ${inf.unusable[k]![1]}개)`);
+      if (inf.threadMoves) parts.push(`G76 나사 ${inf.threadMoves}구간 — 피치 간격 V홈으로 근사(나선은 표시 안 함)`);
+    }
     const why = ctx.excludedWhy();
     for (const k of Object.keys(why)) parts.push(`공구 ${k} 제외: ${why[k]}`);
     if (st.noToolMoves) parts.push(`공구 번호가 없는 공정 이동 ${st.noToolMoves}개는 깎지 않습니다.`);
