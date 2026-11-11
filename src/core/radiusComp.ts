@@ -2,10 +2,16 @@
 // 밀링/선반 REMARK 조립에 같이 쓴다. M98 P<n>로 부르는 서브프로그램 안의 G41/G42도 호출한 N에 포함한다.
 import { codeWithoutComments } from './text';
 import { RE_I, pyInt, pyRe, reFinditer, reMatch, reSearch } from './py';
+import { M6_RE } from './patterns';
 
 export const RADIUS_COMP_RE = pyRe(String.raw`G0*4([12])(?![\d.])`, RE_I);
 /** 화면/PDF에서 굵게 그릴 "(G41)" "(G41/G42)" 부분 */
-export const RADIUS_COMP_DISPLAY_RE = pyRe(String.raw`\(G4[12](?:/G4[12])*\)`);
+export const RADIUS_COMP_DISPLAY_RE = pyRe(String.raw`\(G4[12](?:/G4[12])*\)|\(M[23]00(?:H\d+(?:≠H\d+)?)?\)`);
+/** v2.3.7: M300/M200(H번호) 표기 "(M300H1)" — 공정의 G43 H(없으면 M6 T)와 다르면 "(M300H2≠H1)" 로 적고 빨간 글씨로 그린다 */
+const M_PROBE_RE = pyRe(String.raw`(?<![A-Z])M0*([23]00)(?![\d.])\s*(?:H\s*0*(\d+)(?![\d.]))?`, RE_I);
+export const RADIUS_COMP_MISMATCH_RE = pyRe(String.raw`\(M[23]00H\d+≠H\d+\)`);
+const G43_RE = pyRe(String.raw`(?<![A-Z])G43(?:\.[0-9])?(?![0-9])`, RE_I);
+const H_WORD_RE = pyRe(String.raw`(?<![A-Z])H\s*(\d+)(?![\d.])`, RE_I);
 const SUBPROGRAM_O_HEADER_RE = pyRe(String.raw`^\s*O\s*0*(\d+)\b`, RE_I);
 const SUBPROGRAM_CALL_RE = pyRe(String.raw`M98\s*P\s*0*(\d+)`, RE_I);
 const SUBPROGRAM_RETURN_RE = pyRe(String.raw`M0?99\b`, RE_I);
@@ -62,6 +68,27 @@ export function formatCompSuffix(codes: readonly string[]): string {
   return '(' + ordered.join('/') + ')';
 }
 
+/** 공정(N 블록) 안 M300/M200 → "(M300H1)(M200)" 표기. H가 있고 같은 공정의 G43 H(없으면 M6 T 번호)와 다르면 "(M300H2≠H1)" */
+export function probeSuffix(blockLines: readonly string[]): string {
+  let g43Ref: number | null = null, tRef: number | null = null;
+  const found: [string, number | null][] = [];
+  for (const line of blockLines) {
+    const code = codeWithoutComments(line);
+    const hm = reSearch(G43_RE, code) ? reSearch(H_WORD_RE, code) : null;
+    if (hm && g43Ref === null) g43Ref = pyInt(hm[1]!);
+    const tm = reMatch(M6_RE, line);
+    if (tm && tRef === null) tRef = pyInt(tm[1]!);
+    for (const m of reFinditer(M_PROBE_RE, code)) found.push([m[1]!, m[2] ? pyInt(m[2]) : null]);
+  }
+  const ref = g43Ref !== null ? g43Ref : tRef;
+  const out: string[] = [];
+  for (const [codeNo, h] of found) {
+    const text = h === null ? `(M${codeNo})` : ref !== null && h !== ref ? `(M${codeNo}H${h}≠H${ref})` : `(M${codeNo}H${h})`;
+    if (!out.includes(text)) out.push(text);
+  }
+  return out.join('');
+}
+
 /** N번호(예 "N8") → 경보정 표시 문구. 블록은 nRe가 맞는 줄부터 다음 맞는 줄 전까지. */
 export function radiusCompByN(lines: readonly string[], nRe: RegExp): Record<string, string> {
   const bodies = subprogramBodies(lines);
@@ -73,7 +100,7 @@ export function radiusCompByN(lines: readonly string[], nRe: RegExp): Record<str
   const result: Record<string, string> = {};
   positions.forEach(([start, label], index) => {
     const end = index + 1 < positions.length ? positions[index + 1]![0] : lines.length;
-    result[label] = formatCompSuffix(radiusCompCodesForBlock(lines.slice(start + 1, end), bodies, lines, new Set()));
+    result[label] = formatCompSuffix(radiusCompCodesForBlock(lines.slice(start + 1, end), bodies, lines, new Set())) + probeSuffix(lines.slice(start + 1, end));
   });
   return result;
 }

@@ -147,7 +147,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
   const keyLight = new THREE.DirectionalLight(0xffffff, 1.6);
   keyLight.position.set(1, 2, 3);
   scene.add(keyLight);
-  const toolMat = new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.92, depthTest: false, side: THREE.DoubleSide });
+  const toolMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95, depthTest: false, side: THREE.DoubleSide }); // 음영 없이 평평하게(원본 v2.4.7)
   const toolMesh = new THREE.Mesh(new THREE.BufferGeometry(), toolMat);
   toolMesh.visible = false;
   toolMesh.renderOrder = 12; // 소재 형상 안에 들어가도 보이게 깊이 검사를 끄고 맨 위에 그린다
@@ -278,7 +278,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     pick.addEventListener('click', () => { pickMode = !pickMode; pick.classList.toggle('on', pickMode); });
     for (const name of names) {
       const b = mkBtn(projBar, name === 'LATHE' ? '선반' : name, `${name} 보기`);
-      b.addEventListener('click', () => { pickMode = false; projBar.firstElementChild?.classList.remove('on'); setProjection(name); });
+      b.addEventListener('click', () => { setProjection(name); }); // v2.4.2: 뷰를 바꿔도 위치 찍기는 유지
       projButtons.push(b);
     }
     projBar.append(instantBtn, sectionBtn);
@@ -756,7 +756,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
       const geo = toolNo ? toolGeometry(toolNo) : null;
       if (geo && pk && (!keysVisible || keysVisible.has(pk))) {
         const base = toolColorForIndex(processes.find((p) => p.key === pk)?.index ?? 0);
-        toolMat.color.setRGB(0.45 + 0.55 * base[0], 0.45 + 0.55 * base[1], 0.45 + 0.55 * base[2]);
+        toolMat.color.setRGB(0.6 + 0.4 * base[0], 0.6 + 0.4 * base[1], 0.6 + 0.4 * base[2]);
         toolMesh.geometry = geo;
         // 전체가 한눈에 보이는 배율에서도 보이도록, 너무 작은 공구는 구 표시(markerBase) 기준 최소 지름까지만 키운다
         const minDia = markerBase * 1.5 * (getViewerSettings().lineWidthPct / 90);

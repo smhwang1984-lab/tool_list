@@ -23,8 +23,11 @@ export interface FilterPanel {
   pgMatch(): boolean;
   /** 공정 목록 채우기 (keepSelection 이면 이전 선택 유지, 아니면 전부 선택) */
   setItems(items: readonly FilterItem[], keepSelection?: boolean): void;
+  itemCount(): number;
   selectedKeys(): string[];
   onSelectionChange: (keys: string[]) => void;
+  /** 항목을 켰을 때(탭) — 그 공정의 첫 줄로 이동 */
+  onActivate: (key: string) => void;
   onReset: () => void;
   onPgMatch: (on: boolean) => void;
   /** 실시간 형상 체크가 바뀜 */
@@ -107,8 +110,10 @@ export function createFilterPanel(): FilterPanel {
     pgMatch: () => pgCheck.checked,
     stopMenu: stopBar,
     stockButton: btnStock,
+    itemCount: () => items.length,
     selectedKeys: () => items.filter((i) => selected.has(i.key)).map((i) => i.key),
     onSelectionChange: () => {},
+    onActivate: () => {},
     onReset: () => {},
     onPgMatch: () => {},
     onLive: () => {},
@@ -118,6 +123,7 @@ export function createFilterPanel(): FilterPanel {
       items = [...next];
       selected.clear();
       for (const it of items) if (!keepSelection || prev.has(it.key)) selected.add(it.key);
+      if (keepSelection && !selected.size) for (const it of items) selected.add(it.key); // 겹치는 공정이 없으면 전체
       paint();
     },
   };
@@ -126,10 +132,12 @@ export function createFilterPanel(): FilterPanel {
     const row = (e.target as HTMLElement).closest<HTMLElement>('.filter-item');
     if (!row) return;
     const key = row.dataset.key!;
-    if (selected.has(key)) selected.delete(key);
-    else selected.add(key);
+    const turnedOn = !selected.has(key);
+    if (turnedOn) selected.add(key);
+    else selected.delete(key);
     paint();
     api.onSelectionChange(api.selectedKeys());
+    if (turnedOn) api.onActivate(key); // v2.3.9: 켤 때만 프로그램 위치 이동, 끌 때는 그대로
   });
   btnAll.addEventListener('click', () => {
     items.forEach((i) => selected.add(i.key));

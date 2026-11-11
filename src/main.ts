@@ -426,10 +426,13 @@ function mount(root: HTMLElement): void {
       const shapes = toolShapeMapFromRows(rows);
       viewer.setSimProgram(buildSimProgram(res, shapes), { kind: 'mill', res, shapes });
     }
+    // v2.4.7: 일부 공정만 골라 보던 중에 다시 그리면 그 선택을 지킨다(전체/없음이면 전체)
+    const before = filterPanel.selectedKeys();
+    const partial = before.length > 0 && before.length < filterPanel.itemCount();
     filterPanel.setItems([...res.tool_paths.keys()].map((key, i) => ({
       key, label: toolDisplayText(res, key, names), color: cssColor(toolColorForIndex(i)),
-    })));
-    viewer.setVisible(null);
+    })), partial);
+    viewer.setVisible(partial ? filterPanel.selectedKeys() : null);
   };
   filterPanel.onLive = (on) => viewer?.setSimLive(on);
   /** 소재를 지우면 숨겨 둔 툴패스 선을 자동으로 다시 보이게 한다 */
@@ -516,6 +519,7 @@ function mount(root: HTMLElement): void {
   attachPopover(btnStop, filterPanel.stopMenu);
 
   filterPanel.onSelectionChange = (keys) => viewer?.setVisible(keys);
+  filterPanel.onActivate = (key) => { const line = lastResult?.process_first_line.get(key); if (line !== undefined) editor.selectLine(line); };
   filterPanel.onReset = () => viewer?.reset();
   filterPanel.onPgMatch = (on) => { pgMatchOn = on; viewer?.setPgMatch(on); if (on) viewer?.setLine(editor.view.state.doc.lineAt(editor.view.state.selection.main.head).number - 1); };
   editor.onCursorLine = (line) => { if (pgMatchOn) viewer?.setLine(line); };

@@ -1,7 +1,7 @@
 // 공구 리스트 PDF 배치 — 원본 export_tool_list_pdf / export_lathe_tool_list_pdf (ReportLab, NC_Tool_List.py 703~1030)
 // pdfmake 문서 정의(순수 데이터)만 만든다. 글꼴을 읽고 PDF 로 굽는 일은 platform/pdf.ts 가 한다.
 import { COLUMNS, LATHE_COLUMNS, type Column } from './columns';
-import { RADIUS_COMP_DISPLAY_RE } from './radiusComp';
+import { RADIUS_COMP_DISPLAY_RE, RADIUS_COMP_MISMATCH_RE } from './radiusComp';
 import type { ProgramMetadata } from './metadata';
 
 export const PDF_COLUMN_WEIGHTS = [48, 100, 150, 40, 40, 40, 40, 40, 40, 40, 40, 60, 140, 70, 70, 88];
@@ -80,7 +80,7 @@ function remarkCell(text: string, fontSize: number, color: string, extra: Record
   let pos = 0;
   for (const m of text.matchAll(re)) {
     if (m.index! > pos) parts.push({ text: text.slice(pos, m.index), bold: false });
-    parts.push({ text: m[0], bold: true });
+    parts.push(RADIUS_COMP_MISMATCH_RE.test(m[0]) ? { text: m[0], bold: true, color: '#d00000' } : { text: m[0], bold: true });
     pos = m.index! + m[0].length;
   }
   if (pos < text.length) parts.push({ text: text.slice(pos), bold: false });

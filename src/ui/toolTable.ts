@@ -8,7 +8,7 @@ import {
 import { describeHolder, describeInsert, SOURCE_SAVED } from '../core/latheInsertSpec';
 import { rowSources } from '../core/latheParser';
 import type { ProgramMetadata } from '../core/metadata';
-import { RADIUS_COMP_DISPLAY_RE } from '../core/radiusComp';
+import { RADIUS_COMP_DISPLAY_RE, RADIUS_COMP_MISMATCH_RE } from '../core/radiusComp';
 import { el, toast } from './dialog';
 
 export type TableRow = Record<string, unknown>;
@@ -110,6 +110,7 @@ function fillRemark(td: HTMLElement, text: string): void {
     td.append(document.createTextNode(text.slice(pos, m.index)));
     const b = el('b');
     b.textContent = m[0];
+    if (RADIUS_COMP_MISMATCH_RE.test(m[0])) b.style.color = '#d00000';
     td.append(b);
     pos = m.index! + m[0].length;
   }
