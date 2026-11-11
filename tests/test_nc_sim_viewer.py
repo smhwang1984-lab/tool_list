@@ -359,6 +359,7 @@ M30
         dialog.dim_spins['W'].setValue(29.0)
         dialog.dim_spins['T'].setValue(11.0)
         dialog.enable_check.setChecked(True)
+        dialog._ask_run_simulation = lambda: True
         dialog._apply()
         viewer.sim_wait()
         self.assertEqual(viewer.sim_stock_spec.bounds(),

@@ -2278,7 +2278,7 @@ class StockDialog(QDialog):
         except ValueError as exc:
             QMessageBox.warning(self, '소재 설정', str(exc))
             return
-        enabled = self.enable_check.isChecked() or self._ask_run_simulation()
+        enabled = self._ask_run_simulation()
         self.enable_check.setChecked(enabled)
         self.viewer.apply_stock_spec(spec, self._resolution_value(), enabled)
         self._save_settings()
@@ -2563,7 +2563,7 @@ class LatheStockDialog(QDialog):
         if spec.bore >= spec.diameter and spec.bore > 0:
             QMessageBox.warning(self, '소재 설정', '내경은 소재 지름보다 작아야 합니다.')
             return
-        enabled = self.enable_check.isChecked() or self._ask_run_simulation()
+        enabled = self._ask_run_simulation()
         self.enable_check.setChecked(enabled)
         self.viewer.apply_stock_spec(spec, self._resolution_value(), enabled)
         self._save_settings()

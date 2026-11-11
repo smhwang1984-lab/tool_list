@@ -73,7 +73,7 @@ def test_stock_dialog_apply_asks_then_switches_to_simulation(viewer, monkeypatch
     dialog._apply()
     assert asked == [1] and viewer.sim_enabled              # 확인 뒤 가공 시뮬레이션으로 전환
     dialog._apply()
-    assert asked == [1]                                     # 이미 켜져 있으면 다시 묻지 않는다
+    assert asked == [1, 1]                                  # v2.4.8: 켜져 있어도 적용할 때마다 묻는다
     viewer.set_sim_enabled(False)
     dialog.refresh_from_viewer()
     monkeypatch.setattr(StockDialog, '_ask_run_simulation', lambda self: False)
