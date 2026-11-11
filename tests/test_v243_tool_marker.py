@@ -16,16 +16,22 @@ def test_entry_point_and_direction():
     assert list(p0) == [10, 0, 5] and list(delta) == [0, 0, -7] and src == 1
 
 
-def test_marker_ball_tool_tip_at_entry_and_axis():
+def test_marker_ball_mesh_at_origin_and_placement():
     path = _path([(0, 0, 50), (10, 0, 5), (30, 0, 5)], ['G00', 'G00', 'G01'])
-    data = tm.marker_for_process(path, {'type': 'BALL', 'D': 10, 'FL': 20}, {1: (1.0, 0.0, 0.0)})
+    data = tm.marker_for_process(path, {'type': 'BALL', 'D': 10, 'FL': 20})
     v = data['verts']
-    # 공구 축이 +X로 기울어 있으면 팁이 진입점이고 몸통이 +X로 뻗는다
-    assert np.allclose(v[0], [10, 0, 5], atol=1e-4)
-    assert v[:, 0].max() > 25
+    assert np.allclose(v[0], [0, 0, 0], atol=1e-4)       # 원점 팁, +Z 몸통
+    assert v[:, 2].max() >= 20 - 1e-4
+    assert np.allclose(data['entry'], [10, 0, 5])
     assert np.allclose(data['direction'], [1, 0, 0])
-    assert data['arrow'].shape[1] == 3 and len(data['arrow']) % 2 == 0
-    assert np.allclose(data['arrow'][0], [10, 0, 5])
+    m = np.array(tm.placement_matrix((10, 0, 5), (1.0, 0.0, 0.0))).reshape(4, 4)
+    moved = (m[:3, :3] @ v[-1].astype(float)) + m[:3, 3]   # 몸통 윗면 중심이 +X로 뻗는다
+    assert moved[0] > 25 and abs(moved[2] - 5) < 1e-3
+
+
+def test_entry_arrow_length():
+    arrow = tm.build_entry_arrow((0, 0, 0), (1, 0, 0), 12.0)
+    assert np.allclose(arrow[1], [12, 0, 0]) and len(arrow) % 2 == 0
 
 
 def test_marker_none_without_tool_or_cut():
@@ -40,7 +46,7 @@ def test_drill_tip_is_cone():
     path = _path([(0, 0, 5), (0, 0, -5)], ['G00', 'G01'])
     data = tm.marker_for_process(path, {'type': 'DRILL', 'D': 8, 'FL': 30})
     v = data['verts']
-    assert abs(v[:, 2].min() - 5) < 1e-4  # 팁이 진입점 높이
+    assert abs(v[:, 2].min()) < 1e-4  # 팁이 원점
     assert np.allclose(data['direction'], [0, 0, -1])
 
 
@@ -52,23 +58,38 @@ from tests.test_v233_live_reload import viewer, needs_viewer  # noqa: E402,F401
 
 
 @needs_viewer
-def test_viewer_builds_marker_per_process_and_follows_filter(viewer):
+def test_markers_only_in_pg_match_playback(viewer):
     from tests.test_v233_live_reload import SHAPES, SIM_PROGRAM, NAMES
-    shapes = dict(SHAPES, T01=SHAPES['T1'], T02=SHAPES['T2'])   # 앱은 T01/T1/1 키를 모두 준다
+    shapes = dict(SHAPES, T01=SHAPES['T1'], T02=SHAPES['T2'])
     viewer.set_source_text(SIM_PROGRAM + ' ', NAMES, shapes)
     keys = list(viewer.plot_items)
     assert set(viewer.tool_marker_items) == set(keys) and len(keys) == 2
-    viewer.set_selected_tools({keys[0]})
-    assert all(i.visible() for i in viewer.tool_marker_items[keys[0]])
-    assert not any(i.visible() for i in viewer.tool_marker_items[keys[1]])
-    viewer.set_source_text('M30\n')
+    # 단순 툴패스 보기: 공구 모양은 보이지 않는다
+    viewer.set_pg_match_mode(False)
+    viewer.set_cursor_seq(5)
+    assert not any(i.visible() for items in viewer.tool_marker_items.values() for i in items)
+    # PG 매칭 재생: 현재 공정의 공구 모양 + 진입 화살표
+    viewer.set_pg_match_mode(True)
+    viewer.set_cursor_seq(5)
+    cur = viewer.seq_to_tool_map[5]
+    assert all(i.visible() for i in viewer.tool_marker_items[cur])
+    other = [k for k in keys if k != cur][0]
+    assert not any(i.visible() for i in viewer.tool_marker_items[other])
+    # 화살표 길이 = 원점 표기 길이의 50%
+    arrow = viewer.tool_marker_items[cur][1]
+    pos = np.asarray(arrow.pos)
+    length = float(np.linalg.norm(pos[1] - pos[0]))
+    assert abs(length - viewer._axis_arrow_length() * 0.5) < 1e-3
+    viewer.set_pg_match_mode(False)
+    assert not any(i.visible() for items in viewer.tool_marker_items.values() for i in items)
+    viewer.set_source_text('M30')
     assert viewer.tool_marker_items == {}
 
 
 @needs_viewer
-def test_projection_buttons_back_to_original_size(viewer):
+def test_all_projection_buttons_original_size(viewer):
     ov = viewer.projection_overlay
-    assert ov.pick_button.iconSize().width() == 35
+    assert ov.pick_button.iconSize().width() == 14
     for button in ov._view_buttons.values():
         assert button.iconSize().width() == 14
-        assert button.sizeHint().height() < ov.pick_button.sizeHint().height()
+    assert abs(ov.pick_button.sizeHint().height() - next(iter(ov._view_buttons.values())).sizeHint().height()) <= 4

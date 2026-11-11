@@ -1396,12 +1396,7 @@ class ProjectionOverlayWidget(QWidget):
             " padding: 3px 7px; font-size: 12px; }"
             " QPushButton:hover { background-color: rgba(255, 255, 255, 65); }"
             " QPushButton:checked { background-color: #2e86de; border-color: #8ec5ff; color: white; }"
-            # v2.4.3: 투영 버튼은 본래 크기로 되돌리고, [위치 찍기]만 2.5배를 유지한다.
-            " QPushButton#pickButton { background-color: rgba(40, 44, 52, 150);"
-            " border: 2px solid rgba(255, 255, 255, 70); border-radius: 12px;"
-            " padding: 8px 18px; font-size: 30px; }"
-            " QPushButton#pickButton:hover { background-color: rgba(255, 255, 255, 65); }"
-            " QPushButton#pickButton:checked { background-color: #2e86de; border-color: #8ec5ff; }"
+            # v2.4.3: 버튼은 모두 본래 크기(위치 찍기 포함). 눌린 버튼만 파랗게.
         )
         row = QHBoxLayout(self)
         row.setContentsMargins(6, 4, 6, 4)
@@ -1409,8 +1404,8 @@ class ProjectionOverlayWidget(QWidget):
         # 넓힌다. "투영" 라벨과 첫 버튼 사이에는 조금 더 띄운다.
         row.setSpacing(10)
         self.pick_button = QPushButton("위치 찍기")
-        self.pick_button.setIcon(ui_icons.icon("pin", "#e4e8f0", 35))
-        self.pick_button.setIconSize(QSize(35, 35))
+        self.pick_button.setIcon(ui_icons.icon("pin", "#e4e8f0", 14))
+        self.pick_button.setIconSize(QSize(14, 14))
         self.pick_button.setObjectName("pickButton")
         self.pick_button.setCheckable(True)
         self.pick_button.setFocusPolicy(Qt.NoFocus)
@@ -3341,6 +3336,7 @@ class NCViewerWidget(QWidget):
         length = self._axis_arrow_length()
         head_len = length * self._AXIS_ARROW_HEAD_RATIO
         font = self._axis_label_font()
+        self._refresh_tool_marker()      # 진입 방향 화살표는 원점 표기의 50%로 같이 따라간다
         index = 0
         for (direction, _color, wing_axes), label_item in zip(self._AXIS_DIRECTIONS, label_items):
             d = np.array(direction)
@@ -6275,14 +6271,15 @@ class NCViewerWidget(QWidget):
         self._build_tool_markers()
 
     def _build_tool_markers(self):
-        """v2.4.3: 공정마다 첫 절삭 진입점에 공구 모양을 세우고 진입 방향 화살표를 그린다(밀링)."""
+        """v2.4.3: 공정마다 공구 모양 메시(원점·+Z 기준)와 진입 방향 화살표 아이템을 만들어 숨겨 둔다.
+        공구 모양은 PG 매칭 재생 중에만 현재 위치에 보인다(_refresh_tool_marker)."""
         self.tool_marker_items = {}
+        self._tool_marker_data = {}
         if self.is_lathe_mode():
             return
         for idx, (process_key, path_data) in enumerate(self.tool_paths.items()):
             tool_no = self.process_tool_map.get(process_key)
-            data = nc_tool_marker.marker_for_process(
-                path_data, self.tool_shape_map.get(tool_no), self.line_axis_map)
+            data = nc_tool_marker.marker_for_process(path_data, self.tool_shape_map.get(tool_no))
             if data is None:
                 continue
             color = tuple(tool_color_for_index(idx))[:3]
@@ -6290,10 +6287,44 @@ class NCViewerWidget(QWidget):
                 vertexes=data['verts'], faces=data['faces'], smooth=True,
                 color=(color[0], color[1], color[2], 0.85), shader='shaded', glOptions='translucent')
             arrow = gl.GLLinePlotItem(
-                pos=data['arrow'], color=(1.0, 0.85, 0.1, 1.0), width=3.0, antialias=True, mode='lines')
+                pos=np.zeros((2, 3), dtype=np.float32), color=(1.0, 0.85, 0.1, 1.0),
+                width=3.0, antialias=True, mode='lines')
             for item in (mesh, arrow):
+                item.setVisible(False)
                 self.gl_view.addItem(item)
             self.tool_marker_items[process_key] = [mesh, arrow]
+            self._tool_marker_data[process_key] = data
+
+    def _hide_tool_markers(self):
+        for items in self.tool_marker_items.values():
+            for item in items:
+                item.setVisible(False)
+
+    def _refresh_tool_marker(self, seq=None):
+        """PG 매칭(재생) 중에만, 현재 공정의 공구 모양을 재생 위치에 세우고 진입 방향 화살표를 그린다.
+        화살표 길이 = 원점 표기(축 화살표) 길이의 50%."""
+        if not getattr(self, "tool_marker_items", None):
+            return
+        if seq is None:
+            seq = getattr(self, "current_seq", 0)
+        process_key = self.seq_to_tool_map.get(seq)
+        pt = self.seq_to_coord_map.get(seq)
+        data = getattr(self, "_tool_marker_data", {}).get(process_key)
+        if (not self.pg_match_mode or data is None or pt is None
+                or not self._tool_selected(process_key)):
+            self._hide_tool_markers()
+            return
+        for key, items in self.tool_marker_items.items():
+            if key != process_key:
+                for item in items:
+                    item.setVisible(False)
+        mesh, arrow = self.tool_marker_items[process_key]
+        axis = self.line_axis_map.get(self.seq_to_line[seq] if self.seq_to_line else seq, (0.0, 0.0, 1.0))
+        mesh.setTransform(QMatrix4x4(*nc_tool_marker.placement_matrix(pt, axis)))
+        length = self._axis_arrow_length() * 0.5
+        arrow.setData(pos=nc_tool_marker.build_entry_arrow(data['entry'], data['direction'], length))
+        mesh.setVisible(True)
+        arrow.setVisible(True)
 
     def _compute_scene_radius(self):
         """모든 경로 점을 감싸는 구의 반지름(원점 기준). 경로가 없으면 0을
@@ -6414,8 +6445,6 @@ class NCViewerWidget(QWidget):
         for tool, plot_item_list in self.plot_items.items():
             visible = (not self.pg_match_mode) and (tool in selected_items) and lines_visible
             for item in plot_item_list:
-                item.setVisible(visible)
-            for item in self.tool_marker_items.get(tool, ()):
                 item.setVisible(visible)
         self.set_cursor_line(self.current_cursor_line)
         # v1.9.1: 공정 필터 선택이 바뀔 때만 STOCK 절삭을 다시 계산한다
@@ -6559,6 +6588,7 @@ class NCViewerWidget(QWidget):
         else:
             self.current_cursor_line = seq
         self.current_seq = seq
+        self._refresh_tool_marker(seq)
         if self.sim_live_active():
             # v2.3.3: [실시간 형상] — 커서(재생) 위치까지 깎는다. 앞으로는 새 선분만
             # 이어 깎고, 메쉬는 SIM_LIVE_MESH_INTERVAL_MS 간격으로만 다시 그린다.

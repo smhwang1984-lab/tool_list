@@ -104,10 +104,25 @@ def first_cut_entry(path_data):
     return None
 
 
-def marker_for_process(path_data, values, axis_of_line=None):
+def placement_matrix(tip, axis):
+    """원점·+Z 기준으로 만든 공구 메시를 tip 위치·axis 방향으로 옮기는 4x4(행 우선, 16개 값)."""
+    axis = _unit(axis)
+    u, v = _frame(axis)
+    tip = np.asarray(tip, dtype=np.float64)
+    return [
+        float(u[0]), float(v[0]), float(axis[0]), float(tip[0]),
+        float(u[1]), float(v[1]), float(axis[1]), float(tip[1]),
+        float(u[2]), float(v[2]), float(axis[2]), float(tip[2]),
+        0.0, 0.0, 0.0, 1.0,
+    ]
+
+
+def marker_for_process(path_data, values):
     """공정 하나의 마커 데이터. values = 툴리스트 공구값(type/D/FL/R/SIG/PL/SO).
 
-    반환 dict(verts, faces, arrow, entry, direction, axis) 또는 None(공구 정보/절삭 이동 없음)."""
+    v2.4.3(수정): 공구 모양은 재생(PG 매칭) 때만 보이므로, 메시는 원점·+Z 기준으로 한 번만 만들고
+    재생 위치마다 placement_matrix로 옮긴다. 진입점/방향은 공정의 첫 절삭 이동에서 구한다.
+    반환 dict(verts, faces, entry, direction) 또는 None(공구 정보/절삭 이동 없음)."""
     if not values:
         return None
     shape = nc_sim.tool_shape_from_values(
@@ -118,16 +133,7 @@ def marker_for_process(path_data, values, axis_of_line=None):
     entry = first_cut_entry(path_data)
     if entry is None:
         return None
-    p0, delta, src_line = entry
-    axis = (0.0, 0.0, 1.0)
-    if axis_of_line is not None and src_line is not None:
-        axis = axis_of_line.get(src_line, axis)
-    axis = _unit(axis)
+    p0, delta, _src_line = entry
     body = max(shape.cut_length, shape.radius * 2.0)
-    verts, faces = build_tool_mesh(shape, p0, axis, body)
-    arrow_len = max(shape.radius * 4.0, body * 0.8, 6.0)
-    arrow = build_entry_arrow(p0, delta, arrow_len)
-    return {
-        'verts': verts, 'faces': faces, 'arrow': arrow,
-        'entry': p0, 'direction': _unit(delta), 'axis': axis,
-    }
+    verts, faces = build_tool_mesh(shape, (0.0, 0.0, 0.0), (0.0, 0.0, 1.0), body)
+    return {'verts': verts, 'faces': faces, 'entry': p0, 'direction': _unit(delta)}
