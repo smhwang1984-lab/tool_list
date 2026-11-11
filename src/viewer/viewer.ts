@@ -807,9 +807,17 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     return false;
   };
 
+  let holdSince: number | null = null;
   const tick = (now: number): void => {
     raf = requestAnimationFrame(tick);
-    if (playing && result) {
+    // 실시간 형상: 계산이 재생 위치를 못 따라오면 잠깐 기다린다(최대 3초 — 계산이 멈춘 경우 재생이 영영 서지 않게)
+    let hold = false;
+    if (playing && simLive && sim.lagging()) {
+      holdSince ??= now;
+      hold = now - holdSince < 3000;
+    } else holdSince = null;
+    if (playing && result && hold) lastFrame = now;
+    else if (playing && result) {
       const dt = (now - lastFrame) / 1000;
       lastFrame = now;
       virtualTime += dt * Number(speedSel.value);

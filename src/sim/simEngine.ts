@@ -28,6 +28,8 @@ export interface MeshData { positions: Float32Array; colors: Float32Array; indic
 export interface EngineStatus {
   hasStock: boolean; busy: boolean; cells: number; nx: number; ny: number; nz: number; resolution: number;
   cutSegments: number; rapidLines: number[];
+  /** 마지막으로 목표까지 다 깎은 target 요청 번호 (재생이 계산을 기다리게 하는 용도) */
+  ack: number;
 }
 
 export type InMsg =
@@ -36,7 +38,7 @@ export type InMsg =
   | { t: 'enabled'; on: boolean }
   | { t: 'live'; on: boolean }
   | { t: 'section'; m: SectionMode }
-  | { t: 'target'; seq: number | null; show: boolean };
+  | { t: 'target'; seq: number | null; show: boolean; id: number };
 
 export type OutMsg =
   | { t: 'mesh'; mesh: MeshData | null; status: EngineStatus }
@@ -64,6 +66,8 @@ export class SimEngine {
   private lastMesh = 0;
   private snapshots = new Map<number, unknown>();
   private snapBytes = 0;
+  private targetId = 0;
+  private ackId = 0;
 
   constructor(private readonly post: Post) {}
 
@@ -76,7 +80,7 @@ export class SimEngine {
       case 'section':
         if (m.m !== this.section) { this.section = m.m; if (this.stock && this.enabled && !this.running) this.refreshMesh(); }
         break;
-      case 'target': this.setTarget(m.seq, m.show); break;
+      case 'target': this.setTarget(m.seq, m.show, m.id); break;
     }
   }
 
@@ -109,6 +113,7 @@ export class SimEngine {
     return {
       hasStock: !!s, busy: this.running, cells: s?.cellCount() ?? 0, nx: s?.nx ?? 0, ny: s?.ny ?? 0,
       nz: s instanceof VoxelStock || s instanceof TurnMillStock ? s.nz : 1, resolution: s?.resolution ?? 0, cutSegments: this.cutIdx,
+      ack: this.ackId,
       rapidLines: s ? [...new Set(s.rapidWarnings.flatMap((w) => (w.src !== null ? [w.src] : [])))].sort((a, b) => a - b) : [],
     };
   }
@@ -174,11 +179,13 @@ export class SimEngine {
     void this.pump();
   }
 
-  private setTarget(seq: number | null, show: boolean): void {
+  private setTarget(seq: number | null, show: boolean, id: number): void {
+    this.targetId = id;
     if (show && this.enabled) this.showProgress = true;
-    if (this.target === seq && !show) return;
+    if (this.target === seq && !show) { if (!this.running) { this.ackId = id; this.postStatus(); } return; }
     this.target = seq;
     if (this.enabled) void this.pump();
+    else { this.ackId = id; this.postStatus(); }
   }
 
   private async pump(): Promise<void> {
@@ -227,6 +234,7 @@ export class SimEngine {
       }
     } finally {
       this.running = false;
+      this.ackId = this.targetId;
     }
     if (this.showProgress) { this.showProgress = false; this.post({ t: 'progress', busy: false, pct: 1 }); }
     if (this.dirty || !this.hasMesh) this.refreshMesh();

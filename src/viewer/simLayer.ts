@@ -44,13 +44,15 @@ export interface SimLayer {
   setTarget(seq: number | null, showProgress?: boolean): void;
   status(): SimStatus;
   hasStock(): boolean;
+  /** 계산이 목표 위치를 아직 못 따라온 상태 (재생을 잠깐 기다리게 하는 용도) */
+  lagging(): boolean;
   dispose(): void;
 }
 
 /** pct: 0~1, busy=false 이면 끝난 것 */
 export type SimProgress = (busy: boolean, pct: number) => void;
 
-const EMPTY: EngineStatus = { hasStock: false, busy: false, cells: 0, nx: 0, ny: 0, nz: 1, resolution: 0, cutSegments: 0, rapidLines: [] };
+const EMPTY: EngineStatus = { hasStock: false, busy: false, cells: 0, nx: 0, ny: 0, nz: 1, resolution: 0, cutSegments: 0, rapidLines: [], ack: 0 };
 
 /** 소재 범위가 지금 프로그램 종류에 맞아 소재를 만들 수 있나 (SimEngine.makeStock 의 null 조건과 같다) */
 function canMake(program: SimProgram | LatheProgram | null, bounds: Bounds | LatheBounds | null): boolean {
@@ -71,6 +73,7 @@ export function createSimLayer(parent: THREE.Object3D, onChange: () => void, onP
   let enabled = false;
   let live = false;
   let remote: EngineStatus = EMPTY;
+  let sentId = 0;
 
   const disposeMesh = (): void => {
     for (const o of [mesh, edges]) {
@@ -143,7 +146,8 @@ export function createSimLayer(parent: THREE.Object3D, onChange: () => void, onP
     },
     setLive(on) { live = on; send({ t: 'live', on }); },
     setSection(m) { send({ t: 'section', m }); },
-    setTarget(seq, show = false) { send({ t: 'target', seq, show }); },
+    setTarget(seq, show = false) { send({ t: 'target', seq, show, id: ++sentId }); },
+    lagging: () => enabled && canMake(program, bounds) && remote.ack !== sentId,
     status() {
       const engine = (program?.engine ?? 'zmap') as SimStatus['engine'];
       return {
