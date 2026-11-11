@@ -13,10 +13,10 @@ export const SIM3D_SUB_AXIAL = 0.25;
 export const SIM3D_MAX_SUB = 400;
 export const UNCUT_COLOR = 255;
 
-export function autoResolution3d(bounds: Bounds, target = SIM3D_TARGET_VOXELS): number {
+export function autoResolution3d(bounds: Bounds, target = SIM3D_TARGET_VOXELS, minRes = SIM3D_MIN_RES): number {
   const l = (['X', 'Y', 'Z'] as const).map((a) => Math.max(bounds[a][1] - bounds[a][0], 1e-6));
   const res = Math.cbrt((l[0]! * l[1]! * l[2]!) / Math.max(target, 1));
-  return Math.round(Math.min(Math.max(res, SIM3D_MIN_RES), SIM3D_MAX_RES) * 1000) / 1000;
+  return Math.round(Math.min(Math.max(res, minRes), SIM3D_MAX_RES) * 1000) / 1000;
 }
 
 export function clampResolution3d(bounds: Bounds, resolution: number, maxVoxels = SIM3D_MAX_VOXELS): number {

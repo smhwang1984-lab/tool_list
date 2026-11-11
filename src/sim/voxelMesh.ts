@@ -2,7 +2,7 @@
 import { SIM_EDGE_SEGMENT_LIMIT } from './mesh';
 import { UNCUT_COLOR, type VoxelStock } from './voxel';
 
-export const SIM3D_DISPLAY_QUADS_MAX = 150_000; // 원본 70만 — 모바일용
+export const SIM3D_DISPLAY_QUADS_MAX = 800_000; // 상한의 천장. 실제 상한은 정밀도 설정(precision.ts)이 정한다(원본 70만)
 export const SIM3D_CREASE_DEG = 40;
 
 export interface SurfaceNets {
@@ -178,7 +178,7 @@ function estimateQuads(occ: Uint8Array, dims: [number, number, number]): number 
 }
 
 /** 표시용 메시. 표면 사각형이 상한을 넘으면 복셀을 2배씩 합쳐 거칠게 뽑는다. */
-export function buildVoxelMesh(stock: VoxelStock, quadsMax = SIM3D_DISPLAY_QUADS_MAX, edges = true): VoxelMesh {
+export function buildVoxelMesh(stock: VoxelStock, quadsMax = 150_000, edges = true): VoxelMesh {
   const dims: [number, number, number] = [stock.nx, stock.ny, stock.nz];
   if (stock.allFull()) return boxMesh(stock, edges);
   const limit = Math.min(quadsMax, SIM3D_DISPLAY_QUADS_MAX);

@@ -1,5 +1,6 @@
 // 선반 소재 — 원본 nc_lathe_sim.LatheStock (반단면 점유 격자 z × r, 공구 단면 다각형이 쓸고 간 볼록 껍질을 지운다)
 import { DEFAULT_STOCK_COLOR } from './mesh';
+import { precisionParams } from './precision';
 import { convexHull, type LatheTool } from './latheTool';
 import type { SimSegments } from './zmap';
 
@@ -12,7 +13,7 @@ const CAP_COLOR: readonly [number, number, number] = [0.66, 0.74, 0.86];
 
 export interface LatheBounds { z: [number, number]; r: [number, number] }
 
-export function latheAutoResolution(b: LatheBounds, target = LATHE_TARGET_CELLS): number {
+export function latheAutoResolution(b: LatheBounds, target = precisionParams().latheCells): number {
   const zl = Math.max(b.z[1] - b.z[0], 1e-6);
   const rl = Math.max(b.r[1], 1e-6);
   const res = Math.sqrt((zl * rl) / Math.max(target, 1));
