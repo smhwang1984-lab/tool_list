@@ -33,7 +33,7 @@ import lathe_insert_spec
 import sumpath_license
 
 
-APP_VERSION = '2.5.1'
+APP_VERSION = '2.5.2'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-11-11'
 APP_CREATOR = 'Hwang.seonmun'
@@ -4777,13 +4777,9 @@ else:
             ready = self._sim_stock_ready()
             check.setEnabled(ready)
             if ready:
-                from nc_viewer_widget import format_playback_speed
-                cap = (self.viewer.SIM_LIVE_SPEED_CAP_HEAVY if self.viewer.sim_live_heavy()
-                       else self.viewer.SIM_LIVE_SPEED_CAP)
                 check.setToolTip(
                     'PG 매칭 재생·방향키로 공구가 지나가는 대로 소재를 깎아 보입니다.\n'
-                    '켜져 있으면 재생은 최대 %s로 돌고, 형상 계산이 늦으면 기다립니다.'
-                    % format_playback_speed(cap))
+                    '재생 배속 제한은 없고, 형상 계산이 늦으면 재생이 기다립니다.')
             else:
                 check.setToolTip('[소재]에서 소재를 적용하면 켤 수 있습니다.\n'
                                  'PG 매칭 재생·방향키로 공구가 지나가는 대로 소재를 깎아 보입니다.')

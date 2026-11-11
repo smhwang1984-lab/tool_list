@@ -47,7 +47,15 @@ Last updated: 2026-11-05 (NC_Tool_List v2.3.0 — 로컬 v2.2.9(STOCK SIZE)와 G
 
 ## Version history
 
-### 2026-11-11 (latest, v2.5.1)
+### 2026-11-11 (latest, v2.5.2)
+
+- Version: 2.5.1 → 2.5.2
+- Summary: 사용자 요청. **PG 매칭 실시간 형상의 재생 속도 상한(일반 200줄/초, 복셀 50줄/초) 제거.** 이제 배속을 마음대로 올릴 수 있고, 형상 계산이 못 따라오면 재생이 기다리는 동작만 남는다. [실시간 형상] 체크 툴팁도 맞췄다.
+- Installer/package status: **생성 완료**. `installer\NC_Tool_List_Setup_v2.5.2.exe`. dist exe 기동 8초 뒤 실행 중.
+  - Setup EXE SHA-256: EFF2C87127A32AE9862208E29A4669F6C13E97D6C5486D7894C0578672812F87
+- Verification: pytest 865 통과 / 1 실패(이번 변경과 무관한 기존 건: 선반↔밀링 장비 타입 복귀 테스트).
+
+### 2026-11-11 (v2.5.1)
 
 - Version: 2.5.0 → 2.5.1
 - Summary: 사용자 요청 2건.

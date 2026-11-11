@@ -3661,10 +3661,9 @@ class NCViewerWidget(QWidget):
                     or getattr(stock, 'is_voxel', False) or getattr(stock, 'heavy', False))
 
     def sim_live_speed_cap(self):
-        """실시간 형상일 때 재생 배속 상한(줄/초). 아니면 None."""
-        if not self.sim_live_active():
-            return None
-        return self.SIM_LIVE_SPEED_CAP_HEAVY if self.sim_live_heavy() else self.SIM_LIVE_SPEED_CAP
+        """v2.5.2: 재생 배속 상한을 없앴다(항상 None). 계산이 못 따라오면 재생이 기다리는
+        것(sim_live_busy)만 남는다."""
+        return None
 
     def _sim_live_mesh_interval(self):
         base = (self.SIM_LIVE_MESH_INTERVAL_MS_SAFE if getattr(self, 'safe_mode', False)

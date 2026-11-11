@@ -306,7 +306,7 @@ def test_live_shape_needs_pg_match_and_stock(viewer):
     assert not viewer.sim_live_active()
     viewer.set_pg_match_mode(True)
     assert viewer.sim_live_active()
-    assert viewer.sim_live_speed_cap() == NCViewerWidget.SIM_LIVE_SPEED_CAP
+    assert viewer.sim_live_speed_cap() is None      # v2.5.2: 배속 상한 없음
     viewer.set_pg_match_mode(False)
     assert viewer.sim_live_speed_cap() is None
     assert viewer.sim_last_seq == viewer._sim_target_seq_for_selection()
