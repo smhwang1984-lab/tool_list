@@ -4347,9 +4347,13 @@ class NCViewerWidget(QWidget):
             return '깎을 이동(G01/G02/G03)이 없습니다.'
         upto = int(np.searchsorted(self._sim_seq_keys, self.sim_last_seq, side='right'))
         if upto == 0:
+            if self.sim_live_active():
+                return ''        # v2.4.10: 커서가 아직 절삭 전이면 경고하지 않는다
             return '선택한 공정까지 깎을 이동이 없습니다.'
         usable = (seg['slot'][:upto] >= 0) & ~seg['rapid'][:upto]
         if not usable.any():
+            if self.sim_live_active():
+                return ''
             return '선택한 공정까지 절삭 이동이 없습니다(급속 이동뿐).'
         pts = np.concatenate([seg['p0'][:upto][usable], seg['p1'][:upto][usable]])
         z_lo, z_hi = float(pts[:, 0].min()), float(pts[:, 0].max())
@@ -4384,9 +4388,13 @@ class NCViewerWidget(QWidget):
             return '깎을 이동(G01/G02/G03)이 없습니다.'
         upto = int(np.searchsorted(self._sim_seq_keys, self.sim_last_seq, side='right'))
         if upto == 0:
+            if self.sim_live_active():
+                return ''        # v2.4.10: 커서가 아직 절삭 전이면 경고하지 않는다
             return '선택한 공정까지 깎을 이동이 없습니다.'
         usable = seg['slot'][:upto] >= 0
         if not usable.any():
+            if self.sim_live_active():
+                return ''
             return '시뮬레이션할 수 있는 이동이 없습니다.'
         pts = np.concatenate([seg['p0'][:upto][usable], seg['p1'][:upto][usable]])
         lo = pts.min(axis=0)

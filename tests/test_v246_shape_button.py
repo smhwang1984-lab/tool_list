@@ -124,3 +124,17 @@ def test_stock_apply_yes_without_pg_match_does_not_show_whole_shape(viewer, monk
     dialog = StockDialog(viewer)
     dialog._apply()
     assert viewer.sim_stock is not None and not viewer.sim_enabled and infos == [1]
+
+
+@needs_viewer
+def test_live_shape_no_warning_before_cursor_reaches_cut(viewer):
+    from tests.test_v233_live_reload import SHAPES, SIM_PROGRAM, NAMES
+    viewer.set_source_text(SIM_PROGRAM + ' ', NAMES, dict(SHAPES, T01=SHAPES['T1'], T02=SHAPES['T2']))
+    viewer._sim_sync = True
+    viewer.pg_match_mode = True
+    viewer.sim_live_enabled = True
+    viewer.apply_stock_spec(_spec(), 0.5, True)
+    viewer.sim_wait()
+    viewer.sim_last_seq = -1                  # 커서가 아직 첫 이동 앞
+    assert viewer.sim_live_active()
+    assert viewer.sim_diagnosis() == ''
