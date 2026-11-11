@@ -240,6 +240,14 @@ def _stock(d):
     d.line(0.50, 0.56, 0.50, 0.82)
 
 
+def _stock_clear(d):
+    # 소재 블록 + 오른쪽 아래 X (소재 지우기)
+    _stock(d)
+    d.stroke(0.10)
+    d.line(0.60, 0.62, 0.92, 0.94)
+    d.line(0.92, 0.62, 0.60, 0.94)
+
+
 def _plus(d):
     d.stroke(0.12)
     d.line(0.5, 0.16, 0.5, 0.84)
@@ -356,6 +364,7 @@ ICON_PAINTERS = {
     'check_all': _check_all,
     'check_none': _check_none,
     'stock': _stock,
+    'stock_clear': _stock_clear,
     'plus': _plus,
     'list': _list,
     'pdf': _pdf,

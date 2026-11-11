@@ -477,7 +477,7 @@ M30
         self.assertIn('Z', text)
         self.assertIn('위입니다', text)
         self.assertEqual(viewer.sim_notice_text, text)          # 화면 경고 표시
-        self.assertFalse(viewer.sim_progress_label.isHidden())
+        self.assertFalse(viewer.sim_notice_label.isHidden())
 
     def test_diagnosis_toolpath_outside_stock_xy(self):
         viewer = self.make_viewer()

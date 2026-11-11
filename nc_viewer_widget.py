@@ -632,6 +632,7 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
         # 같은 줄의 왼쪽에 나란히 붙는다(top_left_widgets는 더 이상 쓰지
         # 않는다 — 사용자 확정).
         self.bottom_coord_widget = None
+        self.center_widget = None             # v2.4.6: 화면 가운데 진행률(%)
         self.bottom_projection_widget = None
         # 렌더된 경로 전체를 감싸는 구의 반지름(원점 기준) — projectionMatrix()가
         # 깊이 클리핑 범위를 카메라 거리 대신 이 값으로 산정해, 확대해도 긴
@@ -1008,6 +1009,14 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
         self._reposition_bottom_bar()
         self._reposition_top_left()
         self._reposition_bottom_coord()
+        self._reposition_center()
+
+    def _reposition_center(self):
+        widget = self.center_widget
+        if widget is None:
+            return
+        widget.move(max(0, (self.width() - widget.width()) // 2),
+                    max(0, (self.height() - widget.height()) // 2))
 
     # v1.6.2: 재생바 폭도 버튼 크기와 같은 비율(40% 감축)로 줄인다 — 버튼은
     # 가로로 늘어나는 위젯이라 바 폭을 그대로 두면 패딩만 줄어들고 실제
@@ -1381,6 +1390,8 @@ class ProjectionOverlayWidget(QWidget):
     drag_zoom_toggled = pyqtSignal(bool)
     # v2.4.1: [위치 찍기] 버튼(투영 ISO 앞) 토글.
     pick_toggled = pyqtSignal(bool)
+    # v2.4.6: [가공형상즉시보기] 버튼(투영 버튼 옆) 토글.
+    shape_toggled = pyqtSignal(bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1397,6 +1408,8 @@ class ProjectionOverlayWidget(QWidget):
             " QPushButton:hover { background-color: rgba(255, 255, 255, 65); }"
             " QPushButton:checked { background-color: #2e86de; border-color: #8ec5ff; color: white; }"
             # v2.4.3: 버튼은 모두 본래 크기(위치 찍기 포함). 눌린 버튼만 파랗게.
+            # v2.4.6: [가공형상즉시보기]는 켜지면 초록색.
+            " QPushButton#shapeButton:checked { background-color: #2ea043; border-color: #7ee787; }"
         )
         row = QHBoxLayout(self)
         row.setContentsMargins(6, 4, 6, 4)
@@ -1422,6 +1435,12 @@ class ProjectionOverlayWidget(QWidget):
         self.drag_zoom_button = None
         self._view_group = QButtonGroup(self)
         self._view_buttons = {}
+        self.shape_button = QPushButton("가공형상즉시보기")
+        self.shape_button.setObjectName("shapeButton")
+        self.shape_button.setCheckable(True)
+        self.shape_button.setFocusPolicy(Qt.NoFocus)
+        self.shape_button.setToolTip("소재를 깎은 가공 형상을 바로 계산해서 보기 (진행률 %는 화면 가운데)")
+        self.shape_button.toggled.connect(self.shape_toggled.emit)
         self._rebuild_buttons(self.MILL_BUTTONS)
 
     # 밀링과 선반은 축 개념 자체가 달라 투영 버튼 구성을 다르게 쓴다(v1.6.4).
@@ -1441,11 +1460,18 @@ class ProjectionOverlayWidget(QWidget):
             button.setChecked(key == view_type)
         self._view_group.setExclusive(True)
 
+    def set_shape_checked(self, checked):
+        if self.shape_button.isChecked() != bool(checked):
+            blocker = QSignalBlocker(self.shape_button)
+            self.shape_button.setChecked(bool(checked))
+            del blocker
+
     def _rebuild_buttons(self, buttons):
         for old in list(self._view_buttons.values()):
             self._view_group.removeButton(old)
         self._view_buttons = {}
         row = self._row
+        row.removeWidget(self.shape_button)      # 아래 정리 루프가 지우지 않도록 잠시 뺀다
         while row.count() > self._fixed_item_count:
             item = row.takeAt(self._fixed_item_count)
             widget = item.widget() if item is not None else None
@@ -1495,6 +1521,10 @@ class ProjectionOverlayWidget(QWidget):
             if self.isVisible():
                 drag_zoom_button.show()
             self.drag_zoom_button = drag_zoom_button
+        # v2.4.6: [가공형상즉시보기]는 투영 버튼들 맨 끝(옆)에 둔다.
+        row.addWidget(self.shape_button)
+        if self.isVisible():
+            self.shape_button.show()
         self._fit_to_contents()
 
     def _fit_to_contents(self):
@@ -1532,6 +1562,7 @@ class ProjectionOverlayWidget(QWidget):
             for index in range(self._fixed_item_count, self._row.count())
             if self._row.itemAt(index).widget() is not None
             and self._row.itemAt(index).widget() is not self.drag_zoom_button
+            and self._row.itemAt(index).widget() is not self.shape_button
         ]
 
     def _on_view_clicked(self, value):
@@ -1927,8 +1958,10 @@ class StockDialog(QDialog):
         self._updating = True
 
         layout = QVBoxLayout(self)
-        self.enable_check = QCheckBox('소재 / 가공 시뮬레이션 표시')
-        layout.addWidget(self.enable_check)
+        # v2.4.6: 화면의 "소재 / 가공 시뮬레이션 표시" 체크는 없앴다. 가공 시뮬레이션 켜기/끄기는
+        # 뷰어의 [가공형상즉시보기] 버튼이 맡고, [적용] 때 확인해서 전환한다(내부 상태로만 둔다).
+        self.enable_check = QCheckBox()
+        self.enable_check.setVisible(False)
 
         # v2.2.9: 프로그램 상단 주석 `(STOCK SIZE : T.. W.. L..)`에서 치수를 가져온다
         self._comment_dims = None        # 지금 프로그램의 주석 값 {'T','W','L'} 또는 None
@@ -2245,9 +2278,19 @@ class StockDialog(QDialog):
         except ValueError as exc:
             QMessageBox.warning(self, '소재 설정', str(exc))
             return
-        self.viewer.apply_stock_spec(spec, self._resolution_value(), self.enable_check.isChecked())
+        enabled = self.enable_check.isChecked() or self._ask_run_simulation()
+        self.enable_check.setChecked(enabled)
+        self.viewer.apply_stock_spec(spec, self._resolution_value(), enabled)
         self._save_settings()
         self._refresh_status()
+
+    def _ask_run_simulation(self):
+        """v2.4.6: 소재를 입력한 뒤 가공 시뮬레이션으로 전환할지 확인한다."""
+        answer = QMessageBox.question(
+            self, '소재 설정', '소재를 적용했습니다.\n가공 시뮬레이션을 하시겠습니까?\n'
+            '[예]를 누르면 가공 시뮬레이션으로 전환합니다.',
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+        return answer == QMessageBox.Yes
 
     def _export_stl(self):
         if self.viewer.sim_stock is None:
@@ -2379,8 +2422,10 @@ class LatheStockDialog(QDialog):
         self._updating = True
 
         layout = QVBoxLayout(self)
-        self.enable_check = QCheckBox('소재 / 가공 시뮬레이션 표시')
-        layout.addWidget(self.enable_check)
+        # v2.4.6: 화면의 "소재 / 가공 시뮬레이션 표시" 체크는 없앴다. 가공 시뮬레이션 켜기/끄기는
+        # 뷰어의 [가공형상즉시보기] 버튼이 맡고, [적용] 때 확인해서 전환한다(내부 상태로만 둔다).
+        self.enable_check = QCheckBox()
+        self.enable_check.setVisible(False)
 
         grid = QGridLayout()
         self.dim_spins = {}
@@ -2469,6 +2514,7 @@ class LatheStockDialog(QDialog):
 
     # 밀링 소재 창과 같은 viewer/위젯 이름만 쓰는 동작은 그대로 빌려 쓴다(중복 방지)
     _show_rapid_list = StockDialog._show_rapid_list
+    _ask_run_simulation = StockDialog._ask_run_simulation
     _resolution_value = StockDialog._resolution_value
     _on_toolpath_toggled = StockDialog._on_toolpath_toggled
     refresh_status = StockDialog.refresh_status
@@ -2517,7 +2563,9 @@ class LatheStockDialog(QDialog):
         if spec.bore >= spec.diameter and spec.bore > 0:
             QMessageBox.warning(self, '소재 설정', '내경은 소재 지름보다 작아야 합니다.')
             return
-        self.viewer.apply_stock_spec(spec, self._resolution_value(), self.enable_check.isChecked())
+        enabled = self.enable_check.isChecked() or self._ask_run_simulation()
+        self.enable_check.setChecked(enabled)
+        self.viewer.apply_stock_spec(spec, self._resolution_value(), enabled)
         self._save_settings()
         self._refresh_status()
 
@@ -2917,6 +2965,8 @@ class NCViewerWidget(QWidget):
             self.gl_view._reposition_top_left()
             overlay.projection_clicked.connect(self.set_camera_projection)
             overlay.pick_toggled.connect(self.set_pick_mode)
+            overlay.shape_toggled.connect(self._on_shape_button_toggled)
+            self.sim_state_changed.connect(self._sync_shape_button)
             # v1.6.5: 선반 전용 "드래그줌" 버튼 <-> gl_view의 실제 상태를
             # 양방향으로 맞춘다(버튼 클릭 -> gl_view 활성화, 드래그 확정 후
             # 자동 해제 -> 버튼 체크 해제).
@@ -3960,23 +4010,27 @@ class NCViewerWidget(QWidget):
         ' border-radius: 4px; padding: 4px 8px; }')
 
     def _sim_set_progress(self, text, warn=False):
-        """뷰 왼쪽 위에 계산 진행(노랑) 또는 "깎이지 않은 이유"(빨강) 표시. 빈 문자열이면
-        숨긴다."""
+        """계산 진행은 화면 가운데에 큰 "NN%"로, "깎이지 않은 이유"(빨강)는 왼쪽 위에 보인다.
+        빈 문자열이면 숨긴다. (v2.4.6: 진행률을 왼쪽 위 노란 상자에서 화면 중앙으로 옮김)"""
         self.sim_progress_text = text if not warn else ''
         self.sim_notice_text = text if warn else ''
-        label = self.sim_progress_label
+        self._sim_show_notice(text if warn else '')
+        self._sim_show_center_progress(text if not warn else '')
+        self._sim_notify_dialog()
+
+    def _sim_show_notice(self, text):
+        label = getattr(self, 'sim_notice_label', None)
         if not text:
             if label is not None and not label.isHidden():
                 label.hide()
                 if label in self.gl_view.top_left_widgets:
                     self.gl_view.top_left_widgets.remove(label)
                 self.gl_view._reposition_top_left()
-            self._sim_notify_dialog()
             return
         if label is None:
             label = QLabel(self.gl_view)
-            self.sim_progress_label = label
-        label.setStyleSheet(self._SIM_LABEL_WARN_STYLE if warn else self._SIM_LABEL_PROGRESS_STYLE)
+            self.sim_notice_label = label
+        label.setStyleSheet(self._SIM_LABEL_WARN_STYLE)
         label.setText(text)
         label.adjustSize()
         if label not in self.gl_view.top_left_widgets:
@@ -3984,7 +4038,30 @@ class NCViewerWidget(QWidget):
         label.show()
         label.raise_()
         self.gl_view._reposition_top_left()
-        self._sim_notify_dialog()
+
+    def _sim_show_center_progress(self, text):
+        label = self.sim_progress_label
+        if not text:
+            if label is not None and not label.isHidden():
+                label.hide()
+            return
+        if label is None:
+            label = QLabel(self.gl_view)
+            label.setAlignment(Qt.AlignCenter)
+            label.setAttribute(Qt.WA_TransparentForMouseEvents)
+            self.sim_progress_label = label
+            self.gl_view.center_widget = label
+        match = re.search(r'(\d+)\s*%', text)
+        shown = '%s%%' % match.group(1) if match else text
+        # 글자 크기 = 뷰 큐브 크기(px)와 같게
+        label.setStyleSheet(
+            'QLabel { background: rgba(20,24,30,170); color: #ffe082; border-radius: 14px;'
+            ' padding: 6px 24px; font-size: %dpx; font-weight: bold; }' % max(12, self._axis_cube_size_px()))
+        label.setText(shown)
+        label.adjustSize()
+        label.show()
+        label.raise_()
+        self.gl_view._reposition_center()
 
     # -- 선반(v2.2.0) ----------------------------------------------------------
     def _sim_drop_mismatched_stock(self):
@@ -4439,6 +4516,36 @@ class NCViewerWidget(QWidget):
         self._sim_mesh_last_time = now
         if live:
             self._sim_mesh_last_cost = now - started
+
+    def clear_stock(self):
+        """v2.4.6: [소재 지우기] — 소재·가공 형상(메쉬)·진행 표시를 모두 지우고 시뮬레이션을 끈다."""
+        self._sim_cancel_job()
+        self.sim_stock = None
+        self.sim_stock_spec = None
+        self.sim_enabled = False
+        self._sim_snapshots = {}
+        self.sim_last_seq = -1
+        for name in ('sim_mesh_item', 'sim_edge_item'):
+            item = getattr(self, name, None)
+            if item is not None:
+                self.gl_view.removeItem(item)
+                setattr(self, name, None)
+        self.sim_status_text = ''
+        self._sim_set_progress('')
+        self.sim_state_changed.emit()
+
+    def _on_shape_button_toggled(self, checked):
+        """v2.4.6: [가공형상즉시보기] — 켜면 소재를 깎은 가공 형상을 바로 계산해 보인다."""
+        if checked and self.sim_stock is None:
+            self._sync_shape_button()
+            QMessageBox.information(self, '가공형상즉시보기', '먼저 상단 [소재]에서 소재를 설정하세요.')
+            return
+        self.set_sim_enabled(checked)
+
+    def _sync_shape_button(self):
+        overlay = getattr(self, 'projection_overlay', None)
+        if overlay is not None:
+            overlay.set_shape_checked(bool(self.sim_enabled and self.sim_stock is not None))
 
     def set_sim_enabled(self, enabled):
         self.sim_enabled = bool(enabled) and self.is_sim_available() and self.sim_stock is not None

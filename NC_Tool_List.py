@@ -33,7 +33,7 @@ import lathe_insert_spec
 import sumpath_license
 
 
-APP_VERSION = '2.4.5'
+APP_VERSION = '2.4.6'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-11-11'
 APP_CREATOR = 'Hwang.seonmun'
@@ -3282,11 +3282,14 @@ else:
             self.btn_stop_options.setPopupMode(QToolButton.InstantPopup)
             self.stock_button = self._make_tool_button(
                 '소재', 'stock', self.open_stock_dialog, '소재(STOCK) 설정과 가공 형상 시뮬레이션')
+            # v2.4.6: [소재] 옆에 [소재 지우기] — 적용한 소재와 가공 형상을 지운다.
+            self.stock_clear_button = self._make_tool_button(
+                '소재 지우기', 'stock_clear', self.clear_stock, '적용한 소재와 가공 형상 시뮬레이션 지우기')
             viewer_separator = self._add_toolbar_group(toolbar_layout, (
-                self.btn_machine, self.btn_stop_options, self.stock_button,
+                self.btn_machine, self.btn_stop_options, self.stock_button, self.stock_clear_button,
             ))
             self._viewer_only_toolbar = [self.btn_machine, self.btn_stop_options, self.stock_button,
-                                         viewer_separator]
+                                         self.stock_clear_button, viewer_separator]
 
             self.btn_edit_mode = self._make_tool_button(
                 '편집 모드', 'pencil', self.toggle_edit_mode, '편집 모드 켜기/끄기 (비밀번호)', checkable=True)
@@ -4221,6 +4224,11 @@ else:
                 edit = QLineEdit(str(value))
                 self.machine_spec_inputs[key] = edit
                 self.machine_spec_form.addRow('%s:' % key, edit)
+
+        def clear_stock(self):
+            """v2.4.6: [소재 지우기] — 소재·가공 형상을 지우고 열려 있는 소재 창 상태도 맞춘다."""
+            if hasattr(self.viewer, 'clear_stock'):
+                self.viewer.clear_stock()
 
         def open_stock_dialog(self):
             """v1.9.0: 밀링 3축 형상 가공 시뮬레이션 — 소재 설정 팝업을 연다."""
