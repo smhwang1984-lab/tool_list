@@ -52,13 +52,14 @@ popd
 if not "%GRADLE_ERR%"=="0" goto :fail
 
 if not exist out mkdir out
-if /i "%KIND%"=="aab" (
-    set "OUTFILE=out\SumPath_v%VER%.aab"
-    copy /y "android\app\build\outputs\bundle\release\app-release.aab" "%OUTFILE%" >nul
-) else (
-    set "OUTFILE=out\SumPath_v%VER%.apk"
-    copy /y "android\app\build\outputs\apk\release\app-release.apk" "%OUTFILE%" >nul
-)
+if /i "%KIND%"=="aab" goto :copy_aab
+set "OUTFILE=out\SumPath_v%VER%.apk"
+copy /y "android\app\build\outputs\apk\release\app-release.apk" "%OUTFILE%" >nul
+goto :copied
+:copy_aab
+set "OUTFILE=out\SumPath_v%VER%.aab"
+copy /y "android\app\build\outputs\bundle\release\app-release.aab" "%OUTFILE%" >nul
+:copied
 if errorlevel 1 goto :fail
 echo.
 echo Done: %OUTFILE%
