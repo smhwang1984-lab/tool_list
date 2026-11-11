@@ -2853,7 +2853,7 @@ class NCViewerWidget(QWidget):
         self.gl_view.camera_changed.connect(self._update_axis_lines_live)
 
         self.cursor_sphere = gl.GLMeshItem(
-            meshdata=gl.MeshData.sphere(rows=10, cols=20, radius=2.0),
+            meshdata=gl.MeshData.sphere(rows=10, cols=20, radius=0.5),   # v2.4.5: 거의 안 보일 만큼 작게
             smooth=True,
             color=(1.0, 1.0, 0.0, 1.0),
             shader="shaded",
@@ -6279,13 +6279,16 @@ class NCViewerWidget(QWidget):
             return
         for idx, (process_key, path_data) in enumerate(self.tool_paths.items()):
             tool_no = self.process_tool_map.get(process_key)
-            data = nc_tool_marker.marker_for_process(path_data, self.tool_shape_map.get(tool_no))
+            data = nc_tool_marker.marker_for_process(
+                path_data, self.tool_shape_map.get(tool_no), self.line_axis_map)
             if data is None:
                 continue
-            color = tuple(tool_color_for_index(idx))[:3]
+            base = tuple(tool_color_for_index(idx))[:3]
+            # v2.4.5: 공구는 밝은 톤(공정 색을 흰색 쪽으로 섞는다)
+            color = tuple(0.45 + 0.55 * c for c in base)
             mesh = gl.GLMeshItem(
                 vertexes=data['verts'], faces=data['faces'], smooth=True,
-                color=(color[0], color[1], color[2], 0.85), shader='shaded', glOptions='translucent')
+                color=(color[0], color[1], color[2], 0.95), shader='shaded', glOptions='translucent')
             arrow = gl.GLLinePlotItem(
                 pos=np.zeros((2, 3), dtype=np.float32), color=(1.0, 0.85, 0.1, 1.0),
                 width=3.0, antialias=True, mode='lines')
@@ -6321,9 +6324,15 @@ class NCViewerWidget(QWidget):
         mesh, arrow = self.tool_marker_items[process_key]
         axis = self.line_axis_map.get(self.seq_to_line[seq] if self.seq_to_line else seq, (0.0, 0.0, 1.0))
         mesh.setTransform(QMatrix4x4(*nc_tool_marker.placement_matrix(pt, axis)))
-        length = self._axis_arrow_length() * 0.5
-        arrow.setData(pos=nc_tool_marker.build_entry_arrow(data['entry'], data['direction'], length))
         mesh.setVisible(True)
+        # v2.4.5: 진입 방향 화살표는 같은 축으로 처음 만난 절삭(G1/G2/G3/사이클) 위치에,
+        # 축 회전(공구 축 변경)이나 공정이 끝나면 지운다.
+        group = nc_tool_marker.group_at(data['groups'], seq)
+        if group is None:
+            arrow.setVisible(False)
+            return
+        length = self._axis_arrow_length() * 0.5
+        arrow.setData(pos=nc_tool_marker.build_entry_arrow(group['entry'], group['direction'], length))
         arrow.setVisible(True)
 
     def _compute_scene_radius(self):

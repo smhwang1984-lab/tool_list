@@ -10,10 +10,28 @@ def _path(points, types):
     return nodes
 
 
-def test_entry_point_and_direction():
+def test_group_starts_at_first_cut_after_approach():
     path = _path([(0, 0, 50), (10, 0, 5), (10, 0, -2), (30, 0, -2)], ['G00', 'G00', 'G01', 'G01'])
-    p0, delta, src = tm.first_cut_entry(path)
-    assert list(p0) == [10, 0, 5] and list(delta) == [0, 0, -7] and src == 1
+    g = tm.cut_groups(path)
+    assert len(g) == 1
+    assert list(g[0]['entry']) == [10, 0, 5] and np.allclose(g[0]['direction'], [0, 0, -1])
+    assert g[0]['start_seq'] == 2 and g[0]['end_seq'] is None
+
+
+def test_axis_rotation_ends_group_and_new_entry():
+    # 라인 0~2: +Z 축 가공, 라인 3~5: 축 회전(+X) 뒤 새 축 가공
+    pts = [(0, 0, 5), (10, 0, 5), (20, 0, 5), (20, 0, 5), (0, 0, 0), (0, 10, 0)]
+    types = ['G00', 'G01', 'G01', 'G00', 'G00', 'G01']
+    path = _path(pts, types)
+    axes = {3: (1.0, 0, 0), 4: (1.0, 0, 0), 5: (1.0, 0, 0)}
+    g = tm.cut_groups(path, axes)
+    assert len(g) == 2
+    assert g[0]['end_seq'] == 3 and g[1]['start_seq'] == 5
+    assert np.allclose(g[1]['direction'], [0, 1, 0])
+    assert tm.group_at(g, 1) is g[0] and tm.group_at(g, 2) is g[0]
+    assert tm.group_at(g, 3) is None and tm.group_at(g, 4) is None   # 회전 후 새 절삭 전엔 지움
+    assert tm.group_at(g, 5) is g[1]
+    assert tm.group_at(g, 0) is None                                  # 진입 전엔 없음
 
 
 def test_marker_ball_mesh_at_origin_and_placement():
@@ -22,8 +40,8 @@ def test_marker_ball_mesh_at_origin_and_placement():
     v = data['verts']
     assert np.allclose(v[0], [0, 0, 0], atol=1e-4)       # 원점 팁, +Z 몸통
     assert v[:, 2].max() >= 20 - 1e-4
-    assert np.allclose(data['entry'], [10, 0, 5])
-    assert np.allclose(data['direction'], [1, 0, 0])
+    assert np.allclose(data['groups'][0]['entry'], [10, 0, 5])
+    assert np.allclose(data['groups'][0]['direction'], [1, 0, 0])
     m = np.array(tm.placement_matrix((10, 0, 5), (1.0, 0.0, 0.0))).reshape(4, 4)
     moved = (m[:3, :3] @ v[-1].astype(float)) + m[:3, 3]   # 몸통 윗면 중심이 +X로 뻗는다
     assert moved[0] > 25 and abs(moved[2] - 5) < 1e-3
@@ -47,7 +65,7 @@ def test_drill_tip_is_cone():
     data = tm.marker_for_process(path, {'type': 'DRILL', 'D': 8, 'FL': 30})
     v = data['verts']
     assert abs(v[:, 2].min()) < 1e-4  # 팁이 원점
-    assert np.allclose(data['direction'], [0, 0, -1])
+    assert np.allclose(data['groups'][0]['direction'], [0, 0, -1])
 
 
 # ---------------------------------------------------------------- 뷰어 연동

@@ -117,12 +117,60 @@ def placement_matrix(tip, axis):
     ]
 
 
-def marker_for_process(path_data, values):
+def _same_axis(a, b, tol=1e-6):
+    return all(abs(float(x) - float(y)) <= tol for x, y in zip(a, b))
+
+
+def cut_groups(path_data, axis_of_line=None):
+    """공정 경로를 '같은 공구 축으로 가공하는 구간'으로 나눈다(v2.4.5).
+
+    각 구간 = 그 축에서 처음 만난 절삭 이동(G1/G2/G3/사이클 가공 이동)부터, 공구 축이 바뀌는
+    지점(축 회전)까지. 진입 방향 화살표는 구간의 첫 절삭 이동 시작점에 그린다.
+    반환: [{'entry', 'direction', 'axis', 'start_seq', 'end_seq'}] (end_seq는 끝까지면 None)."""
+    z_axis = (0.0, 0.0, 1.0)
+
+    def axis_of(node):
+        if axis_of_line is None:
+            return z_axis
+        return tuple(axis_of_line.get(node.get("src_line"), z_axis))
+
+    groups = []
+    current = None
+    previous = None
+    for node in path_data:
+        if not node.get("valid"):
+            previous = None
+            continue
+        axis = axis_of(node)
+        if current is not None and not _same_axis(axis, current['axis']):
+            current['end_seq'] = node.get("seq", 0)
+            current = None
+        if previous is not None and current is None and node.get("type") != "G00":
+            p0 = np.asarray(previous["pt"], dtype=np.float64)
+            delta = np.asarray(node["pt"], dtype=np.float64) - p0
+            if float(np.linalg.norm(delta)) > 1e-9:
+                current = {'entry': p0, 'direction': _unit(delta), 'axis': axis,
+                           'start_seq': node.get("seq", 0), 'end_seq': None}
+                groups.append(current)
+        previous = node
+    return groups
+
+
+def group_at(groups, seq):
+    """seq(재생 위치)에 해당하는 가공 구간. 없으면 None(= 화살표를 지운다)."""
+    found = None
+    for group in groups:
+        if group['start_seq'] <= seq and (group['end_seq'] is None or seq < group['end_seq']):
+            found = group
+    return found
+
+
+def marker_for_process(path_data, values, axis_of_line=None):
     """공정 하나의 마커 데이터. values = 툴리스트 공구값(type/D/FL/R/SIG/PL/SO).
 
-    v2.4.3(수정): 공구 모양은 재생(PG 매칭) 때만 보이므로, 메시는 원점·+Z 기준으로 한 번만 만들고
-    재생 위치마다 placement_matrix로 옮긴다. 진입점/방향은 공정의 첫 절삭 이동에서 구한다.
-    반환 dict(verts, faces, entry, direction) 또는 None(공구 정보/절삭 이동 없음)."""
+    공구 모양은 재생(PG 매칭) 때만 보이므로, 메시는 원점·+Z 기준으로 한 번만 만들고
+    재생 위치마다 placement_matrix로 옮긴다.
+    반환 dict(verts, faces, groups) 또는 None(공구 정보/절삭 이동 없음)."""
     if not values:
         return None
     shape = nc_sim.tool_shape_from_values(
@@ -130,10 +178,9 @@ def marker_for_process(path_data, values):
         sig=values.get('SIG'), pl=values.get('PL'), so=values.get('SO'))
     if shape is None:
         return None
-    entry = first_cut_entry(path_data)
-    if entry is None:
+    groups = cut_groups(path_data, axis_of_line)
+    if not groups:
         return None
-    p0, delta, _src_line = entry
     body = max(shape.cut_length, shape.radius * 2.0)
     verts, faces = build_tool_mesh(shape, (0.0, 0.0, 0.0), (0.0, 0.0, 1.0), body)
-    return {'verts': verts, 'faces': faces, 'entry': p0, 'direction': _unit(delta)}
+    return {'verts': verts, 'faces': faces, 'groups': groups}
