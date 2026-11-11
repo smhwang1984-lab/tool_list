@@ -53,7 +53,7 @@ def test_center_progress_percent_font_equals_cube_size(viewer):
     viewer._sim_set_progress('형상 계산 중… 42%')
     label = viewer.sim_progress_label
     assert label.text() == '42%' and not label.isHidden()
-    assert 'font-size: %dpx' % viewer._axis_cube_size_px() in label.styleSheet()
+    assert 'font-size: %dpx' % round(viewer._axis_cube_size_px() * 0.5) in label.styleSheet()
     assert viewer.gl_view.center_widget is label
     cx = label.x() + label.width() / 2
     assert abs(cx - viewer.gl_view.width() / 2) <= 2
@@ -79,3 +79,33 @@ def test_stock_dialog_apply_asks_then_switches_to_simulation(viewer, monkeypatch
     monkeypatch.setattr(StockDialog, '_ask_run_simulation', lambda self: False)
     dialog._apply()
     assert viewer.sim_stock is not None and not viewer.sim_enabled   # 아니오: 소재만 적용
+
+
+@needs_viewer
+def test_edit_rerender_keeps_partial_process_selection(viewer):
+    from tests.test_v233_live_reload import SHAPES, SIM_PROGRAM, NAMES
+    keys = list(viewer.plot_items)
+    viewer.set_selected_tools({keys[0]})
+    assert viewer.selected_tools() == {keys[0]}
+    # 편집(프로그램 글자가 바뀜) 뒤 다시 그려도 고른 공정만 보인다
+    viewer.set_source_text(SIM_PROGRAM.replace('X20.', 'X21.', 1), NAMES, SHAPES)
+    assert viewer.selected_tools() == {keys[0]}
+    assert all(i.visible() for i in viewer.plot_items[keys[0]])
+    assert not any(i.visible() for i in viewer.plot_items[keys[1]])
+
+
+@needs_viewer
+def test_edit_rerender_keeps_select_all_as_is(viewer):
+    from tests.test_v233_live_reload import SHAPES, SIM_PROGRAM, NAMES
+    keys = list(viewer.plot_items)
+    viewer.set_source_text(SIM_PROGRAM.replace('X20.', 'X22.', 1), NAMES, SHAPES)
+    assert viewer.selected_tools() == set(keys)
+
+
+@needs_viewer
+def test_tool_marker_unshaded(viewer):
+    from tests.test_v233_live_reload import SHAPES, SIM_PROGRAM, NAMES
+    shapes = dict(SHAPES, T01=SHAPES['T1'], T02=SHAPES['T2'])
+    viewer.set_source_text(SIM_PROGRAM + ' ', NAMES, shapes)
+    mesh = next(iter(viewer.tool_marker_items.values()))[0]
+    assert mesh.opts['shader'] is None      # 음영 없음(평평한 색)

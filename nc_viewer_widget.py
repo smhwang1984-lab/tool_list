@@ -3462,7 +3462,13 @@ class NCViewerWidget(QWidget):
             return False
         self.last_source_text = text
         self.raw_lines = text.splitlines()
-        self.process_nc_lines(self.raw_lines)
+        # v2.4.7: 뷰어에서 편집해 다시 그릴 때, 사용자가 고른 공정만 보던 상태(일부 선택)를 지켜서
+        # 전체가 다시 선택돼 모든 경로가 보이는 일이 없게 한다.
+        self._restore_filter_keys = self._partial_filter_selection()
+        try:
+            self.process_nc_lines(self.raw_lines)
+        finally:
+            self._restore_filter_keys = None
         self.last_render_signature = signature
         # v2.4.2: 다시 그리면 투영 뷰 버튼(파란 활성)은 풀린다. 위치 찍기는 유지.
         overlay = getattr(self, "projection_overlay", None)
@@ -4053,10 +4059,10 @@ class NCViewerWidget(QWidget):
             self.gl_view.center_widget = label
         match = re.search(r'(\d+)\s*%', text)
         shown = '%s%%' % match.group(1) if match else text
-        # 글자 크기 = 뷰 큐브 크기(px)와 같게
+        # 글자 크기 = 뷰 큐브 크기(px)의 50% (v2.4.7: 너무 크다는 피드백으로 100% -> 50%)
         label.setStyleSheet(
             'QLabel { background: rgba(20,24,30,170); color: #ffe082; border-radius: 14px;'
-            ' padding: 6px 24px; font-size: %dpx; font-weight: bold; }' % max(12, self._axis_cube_size_px()))
+            ' padding: 6px 24px; font-size: %dpx; font-weight: bold; }' % max(12, round(self._axis_cube_size_px() * 0.5)))
         label.setText(shown)
         label.adjustSize()
         label.show()
@@ -5128,11 +5134,26 @@ class NCViewerWidget(QWidget):
             process_label, normalized_tool_no, name, self._process_time_suffix(process_key)
         )
 
+    def _partial_filter_selection(self):
+        """공정 필터에서 일부만 선택돼 있으면 그 키 집합, 아니면(전체/없음) None."""
+        lst = self.tool_filter_list
+        if lst is None or lst.count() == 0:
+            return None
+        keys = {lst.item(row).data(Qt.UserRole) for row in range(lst.count())}
+        chosen = {item.data(Qt.UserRole) for item in lst.selectedItems()}
+        if not chosen or chosen == keys:
+            return None
+        return chosen
+
     def _refresh_tool_filter(self, keep_selection=False):
         if self.tool_filter_list is None:
             return
         selected = set()
-        if keep_selection:
+        restore = getattr(self, '_restore_filter_keys', None)
+        if restore and not keep_selection and (set(restore) & set(self.tool_paths)):
+            keep_selection = True
+            selected = set(restore)
+        if keep_selection and not selected:
             for item in self.tool_filter_list.selectedItems():
                 selected.add(item.data(Qt.UserRole))
         with QSignalBlocker(self.tool_filter_list):
@@ -6391,11 +6412,11 @@ class NCViewerWidget(QWidget):
             if data is None:
                 continue
             base = tuple(tool_color_for_index(idx))[:3]
-            # v2.4.5: 공구는 밝은 톤(공정 색을 흰색 쪽으로 섞는다)
-            color = tuple(0.45 + 0.55 * c for c in base)
+            # v2.4.5: 공구는 밝은 톤(공정 색을 흰색 쪽으로 섞는다). v2.4.7: 음영 없이(shader=None) 평평하게.
+            color = tuple(0.6 + 0.4 * c for c in base)
             mesh = gl.GLMeshItem(
                 vertexes=data['verts'], faces=data['faces'], smooth=True,
-                color=(color[0], color[1], color[2], 0.95), shader='shaded', glOptions='translucent')
+                color=(color[0], color[1], color[2], 0.95), shader=None, glOptions='translucent')
             arrow = gl.GLLinePlotItem(
                 pos=np.zeros((2, 3), dtype=np.float32), color=(1.0, 0.85, 0.1, 1.0),
                 width=3.0, antialias=True, mode='lines')
