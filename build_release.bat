@@ -1,6 +1,6 @@
 @echo off
-rem build_release.bat      - signed release APK  -> out\SumPath_vX.Y.Z.apk
-rem build_release.bat aab  - signed Play AAB     -> out\SumPath_vX.Y.Z.aab  (build_aab.bat calls this)
+rem build_release.bat      - signed release APK  : out\SumPath_vX.Y.Z.apk
+rem build_release.bat aab  - signed Play AAB     : out\SumPath_vX.Y.Z.aab  (build_aab.bat calls this)
 rem Needs keystore.properties (see keystore.properties.example). Setup: SETUP_WINDOWS.md
 setlocal EnableExtensions
 cd /d "%~dp0"
