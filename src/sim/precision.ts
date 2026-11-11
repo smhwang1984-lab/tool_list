@@ -3,7 +3,7 @@ import { getPref, setPref } from '../platform/prefs';
 
 export type Precision = 'low' | 'normal' | 'high' | 'max';
 export const PRECISIONS: readonly Precision[] = ['low', 'normal', 'high', 'max'];
-export const PRECISION_LABEL: Record<Precision, string> = { low: '낮음(빠름)', normal: '보통', high: '높음', max: '최고(느림·메모리 큼)' };
+export const PRECISION_LABEL: Record<Precision, string> = { low: '빠름', normal: '보통', high: '정밀', max: '고정밀(느림·메모리 큼)' };
 
 export interface PrecisionParams {
   /** 밀링 Z-map 자동 해상도의 목표 칸 수 */

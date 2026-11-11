@@ -196,7 +196,7 @@ export function createSimLayer(parent: THREE.Object3D, onChange: () => void, onP
         cutIdx = end;
         dirty = true;
         const nowMs = performance.now();
-        if ((live || showProgress) && nowMs - lastMesh > (stock instanceof TurnMillStock ? 1500 : showProgress ? 350 : LIVE_MESH_INTERVAL_MS)) refreshMesh();
+        if ((live || showProgress) && nowMs - lastMesh > (stock instanceof TurnMillStock || showProgress ? 1500 : LIVE_MESH_INTERVAL_MS)) refreshMesh();
         // 화면이 멈추지 않게 30ms 마다 한 번 양보하고 진행률을 알린다
         if (cutIdx !== want && nowMs - lastYield > 30) {
           if (showProgress) onProgress(true, Math.min(1, (cutIdx - runFrom) / Math.max(1, want - runFrom)));
