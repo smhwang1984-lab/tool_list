@@ -3579,6 +3579,8 @@ class NCViewerWidget(QWidget):
     SIM3D_FAST_TARGET_VOXELS = 3_000_000
 
     def _init_sim_state(self):
+        self._sim_instant = False
+        self._sim_live_wanted = False
         try:
             q = str(self.settings.value('sim_quality', 'fast'))
         except Exception:  # noqa: BLE001
@@ -3879,6 +3881,7 @@ class NCViewerWidget(QWidget):
             self.sim_resolution = float(resolution)
             self.sim_stock = nc_sim.ZMapStock(bounds, self.sim_resolution)
         self.sim_enabled = bool(enabled) and self.is_sim_available()
+        self._note_sim_request(enabled)
         self._reset_sim_stock_progress()
         if self.sim_mesh_item is not None:
             self.gl_view.removeItem(self.sim_mesh_item)
@@ -4341,6 +4344,7 @@ class NCViewerWidget(QWidget):
             self.sim_stock = nc_lathe_sim.LatheStock(bounds, self.sim_resolution)
         self._refresh_sim_status_text()             # 복셀 해상도가 정해졌으니 안내 문구를 다시 만든다
         self.sim_enabled = bool(enabled)
+        self._note_sim_request(enabled)
         self._reset_sim_stock_progress()
         for name in ('sim_mesh_item', 'sim_edge_item'):
             item = getattr(self, name, None)
@@ -4593,6 +4597,8 @@ class NCViewerWidget(QWidget):
         self.sim_stock = None
         self.sim_stock_spec = None
         self.sim_enabled = False
+        self._sim_instant = False
+        self._sim_live_wanted = False
         self._sim_snapshots = {}
         self.sim_last_seq = -1
         for name in ('sim_mesh_item', 'sim_edge_item'):
@@ -4617,7 +4623,17 @@ class NCViewerWidget(QWidget):
         if overlay is not None:
             overlay.set_shape_checked(bool(self.sim_enabled and self.sim_stock is not None))
 
-    def set_sim_enabled(self, enabled):
+    def _note_sim_request(self, enabled):
+        """v2.5.3: 소재 적용 때 [예]였는지 기억한다. PG 매칭 중의 [예]는 실시간 형상(PG 매칭을
+        끄면 같이 꺼짐), PG 매칭이 꺼진 채 켠 것은 [가공형상즉시보기]로 본다(안드로이드와 같다)."""
+        self._sim_live_wanted = bool(enabled)
+        self._sim_instant = bool(enabled) and not self.pg_match_mode
+
+    def set_sim_enabled(self, enabled, _auto=False):
+        if not _auto:
+            self._sim_instant = bool(enabled)       # 사용자가 직접(즉시보기 버튼 등) 켜고 끈 것
+            if enabled:
+                self._sim_live_wanted = True
         self.sim_enabled = bool(enabled) and self.is_sim_available() and self.sim_stock is not None
         if self.sim_mesh_item is not None:
             self.sim_mesh_item.setVisible(self.sim_enabled)
@@ -6631,6 +6647,14 @@ class NCViewerWidget(QWidget):
     def set_pg_match_mode(self, enabled):
         """정적 경로를 숨기고 커서 공정의 실시간 트레이스만 남기는 모드를 토글한다."""
         self.pg_match_mode = bool(enabled)
+        # v2.5.3: PG 매칭을 끄면 실시간 형상은 같이 꺼지고, [가공형상즉시보기]를 눌러야 보인다
+        # (안드로이드와 같은 방식). 다시 PG 매칭을 켜면 실시간 형상이 되살아난다.
+        if self.sim_stock is not None:
+            if not self.pg_match_mode:
+                if self.sim_enabled and not getattr(self, '_sim_instant', False):
+                    self.set_sim_enabled(False, _auto=True)
+            elif getattr(self, '_sim_live_wanted', False) and not self.sim_enabled:
+                self.set_sim_enabled(True, _auto=True)
         if self.playback_bar is not None:
             self.playback_bar.set_controls_enabled(self.pg_match_mode)
         # update_visible_paths()가 끝에서 set_cursor_line()을 부르므로 트레이스도 함께 갱신된다.

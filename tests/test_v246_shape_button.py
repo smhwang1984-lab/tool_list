@@ -181,3 +181,23 @@ def test_entry_arrow_shown_even_without_tool_shape_and_not_depth_tested(viewer):
         if arrow.visible():
             break
     assert arrow.visible()
+
+
+@needs_viewer
+def test_pg_off_hides_live_shape_until_instant_button(viewer):
+    from nc_viewer_widget import StockDialog
+    viewer._sim_sync = True
+    viewer.set_pg_match_mode(True)
+    viewer.apply_stock_spec(_spec(), 0.5, True)               # PG 매칭 중 [예]
+    assert viewer.sim_enabled
+    viewer.set_pg_match_mode(False)                           # PG 끄면 같이 꺼진다
+    assert not viewer.sim_enabled
+    assert not viewer.projection_overlay.shape_button.isChecked()
+    viewer.set_pg_match_mode(True)                            # 다시 켜면 실시간 형상 복귀
+    assert viewer.sim_enabled
+    viewer.set_pg_match_mode(False)
+    viewer.projection_overlay.shape_button.setChecked(True)   # 즉시보기 버튼으로만 보인다
+    assert viewer.sim_enabled
+    viewer.set_pg_match_mode(True)
+    viewer.set_pg_match_mode(False)
+    assert viewer.sim_enabled                                 # 버튼으로 켠 것은 유지
