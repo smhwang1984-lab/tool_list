@@ -406,7 +406,7 @@ function mount(root: HTMLElement): void {
     const mt = machinePanel.machineType();
     if (!text.trim()) {
       viewer.setProgram(null, mt);
-      viewer.setSimProgram(null);
+      viewer.setSimProgram(null, null);
       lastResult = null;
       filterPanel.setItems([]);
       return;
@@ -418,11 +418,13 @@ function mount(root: HTMLElement): void {
     viewer.setProgram(res, mt);
     lastResult = res;
     if (machinePanel.isLathe()) {
-      lastLatheProgram = buildLatheProgram(res, geometryMapFromRows(rows));
-      viewer.setSimProgram(lastLatheProgram);
+      const geometry = geometryMapFromRows(rows);
+      lastLatheProgram = buildLatheProgram(res, geometry);
+      viewer.setSimProgram(lastLatheProgram, { kind: 'lathe', res, geometry });
     } else {
       lastLatheProgram = null;
-      viewer.setSimProgram(buildSimProgram(res, toolShapeMapFromRows(rows)));
+      const shapes = toolShapeMapFromRows(rows);
+      viewer.setSimProgram(buildSimProgram(res, shapes), { kind: 'mill', res, shapes });
     }
     filterPanel.setItems([...res.tool_paths.keys()].map((key, i) => ({
       key, label: toolDisplayText(res, key, names), color: cssColor(toolColorForIndex(i)),

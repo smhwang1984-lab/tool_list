@@ -6,7 +6,7 @@ import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 import { elapsedSecondsAtSeq, formatElapsedOverTotal, lineAtSeq, resolveSeqForLine, sequenceLength } from '../core/playback';
 import { isLatheMachine, type ToolpathResult } from '../core/toolpath';
-import { createSimLayer, type SimLayer, type SimStatus } from './simLayer';
+import { createSimLayer, type SimLayer, type SimSource, type SimStatus } from './simLayer';
 import type { SimProgram } from '../sim/segments';
 import type { Bounds } from '../sim/stock';
 import type { LatheProgram } from '../sim/latheSegments';
@@ -58,7 +58,7 @@ export interface Viewer {
   /** 위치 찍기 모드가 켜져 있으면 끄고 true */
   cancelPick(): boolean;
   /** 가공 형상: 절삭 선분·공구 형상(프로그램이 바뀔 때마다) */
-  setSimProgram(p: SimProgram | LatheProgram | null): void;
+  setSimProgram(p: SimProgram | LatheProgram | null, source: SimSource | null): void;
   /** 밀링 공구 모양을 그리기 위한 툴리스트 공구값(키: T01/T1/1) */
   setToolValues(v: ReadonlyMap<string, ToolValues> | null): void;
   /** 소재 적용(bounds 가 null 이면 소재 제거) */
@@ -876,7 +876,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
       return true;
     },
     setToolValues(v) { toolValues = v; toolGeoCache.clear(); },
-    setSimProgram(p) { sim.setProgram(p); if (!simLive) sim.setTarget(selectionEndSeq()); },
+    setSimProgram(p, source) { sim.setProgram(p, source); if (!simLive) sim.setTarget(selectionEndSeq()); },
     applyStock(bounds, resolution, on) {
       if (bounds && 'X' in bounds) {
         // 소재가 화면 가운데에 꽉 차게 맞춘다
