@@ -10,6 +10,7 @@ import { rowSources } from '../core/latheParser';
 import type { ProgramMetadata } from '../core/metadata';
 import { RADIUS_COMP_DISPLAY_RE, RADIUS_COMP_MISMATCH_RE } from '../core/radiusComp';
 import { el, toast } from './dialog';
+import { getPref, setPref } from '../platform/prefs';
 
 export type TableRow = Record<string, unknown>;
 
@@ -126,7 +127,13 @@ export function createToolTable(): ToolTable {
   count.textContent = '공구 0개';
   const modeCombo = el('select', { 'aria-label': '산출 모드', title: '산출 모드: 밀링 / 선반' });
   modeCombo.append(new Option('밀링', 'mill'), new Option('선반', 'lathe'));
-  bar.append(label, count, modeCombo);
+  // 표 확대/축소 — 두 손가락 벌리기·오므리기, Ctrl+휠, −/+ 버튼. 값은 저장된다.
+  const zoomBox = el('div', { class: 'zoom-box' });
+  const btnZoomOut = el('button', { type: 'button', title: '표 축소', 'aria-label': '표 축소' }, '−');
+  const zoomText = el('button', { type: 'button', class: 'zoom-text', title: '100%로 되돌리기' });
+  const btnZoomIn = el('button', { type: 'button', title: '표 확대', 'aria-label': '표 확대' }, '+');
+  zoomBox.append(btnZoomOut, zoomText, btnZoomIn);
+  bar.append(label, count, modeCombo, zoomBox);
   const actions = el('div', { class: 'tool-actions' });
   const mkBtn = (text: string, title: string): HTMLButtonElement => {
     const b = el('button', { type: 'button', title });
@@ -170,6 +177,9 @@ export function createToolTable(): ToolTable {
   let dynamicWidths: Record<string, number> = {};
   const selected = new Set<number>();
   let measureCtx: CanvasRenderingContext2D | null = null;
+  const ZOOM_MIN = 0.5;
+  const ZOOM_MAX = 3;
+  let zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Number(getPref('tool_table_zoom')) || 1));
 
   const columns = () => (lathe ? LATHE_COLUMNS : COLUMNS);
   const baseWidth = (key: string): number => (lathe ? (dynamicWidths[key] ?? LATHE_COL_WIDTH[key]) : COL_WIDTH[key]) ?? 60;
@@ -199,7 +209,11 @@ export function createToolTable(): ToolTable {
     const total = widthTotal();
     const available = scroller.clientWidth;
     if (total <= 0 || available <= 0) return;
-    const scale = lathe ? 1 : Math.min(1, Math.max(TOOL_TABLE_MIN_SCALE, available / total));
+    const fit = lathe ? 1 : Math.min(1, Math.max(TOOL_TABLE_MIN_SCALE, available / total));
+    const scale = fit * zoom;
+    zoomText.textContent = `${Math.round(zoom * 100)}%`;
+    btnZoomOut.disabled = zoom <= ZOOM_MIN + 1e-6;
+    btnZoomIn.disabled = zoom >= ZOOM_MAX - 1e-6;
     table.style.fontSize = `${TABLE_FONT_PT * scale * PX_PER_PT}px`;
     const cols = columns();
     const colgroup = table.querySelector('colgroup');
@@ -320,6 +334,56 @@ export function createToolTable(): ToolTable {
   let flashTimer = 0;
   modeCombo.addEventListener('change', () => api.onModeChange(modeCombo.value === 'lathe'));
   new ResizeObserver(() => relayout()).observe(scroller);
+
+  /** 확대 배율을 바꾸고, (cx, cy) 화면 점이 같은 칸 위에 남도록 스크롤을 맞춘다 */
+  let saveTimer = 0;
+  const setZoom = (next: number, cx = scroller.clientWidth / 2, cy = scroller.clientHeight / 2): void => {
+    next = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(next * 100) / 100));
+    if (next === zoom) return;
+    const ratio = next / zoom;
+    const x = scroller.scrollLeft + cx;
+    const y = scroller.scrollTop + cy;
+    zoom = next;
+    relayout();
+    scroller.scrollLeft = x * ratio - cx;
+    scroller.scrollTop = y * ratio - cy;
+    window.clearTimeout(saveTimer);
+    saveTimer = window.setTimeout(() => setPref('tool_table_zoom', String(zoom)), 300);
+  };
+  btnZoomOut.addEventListener('click', () => setZoom(zoom / 1.2));
+  btnZoomIn.addEventListener('click', () => setZoom(zoom * 1.2));
+  zoomText.addEventListener('click', () => setZoom(1));
+  scroller.addEventListener('wheel', (e) => {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    const r = scroller.getBoundingClientRect();
+    setZoom(zoom * Math.exp(-e.deltaY * 0.002), e.clientX - r.left, e.clientY - r.top);
+  }, { passive: false });
+  let pinch: { dist: number; zoom: number } | null = null;
+  const touchInfo = (t: TouchList): { dist: number; cx: number; cy: number } => {
+    const a = t[0]!;
+    const b = t[1]!;
+    const r = scroller.getBoundingClientRect();
+    return {
+      dist: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY),
+      cx: (a.clientX + b.clientX) / 2 - r.left,
+      cy: (a.clientY + b.clientY) / 2 - r.top,
+    };
+  };
+  scroller.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 2) return;
+    window.clearTimeout(pressTimer); // 두 손가락이면 길게 누르기(편집) 취소
+    pinch = { dist: touchInfo(e.touches).dist, zoom };
+  }, { passive: true });
+  scroller.addEventListener('touchmove', (e) => {
+    if (!pinch || e.touches.length !== 2) return;
+    e.preventDefault();
+    const t = touchInfo(e.touches);
+    if (pinch.dist > 0) setZoom(pinch.zoom * (t.dist / pinch.dist), t.cx, t.cy);
+  }, { passive: false });
+  const endPinch = (e: TouchEvent): void => { if (e.touches.length < 2) pinch = null; };
+  scroller.addEventListener('touchend', endPinch);
+  scroller.addEventListener('touchcancel', endPinch);
 
   const api: ToolTable = {
     root,

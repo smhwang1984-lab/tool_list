@@ -42,6 +42,8 @@ export interface ViewerHooks {
   onPick?: (line: number) => void;
   stopRule?: () => StopRule;
   lineText?: (line: number) => string;
+  /** "실시간 형상" 버튼을 누름 → 호출 쪽이 켜고 끈 뒤 setSimLive 로 알려 준다 */
+  onLiveToggle?: () => void;
   /** 가공 형상 상태가 바뀜(진행·적용) */
   onSimChange?: () => void;
 }
@@ -182,6 +184,14 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
   instantBtn.textContent = '가공형상 즉시 보기';
   instantBtn.disabled = true;
   let simLive = false;
+  const liveBtn = el('button', { type: 'button', class: 'v-live', 'aria-pressed': 'false',
+    title: '실시간 형상: 켜면 재생·커서 위치까지 소재를 깎아 보여 주고, 끄면 선택한 공정의 끝까지 깎은 모양을 보여 줍니다.' });
+  liveBtn.textContent = '실시간 형상';
+  liveBtn.addEventListener('click', () => hooks.onLiveToggle?.());
+  const paintLive = (): void => {
+    liveBtn.classList.toggle('on', simLive);
+    liveBtn.setAttribute('aria-pressed', String(simLive));
+  };
   const SECTION_LABEL = { '3q': '단면 3/4', half: '단면 1/2', full: '원통' } as const;
   const SECTION_ORDER = ['3q', 'half', 'full'] as const;
   let sectionMode: (typeof SECTION_ORDER)[number] = ((): (typeof SECTION_ORDER)[number] => {
@@ -288,7 +298,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
       b.addEventListener('click', () => { setProjection(name); }); // v2.4.2: 뷰를 바꿔도 위치 찍기는 유지
       projButtons.push(b);
     }
-    projBar.append(instantBtn, sectionBtn);
+    projBar.append(instantBtn, liveBtn, sectionBtn);
     sectionBtn.hidden = !lathe;
   };
 
@@ -906,6 +916,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     setSimEnabled(on) { sim.setEnabled(on); },
     setSimLive(on) {
       simLive = on;
+      paintLive();
       sim.setLive(on);
       sim.setTarget(on ? seqNow : selectionEndSeq());
     },

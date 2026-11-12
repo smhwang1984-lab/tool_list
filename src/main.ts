@@ -75,6 +75,7 @@ const HELP_TEXT = [
   '',
   '■ 공구 리스트',
   '  Tool List 버튼으로 산출합니다. 행을 두 번 탭하거나 길게 누르면 수정합니다.',
+  '  표는 두 손가락으로 벌려 확대·오므려 축소하거나 −/+ 버튼으로 크기를 바꿉니다(가운데 % 를 누르면 100%).',
   '  삭제 / 수정 / 행 추가 / 이름 경우의 수 / 복사(엑셀 붙여넣기) / PDF(저장 위치 선택).',
   '',
   '■ 3D Viewer 손동작',
@@ -93,7 +94,7 @@ const HELP_TEXT = [
   '■ 소재와 가공 형상 (밀링)',
   '  툴바 "소재" 단추 → 치수(T/W/L)·축·기준 위치·해상도를 정하고 적용하면 깎인 모양이 보입니다.',
   '  프로그램 위쪽 주석 (STOCK SIZE : T50 W95 L385) 이 있으면 치수를 자동으로 읽습니다.',
-  '  "실시간 형상"을 켜면 재생·커서 위치까지, 끄면 선택한 공정의 끝까지 깎습니다.',
+  '  3D 화면 위 "실시간 형상" 버튼(켜면 초록)을 켜면 재생·커서 위치까지, 끄면 선택한 공정의 끝까지 깎습니다.',
   '  경사면·5축처럼 공구 축이 기운 이동이 있으면 3D 복셀로 깎습니다(자동 해상도는 거칠 수 있음). 선반 소재는 다음 단계입니다.',
   '',
   '■ 공정 필터',
@@ -140,7 +141,7 @@ function mount(root: HTMLElement): void {
   btnEditPw.hidden = true;
   editLabel.hidden = true;
   const btnMachine = toolButton('장비', 'gear', '장비 타입 및 스펙 설정');
-  const btnStop = toolButton('정지 옵션', 'run', '텍스트 정지 · 정지 · 옵션정지 · 실시간 형상');
+  const btnStop = toolButton('정지 옵션', 'run', '텍스트 정지 · 정지 · 옵션정지');
   const btnStockTb = toolButton('소재', 'document', '소재(STOCK) 설정과 가공 형상 시뮬레이션');
   const btnStockClear = toolButton('소재 지우기', 'eraser', '소재와 가공 형상을 지우고 툴패스 선을 다시 보이게 합니다');
   btnStockClear.disabled = true;
@@ -179,7 +180,6 @@ function mount(root: HTMLElement): void {
   // ---------- 본문 ----------
   const body = el('main', { class: 'body' });
   const programPane = el('section', { class: 'pane program-pane' });
-  programPane.innerHTML = '<div class="pane-head">프로그램 입력</div>';
   const editorHost = el('div', { class: 'editor-host' });
   const editor = createEditor(editorHost, {
     fontSize: getPrefNumber('editor_font_px', 9, 9, 32),
@@ -383,6 +383,7 @@ function mount(root: HTMLElement): void {
         },
         lineText: (line) => editor.view.state.doc.line(Math.min(editor.view.state.doc.lines, line + 1)).text,
         onWebglFailed: (msg) => { fallback2d = createFallback2D(viewerView, msg); },
+        onLiveToggle: () => filterPanel.setLive(!filterPanel.liveOn()),
         onSimChange: () => { const has = !!viewer?.simStatus().hasStock; btnStockClear.disabled = !has; btnStl.disabled = !has; },
       });
       viewer?.setSimLive(filterPanel.liveOn());

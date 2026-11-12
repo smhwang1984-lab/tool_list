@@ -141,6 +141,13 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 .tool-title { font-weight: 600; font-size: 14px; }
 .tool-count { font-size: 13px; color: var(--muted_text); font-variant-numeric: tabular-nums; }
 .tool-count.error { color: var(--error); font-weight: 500; }
+.zoom-box { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; }
+.zoom-box button {
+  min-width: 36px; min-height: 36px; padding: 0 8px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--list_hover); color: var(--text); font: inherit; font-size: 16px;
+}
+.zoom-box button:disabled { color: var(--faint_text); }
+.zoom-box .zoom-text { min-width: 56px; font: 13px var(--mono); font-variant-numeric: tabular-nums; color: var(--muted_text); background: transparent; border-color: transparent; }
 .tool-bar select {
   min-height: 36px; padding: 0 8px; border: 1px solid var(--border); border-radius: 8px;
   background: var(--list_bg); color: var(--list_text); font: inherit; font-size: 14px;
@@ -152,7 +159,7 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
   position: sticky; top: 0; z-index: 1; padding: 4px; background: var(--toolbar_bg); color: var(--muted_text);
   border: 1px solid var(--border); font-weight: 500; white-space: nowrap; overflow: hidden;
 }
-.tool-table td { height: 28px; padding: 4px; border: 1px solid var(--border); white-space: nowrap; overflow: hidden; text-overflow: clip; user-select: none; }
+.tool-table td { height: 1.9em; padding: 4px; border: 1px solid var(--border); white-space: nowrap; overflow: hidden; text-overflow: clip; user-select: none; }
 .tool-table td.center { text-align: center; }
 .tool-table tbody tr:nth-child(even) { background: var(--list_hover); }
 .tool-table tbody tr.selected { background: var(--list_selected_bg); color: var(--list_selected_text); }
@@ -300,7 +307,7 @@ dialog .dlg-foot button.primary { border-color: var(--accent); background: var(-
 .viewer-host .v-play select { height: 32px; background: transparent; color: var(--v-text); border: 1px solid var(--v-line); border-radius: 8px; font: 12px var(--mono); }
 .viewer-host .v-play input[type=range] { flex: 1; min-width: 60px; accent-color: var(--accent); }
 .viewer-host .v-time { padding-right: 4px; color: var(--v-muted); font: 12px var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.viewer-host .v-cube { position: absolute; right: 32px; top: 32px; width: var(--s, 80px); height: var(--s, 80px); z-index: 3; perspective: 400px; }
+.viewer-host .v-cube { position: absolute; right: 32px; top: 56px; width: var(--s, 80px); height: var(--s, 80px); z-index: 3; perspective: 400px; }
 .viewer-host .v-cube-body { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; }
 .viewer-host .v-face {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font: 500 12px var(--mono); color: var(--v-text);
@@ -346,6 +353,11 @@ dialog.settings::backdrop { background: transparent; }
 .viewer-host .v-proj .v-instant { margin-left: 12px; height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--v-line); background: var(--v-surface); color: var(--v-text); font: inherit; font-size: 13px; white-space: nowrap; }
 .viewer-host .v-proj .v-instant:disabled { opacity: .4; }
 .viewer-host .v-proj .v-instant:not(:disabled) { border-color: rgba(228, 229, 231, .36); }
+.viewer-host .v-proj .v-live {
+  margin-left: 4px; height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid rgba(228, 229, 231, .36);
+  background: transparent; color: var(--v-text); font: inherit; font-size: 13px; white-space: nowrap;
+}
+.viewer-host .v-proj .v-live.on { background: var(--success); border-color: var(--success); color: var(--success_text); }
 .viewer-host .v-progress {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 6; pointer-events: none;
   padding: 8px 16px; border-radius: 8px; border: 1px solid var(--v-line); background: var(--v-surface); color: var(--v-text);

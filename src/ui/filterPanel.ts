@@ -1,5 +1,5 @@
 // Viewer 모드 필터 영역 — 원본 filter_panel (NC_Tool_List.py 3351~)
-// 텍스트 정지 / 정지(M00) / 옵션정지(M01) / 실시간 형상 / 공정 필터 목록 / Reset / PG 매칭 / 전체 / 해제 / 소재.
+// 텍스트 정지 / 정지(M00) / 옵션정지(M01) / 공정 필터 목록 / Reset / PG 매칭 / 전체 / 해제 / 소재.
 // 공정 목록과 3D 연결은 P4, 실시간 형상·소재는 P6에서 채운다(그 전까지 비활성).
 import { getPref, setPref } from '../platform/prefs';
 import { el } from './dialog';
@@ -30,10 +30,11 @@ export interface FilterPanel {
   onActivate: (key: string) => void;
   onReset: () => void;
   onPgMatch: (on: boolean) => void;
-  /** 실시간 형상 체크가 바뀜 */
+  /** 실시간 형상이 바뀜 (켜고 끄는 버튼은 3D 뷰어의 "가공형상 즉시 보기" 옆) */
   onLive: (on: boolean) => void;
   liveOn(): boolean;
-  /** 툴바 드롭다운에 넣을 정지 옵션(텍스트 정지·정지·옵션정지·실시간 형상) */
+  setLive(on: boolean): void;
+  /** 툴바 드롭다운에 넣을 정지 옵션(텍스트 정지·정지·옵션정지) */
   stopMenu: HTMLElement;
   /** 툴바에 둘 소재 단추 */
   stockButton: HTMLButtonElement;
@@ -63,9 +64,9 @@ export function createFilterPanel(): FilterPanel {
   textInput.disabled = !textCheck.checked;
   const [m00Label, m00Check] = check('정지', 'M0 또는 M00에서 자동 재생을 멈춥니다.', asBool(getPref('stop_at_m00'), true));
   const [m01Label, m01Check] = check('옵션정지', 'M1 또는 M01에서 자동 재생을 멈춥니다.', asBool(getPref('stop_at_m01'), true));
-  const [liveLabel, liveCheck] = check('실시간 형상', '체크하면 재생·커서 위치까지 소재를 깎아 보여 줍니다. 끄면 선택한 공정의 끝까지 깎은 모양을 보여 줍니다.', asBool(getPref('sim_live'), false));
+  const [, liveCheck] = check('실시간 형상', '체크하면 재생·커서 위치까지 소재를 깎아 보여 줍니다. 끄면 선택한 공정의 끝까지 깎은 모양을 보여 줍니다.', asBool(getPref('sim_live'), false));
   const stopBar = el('div', { class: 'filter-row' });
-  stopBar.append(textLabel, textInput, m00Label, m01Label, liveLabel);
+  stopBar.append(textLabel, textInput, m00Label, m01Label);
 
   const title = el('span', { class: 'filter-title', title: '공정별 경로 필터 선택 — 아래 목록에서 3D 화면에 그릴 공정을 고릅니다.' });
   title.textContent = '공정 필터';
@@ -118,6 +119,12 @@ export function createFilterPanel(): FilterPanel {
     onPgMatch: () => {},
     onLive: () => {},
     liveOn: () => liveCheck.checked,
+    setLive(on) {
+      if (liveCheck.checked === on) return;
+      liveCheck.checked = on;
+      setPref('sim_live', on ? '1' : '0');
+      api.onLive(on);
+    },
     setItems(next, keepSelection = false) {
       const prev = new Set(selected);
       items = [...next];
@@ -151,7 +158,6 @@ export function createFilterPanel(): FilterPanel {
   });
   btnReset.addEventListener('click', () => api.onReset());
   pgCheck.addEventListener('change', () => api.onPgMatch(pgCheck.checked));
-  liveCheck.addEventListener('change', () => { setPref('sim_live', liveCheck.checked ? '1' : '0'); api.onLive(liveCheck.checked); });
   const save = (): void => {
     setPref('stop_at_text', textCheck.checked ? '1' : '0');
     setPref('stop_text_value', textInput.value);
