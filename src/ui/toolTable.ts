@@ -1,4 +1,4 @@
-// ② 공구 리스트 표 — 원본 _build_tool_panel / set_table_row / _relayout_tool_table (NC_Tool_List.py 4320~, 5432~)
+// 공구 리스트 표 — 원본 _build_tool_panel / set_table_row / _relayout_tool_table (NC_Tool_List.py 4320~, 5432~)
 // 밀링 16열 / 선반 14열. 밀링은 패널 폭에 맞춰 줄이고(하한 0.45), 선반은 줄이지 않고 가로 스크롤.
 import { spindleAlertText, sameNumber, type SpindleCheck } from '../core/alerts';
 import {
@@ -121,7 +121,7 @@ export function createToolTable(): ToolTable {
   const root = el('div', { class: 'tool-panel' });
   const bar = el('div', { class: 'tool-bar' });
   const label = el('span', { class: 'tool-title' });
-  label.textContent = '② 공구 리스트 (복사용)';
+  label.textContent = '공구 리스트 (복사용)';
   const count = el('span', { class: 'tool-count' });
   count.textContent = '공구 0개';
   const modeCombo = el('select', { 'aria-label': '산출 모드', title: '산출 모드: 밀링 / 선반' });

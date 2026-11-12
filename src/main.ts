@@ -82,7 +82,7 @@ const HELP_TEXT = [
   '  두 번 탭: 전체 맞춤   두 번 탭 후 누른 채 위아래로 끌기: 연속 확대·축소',
   '  세 손가락 위아래: 원근감(FOV)',
   '  길게 누른 뒤(0.4초) 끌기: 사각형 영역 확대 → 위치 찍기 모드가 켜집니다.',
-  '  📍 버튼(또는 영역 확대 뒤)에서 경로를 탭하면 가장 가까운 선의 프로그램 줄로 이동합니다.',
+  '  위치 찍기(과녁 모양) 버튼(또는 영역 확대 뒤)에서 경로를 탭하면 가장 가까운 선의 프로그램 줄로 이동합니다.',
   '  방향 큐브의 면을 탭하면 해당 방향으로 바뀝니다. 뒤로 버튼으로 위치 찍기를 끝냅니다.',
   '',
   '■ 재생 (PG 매칭)',
@@ -118,7 +118,7 @@ function mount(root: HTMLElement): void {
 
   // ---------- 제목 줄 ----------
   const topBar = el('header', { class: 'top-bar' });
-  topBar.innerHTML = `<span class="title">${APP_NAME} v${APP_VERSION}</span>` +
+  topBar.innerHTML = `<span class="title">${APP_NAME}</span><span class="ver">v${APP_VERSION}</span>` +
     `<span class="caption" id="file-caption">Android</span><span class="spacer"></span>`;
   const btnSettings = el('button', { class: 'icon-btn', title: '설정', type: 'button' }, icon('gear'));
   const btnHelp = el('button', { class: 'icon-btn', title: '도움말', type: 'button' }, icon('help'));
@@ -135,7 +135,7 @@ function mount(root: HTMLElement): void {
   const btnEditSave = toolButton('저장', 'save', '편집 내용을 파일에 저장 (원래 인코딩·줄바꿈 유지)');
   const btnEditPw = toolButton('비밀번호', 'key', '편집 모드 비밀번호 변경');
   const editLabel = el('span', { class: 'edit-label' });
-  editLabel.textContent = '✎ 편집 중';
+  editLabel.innerHTML = `${icon('pencil')}<span>편집 중</span>`;
   btnEditSave.hidden = true;
   btnEditPw.hidden = true;
   editLabel.hidden = true;
@@ -179,7 +179,7 @@ function mount(root: HTMLElement): void {
   // ---------- 본문 ----------
   const body = el('main', { class: 'body' });
   const programPane = el('section', { class: 'pane program-pane' });
-  programPane.innerHTML = '<div class="pane-head">① 프로그램 입력</div>';
+  programPane.innerHTML = '<div class="pane-head">프로그램 입력</div>';
   const editorHost = el('div', { class: 'editor-host' });
   const editor = createEditor(editorHost, {
     fontSize: getPrefNumber('editor_font_px', 9, 9, 32),

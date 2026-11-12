@@ -7,7 +7,7 @@ export function startPlaceholderViewer(host: HTMLElement): void {
   try {
     renderer = new THREE.WebGLRenderer({ antialias: true });
   } catch (error) {
-    host.innerHTML = '<div class="placeholder" style="color:#c7d0e0">WebGL을 시작할 수 없습니다.<br>' +
+    host.innerHTML = '<div class="placeholder" style="color:#a6aab1">WebGL을 시작할 수 없습니다.<br>' +
       String(error) + '</div>';
     return;
   }

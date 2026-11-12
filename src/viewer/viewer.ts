@@ -15,6 +15,7 @@ import { CUT_LINE_BASE_WIDTH, FOV_MAX, FOV_MIN, toolpathLineWidth } from '../cor
 import { getPref, setPref } from '../platform/prefs';
 import { getViewerSettings, onViewerSettings } from '../platform/viewerSettings';
 import { el } from '../ui/dialog';
+import { icon } from '../icons';
 import { cutGroups, groupAt, type CutGroup } from './entryArrow';
 import { buildToolGeometry } from './toolMesh';
 import { toolShapeFromValues, type ToolValues } from '../sim/toolShape';
@@ -228,6 +229,12 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     parent.append(b);
     return b;
   };
+  const mkIconBtn = (parent: HTMLElement, name: string, title: string): HTMLButtonElement => {
+    const b = el('button', { type: 'button', title, 'aria-label': title, class: 'v-icon' });
+    b.innerHTML = icon(name);
+    parent.append(b);
+    return b;
+  };
   const projButtons: HTMLButtonElement[] = [];
   let pickMode = false;
   const cube = el('div', { class: 'v-cube' });
@@ -273,7 +280,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     projBar.replaceChildren();
     projButtons.length = 0;
     const names = lathe ? ['ISO', 'LATHE'] : ['ISO', 'XY', 'XZ', 'YZ'];
-    const pick = mkBtn(projBar, '📍', '위치 찍기: 경로를 탭하면 그 줄로 이동');
+    const pick = mkIconBtn(projBar, 'pin', '위치 찍기: 경로를 탭하면 그 줄로 이동');
     pick.classList.toggle('on', pickMode);
     pick.addEventListener('click', () => { pickMode = !pickMode; pick.classList.toggle('on', pickMode); });
     for (const name of names) {
@@ -285,10 +292,10 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     sectionBtn.hidden = !lathe;
   };
 
-  const bPrevTool = mkBtn(playBar, '⏮', '이전 공정');
-  const bRewind = mkBtn(playBar, '↺', '처음으로');
-  const bPlay = mkBtn(playBar, '▶', '재생 / 정지');
-  const bNextTool = mkBtn(playBar, '⏭', '다음 공정');
+  const bPrevTool = mkIconBtn(playBar, 'prev', '이전 공정');
+  const bRewind = mkIconBtn(playBar, 'rewind', '처음으로');
+  const bPlay = mkIconBtn(playBar, 'play', '재생 / 정지');
+  const bNextTool = mkIconBtn(playBar, 'next', '다음 공정');
   const speedSel = el('select', { title: '재생 속도' });
   for (const s of PLAY_SPEEDS) speedSel.append(new Option(`${s}x`, String(s)));
   speedSel.value = '50';
@@ -774,14 +781,14 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     if (emit) hooks.onLine?.(lineAtSeq(result, seqNow));
   }
 
-  const stopPlaying = (): void => { playing = false; bPlay.textContent = '▶'; };
+  const stopPlaying = (): void => { playing = false; bPlay.innerHTML = icon('play'); };
   const startPlaying = (): void => {
     if (!result) return;
     if (seqNow >= sequenceLength(result) - 1) { seqNow = 0; showSeq(0, true); }
     virtualTime = elapsedSecondsAtSeq(result, seqNow, sortedKeys);
     lastFrame = performance.now();
     playing = true;
-    bPlay.textContent = '⏸';
+    bPlay.innerHTML = icon('pause');
   };
   bPlay.addEventListener('click', () => (playing ? stopPlaying() : startPlaying()));
   bRewind.addEventListener('click', () => { stopPlaying(); showSeq(0, true); });

@@ -9,7 +9,7 @@ export interface Fallback2D {
 export function createFallback2D(host: HTMLElement, message: string): Fallback2D {
   host.innerHTML = '';
   const note = document.createElement('div');
-  note.style.cssText = 'position:absolute;left:8px;top:8px;right:8px;color:#c7d0e0;font-size:12px;z-index:1;pointer-events:none';
+  note.style.cssText = 'position:absolute;left:8px;top:8px;right:8px;color:#a6aab1;font-size:12px;z-index:1;pointer-events:none';
   note.textContent = `3D 화면(WebGL)을 쓸 수 없어 2D 평면 보기로 표시합니다. (${message})`;
   const canvas = document.createElement('canvas');
   canvas.style.cssText = 'width:100%;height:100%;display:block;background:#11151c';
