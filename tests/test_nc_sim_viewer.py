@@ -607,6 +607,45 @@ G1 X1.
         self.assertTrue(np.allclose(axis, NCViewerWidget.tool_axis_from_rotary(True, -90.0, 0.0, 20.0)))
         self.assertNotIn(lines.index('G1 X1.'), viewer.line_axis_map)         # G69 이후
 
+    def _g68_frame(self, machine, g68_line):
+        """G68.2 한 줄을 적용한 뒤 로컬 Z(공구 축)과 로컬 X+10 이동의 월드 좌표."""
+        program = """M6 T1
+%s
+G53.1
+G43 Z0. H1
+G1 X0. Y0. Z0.
+G1 X10. Y0. Z0.
+G69
+""" % g68_line
+        viewer = load_viewer(self, program, machine)
+        lines = program.splitlines()
+        axis = np.array(viewer.line_axis_map[lines.index('G1 X0. Y0. Z0.')])
+        nodes = {n['src_line']: n for path in viewer.tool_paths.values() for n in path if n.get('valid')}
+        x_pt = np.array(nodes[lines.index('G1 X10. Y0. Z0.')]['pt'])
+        return axis, x_pt
+
+    def test_g68_2_k_rotates_inside_the_tilted_plane_not_the_tool_axis(self):
+        """v2.5.4: Fanuc 오일러 Z-X-Z. I0 J35 K180 = I180 J-35 K0(같은 평면),
+        I0 J-35 K0은 반대편 면. A→C/B→C 모두 같은 결과."""
+        s, c = np.sin(np.radians(35)), np.cos(np.radians(35))
+        for machine in (AC_MACHINE, BC_MACHINE):
+            axis1, x1 = self._g68_frame(machine, 'G68.2 X0. Y0. Z0. I0. J35. K180.')
+            axis2, x2 = self._g68_frame(machine, 'G68.2 X0. Y0. Z0. I180. J-35. K0.')
+            axis3, x3 = self._g68_frame(machine, 'G68.2 X0. Y0. Z0. I0. J-35. K0.')
+            self.assertTrue(np.allclose(axis1, (0.0, -s, c), atol=1e-9), machine)
+            self.assertTrue(np.allclose(axis2, axis1, atol=1e-9), machine)
+            self.assertTrue(np.allclose(x1, (-10.0, 0.0, 0.0), atol=1e-6), machine)
+            self.assertTrue(np.allclose(x2, x1, atol=1e-6), machine)
+            self.assertTrue(np.allclose(axis3, (0.0, s, c), atol=1e-9), machine)
+            self.assertTrue(np.allclose(x3, (10.0, 0.0, 0.0), atol=1e-6), machine)
+
+    def test_g68_2_p1_is_roll_pitch_yaw(self):
+        """G68.2 P1: 공작물 고정축 X(I)→Y(J)→Z(K) 순서 회전 = Rz(K)·Ry(J)·Rx(I)."""
+        axis, x_pt = self._g68_frame(BC_MACHINE, 'G68.2 P1 X0. Y0. Z0. I0. J30. K90.')
+        s, c = np.sin(np.radians(30)), np.cos(np.radians(30))
+        self.assertTrue(np.allclose(axis, (0.0, s, c), atol=1e-9))         # Ry(30)z=(s,0,c) → Rz(90)
+        self.assertTrue(np.allclose(x_pt, (0.0, 10.0 * c, -10.0 * s), atol=1e-6))
+
     def test_g68_2_feature_origin_is_applied(self):
         program = """M6 T1
 G68.2 X10. Y20. Z30. I0. J0. K0.

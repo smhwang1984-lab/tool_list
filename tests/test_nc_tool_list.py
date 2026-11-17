@@ -683,7 +683,8 @@ X60 Y10 Z0
         self.assertEqual(app.FILE_ASSOCIATION_PROG_ID, 'NCToolList.NCProgram')
         self.assertEqual(app.FILE_ASSOCIATION_EXTENSIONS, ('.nc', '.mpf', '.tap'))
     @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
-    def test_5axis_ac_and_bc_machine_settings_apply_different_g68_rotations(self):
+    def test_5axis_ac_and_bc_machine_settings_apply_the_same_g68_euler_rotation(self):
+        # v2.5.4: G68.2(P0)는 장비 종류와 무관하게 Fanuc 오일러 Z-X-Z다. I90 = Z 둘레 90°.
         qapp = app.QApplication.instance() or app.QApplication([])
         from nc_viewer_widget import NCViewerWidget
 
@@ -708,8 +709,8 @@ G01 X10 Y0 Z0
             self.assertAlmostEqual(ac_pt[0], 0.0, places=6)
             self.assertAlmostEqual(ac_pt[1], 10.0, places=6)
             self.assertAlmostEqual(ac_pt[2], 0.0, places=6)
-            self.assertAlmostEqual(bc_pt[0], 10.0, places=6)
-            self.assertAlmostEqual(bc_pt[1], 0.0, places=6)
+            self.assertAlmostEqual(bc_pt[0], 0.0, places=6)
+            self.assertAlmostEqual(bc_pt[1], 10.0, places=6)
             self.assertAlmostEqual(bc_pt[2], 0.0, places=6)
         finally:
             viewer.deleteLater()

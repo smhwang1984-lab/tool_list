@@ -5254,15 +5254,6 @@ class NCViewerWidget(QWidget):
                 self.tool_filter_list.item(row).setSelected(selected)
         self.update_visible_paths()
 
-    def get_rotation_matrix(self, i_deg, j_deg, k_deg):
-        rad_i = np.radians(i_deg)
-        rad_j = np.radians(j_deg)
-        rad_k = np.radians(k_deg)
-        r_i = np.array([[1, 0, 0], [0, np.cos(rad_i), -np.sin(rad_i)], [0, np.sin(rad_i), np.cos(rad_i)]])
-        r_j = np.array([[np.cos(rad_j), 0, np.sin(rad_j)], [0, 1, 0], [-np.sin(rad_j), 0, np.cos(rad_j)]])
-        r_k = np.array([[np.cos(rad_k), -np.sin(rad_k), 0], [np.sin(rad_k), np.cos(rad_k), 0], [0, 0, 1]])
-        return r_k @ r_j @ r_i
-
     @staticmethod
     def tool_axis_from_rotary(is_ac, a_deg, b_deg, c_deg):
         """G43.4(공구 중심점 제어)에서 회전축 값이 정하는 공구 축(월드, 단위벡터).
@@ -5277,16 +5268,39 @@ class NCViewerWidget(QWidget):
         b = np.radians(b_deg)
         return (float(np.sin(b) * np.cos(c)), float(np.sin(b) * np.sin(c)), float(np.cos(b)))
 
-    def get_5axis_rotation_matrix(self, machine_type, i_deg, j_deg, k_deg):
-        if MACHINE_5AXIS_AC in machine_type:
-            rad_a = np.radians(j_deg)
-            rad_c = np.radians(i_deg)
-            rad_k = np.radians(k_deg)
-            r_a = np.array([[1, 0, 0], [0, np.cos(rad_a), -np.sin(rad_a)], [0, np.sin(rad_a), np.cos(rad_a)]])
-            r_c = np.array([[np.cos(rad_c), -np.sin(rad_c), 0], [np.sin(rad_c), np.cos(rad_c), 0], [0, 0, 1]])
-            r_k = np.array([[np.cos(rad_k), -np.sin(rad_k), 0], [np.sin(rad_k), np.cos(rad_k), 0], [0, 0, 1]])
-            return r_k @ r_c @ r_a
-        return self.get_rotation_matrix(i_deg, j_deg, k_deg)
+    @staticmethod
+    def _axis_rotation(axis, deg):
+        """좌표축(0=X, 1=Y, 2=Z) 둘레 회전 행렬(오른손 법칙)."""
+        r = np.radians(deg)
+        c, s = np.cos(r), np.sin(r)
+        if axis == 0:
+            return np.array([[1, 0, 0], [0, c, -s], [0, s, c]])
+        if axis == 1:
+            return np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]])
+        return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
+
+    def get_5axis_rotation_matrix(self, machine_type, i_deg, j_deg, k_deg, p_mode=0, q_order=None):
+        """G68.2 특징 좌표계 회전(월드 = 원점 + R · 로컬). 장비 종류(A→C / B→C)와 무관하다.
+
+        v2.5.4: Fanuc G68.2 기본(P0)은 오일러각 Z-X-Z — R = Rz(I)·Rx(J)·Rz(K).
+        K는 기울어진 Z' 둘레 회전이라 공구 축은 바꾸지 않고 면 안의 X/Y 방향만 돌린다.
+        예전 A→C 계산(Rz(K)·Rz(I)·Rx(J))은 K를 월드 Z 둘레로 돌려 I와 같은 효과가 났고,
+        I0 J35 K180이 반대편 면(공구 축 Y 부호 반대)으로 그려졌다. 실제 기계에서는
+        I0 J35 K180 = I180 J-35 K0 이 같은 평면이다.
+        예전 B→C 계산(Rz(K)·Ry(J)·Rx(I))은 롤-피치-요 지령(G68.2 P1)의 정의라 P1에만 쓴다.
+        P1의 Q는 회전 순서(1=X/I, 2=Y/J, 3=Z/K, 기본 Q123)이며 공작물 고정축 기준이다.
+        P2/P3 등 다른 지령 방식은 아직 해석하지 않고 P0으로 계산한다."""
+        if p_mode == 1:
+            angles = {1: (0, i_deg), 2: (1, j_deg), 3: (2, k_deg)}
+            order = str(q_order or "123")
+            if sorted(order) != ["1", "2", "3"]:
+                order = "123"
+            matrix = np.eye(3)
+            for digit in order:
+                axis, deg = angles[int(digit)]
+                matrix = self._axis_rotation(axis, deg) @ matrix   # 고정축: 나중 회전이 왼쪽
+            return matrix
+        return self._axis_rotation(2, i_deg) @ self._axis_rotation(0, j_deg) @ self._axis_rotation(2, k_deg)
 
     def process_nc_lines(self, lines):
         self._clear_path_items()
@@ -5371,6 +5385,7 @@ class NCViewerWidget(QWidget):
         lathe_milling_active = False
         g68_pending = False
         pending_i, pending_j, pending_k = 0.0, 0.0, 0.0
+        pending_p, pending_q = 0, None
         active_matrix = np.eye(3)
         # v1.10.0: G68.2 특징 좌표계 원점(X Y Z) — 월드 = 원점 + R · 로컬. G43.4(공구
         # 중심점 제어) 활성 여부 — 켜져 있는 동안 A/B/C 값이 공구 축 방향을 정한다.
@@ -5874,6 +5889,11 @@ class NCViewerWidget(QWidget):
                     pending_i = float(i_m.group(1)) if i_m else 0.0
                     pending_j = float(j_m.group(1)) if j_m else 0.0
                     pending_k = float(k_m.group(1)) if k_m else 0.0
+                    # v2.5.4: P(지령 방식: 0=오일러, 1=롤-피치-요), Q(P1 회전 순서)
+                    p_m = re.search(r"P\s*\+?(\d+)", line_upper)
+                    q_m = re.search(r"Q\s*\+?(\d+)", line_upper)
+                    pending_p = int(p_m.group(1)) if p_m else 0
+                    pending_q = q_m.group(1) if q_m else None
                     ox_m = x_pattern.search(line_upper)
                     oy_m = y_pattern.search(line_upper)
                     oz_m = z_pattern.search(line_upper)
@@ -5885,7 +5905,7 @@ class NCViewerWidget(QWidget):
 
                 if g53_1_pattern.search(line_upper) and g68_pending:
                     active_matrix = self.get_5axis_rotation_matrix(
-                        machine_type, pending_i, pending_j, pending_k
+                        machine_type, pending_i, pending_j, pending_k, pending_p, pending_q
                     )
                     active_origin = pending_origin.copy()
                     g68_pending = False
