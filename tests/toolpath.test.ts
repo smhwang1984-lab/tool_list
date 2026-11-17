@@ -69,3 +69,33 @@ describe('toolpath 골든', () => {
     });
   }
 });
+
+// 원본 v2.5.4: G68.2 는 Fanuc 오일러 Z-X-Z (A→C/B→C 공통), P1 은 롤-피치-요.
+describe('G68.2 회전 (원본 test_g68_2_k_rotates_inside_the_tilted_plane_not_the_tool_axis)', () => {
+  const frame = (machine: string, g68: string) => {
+    const lines = ['M6 T1', g68, 'G53.1', 'G43 Z0. H1', 'G1 X0. Y0. Z0.', 'G1 X10. Y0. Z0.', 'G69'];
+    const r = processNcLines(lines, machine, undefined);
+    const axis = r.line_axis_map.get(4)!;
+    const pts = [...r.tool_paths.values()].flat().filter((n) => n.valid && n.src_line === 5);
+    return { axis, x: pts[0]!.pt };
+  };
+  const close = (a: readonly number[], b: readonly number[]) =>
+    a.forEach((v, i) => expect(v).toBeCloseTo(b[i]!, 6));
+  const s = Math.sin((35 * Math.PI) / 180), c = Math.cos((35 * Math.PI) / 180);
+  for (const machine of ['5축 MCT (A to C)', '5축 MCT (B to C)']) {
+    it(machine, () => {
+      const a = frame(machine, 'G68.2 X0. Y0. Z0. I0. J35. K180.');
+      const b = frame(machine, 'G68.2 X0. Y0. Z0. I180. J-35. K0.');
+      const d = frame(machine, 'G68.2 X0. Y0. Z0. I0. J-35. K0.');
+      close(a.axis, [0, -s, c]); close(b.axis, a.axis);
+      close(a.x, [-10, 0, 0]); close(b.x, a.x);
+      close(d.axis, [0, s, c]); close(d.x, [10, 0, 0]);
+    });
+  }
+  it('P1 롤-피치-요', () => {
+    const r = frame('5축 MCT (B to C)', 'G68.2 P1 X0. Y0. Z0. I0. J30. K90.');
+    const s3 = 0.5, c3 = Math.sqrt(0.75);
+    close(r.axis, [0, s3, c3]);
+    close(r.x, [0, 10 * c3, -10 * s3]);
+  });
+});

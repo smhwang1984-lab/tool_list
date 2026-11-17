@@ -183,22 +183,31 @@ export function formatDuration(seconds: number): string {
 }
 
 // ---------------------------------------------------------------- 5축 회전
-function rotationMatrix(i: number, j: number, k: number): Mat3 {
-  const ri = rad(i), rj = rad(j), rk = rad(k);
-  const mi: Mat3 = [[1, 0, 0], [0, Math.cos(ri), -Math.sin(ri)], [0, Math.sin(ri), Math.cos(ri)]];
-  const mj: Mat3 = [[Math.cos(rj), 0, Math.sin(rj)], [0, 1, 0], [-Math.sin(rj), 0, Math.cos(rj)]];
-  const mk: Mat3 = [[Math.cos(rk), -Math.sin(rk), 0], [Math.sin(rk), Math.cos(rk), 0], [0, 0, 1]];
-  return matMul(matMul(mk, mj), mi);
+function axisRotation(axis: 0 | 1 | 2, deg: number): Mat3 {
+  const r = rad(deg), c = Math.cos(r), s = Math.sin(r);
+  if (axis === 0) return [[1, 0, 0], [0, c, -s], [0, s, c]];
+  if (axis === 1) return [[c, 0, s], [0, 1, 0], [-s, 0, c]];
+  return [[c, -s, 0], [s, c, 0], [0, 0, 1]];
 }
-function fiveAxisRotationMatrix(machineType: string, i: number, j: number, k: number): Mat3 {
-  if (machineType.includes(MACHINE_5AXIS_AC)) {
-    const ra = rad(j), rc = rad(i), rk = rad(k);
-    const a: Mat3 = [[1, 0, 0], [0, Math.cos(ra), -Math.sin(ra)], [0, Math.sin(ra), Math.cos(ra)]];
-    const c: Mat3 = [[Math.cos(rc), -Math.sin(rc), 0], [Math.sin(rc), Math.cos(rc), 0], [0, 0, 1]];
-    const kk: Mat3 = [[Math.cos(rk), -Math.sin(rk), 0], [Math.sin(rk), Math.cos(rk), 0], [0, 0, 1]];
-    return matMul(matMul(kk, c), a);
+/** G68.2 특징 좌표계 회전(월드 = 원점 + R · 로컬). 장비 종류(A→C / B→C)와 무관하다.
+ *  원본 v2.5.4: Fanuc 기본(P0)은 오일러각 Z-X-Z — R = Rz(I)·Rx(J)·Rz(K). K는 기울어진 Z' 둘레
+ *  회전이라 공구 축은 바꾸지 않는다(I0 J35 K180 = I180 J-35 K0). P1은 롤-피치-요:
+ *  Q(회전 순서, 1=X/I 2=Y/J 3=Z/K, 기본 123)대로 공작물 고정축 둘레로 돌린다. P2/P3 등은 P0으로 계산. */
+export function fiveAxisRotationMatrix(
+  _machineType: string, i: number, j: number, k: number, pMode = 0, qOrder: string | null = null,
+): Mat3 {
+  if (pMode === 1) {
+    const angles: Record<string, [0 | 1 | 2, number]> = { '1': [0, i], '2': [1, j], '3': [2, k] };
+    let order = qOrder ?? '123';
+    if ([...order].sort().join('') !== '123') order = '123';
+    let m: Mat3 = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+    for (const d of order) {
+      const [axis, deg] = angles[d]!;
+      m = matMul(axisRotation(axis, deg), m);   // 고정축: 나중 회전이 왼쪽
+    }
+    return m;
   }
-  return rotationMatrix(i, j, k);
+  return matMul(matMul(axisRotation(2, i), axisRotation(0, j)), axisRotation(2, k));
 }
 export function toolAxisFromRotary(isAc: boolean, a: number, b: number, c: number): Vec3 {
   const rc = rad(c);
@@ -500,6 +509,7 @@ export function processNcLines(lines: readonly string[], machineType: string, sp
   let latheMilling = false;
   let g68Pending = false;
   let pendI = 0, pendJ = 0, pendK = 0;
+  let pendP = 0, pendQ: string | null = null;
   let activeMatrix = eye();
   let pendingOrigin: number[] = [0, 0, 0];
   let activeOrigin: number[] = [0, 0, 0];
@@ -724,10 +734,14 @@ export function processNcLines(lines: readonly string[], machineType: string, sp
         pendI = numOr0(I_PAT.exec(lineUpper));
         pendJ = numOr0(J_PAT.exec(lineUpper));
         pendK = numOr0(K_PAT.exec(lineUpper));
+        const pm = /P\s*\+?(\d+)/.exec(lineUpper);
+        const qm = /Q\s*\+?(\d+)/.exec(lineUpper);
+        pendP = pm ? parseInt(pm[1]!, 10) : 0;
+        pendQ = qm ? qm[1]! : null;
         pendingOrigin = [numOr0(X_PAT.exec(lineUpper)), numOr0(Y_PAT.exec(lineUpper)), numOr0(Z_PAT.exec(lineUpper))];
       }
       if (G53_1.test(lineUpper) && g68Pending) {
-        activeMatrix = fiveAxisRotationMatrix(machineType, pendI, pendJ, pendK);
+        activeMatrix = fiveAxisRotationMatrix(machineType, pendI, pendJ, pendK, pendP, pendQ);
         activeOrigin = [...pendingOrigin];
         g68Pending = false;
       }
