@@ -52,7 +52,10 @@ Last updated: 2026-11-05 (NC_Tool_List v2.3.0 — 로컬 v2.2.9(STOCK SIZE)와 G
 - Version: 2.5.3 → 2.5.4
 - Summary: 사용자 요청. **G68.2 경사면 회전을 실제 Fanuc 정의(오일러 Z-X-Z, R = Rz(I)·Rx(J)·Rz(K))로 수정 — A→C/B→C 공통.** 예전 A→C 계산은 K를 월드 Z 둘레로 돌려(Rz(K)·Rz(I)·Rx(J)) K≠0이면 공구 축까지 바뀌었다(`G68.2 I0 J35 K180`이 반대편 면으로 그려짐; 기계에서는 `I180 J-35 K0`과 같은 평면). 예전 B→C 계산(Rz(K)·Ry(J)·Rx(I))은 롤-피치-요라 이제 `G68.2 P1`(Q 회전 순서, 기본 Q123)에만 쓴다. K=0인 A→C 프로그램은 결과 변화 없음. B→C에서 P 없이 I/J/K를 쓴 프로그램은 그림이 바뀐다(실제 기계와 맞게). P2/P3 등은 아직 P0으로 계산.
 - Open source: 변경 없음.
-- Installer/package status: 미생성(소스만 반영).
+- Installer/package status: **생성 완료**. `installer\NC_Tool_List_Setup_v2.5.4.exe`(dist exe 파일 버전 2.5.4.0). 기동 확인은 설치본 앱이 실행 중이라 단일 실행 핸드오프로 바로 넘어가 생략.
+  - Setup EXE SHA-256: 8179A68ED7C0181D7E5366F8992210490209C77A37164D8408FEAC0B866F73C6
+  - 같이 만든 안드로이드: tool_list_android v1.9.7 `out\SumPath_v1.9.7.apk`(release 서명 확인), SHA-256 DBDB314A53E4C02EBF6C591B8A139325C5A8193816BF428AB4B1A4DF8C18959B
+  - CLAUDE.md 4절 추가: 안드로이드 앱과 연계 규칙(로직 변경·빌드는 두 저장소 같이).
 - Verification: pytest(빌드 venv) 867 통과 / 2 실패(이번 변경과 무관: 선반↔밀링 장비 타입 복귀 테스트, 실행 중 앱 인스턴스 때문에 단일 실행 핸드오프 테스트). 신규 테스트: `I0 J35 K180` = `I180 J-35 K0`, `I0 J-35 K0` 반대편 면(A→C/B→C), P1 롤-피치-요.
 
 ### 2026-11-11 (v2.5.3)
