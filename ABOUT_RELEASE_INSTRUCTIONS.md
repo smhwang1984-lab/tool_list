@@ -47,7 +47,17 @@ Last updated: 2026-11-05 (NC_Tool_List v2.3.0 — 로컬 v2.2.9(STOCK SIZE)와 G
 
 ## Version history
 
-### 2026-11-17 (latest, v2.5.4)
+### 2026-11-19 (latest, v2.5.5)
+
+- Version: 2.5.4 → 2.5.5
+- Summary: 사용자 요청(시안 A 승인). **REMARK의 M300/M200을 2줄로** — 1줄 `N3(G41), N7`, 2줄 `M300H3 · M200`(같은 코드는 합침, H 불일치는 빨간색). PDF에서 REMARK 글이 위·아래 행에 겹치던 문제와 화면에서 가려지던 문제를 같이 해결. PDF 열 비율 REMARK 88→130(NAME 150→135, 홀더 140→113). 2줄 행은 PDF 글자 6.0/5.4pt·위아래 여백 0.3pt로 15.5pt 행 안에 맞춤. 엑셀 복사 시 줄바꿈은 공백으로. **공구 리스트 확대/축소**: Ctrl+휠, Ctrl+`+`/`-`, Ctrl+0(처음 크기), 확대하면 가로 스크롤바.
+- Open source: 변경 없음.
+- Installer/package status: 미생성(빌드 PC에서 생성 필요).
+- 같이 반영한 안드로이드: tool_list_android v1.9.8(REMARK 2줄 표기·PDF 배치, 정규식 u 플래그/lastIndex 버그 수정).
+- Verification: tests/test_v237_probe_remark.py 2개 통과. 이 PC 파이썬에는 PyQt5/numpy가 없어 GUI 테스트(34개)는 실행 못 함(변경 전과 동일). 화면·PDF 실제 모양은 빌드 PC에서 확인 필요.
+
+
+### 2026-11-17 (v2.5.4)
 
 - Version: 2.5.3 → 2.5.4
 - Summary: 사용자 요청. **G68.2 경사면 회전을 실제 Fanuc 정의(오일러 Z-X-Z, R = Rz(I)·Rx(J)·Rz(K))로 수정 — A→C/B→C 공통.** 예전 A→C 계산은 K를 월드 Z 둘레로 돌려(Rz(K)·Rz(I)·Rx(J)) K≠0이면 공구 축까지 바뀌었다(`G68.2 I0 J35 K180`이 반대편 면으로 그려짐; 기계에서는 `I180 J-35 K0`과 같은 평면). 예전 B→C 계산(Rz(K)·Ry(J)·Rx(I))은 롤-피치-요라 이제 `G68.2 P1`(Q 회전 순서, 기본 Q123)에만 쓴다. K=0인 A→C 프로그램은 결과 변화 없음. B→C에서 P 없이 I/J/K를 쓴 프로그램은 그림이 바뀐다(실제 기계와 맞게). P2/P3 등은 아직 P0으로 계산.

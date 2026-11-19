@@ -33,9 +33,9 @@ import lathe_insert_spec
 import sumpath_license
 
 
-APP_VERSION = '2.5.4'
+APP_VERSION = '2.5.5'
 APP_NAME = 'Sum Path'
-APP_BUILD_DATE = '2026-11-17'
+APP_BUILD_DATE = '2026-11-19'
 APP_CREATOR = 'Hwang.seonmun'
 APP_PURPOSE = 'NC 프로그램에서 공구 리스트를 산출하고 NC 경로를 Viewer로 확인하는 도구'
 OPEN_SOURCE_COMPONENTS = (
@@ -504,11 +504,13 @@ def code_without_comments(line):
 RADIUS_COMP_RE = re.compile(r'G0*4([12])(?![\d.])', re.I)
 # 화면/PDF에서 굵게 그릴 부분을 되짚어 찾을 때 쓰는, REMARK 표시 문구
 # 안의 "(G41)"/"(G42)"/"(G41/G42)" 패턴.
-RADIUS_COMP_DISPLAY_RE = re.compile(r'\(G4[12](?:/G4[12])*\)|\(M[23]00(?:H\d+(?:≠H\d+)?)?\)')
+RADIUS_COMP_DISPLAY_RE = re.compile(
+    r'\(G4[12](?:/G4[12])*\)|\(M[23]00(?:H\d+(?:≠H\d+)?)?\)'
+    r'|(?<![A-Za-z\d])M[23]00(?:H\d+(?:≠H\d+)?)?(?!\d)')
 # v2.3.7: M300/M200(H번호) 표기 — "(M300H1)". 공정의 G43 H(없으면 M6 T)와 다르면
 # "(M300H2≠H1)" 로 적고 화면/PDF에서 빨간 글씨로 그린다.
 M_PROBE_RE = re.compile(r'(?<![A-Z])M0*([23]00)(?![\d.])\s*(?:H\s*0*(\d+)(?![\d.]))?', re.I)
-RADIUS_COMP_MISMATCH_RE = re.compile(r'\(M[23]00H\d+≠H\d+\)')
+RADIUS_COMP_MISMATCH_RE = re.compile(r'\(?M[23]00H\d+≠H\d+\)?')
 # M98 P<n>로 부르는 서브프로그램(O<n> 헤더 ~ M99 또는 다음 O헤더) 안의
 # G41/G42도 호출한 N에 포함한다(결정 D) — 뷰어의 상태 추적형
 # _expand_subprograms()(nc_viewer_widget.py)는 재사용하지 않는다. 공구
@@ -622,16 +624,37 @@ def _radius_comp_by_n(lines, n_re):
     return result
 
 
+PROBE_TOKEN_RE = re.compile(r'\(M[23]00(?:H\d+(?:≠H\d+)?)?\)')
+
+
 def _format_remark(labels, comp_map):
     """REMARK 표시 문구를 만든다 — "N8(G41), N9, N10" 형태(v1.7.8).
+    v2.5.5: M300/M200 표기는 1줄에 섞지 않고 2줄로 내린다 —
+    "N3(G41), N7\nM300H3 · M200"(같은 코드는 합침, H 불일치는 그대로).
+    PDF 셀 넘침·화면 잘림을 막으려는 사용자 확정안 A.
     comp_map에 없는 라벨은 접미어 없이 그대로 둔다."""
-    return ', '.join(label + comp_map.get(label, '') for label in labels)
+    heads = []
+    probes = []
+    for label in labels:
+        suffix = comp_map.get(label, '')
+        for token in PROBE_TOKEN_RE.findall(suffix):
+            text = token[1:-1]
+            if text not in probes:
+                probes.append(text)
+        heads.append(label + PROBE_TOKEN_RE.sub('', suffix))
+    text = ', '.join(heads)
+    if probes:
+        text += '\n' + ' · '.join(probes)
+    return text
 
 
 def _measure_remark_width(text, regular_metrics, bold_metrics):
     """REMARK 텍스트 폭을 잰다 — "(G41)" 표기 부분은 굵은 글꼴 폭으로,
     나머지는 보통 글꼴 폭으로 재서 합산한다(v1.7.8, 선반 표 동적 열 폭이
     굵은 글씨 때문에 셀을 잘라먹지 않도록)."""
+    if '\n' in text:
+        return max(_measure_remark_width(part, regular_metrics, bold_metrics)
+                   for part in text.split('\n'))
     total = 0
     pos = 0
     for match in RADIUS_COMP_DISPLAY_RE.finditer(text):
@@ -733,7 +756,8 @@ TOOL_TABLE_MIN_SCALE = 0.45
 TOOL_MODE_COMBO_EXTRA_PX = 46
 
 # TOOL_LIST_PG.xlsx의 A:P 열 폭 비율
-PDF_COLUMN_WEIGHTS = [48, 100, 150, 40, 40, 40, 40, 40, 40, 40, 40, 60, 140, 70, 70, 88]
+# v2.5.5: REMARK 88→130(프로브 2줄 표기 자리), NAME 150→135, 홀더 140→113 — 합계 동일.
+PDF_COLUMN_WEIGHTS = [48, 100, 135, 40, 40, 40, 40, 40, 40, 40, 40, 60, 113, 70, 70, 130]
 PDF_ROWS_PER_PAGE = 28
 PDF_INFO_BLUE = colors.HexColor('#BDDDEE')
 PDF_HEADER_GRAY = colors.HexColor('#BFBFBF')
@@ -844,19 +868,28 @@ def _pdf_remark_cell(text, regular_font, bold_font):
     그대로(None 포함) 돌려줘 회귀가 없다."""
     if not text or not RADIUS_COMP_DISPLAY_RE.search(text):
         return text
+    two_line = '\n' in text
+    # v2.5.5: 2줄(N번호 / 프로브)이면 15.5pt 행에 들어가게 글자·줄간격을 줄인다.
+    size, leading = (6.0, 6.6) if two_line else (6.5, 8)
     style = ParagraphStyle(
-        'PdfRemarkComp', fontName=regular_font, fontSize=6.5, leading=8,
+        'PdfRemarkComp', fontName=regular_font, fontSize=size, leading=leading,
         textColor=PDF_FONT_BLUE, leftIndent=0, rightIndent=0,
     )
-    pos = 0
-    chunks = []
-    for match in RADIUS_COMP_DISPLAY_RE.finditer(text):
-        chunks.append(escape(text[pos:match.start()]))
-        color = ' color="#d00000"' if RADIUS_COMP_MISMATCH_RE.fullmatch(match.group(0)) else ''
-        chunks.append('<font face="%s"%s>%s</font>' % (bold_font, color, escape(match.group(0))))
-        pos = match.end()
-    chunks.append(escape(text[pos:]))
-    return Paragraph(''.join(chunks), style)
+    lines = []
+    for index, line in enumerate(text.split('\n')):
+        pos = 0
+        chunks = []
+        for match in RADIUS_COMP_DISPLAY_RE.finditer(line):
+            chunks.append(escape(line[pos:match.start()]))
+            color = ' color="#d00000"' if RADIUS_COMP_MISMATCH_RE.fullmatch(match.group(0)) else ''
+            chunks.append('<font face="%s"%s>%s</font>' % (bold_font, color, escape(match.group(0))))
+            pos = match.end()
+        chunks.append(escape(line[pos:]))
+        body = ''.join(chunks)
+        if two_line and index == 1:
+            body = '<font size="%.1f">%s</font>' % (size - 0.6, body)
+        lines.append(body)
+    return Paragraph('<br/>'.join(lines), style)
 
 
 def _pdf_row_cells(row, columns, regular_font, bold_font):
@@ -886,7 +919,16 @@ def make_pdf_table(rows, metadata, available_width, fonts):
     for check_key in ('SPINDL', 'NO'):
         col = keys.index(check_key)
         alerts.extend((col, 2 + i) for i, row in enumerate(page_rows) if row.get('_%s_ALERT' % check_key))
-    return style_pdf_table(data, available_width, regular_font, bold_font, alerts)
+    table = style_pdf_table(data, available_width, regular_font, bold_font, alerts)
+    # v2.5.5: REMARK이 2줄인 행은 위·아래 여백을 줄여 15.5pt 행 안에 넣는다.
+    remark_col = keys.index('REMARK')
+    tight = [('TOPPADDING', (remark_col, 2 + i), (remark_col, 2 + i), 0.3)
+             for i, row in enumerate(page_rows) if '\n' in str(row.get('REMARK') or '')]
+    tight += [('BOTTOMPADDING', (remark_col, 2 + i), (remark_col, 2 + i), 0.3)
+              for i, row in enumerate(page_rows) if '\n' in str(row.get('REMARK') or '')]
+    if tight:
+        table.setStyle(TableStyle(tight))
+    return table
 
 
 def style_pdf_table(data, available_width, regular_font, bold_font, so_alerts=()):
@@ -2280,10 +2322,32 @@ else:
         setSizes()처럼 프로그램적으로 크기를 바꿀 때는 발생하지 않아 이
         위젯 자체의 resizeEvent가 필요하다."""
         resized = pyqtSignal()
+        # v2.5.5: Ctrl+휠 / Ctrl+(+,-,0)로 표 확대·축소. +1 확대, -1 축소, 0 처음 크기.
+        zoom_requested = pyqtSignal(int)
 
         def resizeEvent(self, event):
             super().resizeEvent(event)
             self.resized.emit()
+
+        def wheelEvent(self, event):
+            if event.modifiers() & Qt.ControlModifier:
+                self.zoom_requested.emit(1 if event.angleDelta().y() > 0 else -1)
+                event.accept()
+                return
+            super().wheelEvent(event)
+
+        def keyPressEvent(self, event):
+            if event.modifiers() & Qt.ControlModifier:
+                if event.key() in (Qt.Key_Plus, Qt.Key_Equal):
+                    self.zoom_requested.emit(1)
+                    return
+                if event.key() == Qt.Key_Minus:
+                    self.zoom_requested.emit(-1)
+                    return
+                if event.key() == Qt.Key_0:
+                    self.zoom_requested.emit(0)
+                    return
+            super().keyPressEvent(event)
 
     class RemarkCompDelegate(QStyledItemDelegate):
         """REMARK 열에서 "(G41)"/"(G42)" 같은 경보정 표기만 굵게 그린다
@@ -2323,17 +2387,21 @@ else:
 
         @staticmethod
         def _to_html(text):
-            pos = 0
-            chunks = []
-            for match in RADIUS_COMP_DISPLAY_RE.finditer(text):
-                chunks.append(escape(text[pos:match.start()]))
-                if RADIUS_COMP_MISMATCH_RE.fullmatch(match.group(0)):
-                    chunks.append('<b style="color:#d00000;">%s</b>' % escape(match.group(0)))
-                else:
-                    chunks.append('<b>%s</b>' % escape(match.group(0)))
-                pos = match.end()
-            chunks.append(escape(text[pos:]))
-            return ''.join(chunks)
+            # v2.5.5: 2줄 표기(N번호 / M300·M200) — 줄바꿈은 <br>로 그린다.
+            lines = []
+            for line in text.split('\n'):
+                pos = 0
+                chunks = []
+                for match in RADIUS_COMP_DISPLAY_RE.finditer(line):
+                    chunks.append(escape(line[pos:match.start()]))
+                    if RADIUS_COMP_MISMATCH_RE.fullmatch(match.group(0)):
+                        chunks.append('<b style="color:#d00000;">%s</b>' % escape(match.group(0)))
+                    else:
+                        chunks.append('<b>%s</b>' % escape(match.group(0)))
+                    pos = match.end()
+                chunks.append(escape(line[pos:]))
+                lines.append(''.join(chunks))
+            return '<br>'.join(lines)
 
     class NcSyntaxHighlighter(QSyntaxHighlighter):
         """v2.2.7: NC 코드 모달 색 표시(글자색만 바꾼다). 계산은 nc_color_line()이 한다."""
@@ -4476,6 +4544,11 @@ else:
             # v1.6.3: 표 폭이 바뀔 때마다(스플리터 드래그 포함) 폰트/셀 폭을
             # 다시 맞춰 가로 스크롤바가 생기지 않게 한다.
             self.table.resized.connect(self._relayout_tool_table)
+            # v2.5.5: 표 확대·축소(Ctrl+휠) — 확대하면 가로 스크롤바가 생긴다.
+            self._tool_zoom = 1.0
+            self.table.zoom_requested.connect(self._zoom_tool_table)
+            self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+            self.table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
             # v1.7.8: REMARK 열의 "(G41)" 표기만 굵게 그리는 델리게이트.
             # 부모를 self.table로 둬 표와 수명을 같이한다.
             self._remark_delegate = RemarkCompDelegate(self.table)
@@ -5600,6 +5673,8 @@ else:
                 scale = 1.0
             else:
                 scale = min(1.0, max(TOOL_TABLE_MIN_SCALE, available / width_total))
+            # v2.5.5: 사용자 확대/축소 배율(1.0 = 패널에 맞춤)을 곱한다.
+            scale *= getattr(self, '_tool_zoom', 1.0)
 
             table_font = QFont('맑은 고딕')
             table_font.setPointSizeF(TABLE_FONT_PT * scale)
@@ -5616,6 +5691,22 @@ else:
             # 계산해야 한다 — setFont()만으로는 이미 만들어진 행 높이가
             # 자동으로 갱신되지 않는다.
             table.resizeRowsToContents()
+
+        def _zoom_tool_table(self, step):
+            """v2.5.5: 공구 리스트 표 확대/축소. step +1/-1은 한 단계(약 12%),
+            0은 패널에 맞춘 처음 크기. 0.5~3배로 제한하고, 1배보다 크면
+            가로 스크롤바로 옆을 본다."""
+            if step == 0:
+                zoom = 1.0
+            else:
+                zoom = self._tool_zoom * (1.12 if step > 0 else 1 / 1.12)
+                zoom = min(3.0, max(0.5, zoom))
+                if abs(zoom - 1.0) < 0.04:
+                    zoom = 1.0
+            self._tool_zoom = zoom
+            self._relayout_tool_table()
+            self.count.setText('표 확대 %d%% (Ctrl+0 처음 크기)' % round(zoom * 100))
+            QTimer.singleShot(1800, self.update_count)
 
         def resizeEvent(self, event):
             super().resizeEvent(event)
@@ -6251,7 +6342,7 @@ else:
             if self.with_header.isChecked():
                 lines.append('\t'.join(label for _key, label in columns))
             for row in self.current_rows():
-                lines.append('\t'.join(str(row.get(key, '')) for key, _label in columns))
+                lines.append('\t'.join(str(row.get(key, '')).replace(chr(10), ' ') for key, _label in columns))
             QApplication.clipboard().setText('\n'.join(lines))
             self.count.setText('복사됨! 엑셀에서 Ctrl+V')
             QTimer.singleShot(1800, self.update_count)
