@@ -52,7 +52,8 @@ Last updated: 2026-11-05 (NC_Tool_List v2.3.0 — 로컬 v2.2.9(STOCK SIZE)와 G
 - Version: 2.5.8 → 2.5.9
 - Summary: 사용자 요청 3건. **① REMARK 한 줄 표기.** 2줄 표기를 폐지하고 한 줄로 쓴다 — 모든 N이 같은 측정 코드를 쓰면 `M300 N1, N2, N3`, 안 쓰는 N이 섞이면 안 쓰는 N을 먼저 적고 `N1, M300:N2, N3`, H가 있으면 `N1, M300H1:N2, N3`, 코드가 둘이면 같은 N 묶음은 `M300H1·M200:N3`, 묶음이 다르면 ` · `로 잇는다(H 불일치 `M300H6≠H5`는 빨간 굵은 글씨 그대로, 구분은 쉼표). PDF 맞춤은 넘치면 `M300H3:N3 외2`로 줄인다. **② 5축 테이블 회전 표시.** PG 매칭 재생 중 3D 뷰 `테이블 회전`(기본 켜짐, 설정에 기억)이 켜져 있으면 공구는 기계 방향에 고정하고 소재·툴패스·가공 형상이 A/B/C 값만큼 돈다(A→C: 공구 수직·테이블이 A로 기울고 C로 돎, B→C: 공구가 B만큼 기울고 테이블이 C로 돎, 4축: B 회전, G68.2 경사면은 공구 축에서 각도를 구함, 회전 중심은 공작물 원점). 진입 방향 화살표·커서 구도 같이 돈다. **③ G43.4에서 공구가 수직으로 보이던 문제.** 원인은 뷰어 장비 설정이 3축 MCT여서 회전축 값으로 공구 축을 계산하지 않았기 때문 — 3축 설정이어도 프로그램에 G43.4/G68.2와 회전축 워드가 있으면 B 워드는 B→C, A 워드는 A→C로 읽어 계산하고 좌표 표시줄에 `5축 B→C로 계산 · 장비 설정 3축`을 띄운다(장비 설정 자체는 안 바꿈).
 - Open source: 변경 없음.
-- Installer/package status: **미생성**(빌드 PC에서 PyInstaller + Inno Setup).
+- Installer/package status: **생성 완료**. `installer\NC_Tool_List_Setup_v2.5.9.exe`(dist exe 파일 버전 2.5.9.0, 실행 10초 확인).
+  - Setup EXE SHA-256: 3AB8493FDF6088EADB15759F01B72CF56D9D54D4A09FD61237E8BD6AD45B8D18
 - 같이 반영한 안드로이드: tool_list_android v2.0.2(같은 REMARK 표기·`fitRemarkLine`, 같은 자동 판정 `detectRotaryMachine`, three.js 뷰어 `테이블 회전` 토글). 골든은 3축 설정 툴패스가 5축으로 읽히므로 다시 뽑았고, Z-map 골든은 5축 파일이 3D 엔진으로 가서 순수 3축 샘플 `zmap3_plain.nc`로 바꿨다.
 - Verification: 데스크톱 pytest 883 통과(기존부터 실패하던 `ToolListModeComboTests` 1건 제외 — 원본 HEAD에서도 같은 실패), 안드로이드 `npm test` 300 통과. 새 시험: `test_v237_probe_remark.py`(한 줄 표기·PDF 맞춤), `test_nc_sim_viewer.py`(`TableRotationTests`, 3축 설정 자동 판정), `tests/rotaryAuto.test.ts`. 화면에서 직접 돌려본 확인은 아직 안 함.
 
