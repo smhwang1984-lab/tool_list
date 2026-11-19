@@ -1,0 +1,293 @@
+{
+ "func": "_strip_lathe_tool_prefix",
+ "calls": [
+  {
+   "args": [
+    "T05- BMT STRAIGHT"
+   ],
+   "result": "BMT STRAIGHT"
+  },
+  {
+   "args": [
+    "T05-6.0 R0.5 E/M / D-6. / R-0.5"
+   ],
+   "result": "6.0 R0.5 E/M / D-6. / R-0.5"
+  },
+  {
+   "args": [
+    "T06 - SLEEVE"
+   ],
+   "result": "SLEEVE"
+  },
+  {
+   "args": [
+    "T06 - D50.0 X H103 T-DRILL"
+   ],
+   "result": "D50.0 X H103 T-DRILL"
+  },
+  {
+   "args": [
+    "T01 - PCLNR 2525M 12"
+   ],
+   "result": "PCLNR 2525M 12"
+  },
+  {
+   "args": [
+    "T01 - CNMG 120408 | R-0.8"
+   ],
+   "result": "CNMG 120408 | R-0.8"
+  },
+  {
+   "args": [
+    "T01 - PCLNR 2525M 12 (FINISH)"
+   ],
+   "result": "PCLNR 2525M 12 (FINISH)"
+  },
+  {
+   "args": [
+    "T01 - CNMG 120404 | R-0.4"
+   ],
+   "result": "CNMG 120404 | R-0.4"
+  },
+  {
+   "args": [
+    "T03 - S07J SWUBR 06-D08"
+   ],
+   "result": "S07J SWUBR 06-D08"
+  },
+  {
+   "args": [
+    "T03 - INSERT B [SO 40]"
+   ],
+   "result": "INSERT B [SO 40]"
+  },
+  {
+   "args": [
+    "T04- BMT STRAIGHT"
+   ],
+   "result": "BMT STRAIGHT"
+  },
+  {
+   "args": [
+    "T04-10.0 R0.5 E/M / D-10. / R-0.5"
+   ],
+   "result": "10.0 R0.5 E/M / D-10. / R-0.5"
+  },
+  {
+   "args": [
+    "T07- BMT STRAIGHT"
+   ],
+   "result": "BMT STRAIGHT"
+  },
+  {
+   "args": [
+    "T07-4.0 R0.5 E/M / D-4. / R-0.5"
+   ],
+   "result": "4.0 R0.5 E/M / D-4. / R-0.5"
+  },
+  {
+   "args": [
+    "T03 - SVJCR 2525 M16 [SO 40]"
+   ],
+   "result": "SVJCR 2525 M16 [SO 40]"
+  },
+  {
+   "args": [
+    "T03 - VCMT 16 04 04 | R-0.4"
+   ],
+   "result": "VCMT 16 04 04 | R-0.4"
+  },
+  {
+   "args": [
+    "T03 - SVJCR 2525 M16"
+   ],
+   "result": "SVJCR 2525 M16"
+  },
+  {
+   "args": [
+    "T03 - VCMT 16 04 04 | R-0.4 [SO 40]"
+   ],
+   "result": "VCMT 16 04 04 | R-0.4 [SO 40]"
+  },
+  {
+   "args": [
+    "T01 - G41 COMPENSATION HOLDER"
+   ],
+   "result": "G41 COMPENSATION HOLDER"
+  },
+  {
+   "args": [
+    "T10 - S40T PCLNR 12 - 50"
+   ],
+   "result": "S40T PCLNR 12 - 50"
+  },
+  {
+   "args": [
+    "T10 - CNMG 120408 | R-0.8"
+   ],
+   "result": "CNMG 120408 | R-0.8"
+  },
+  {
+   "args": [
+    "T03 - VCMT 160404 | R-0.4"
+   ],
+   "result": "VCMT 160404 | R-0.4"
+  },
+  {
+   "args": [
+    "T08 - S16R STFPR 11 - D20"
+   ],
+   "result": "S16R STFPR 11 - D20"
+  },
+  {
+   "args": [
+    "T08 - TPGT 110302 | R-0.2"
+   ],
+   "result": "TPGT 110302 | R-0.2"
+  },
+  {
+   "args": [
+    "T12 - MILL TOOL CHECK"
+   ],
+   "result": "MILL TOOL CHECK"
+  },
+  {
+   "args": [
+    "T12 - D10 X 90 NC DRILL"
+   ],
+   "result": "D10 X 90 NC DRILL"
+  },
+  {
+   "args": [
+    "T04 - MILL TOOL CHECK"
+   ],
+   "result": "MILL TOOL CHECK"
+  },
+  {
+   "args": [
+    "T04 - D5.5 CARBIDE DRILL, ANGLE"
+   ],
+   "result": "D5.5 CARBIDE DRILL, ANGLE"
+  },
+  {
+   "args": [
+    "T07 - MILL TOOL CHECK"
+   ],
+   "result": "MILL TOOL CHECK"
+  },
+  {
+   "args": [
+    "T07 - D4.5 CARBIDE DRILL, ANGLE"
+   ],
+   "result": "D4.5 CARBIDE DRILL, ANGLE"
+  },
+  {
+   "args": [
+    "T09 - MILL TOOL CHECK"
+   ],
+   "result": "MILL TOOL CHECK"
+  },
+  {
+   "args": [
+    "T09 - D3. FLAT END MILL, ANGLE"
+   ],
+   "result": "D3. FLAT END MILL, ANGLE"
+  },
+  {
+   "args": [
+    "T01 - SER 2525M16 [R 0.1]"
+   ],
+   "result": "SER 2525M16 [R 0.1]"
+  },
+  {
+   "args": [
+    "T01 - 16ER AG60 [SO 40]"
+   ],
+   "result": "16ER AG60 [SO 40]"
+  },
+  {
+   "args": [
+    "T02 - MGEHR 2525-3"
+   ],
+   "result": "MGEHR 2525-3"
+  },
+  {
+   "args": [
+    "T02 - N123G2-0300-0004-GM [T 3.2]"
+   ],
+   "result": "N123G2-0300-0004-GM [T 3.2]"
+  },
+  {
+   "args": [
+    "T03 - PCLNR 2525M 12"
+   ],
+   "result": "PCLNR 2525M 12"
+  },
+  {
+   "args": [
+    "T03 - CNMG 120408"
+   ],
+   "result": "CNMG 120408"
+  },
+  {
+   "args": [
+    "T04 - PCLNR 2525M 12"
+   ],
+   "result": "PCLNR 2525M 12"
+  },
+  {
+   "args": [
+    "T04 - CNMG 120408"
+   ],
+   "result": "CNMG 120408"
+  },
+  {
+   "args": [
+    "T05 - S25T-MGEHR 3"
+   ],
+   "result": "S25T-MGEHR 3"
+  },
+  {
+   "args": [
+    "T05 - MY-GROOVE INSERT"
+   ],
+   "result": "MY-GROOVE INSERT"
+  },
+  {
+   "args": [
+    "T07 - MGEHR 2525-3"
+   ],
+   "result": "MGEHR 2525-3"
+  },
+  {
+   "args": [
+    "T09 - SER 2525M16"
+   ],
+   "result": "SER 2525M16"
+  },
+  {
+   "args": [
+    "T09 - 16ER AG60"
+   ],
+   "result": "16ER AG60"
+  },
+  {
+   "args": [
+    "T01 - CNMG 120408 [R 0.8]"
+   ],
+   "result": "CNMG 120408 [R 0.8]"
+  },
+  {
+   "args": [
+    "T02 - PCLNR 2525M 12"
+   ],
+   "result": "PCLNR 2525M 12"
+  },
+  {
+   "args": [
+    "T02 - CNMG 120408"
+   ],
+   "result": "CNMG 120408"
+  }
+ ]
+}

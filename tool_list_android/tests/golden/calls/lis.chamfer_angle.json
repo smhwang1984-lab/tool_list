@@ -1,0 +1,53 @@
+{
+ "func": "lis.chamfer_angle",
+ "calls": [
+  {
+   "args": [
+    "D12 CARBIDE DRILL"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "CNMG 120408"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "D2X90X6 CHAMF EN"
+   ],
+   "result": 90.0
+  },
+  {
+   "args": [
+    "CNMG 120400"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "N123G2-0300-0004-GM"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "CNMG 120404"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "16ER AG60"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "MY-GROOVE"
+   ],
+   "result": null
+  }
+ ]
+}

@@ -1,0 +1,304 @@
+{
+ "func": "lathe_tool_name_map_from_rows",
+ "calls": [
+  {
+   "args": [
+    [
+     {
+      "__lathe_row__": {
+       "NO": "T0101",
+       "INSERT": "CNMG 120408 | R-0.8",
+       "R": "0.8",
+       "T": "",
+       "PITCH": "",
+       "HOLDER": "PCLNR 2525M 12",
+       "SO": "",
+       "KIND": "외경",
+       "DIR": "R",
+       "TIP": "3",
+       "D": "",
+       "SPINDL": "G96S225",
+       "FEED": "",
+       "REMARK": "N2, N3"
+      },
+      "sources": {
+       "R": "인서트 문구",
+       "T": "",
+       "PITCH": "",
+       "KIND": "자동 추천",
+       "DIR": "자동 추천",
+       "TIP": "자동 추천",
+       "D": ""
+      }
+     },
+     {
+      "__lathe_row__": {
+       "NO": "T0111",
+       "INSERT": "CNMG 120404 | R-0.4",
+       "R": "0.4",
+       "T": "",
+       "PITCH": "",
+       "HOLDER": "PCLNR 2525M 12 (FINISH)",
+       "SO": "",
+       "KIND": "외경",
+       "DIR": "R",
+       "TIP": "3",
+       "D": "",
+       "SPINDL": "",
+       "FEED": "",
+       "REMARK": "N4"
+      },
+      "sources": {
+       "R": "인서트 문구",
+       "T": "",
+       "PITCH": "",
+       "KIND": "자동 추천",
+       "DIR": "자동 추천",
+       "TIP": "자동 추천",
+       "D": ""
+      }
+     },
+     {
+      "NO": "",
+      "INSERT": "",
+      "R": "",
+      "T": "",
+      "PITCH": "",
+      "HOLDER": "",
+      "SO": "",
+      "KIND": "",
+      "DIR": "",
+      "TIP": "",
+      "D": "",
+      "SPINDL": "",
+      "FEED": "",
+      "REMARK": ""
+     },
+     {
+      "NO": "",
+      "INSERT": "",
+      "R": "",
+      "T": "",
+      "PITCH": "",
+      "HOLDER": "",
+      "SO": "",
+      "KIND": "",
+      "DIR": "",
+      "TIP": "",
+      "D": "",
+      "SPINDL": "",
+      "FEED": "",
+      "REMARK": ""
+     },
+     {
+      "NO": "",
+      "INSERT": "",
+      "R": "",
+      "T": "",
+      "PITCH": "",
+      "HOLDER": "",
+      "SO": "",
+      "KIND": "",
+      "DIR": "",
+      "TIP": "",
+      "D": "",
+      "SPINDL": "",
+      "FEED": "",
+      "REMARK": ""
+     },
+     {
+      "NO": "",
+      "INSERT": "",
+      "R": "",
+      "T": "",
+      "PITCH": "",
+      "HOLDER": "",
+      "SO": "",
+      "KIND": "",
+      "DIR": "",
+      "TIP": "",
+      "D": "",
+      "SPINDL": "",
+      "FEED": "",
+      "REMARK": ""
+     },
+     {
+      "__lathe_row__": {
+       "NO": "T0606",
+       "INSERT": "D50.0 X H103 T-DRILL",
+       "R": "",
+       "T": "",
+       "PITCH": "",
+       "HOLDER": "SLEEVE",
+       "SO": "",
+       "KIND": "드릴",
+       "DIR": "N",
+       "TIP": "",
+       "D": "50",
+       "SPINDL": "G97S800",
+       "FEED": "",
+       "REMARK": "N1"
+      },
+      "sources": {
+       "R": "",
+       "T": "",
+       "PITCH": "",
+       "KIND": "자동 추천",
+       "DIR": "자동 추천",
+       "TIP": "",
+       "D": "인서트 문구"
+      }
+     }
+    ]
+   ],
+   "result": {
+    "T01": "CNMG 120408 | R-0.8",
+    "T06": "D50.0 X H103 T-DRILL"
+   }
+  },
+  {
+   "args": [
+    [
+     {
+      "NO": "",
+      "INSERT": "",
+      "R": "",
+      "T": "",
+      "PITCH": "",
+      "HOLDER": "",
+      "SO": "",
+      "KIND": "",
+      "DIR": "",
+      "TIP": "",
+      "D": "",
+      "SPINDL": "",
+      "FEED": "",
+      "REMARK": ""
+     },
+     {
+      "NO": "",
+      "INSERT": "",
+      "R": "",
+      "T": "",
+      "PITCH": "",
+      "HOLDER": "",
+      "SO": "",
+      "KIND": "",
+      "DIR": "",
+      "TIP": "",
+      "D": "",
+      "SPINDL": "",
+      "FEED": "",
+      "REMARK": ""
+     },
+     {
+      "NO": "",
+      "INSERT": "",
+      "R": "",
+      "T": "",
+      "PITCH": "",
+      "HOLDER": "",
+      "SO": "",
+      "KIND": "",
+      "DIR": "",
+      "TIP": "",
+      "D": "",
+      "SPINDL": "",
+      "FEED": "",
+      "REMARK": ""
+     },
+     {
+      "__lathe_row__": {
+       "NO": "T0404",
+       "INSERT": "10.0 R0.5 E/M / D-10. / R-0.5",
+       "R": "0.5",
+       "T": "",
+       "PITCH": "",
+       "HOLDER": "BMT STRAIGHT",
+       "SO": "",
+       "KIND": "엔드밀",
+       "DIR": "",
+       "TIP": "",
+       "D": "",
+       "SPINDL": "G97S2300",
+       "FEED": "",
+       "REMARK": "N1"
+      },
+      "sources": {
+       "R": "인서트 문구",
+       "T": "",
+       "PITCH": "",
+       "KIND": "자동 추천",
+       "DIR": "",
+       "TIP": "",
+       "D": ""
+      }
+     },
+     {
+      "NO": "",
+      "INSERT": "",
+      "R": "",
+      "T": "",
+      "PITCH": "",
+      "HOLDER": "",
+      "SO": "",
+      "KIND": "",
+      "DIR": "",
+      "TIP": "",
+      "D": "",
+      "SPINDL": "",
+      "FEED": "",
+      "REMARK": ""
+     },
+     {
+      "NO": "",
+      "INSERT": "",
+      "R": "",
+      "T": "",
+      "PITCH": "",
+      "HOLDER": "",
+      "SO": "",
+      "KIND": "",
+      "DIR": "",
+      "TIP": "",
+      "D": "",
+      "SPINDL": "",
+      "FEED": "",
+      "REMARK": ""
+     },
+     {
+      "__lathe_row__": {
+       "NO": "T0707",
+       "INSERT": "4.0 R0.5 E/M / D-4. / R-0.5",
+       "R": "0.5",
+       "T": "",
+       "PITCH": "",
+       "HOLDER": "BMT STRAIGHT",
+       "SO": "",
+       "KIND": "엔드밀",
+       "DIR": "",
+       "TIP": "",
+       "D": "",
+       "SPINDL": "",
+       "FEED": "",
+       "REMARK": "N2"
+      },
+      "sources": {
+       "R": "인서트 문구",
+       "T": "",
+       "PITCH": "",
+       "KIND": "자동 추천",
+       "DIR": "",
+       "TIP": "",
+       "D": ""
+      }
+     }
+    ]
+   ],
+   "result": {
+    "T04": "10.0 R0.5 E/M / D-10. / R-0.5",
+    "T07": "4.0 R0.5 E/M / D-4. / R-0.5"
+   }
+  }
+ ]
+}

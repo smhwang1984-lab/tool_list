@@ -1,0 +1,54 @@
+{
+ "func": "_same_number",
+ "calls": [
+  {
+   "args": [
+    "90",
+    "90"
+   ],
+   "result": true
+  },
+  {
+   "args": [
+    "80",
+    "85"
+   ],
+   "result": false
+  },
+  {
+   "args": [
+    "80",
+    "80"
+   ],
+   "result": true
+  },
+  {
+   "args": [
+    "45",
+    "45"
+   ],
+   "result": true
+  },
+  {
+   "args": [
+    "50",
+    "50"
+   ],
+   "result": true
+  },
+  {
+   "args": [
+    "40",
+    "40"
+   ],
+   "result": true
+  },
+  {
+   "args": [
+    "33",
+    "33"
+   ],
+   "result": true
+  }
+ ]
+}

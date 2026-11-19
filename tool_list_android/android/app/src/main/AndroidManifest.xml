@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme">
+
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
+            android:name=".MainActivity"
+            android:label="@string/title_activity_main"
+            android:theme="@style/AppTheme.NoActionBarLaunch"
+            android:launchMode="singleTask"
+            android:screenOrientation="sensorLandscape"
+            android:exported="true">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- 다른 앱(파일 앱·메일·메신저)에서 "Sum Path로 열기" — 텍스트/일반 파일 -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="text/*" />
+                <data android:mimeType="application/x-netcdf" />
+                <data android:mimeType="application/netcdf" />
+                <data android:mimeType="application/x-gcode" />
+                <data android:mimeType="application/gcode" />
+                <data android:mimeType="application/x-nc" />
+                <data android:mimeType="application/vnd.nc" />
+                <data android:mimeType="application/x-tap" />
+                <data android:mimeType="application/x-mpf" />
+                <data android:mimeType="application/x-nccode" />
+            </intent-filter>
+
+            <!-- 확장자로 구분하는 NC 파일(.nc .mpf .tap .min .prg ...) — 종류가 */* 로 오는 경우 -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:host="*" />
+                <data android:mimeType="*/*" />
+                <data android:pathPattern=".*\\.nc" />
+                <data android:pathPattern=".*\\..*\\.nc" />
+                <data android:pathPattern=".*\\..*\\..*\\.nc" />
+                <data android:pathPattern=".*\\.NC" />
+                <data android:pathPattern=".*\\..*\\.NC" />
+                <data android:pathPattern=".*\\..*\\..*\\.NC" />
+                <data android:pathPattern=".*\\.mpf" />
+                <data android:pathPattern=".*\\..*\\.mpf" />
+                <data android:pathPattern=".*\\..*\\..*\\.mpf" />
+                <data android:pathPattern=".*\\.MPF" />
+                <data android:pathPattern=".*\\..*\\.MPF" />
+                <data android:pathPattern=".*\\..*\\..*\\.MPF" />
+                <data android:pathPattern=".*\\.tap" />
+                <data android:pathPattern=".*\\..*\\.tap" />
+                <data android:pathPattern=".*\\..*\\..*\\.tap" />
+                <data android:pathPattern=".*\\.TAP" />
+                <data android:pathPattern=".*\\..*\\.TAP" />
+                <data android:pathPattern=".*\\..*\\..*\\.TAP" />
+                <data android:pathPattern=".*\\.nccode" />
+                <data android:pathPattern=".*\\..*\\.nccode" />
+                <data android:pathPattern=".*\\..*\\..*\\.nccode" />
+                <data android:pathPattern=".*\\.NCCODE" />
+                <data android:pathPattern=".*\\..*\\.NCCODE" />
+                <data android:pathPattern=".*\\..*\\..*\\.NCCODE" />
+                <data android:pathPattern=".*\\.min" />
+                <data android:pathPattern=".*\\..*\\.min" />
+                <data android:pathPattern=".*\\..*\\..*\\.min" />
+                <data android:pathPattern=".*\\.MIN" />
+                <data android:pathPattern=".*\\..*\\.MIN" />
+                <data android:pathPattern=".*\\..*\\..*\\.MIN" />
+                <data android:pathPattern=".*\\.prg" />
+                <data android:pathPattern=".*\\..*\\.prg" />
+                <data android:pathPattern=".*\\..*\\..*\\.prg" />
+                <data android:pathPattern=".*\\.PRG" />
+                <data android:pathPattern=".*\\..*\\.PRG" />
+                <data android:pathPattern=".*\\..*\\..*\\.PRG" />
+                <data android:pathPattern=".*\\.txt" />
+                <data android:pathPattern=".*\\..*\\.txt" />
+                <data android:pathPattern=".*\\..*\\..*\\.txt" />
+                <data android:pathPattern=".*\\.TXT" />
+                <data android:pathPattern=".*\\..*\\.TXT" />
+                <data android:pathPattern=".*\\..*\\..*\\.TXT" />
+                <data android:pathPattern=".*\\.cnc" />
+                <data android:pathPattern=".*\\..*\\.cnc" />
+                <data android:pathPattern=".*\\..*\\..*\\.cnc" />
+                <data android:pathPattern=".*\\.CNC" />
+                <data android:pathPattern=".*\\..*\\.CNC" />
+                <data android:pathPattern=".*\\..*\\..*\\.CNC" />
+                <data android:pathPattern=".*\\.ptp" />
+                <data android:pathPattern=".*\\..*\\.ptp" />
+                <data android:pathPattern=".*\\..*\\..*\\.ptp" />
+                <data android:pathPattern=".*\\.PTP" />
+                <data android:pathPattern=".*\\..*\\.PTP" />
+                <data android:pathPattern=".*\\..*\\..*\\.PTP" />
+                <data android:pathPattern=".*\\.spf" />
+                <data android:pathPattern=".*\\..*\\.spf" />
+                <data android:pathPattern=".*\\..*\\..*\\.spf" />
+                <data android:pathPattern=".*\\.SPF" />
+                <data android:pathPattern=".*\\..*\\.SPF" />
+                <data android:pathPattern=".*\\..*\\..*\\.SPF" />
+                <data android:pathPattern=".*\\.ngc" />
+                <data android:pathPattern=".*\\..*\\.ngc" />
+                <data android:pathPattern=".*\\..*\\..*\\.ngc" />
+                <data android:pathPattern=".*\\.NGC" />
+                <data android:pathPattern=".*\\..*\\.NGC" />
+                <data android:pathPattern=".*\\..*\\..*\\.NGC" />
+                <data android:pathPattern=".*\\.gcode" />
+                <data android:pathPattern=".*\\..*\\.gcode" />
+                <data android:pathPattern=".*\\..*\\..*\\.gcode" />
+                <data android:pathPattern=".*\\.GCODE" />
+                <data android:pathPattern=".*\\..*\\.GCODE" />
+                <data android:pathPattern=".*\\..*\\..*\\.GCODE" />
+            </intent-filter>
+
+            <!-- 공유 → Sum Path -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="application/octet-stream" />
+            </intent-filter>
+
+        </activity>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths"></meta-data>
+        </provider>
+    </application>
+
+    <!-- Permissions -->
+
+    <uses-permission android:name="android.permission.INTERNET" />
+</manifest>

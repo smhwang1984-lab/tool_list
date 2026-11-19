@@ -1,0 +1,143 @@
+{
+ "func": "lis.mill_type_for",
+ "calls": [
+  {
+   "args": [
+    "드릴",
+    "D12 CARBIDE DRILL"
+   ],
+   "result": "DRILL"
+  },
+  {
+   "args": [
+    "외경",
+    "CNMG 120408"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "드릴"
+   ],
+   "result": "DRILL"
+  },
+  {
+   "args": [
+    "페이스커터",
+    "D50. FACE CUTTER"
+   ],
+   "result": "FACE MILL"
+  },
+  {
+   "args": [
+    "엔드밀",
+    "D16 FLAT END MILL"
+   ],
+   "result": "FLAT E/M"
+  },
+  {
+   "args": [
+    "엔드밀",
+    "D6 BALL END MILL"
+   ],
+   "result": "BALL E/M"
+  },
+  {
+   "args": [
+    "엔드밀",
+    "D12 X R1.5 FILLET END MILL"
+   ],
+   "result": "FILLET E/M"
+  },
+  {
+   "args": [
+    "외경"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "엔드밀",
+    "D12 FLAT EN, STRAIGHT | DIA-12."
+   ],
+   "result": "FLAT E/M"
+  },
+  {
+   "args": [
+    "엔드밀",
+    "D10.BALL EN, STRAIGHT | DIA-10. | R-5."
+   ],
+   "result": "BALL E/M"
+  },
+  {
+   "args": [
+    "엔드밀",
+    "D10XR0.8 FILLET EN, STRAIGHT | DIA-10. | R-0.8"
+   ],
+   "result": "FILLET E/M"
+  },
+  {
+   "args": [
+    "엔드밀",
+    "D2X90X6 CHAMF EN, STRAIGHT | DIA-6."
+   ],
+   "result": "CHAMF"
+  },
+  {
+   "args": [
+    "드릴",
+    ".2500-28 UNJF_3B, STRAIGHT | DIA-6.35"
+   ],
+   "result": "DRILL"
+  },
+  {
+   "args": [
+    "드릴",
+    "D5.2 CARBIDE DRILL, STRAIGHT | DIA-5.2"
+   ],
+   "result": "DRILL"
+  },
+  {
+   "args": [
+    "",
+    "CNMG 120400"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "",
+    "N123G2-0300-0004-GM"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "",
+    "CNMG 120408"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "외경",
+    "CNMG 120404"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "외경나사",
+    "16ER AG60"
+   ],
+   "result": null
+  },
+  {
+   "args": [
+    "외경홈",
+    "MY-GROOVE"
+   ],
+   "result": null
+  }
+ ]
+}

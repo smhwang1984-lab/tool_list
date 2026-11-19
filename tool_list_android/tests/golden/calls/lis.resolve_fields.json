@@ -1,0 +1,1789 @@
+{
+ "func": "lis.resolve_fields",
+ "calls": [
+  {
+   "args": [
+    "6.0 R0.5 E/M / D-6. / R-0.5",
+    "BMT STRAIGHT",
+    {},
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": true,
+     "pitch": ""
+    },
+    null
+   ],
+   "result": [
+    {
+     "R": "0.5",
+     "T": "",
+     "PITCH": "",
+     "KIND": "엔드밀",
+     "DIR": "",
+     "TIP": "",
+     "D": ""
+    },
+    {
+     "R": "인서트 문구",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "",
+     "TIP": "",
+     "D": ""
+    }
+   ]
+  },
+  {
+   "args": [
+    "CNMG 120408 | R-0.8",
+    "PCLNR 2525M 12",
+    {},
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": ""
+    },
+    null
+   ],
+   "result": [
+    {
+     "R": "0.8",
+     "T": "",
+     "PITCH": "",
+     "KIND": "외경",
+     "DIR": "R",
+     "TIP": "3",
+     "D": ""
+    },
+    {
+     "R": "인서트 문구",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "자동 추천",
+     "D": ""
+    }
+   ]
+  },
+  {
+   "args": [
+    "CNMG 120404 | R-0.4",
+    "PCLNR 2525M 12 (FINISH)",
+    {},
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": ""
+    },
+    null
+   ],
+   "result": [
+    {
+     "R": "0.4",
+     "T": "",
+     "PITCH": "",
+     "KIND": "외경",
+     "DIR": "R",
+     "TIP": "3",
+     "D": ""
+    },
+    {
+     "R": "인서트 문구",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "자동 추천",
+     "D": ""
+    }
+   ]
+  },
+  {
+   "args": [
+    "D50.0 X H103 T-DRILL",
+    "SLEEVE",
+    {},
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": ""
+    },
+    null
+   ],
+   "result": [
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "드릴",
+     "DIR": "N",
+     "TIP": "",
+     "D": "50"
+    },
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "",
+     "D": "인서트 문구"
+    }
+   ]
+  },
+  {
+   "args": [
+    "INSERT B",
+    "S07J SWUBR 06-D08",
+    {},
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": ""
+    },
+    null
+   ],
+   "result": [
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "내경",
+     "DIR": "R",
+     "TIP": "4",
+     "D": ""
+    },
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "자동 추천",
+     "D": ""
+    }
+   ]
+  },
+  {
+   "args": [
+    "10.0 R0.5 E/M / D-10. / R-0.5",
+    "BMT STRAIGHT",
+    {},
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": true,
+     "pitch": ""
+    },
+    null
+   ],
+   "result": [
+    {
+     "R": "0.5",
+     "T": "",
+     "PITCH": "",
+     "KIND": "엔드밀",
+     "DIR": "",
+     "TIP": "",
+     "D": ""
+    },
+    {
+     "R": "인서트 문구",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "",
+     "TIP": "",
+     "D": ""
+    }
+   ]
+  },
+  {
+   "args": [
+    "4.0 R0.5 E/M / D-4. / R-0.5",
+    "BMT STRAIGHT",
+    {},
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": ""
+    },
+    null
+   ],
+   "result": [
+    {
+     "R": "0.5",
+     "T": "",
+     "PITCH": "",
+     "KIND": "엔드밀",
+     "DIR": "",
+     "TIP": "",
+     "D": ""
+    },
+    {
+     "R": "인서트 문구",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "",
+     "TIP": "",
+     "D": ""
+    }
+   ]
+  },
+  {
+   "args": [
+    "VCMT 16 04 04 | R-0.4",
+    "SVJCR 2525 M16",
+    {},
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": ""
+    },
+    null
+   ],
+   "result": [
+    {
+     "R": "0.4",
+     "T": "",
+     "PITCH": "",
+     "KIND": "외경",
+     "DIR": "R",
+     "TIP": "3",
+     "D": ""
+    },
+    {
+     "R": "인서트 문구",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "자동 추천",
+     "D": ""
+    }
+   ]
+  },
+  {
+   "args": [
+    "CNMG 120408 | R-0.8",
+    "G41 COMPENSATION HOLDER",
+    {},
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": ""
+    },
+    null
+   ],
+   "result": [
+    {
+     "R": "0.8",
+     "T": "",
+     "PITCH": "",
+     "KIND": "외경",
+     "DIR": "",
+     "TIP": "",
+     "D": ""
+    },
+    {
+     "R": "인서트 문구",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "",
+     "TIP": "",
+     "D": ""
+    }
+   ]
+  },
+  {
+   "args": [
+    "VCMT 160404 | R-0.4",
+    "SVJCR 2525 M16",
+    {},
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": ""
+    },
+    null
+   ],
+   "result": [
+    {
+     "R": "0.4",
+     "T": "",
+     "PITCH": "",
+     "KIND": "외경",
+     "DIR": "R",
+     "TIP": "3",
+     "D": ""
+    },
+    {
+     "R": "인서트 문구",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "자동 추천",
+     "D": ""
+    }
+   ]
+  },
+  {
+   "args": [
+    "D5.5 CARBIDE DRILL, ANGLE",
+    "MILL TOOL CHECK",
+    {},
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": ""
+    },
+    null
+   ],
+   "result": [
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "드릴",
+     "DIR": "N",
+     "TIP": "",
+     "D": "5.5"
+    },
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "",
+     "D": "인서트 문구"
+    }
+   ]
+  },
+  {
+   "args": [
+    "D4.5 CARBIDE DRILL, ANGLE",
+    "MILL TOOL CHECK",
+    {},
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": ""
+    },
+    null
+   ],
+   "result": [
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "드릴",
+     "DIR": "N",
+     "TIP": "",
+     "D": "4.5"
+    },
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "",
+     "D": "인서트 문구"
+    }
+   ]
+  },
+  {
+   "args": [
+    "TPGT 110302 | R-0.2",
+    "S16R STFPR 11 - D20",
+    {},
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": ""
+    },
+    null
+   ],
+   "result": [
+    {
+     "R": "0.2",
+     "T": "",
+     "PITCH": "",
+     "KIND": "내경",
+     "DIR": "R",
+     "TIP": "4",
+     "D": ""
+    },
+    {
+     "R": "인서트 문구",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "자동 추천",
+     "D": ""
+    }
+   ]
+  },
+  {
+   "args": [
+    "D3. FLAT END MILL, ANGLE",
+    "MILL TOOL CHECK",
+    {},
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": ""
+    },
+    null
+   ],
+   "result": [
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "엔드밀",
+     "DIR": "",
+     "TIP": "",
+     "D": "3"
+    },
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "",
+     "TIP": "",
+     "D": "인서트 문구"
+    }
+   ]
+  },
+  {
+   "args": [
+    "CNMG 120408 | R-0.8",
+    "S40T PCLNR 12 - 50",
+    {},
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": ""
+    },
+    null
+   ],
+   "result": [
+    {
+     "R": "0.8",
+     "T": "",
+     "PITCH": "",
+     "KIND": "내경",
+     "DIR": "R",
+     "TIP": "4",
+     "D": ""
+    },
+    {
+     "R": "인서트 문구",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "자동 추천",
+     "D": ""
+    }
+   ]
+  },
+  {
+   "args": [
+    "D10 X 90 NC DRILL",
+    "MILL TOOL CHECK",
+    {},
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": true,
+     "pitch": ""
+    },
+    null
+   ],
+   "result": [
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "드릴",
+     "DIR": "N",
+     "TIP": "",
+     "D": "10"
+    },
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "",
+     "D": "인서트 문구"
+    }
+   ]
+  },
+  {
+   "args": [
+    "TPGT 110302 | R-0.2",
+    "S16R STFPR 11 - D20"
+   ],
+   "result": [
+    {
+     "R": "0.2",
+     "T": "",
+     "PITCH": "",
+     "KIND": "내경",
+     "DIR": "R",
+     "TIP": "4",
+     "D": ""
+    },
+    {
+     "R": "인서트 문구",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "자동 추천",
+     "D": ""
+    }
+   ]
+  },
+  {
+   "args": [
+    "WBGT 060102 | R-0.2",
+    "S07J SWUBR 06-D08"
+   ],
+   "result": [
+    {
+     "R": "0.2",
+     "T": "",
+     "PITCH": "",
+     "KIND": "내경",
+     "DIR": "R",
+     "TIP": "4",
+     "D": ""
+    },
+    {
+     "R": "인서트 문구",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "자동 추천",
+     "D": ""
+    }
+   ]
+  },
+  {
+   "args": [
+    "VCMT 160404",
+    "SVJCR 2525 M16"
+   ],
+   "result": [
+    {
+     "R": "0.4",
+     "T": "",
+     "PITCH": "",
+     "KIND": "외경",
+     "DIR": "R",
+     "TIP": "3",
+     "D": ""
+    },
+    {
+     "R": "ISO 규격 해석",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "자동 추천",
+     "D": ""
+    }
+   ]
+  },
+  {
+   "args": [
+    "D50.0 X H103 T-DRILL",
+    "SLEEVE"
+   ],
+   "result": [
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "드릴",
+     "DIR": "N",
+     "TIP": "",
+     "D": "50"
+    },
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "",
+     "D": "인서트 문구"
+    }
+   ]
+  },
+  {
+   "args": [
+    "D12 CARBIDE DRILL",
+    "ER25"
+   ],
+   "result": [
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "드릴",
+     "DIR": "N",
+     "TIP": "",
+     "D": "12"
+    },
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "",
+     "D": "인서트 문구"
+    }
+   ]
+  },
+  {
+   "args": [
+    "D1.5 CENTER",
+    "ER25-75"
+   ],
+   "result": [
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "드릴",
+     "DIR": "N",
+     "TIP": "",
+     "D": "1.5"
+    },
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "",
+     "D": "인서트 문구"
+    }
+   ]
+  },
+  {
+   "args": [
+    "D10 X 90 NC DRILL",
+    "MILL TOOL CHECK"
+   ],
+   "result": [
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "드릴",
+     "DIR": "N",
+     "TIP": "",
+     "D": "10"
+    },
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "",
+     "D": "인서트 문구"
+    }
+   ]
+  },
+  {
+   "args": [
+    "D5.5 CARBIDE DRILL, ANGLE",
+    "MILL TOOL CHECK"
+   ],
+   "result": [
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "드릴",
+     "DIR": "N",
+     "TIP": "",
+     "D": "5.5"
+    },
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "",
+     "D": "인서트 문구"
+    }
+   ]
+  },
+  {
+   "args": [
+    "D16 FLAT END MILL, ANGLE",
+    "MILL TOOL CHECK"
+   ],
+   "result": [
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "엔드밀",
+     "DIR": "",
+     "TIP": "",
+     "D": "16"
+    },
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "",
+     "TIP": "",
+     "D": "인서트 문구"
+    }
+   ]
+  },
+  {
+   "args": [
+    "D12 X R1.5 FILLET END MILL",
+    "ER25"
+   ],
+   "result": [
+    {
+     "R": "1.5",
+     "T": "",
+     "PITCH": "",
+     "KIND": "엔드밀",
+     "DIR": "",
+     "TIP": "",
+     "D": "12"
+    },
+    {
+     "R": "인서트 문구",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "",
+     "TIP": "",
+     "D": "인서트 문구"
+    }
+   ]
+  },
+  {
+   "args": [
+    "D50. FACE CUTTER, STRAIGHT | R-0.8",
+    "MILL TOOL CHECK"
+   ],
+   "result": [
+    {
+     "R": "0.8",
+     "T": "",
+     "PITCH": "",
+     "KIND": "페이스커터",
+     "DIR": "",
+     "TIP": "",
+     "D": "50"
+    },
+    {
+     "R": "인서트 문구",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "",
+     "TIP": "",
+     "D": "인서트 문구"
+    }
+   ]
+  },
+  {
+   "args": [
+    "D10.SETTING PIN | R-0.",
+    "ER25"
+   ],
+   "result": [
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "비절삭",
+     "DIR": "",
+     "TIP": "",
+     "D": "10"
+    },
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "",
+     "TIP": "",
+     "D": "인서트 문구"
+    }
+   ]
+  },
+  {
+   "args": [
+    "ROLLE NULLING  | R-0.12",
+    "NULLING TOOL"
+   ],
+   "result": [
+    {
+     "R": "0.12",
+     "T": "",
+     "PITCH": "",
+     "KIND": "비절삭",
+     "DIR": "",
+     "TIP": "",
+     "D": ""
+    },
+    {
+     "R": "인서트 문구",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "",
+     "TIP": "",
+     "D": ""
+    }
+   ]
+  },
+  {
+   "args": [
+    "MTI 0808 D30 A60 MT8, STRAIGHT",
+    "MILL TOOL CHECK"
+   ],
+   "result": [
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "엔드밀",
+     "DIR": "",
+     "TIP": "",
+     "D": "30"
+    },
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "",
+     "TIP": "",
+     "D": "인서트 문구"
+    }
+   ]
+  },
+  {
+   "args": [
+    "D10 X 90 NC DRILL",
+    ""
+   ],
+   "kwargs": {
+    "tags": {
+     "D": "9.8"
+    }
+   },
+   "result": [
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "드릴",
+     "DIR": "N",
+     "TIP": "",
+     "D": "9.8"
+    },
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "",
+     "D": "NC 주석 태그"
+    }
+   ]
+  },
+  {
+   "args": [
+    "CNMG 120408",
+    "PCLNR 2525M 12"
+   ],
+   "result": [
+    {
+     "R": "0.8",
+     "T": "",
+     "PITCH": "",
+     "KIND": "외경",
+     "DIR": "R",
+     "TIP": "3",
+     "D": ""
+    },
+    {
+     "R": "ISO 규격 해석",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "자동 추천",
+     "D": ""
+    }
+   ]
+  },
+  {
+   "args": [
+    "CNMG 120408",
+    "PCLNL 2525M 12"
+   ],
+   "result": [
+    {
+     "R": "0.8",
+     "T": "",
+     "PITCH": "",
+     "KIND": "외경",
+     "DIR": "L",
+     "TIP": "2",
+     "D": ""
+    },
+    {
+     "R": "ISO 규격 해석",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "자동 추천",
+     "D": ""
+    }
+   ]
+  },
+  {
+   "args": [
+    "DNMG150404",
+    "S25T-PCLNR 12"
+   ],
+   "result": [
+    {
+     "R": "0.4",
+     "T": "",
+     "PITCH": "",
+     "KIND": "내경",
+     "DIR": "R",
+     "TIP": "4",
+     "D": ""
+    },
+    {
+     "R": "ISO 규격 해석",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "자동 추천",
+     "D": ""
+    }
+   ]
+  },
+  {
+   "args": [
+    "D12 FLAT EN, STRAIGHT | DIA-12.",
+    "MILL TOOL CHECK"
+   ],
+   "result": [
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "엔드밀",
+     "DIR": "",
+     "TIP": "",
+     "D": "12"
+    },
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "",
+     "TIP": "",
+     "D": "인서트 문구"
+    }
+   ]
+  },
+  {
+   "args": [
+    "D10.BALL EN, STRAIGHT | DIA-10. | R-5.",
+    "MILL TOOL CHECK"
+   ],
+   "result": [
+    {
+     "R": "5",
+     "T": "",
+     "PITCH": "",
+     "KIND": "엔드밀",
+     "DIR": "",
+     "TIP": "",
+     "D": "10"
+    },
+    {
+     "R": "인서트 문구",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "",
+     "TIP": "",
+     "D": "인서트 문구"
+    }
+   ]
+  },
+  {
+   "args": [
+    "D10XR0.8 FILLET EN, STRAIGHT | DIA-10. | R-0.8",
+    "MILL TOOL CHECK"
+   ],
+   "result": [
+    {
+     "R": "0.8",
+     "T": "",
+     "PITCH": "",
+     "KIND": "엔드밀",
+     "DIR": "",
+     "TIP": "",
+     "D": "10"
+    },
+    {
+     "R": "인서트 문구",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "",
+     "TIP": "",
+     "D": "인서트 문구"
+    }
+   ]
+  },
+  {
+   "args": [
+    "D2X90X6 CHAMF EN, STRAIGHT | DIA-6.",
+    "MILL TOOL CHECK"
+   ],
+   "result": [
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "엔드밀",
+     "DIR": "",
+     "TIP": "",
+     "D": "6"
+    },
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "",
+     "TIP": "",
+     "D": "인서트 문구"
+    }
+   ]
+  },
+  {
+   "args": [
+    ".2500-28 UNJF_3B, STRAIGHT | DIA-6.35",
+    "MILL TOOL CHECK"
+   ],
+   "result": [
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "드릴",
+     "DIR": "N",
+     "TIP": "",
+     "D": "6.35"
+    },
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "",
+     "D": "인서트 문구"
+    }
+   ]
+  },
+  {
+   "args": [
+    "D5.2 CARBIDE DRILL, STRAIGHT | DIA-5.2",
+    "MILL TOOL CHECK"
+   ],
+   "result": [
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "드릴",
+     "DIR": "N",
+     "TIP": "",
+     "D": "5.2"
+    },
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "",
+     "D": "인서트 문구"
+    }
+   ]
+  },
+  {
+   "args": [
+    ".3125-24 UNJF_3B, STRAIGHT",
+    "MILL TOOL CHECK"
+   ],
+   "result": [
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "드릴",
+     "DIR": "N",
+     "TIP": "",
+     "D": "7.938"
+    },
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "",
+     "D": "인서트 문구"
+    }
+   ]
+  },
+  {
+   "args": [
+    "M6X1.0 TAP",
+    ""
+   ],
+   "result": [
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "드릴",
+     "DIR": "N",
+     "TIP": "",
+     "D": ""
+    },
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "",
+     "D": ""
+    }
+   ]
+  },
+  {
+   "args": [
+    ".2500-28 UNJF_3B | DIA-6.35",
+    "ER25"
+   ],
+   "result": [
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "",
+     "DIR": "",
+     "TIP": "",
+     "D": "6.35"
+    },
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "",
+     "DIR": "",
+     "TIP": "",
+     "D": "인서트 문구"
+    }
+   ]
+  },
+  {
+   "args": [
+    "16ER 16UNJ | R-0.24",
+    "SER 2525 M16"
+   ],
+   "result": [
+    {
+     "R": "0.24",
+     "T": "",
+     "PITCH": "1.587",
+     "KIND": "외경나사",
+     "DIR": "R",
+     "TIP": "3",
+     "D": ""
+    },
+    {
+     "R": "인서트 문구",
+     "T": "",
+     "PITCH": "인서트 표기",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "자동 추천",
+     "D": ""
+    }
+   ]
+  },
+  {
+   "args": [
+    "DNMG 150404",
+    "BORING BAR S25T-PCLNR 12"
+   ],
+   "result": [
+    {
+     "R": "0.4",
+     "T": "",
+     "PITCH": "",
+     "KIND": "내경",
+     "DIR": "R",
+     "TIP": "4",
+     "D": ""
+    },
+    {
+     "R": "ISO 규격 해석",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "자동 추천",
+     "D": ""
+    }
+   ]
+  },
+  {
+   "args": [
+    "CNMG 120400",
+    ""
+   ],
+   "result": [
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "외경",
+     "DIR": "",
+     "TIP": "",
+     "D": ""
+    },
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "",
+     "TIP": "",
+     "D": ""
+    }
+   ]
+  },
+  {
+   "args": [
+    "MY-GROOVE INSERT",
+    "MGEHR 2525-3"
+   ],
+   "result": [
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "외경홈",
+     "DIR": "R",
+     "TIP": "",
+     "D": ""
+    },
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "",
+     "D": ""
+    }
+   ]
+  },
+  {
+   "args": [
+    "N123G2-0300-0004-GM",
+    ""
+   ],
+   "result": [
+    {
+     "R": "0.4",
+     "T": "3",
+     "PITCH": "",
+     "KIND": "외경홈",
+     "DIR": "N",
+     "TIP": "",
+     "D": ""
+    },
+    {
+     "R": "ISO 규격 해석",
+     "T": "ISO 규격 해석",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "",
+     "D": ""
+    }
+   ]
+  },
+  {
+   "args": [
+    "16ER 1.0 ISO",
+    ""
+   ],
+   "kwargs": {
+    "hints": {
+     "pitch": "1.5",
+     "thread": true
+    }
+   },
+   "result": [
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "1",
+     "KIND": "외경나사",
+     "DIR": "R",
+     "TIP": "3",
+     "D": ""
+    },
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "인서트 표기",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "자동 추천",
+     "D": ""
+    }
+   ]
+  },
+  {
+   "args": [
+    "16ER 1.0 ISO",
+    ""
+   ],
+   "kwargs": {
+    "tags": {
+     "PITCH": "2"
+    },
+    "hints": {
+     "pitch": "1.5",
+     "thread": true
+    }
+   },
+   "result": [
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "2",
+     "KIND": "외경나사",
+     "DIR": "R",
+     "TIP": "3",
+     "D": ""
+    },
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "NC 주석 태그",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "자동 추천",
+     "D": ""
+    }
+   ]
+  },
+  {
+   "args": [
+    "CNMG 120408",
+    ""
+   ],
+   "result": [
+    {
+     "R": "0.8",
+     "T": "",
+     "PITCH": "",
+     "KIND": "외경",
+     "DIR": "",
+     "TIP": "",
+     "D": ""
+    },
+    {
+     "R": "ISO 규격 해석",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "",
+     "TIP": "",
+     "D": ""
+    }
+   ]
+  },
+  {
+   "args": [
+    "CNMG 120408 | R-1.2",
+    ""
+   ],
+   "result": [
+    {
+     "R": "1.2",
+     "T": "",
+     "PITCH": "",
+     "KIND": "외경",
+     "DIR": "",
+     "TIP": "",
+     "D": ""
+    },
+    {
+     "R": "인서트 문구",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "",
+     "TIP": "",
+     "D": ""
+    }
+   ]
+  },
+  {
+   "args": [
+    "16ER AG60",
+    "SER 2525M16",
+    {
+     "R": "0.1"
+    },
+    {
+     "thread": true,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": "1.5"
+    },
+    null
+   ],
+   "result": [
+    {
+     "R": "0.1",
+     "T": "",
+     "PITCH": "1.5",
+     "KIND": "외경나사",
+     "DIR": "R",
+     "TIP": "3",
+     "D": ""
+    },
+    {
+     "R": "NC 주석 태그",
+     "T": "",
+     "PITCH": "프로그램(G76/G32)",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "자동 추천",
+     "D": ""
+    }
+   ]
+  },
+  {
+   "args": [
+    "N123G2-0300-0004-GM",
+    "MGEHR 2525-3",
+    {
+     "T": "3.2"
+    },
+    {
+     "thread": false,
+     "groove": true,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": ""
+    },
+    null
+   ],
+   "result": [
+    {
+     "R": "0.4",
+     "T": "3.2",
+     "PITCH": "",
+     "KIND": "외경홈",
+     "DIR": "R",
+     "TIP": "",
+     "D": ""
+    },
+    {
+     "R": "ISO 규격 해석",
+     "T": "NC 주석 태그",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "",
+     "D": ""
+    }
+   ]
+  },
+  {
+   "args": [
+    "CNMG 120408",
+    "PCLNR 2525M 12",
+    {},
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": true,
+     "milling": false,
+     "pitch": ""
+    },
+    null
+   ],
+   "result": [
+    {
+     "R": "0.8",
+     "T": "",
+     "PITCH": "",
+     "KIND": "외경",
+     "DIR": "R",
+     "TIP": "3",
+     "D": ""
+    },
+    {
+     "R": "ISO 규격 해석",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "자동 추천",
+     "D": ""
+    }
+   ]
+  },
+  {
+   "args": [
+    "MY-GROOVE INSERT",
+    "S25T-MGEHR 3",
+    {},
+    {
+     "thread": false,
+     "groove": true,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": ""
+    },
+    null
+   ],
+   "result": [
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "내경홈",
+     "DIR": "N",
+     "TIP": "",
+     "D": ""
+    },
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "",
+     "D": ""
+    }
+   ]
+  },
+  {
+   "args": [
+    "MY-GROOVE INSERT",
+    "S25T-MGEHR 3"
+   ],
+   "result": [
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "내경홈",
+     "DIR": "N",
+     "TIP": "",
+     "D": ""
+    },
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "",
+     "D": ""
+    }
+   ]
+  },
+  {
+   "args": [
+    "DNMG150404",
+    "PCLNR 2525M 12"
+   ],
+   "result": [
+    {
+     "R": "0.4",
+     "T": "",
+     "PITCH": "",
+     "KIND": "외경",
+     "DIR": "R",
+     "TIP": "3",
+     "D": ""
+    },
+    {
+     "R": "ISO 규격 해석",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "자동 추천",
+     "D": ""
+    }
+   ]
+  },
+  {
+   "args": [
+    "16ER AG60",
+    "SER 2525M16"
+   ],
+   "result": [
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "외경나사",
+     "DIR": "R",
+     "TIP": "3",
+     "D": ""
+    },
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "자동 추천",
+     "DIR": "자동 추천",
+     "TIP": "자동 추천",
+     "D": ""
+    }
+   ]
+  },
+  {
+   "args": [
+    "",
+    "MGEHR 2525-3"
+   ],
+   "result": [
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "",
+     "DIR": "R",
+     "TIP": "",
+     "D": ""
+    },
+    {
+     "R": "",
+     "T": "",
+     "PITCH": "",
+     "KIND": "",
+     "DIR": "자동 추천",
+     "TIP": "",
+     "D": ""
+    }
+   ]
+  }
+ ]
+}

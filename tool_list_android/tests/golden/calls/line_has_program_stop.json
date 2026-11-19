@@ -1,0 +1,107 @@
+{
+ "func": "line_has_program_stop",
+ "calls": [
+  {
+   "args": [
+    "M0"
+   ],
+   "result": true
+  },
+  {
+   "args": [
+    "M00"
+   ],
+   "result": true
+  },
+  {
+   "args": [
+    "M1"
+   ],
+   "result": true
+  },
+  {
+   "args": [
+    "M01"
+   ],
+   "result": true
+  },
+  {
+   "args": [
+    "G54M01"
+   ],
+   "result": true
+  },
+  {
+   "args": [
+    " M01 "
+   ],
+   "result": true
+  },
+  {
+   "args": [
+    "M02"
+   ],
+   "result": false
+  },
+  {
+   "args": [
+    "M03"
+   ],
+   "result": false
+  },
+  {
+   "args": [
+    "M05"
+   ],
+   "result": false
+  },
+  {
+   "args": [
+    "M06"
+   ],
+   "result": false
+  },
+  {
+   "args": [
+    "M08"
+   ],
+   "result": false
+  },
+  {
+   "args": [
+    "M09"
+   ],
+   "result": false
+  },
+  {
+   "args": [
+    "M10"
+   ],
+   "result": false
+  },
+  {
+   "args": [
+    "M11"
+   ],
+   "result": false
+  },
+  {
+   "args": [
+    "M30"
+   ],
+   "result": false
+  },
+  {
+   "args": [
+    "(M01 STOP)"
+   ],
+   "result": false
+  },
+  {
+   "args": [
+    ""
+   ],
+   "result": false
+  }
+ ]
+}

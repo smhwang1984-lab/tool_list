@@ -1,0 +1,71 @@
+{
+ "func": "program_text_digest",
+ "calls": [
+  {
+   "args": [
+    "%\n O1017\n(PART NO. : K10M41017)\n(OPERATION : OP10)\n(PROGRAM : O1017)\n(RUN TIME : 160)\n(DATE : 2026-08-25)\nN1(#1: Tool Change)\n (T11 // D13 DR [SO 140] // T11 BT50 DMG32-105 )\nM6 T11\nN2(#2: Tool Change)\n (T3 // D16.8 FLAT EM [SO 80] // T3 BT50 SLN16-90 )\nM6 T3\nN3(#3: Tool Change)\n (T1 // FACE MILL [SO 200] // T1 BT50 FMH-60 )\nM6 T1\nN4(#4: Tool Change)\n (T12 // D7 DR [SO 120] // T12 BT50 DMG32-105 )\nM6 T12\nN5(#5: Tool Change)\n (T4 // D6 REAMER [SO 70] // T4 BT50 SLN06-90 )\nM6 T4\nN6(#6: Tool Change)\n (T16 // D13 DR [SO 30] // T16 BT50 NPU-90 )\nM6 T16\nN7(#7: Tool Change)\n (T3 // D16.8 FLAT EM [SO 80] // T3 BT50 SLN16-90 )\nM6 T3\n"
+   ],
+   "result": "45c44be3799262313d941fdca401e5c2512f04d9"
+  },
+  {
+   "args": [
+    "G00 X0 Y0 Z0\nM6T1\nG43\nG00 X10 Y0 Z0\nG01 X20 Y0 Z0\nG01 X20 Y10 Z0\nG01 X20 Y20 Z0\nM6T2\nG43\nG00 X30 Y0 Z0\nG01 X40 Y0 Z0\n"
+   ],
+   "result": "8260d83921ff9bca3a2aacd02b4093e96aae26db"
+  },
+  {
+   "args": [
+    "G00 X0 Y0 Z0\nM6T1\nG43\nG00 X10 Y0 Z0\nG01 X20 Y0 Z0\nM6T2\nG43\nG00 X30 Y0 Z0\n"
+   ],
+   "result": "c9dfad9ebd3c35ce4d21d69be62c36771c65a309"
+  },
+  {
+   "args": [
+    "N1(#1: Tool Change)\n (T1 // D50 F.MIL [SO 90] // T1 BT40-FMC22-90)\n (SO    90.000000 GL   115.000000 PL )\nM6 T1\nG0 X0 Y0\nG1 X10 F300\nM30\n"
+   ],
+   "result": "8b2106d2c98cd97acb226d583225f544fd644c98"
+  },
+  {
+   "args": [
+    "N1(#1: Tool Change)\n (T1 // D12 F.MIL [SO 90] // T1 BT40-FMC22-90)\n (SO    90.000000 GL   115.000000 PL )\nM6 T1\nG0 X0 Y0\nG1 X10 F300\nM30\n"
+   ],
+   "result": "6d63ed0eebfd7fe0b6a350fb4758a447fa710827"
+  },
+  {
+   "args": [
+    "N1(#1: Tool Change)\n (T1 // D50 F.MIL [SO 90] // T1 BT40-FMC22-90)\n (SO    90.000000 GL   115.000000 PL )\nM6 T1\nG0 X0 Y0\nG1 X25 F300\nM30\n"
+   ],
+   "result": "72329c0e9d1c5777e107eb27b9db71cef8c946b7"
+  },
+  {
+   "args": [
+    "N1(#1: Tool Change)\n (T1 // D50 F.MIL [SO 90] // T1 BT40-FMC22-90)\n (SO    90.000000 GL   115.000000 PL )\nM6 T1\nG0 X0 Y0\nG1 X30 F300\nM30\n"
+   ],
+   "result": "d5ec72cf1024cb40b6dfbd8694c6b2246e32f011"
+  },
+  {
+   "args": [
+    "N1(#1: Tool Change)\n (T1 // D50 F.MIL [SO 90] // T1 BT40-FMC22-90)\n (SO    90.000000 GL   115.000000 PL )\nM6 T1\nG0 X0 Y0\nG1 X12 F300\nM30\n"
+   ],
+   "result": "b90ecc5b865b1659799180a97c87d0ca8e5fd1ee"
+  },
+  {
+   "args": [
+    "N1(#1: Tool Change)\n (T1 // D50 F.MIL [SO 90] // T1 BT40-FMC22-90)\n (SO    90.000000 GL   115.000000 PL )\nM6 T1\nG0 X0 Y0\nG1 X10 F300\nM30\n\n\nO2000\nG0 X1\nM30"
+   ],
+   "result": "c64421f801d6616186414c4e9c73ee59014ac56f"
+  },
+  {
+   "args": [
+    "N1(#1: Tool Change)\n (T1 // D50 F.MIL [SO 90] // T1 BT40-FMC22-90)\n (SO    90.000000 GL   115.000000 PL )\nM6 T1\nG0 X0 Y0\nG1 X10 F300\nM30\n\n\nO2000\nG0 X7\nM30"
+   ],
+   "result": "efffdd1b744311a37771662e2bba520c0728cf92"
+  },
+  {
+   "args": [
+    "M6T1\nG43 H1 Z10.\nG00 X-20. Y-20.\nG00 Z2.\nG01 Z-2. F500\nG01 X20.\nG01 Y-10.\nG01 X-20.\nG01 Y0.\nG01 X20.\nG00 Z10.\nM6T2\nG43 H2 Z10.\nG00 X0. Y10.\nG01 Z-3. F300\nG01 X15. Y15.\nG01 X-15. Y5.\nG00 Z10.\nM30\n"
+   ],
+   "result": "fc5ae279c18d1d53a9c51193b55a770e986dd539"
+  }
+ ]
+}

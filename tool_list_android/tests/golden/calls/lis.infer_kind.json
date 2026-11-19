@@ -1,0 +1,852 @@
+{
+ "func": "lis.infer_kind",
+ "calls": [
+  {
+   "args": [
+    "6.0 R0.5 E/M / D-6. / R-0.5",
+    "BMT STRAIGHT",
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": true,
+     "pitch": ""
+    }
+   ],
+   "result": "엔드밀"
+  },
+  {
+   "args": [
+    "CNMG 120408 | R-0.8",
+    "PCLNR 2525M 12",
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": ""
+    }
+   ],
+   "result": "외경"
+  },
+  {
+   "args": [
+    "CNMG 120404 | R-0.4",
+    "PCLNR 2525M 12 (FINISH)",
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": ""
+    }
+   ],
+   "result": "외경"
+  },
+  {
+   "args": [
+    "D50.0 X H103 T-DRILL",
+    "SLEEVE",
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": ""
+    }
+   ],
+   "result": "드릴"
+  },
+  {
+   "args": [
+    "INSERT B",
+    "S07J SWUBR 06-D08",
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": ""
+    }
+   ],
+   "result": "내경"
+  },
+  {
+   "args": [
+    "10.0 R0.5 E/M / D-10. / R-0.5",
+    "BMT STRAIGHT",
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": true,
+     "pitch": ""
+    }
+   ],
+   "result": "엔드밀"
+  },
+  {
+   "args": [
+    "4.0 R0.5 E/M / D-4. / R-0.5",
+    "BMT STRAIGHT",
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": ""
+    }
+   ],
+   "result": "엔드밀"
+  },
+  {
+   "args": [
+    "VCMT 16 04 04 | R-0.4",
+    "SVJCR 2525 M16",
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": ""
+    }
+   ],
+   "result": "외경"
+  },
+  {
+   "args": [
+    "CNMG 120408 | R-0.8",
+    "G41 COMPENSATION HOLDER",
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": ""
+    }
+   ],
+   "result": "외경"
+  },
+  {
+   "args": [
+    "VCMT 160404 | R-0.4",
+    "SVJCR 2525 M16",
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": ""
+    }
+   ],
+   "result": "외경"
+  },
+  {
+   "args": [
+    "D5.5 CARBIDE DRILL, ANGLE",
+    "MILL TOOL CHECK",
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": ""
+    }
+   ],
+   "result": "드릴"
+  },
+  {
+   "args": [
+    "D4.5 CARBIDE DRILL, ANGLE",
+    "MILL TOOL CHECK",
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": ""
+    }
+   ],
+   "result": "드릴"
+  },
+  {
+   "args": [
+    "TPGT 110302 | R-0.2",
+    "S16R STFPR 11 - D20",
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": ""
+    }
+   ],
+   "result": "내경"
+  },
+  {
+   "args": [
+    "D3. FLAT END MILL, ANGLE",
+    "MILL TOOL CHECK",
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": ""
+    }
+   ],
+   "result": "엔드밀"
+  },
+  {
+   "args": [
+    "CNMG 120408 | R-0.8",
+    "S40T PCLNR 12 - 50",
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": ""
+    }
+   ],
+   "result": "내경"
+  },
+  {
+   "args": [
+    "D10 X 90 NC DRILL",
+    "MILL TOOL CHECK",
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": true,
+     "pitch": ""
+    }
+   ],
+   "result": "드릴"
+  },
+  {
+   "args": [
+    "TPGT 110302 | R-0.2",
+    "S16R STFPR 11 - D20",
+    {}
+   ],
+   "result": "내경"
+  },
+  {
+   "args": [
+    "WBGT 060102 | R-0.2",
+    "S07J SWUBR 06-D08",
+    {}
+   ],
+   "result": "내경"
+  },
+  {
+   "args": [
+    "VCMT 160404",
+    "SVJCR 2525 M16",
+    {}
+   ],
+   "result": "외경"
+  },
+  {
+   "args": [
+    "D50.0 X H103 T-DRILL",
+    "SLEEVE",
+    {}
+   ],
+   "result": "드릴"
+  },
+  {
+   "args": [
+    "D12 CARBIDE DRILL",
+    "ER25",
+    {}
+   ],
+   "result": "드릴"
+  },
+  {
+   "args": [
+    "D1.5 CENTER",
+    "ER25-75",
+    {}
+   ],
+   "result": "드릴"
+  },
+  {
+   "args": [
+    "D10 X 90 NC DRILL",
+    "MILL TOOL CHECK",
+    {}
+   ],
+   "result": "드릴"
+  },
+  {
+   "args": [
+    "D5.5 CARBIDE DRILL, ANGLE",
+    "MILL TOOL CHECK",
+    {}
+   ],
+   "result": "드릴"
+  },
+  {
+   "args": [
+    "D16 FLAT END MILL, ANGLE",
+    "MILL TOOL CHECK",
+    {}
+   ],
+   "result": "엔드밀"
+  },
+  {
+   "args": [
+    "D12 X R1.5 FILLET END MILL",
+    "ER25",
+    {}
+   ],
+   "result": "엔드밀"
+  },
+  {
+   "args": [
+    "D50. FACE CUTTER, STRAIGHT | R-0.8",
+    "MILL TOOL CHECK",
+    {}
+   ],
+   "result": "페이스커터"
+  },
+  {
+   "args": [
+    "D10.SETTING PIN | R-0.",
+    "ER25",
+    {}
+   ],
+   "result": "비절삭"
+  },
+  {
+   "args": [
+    "ROLLE NULLING  | R-0.12",
+    "NULLING TOOL",
+    {}
+   ],
+   "result": "비절삭"
+  },
+  {
+   "args": [
+    "MTI 0808 D30 A60 MT8, STRAIGHT",
+    "MILL TOOL CHECK",
+    {}
+   ],
+   "result": "엔드밀"
+  },
+  {
+   "args": [
+    "MTI 0808 D30 A60 MT8",
+    "MILL TOOL CHECK",
+    {}
+   ],
+   "result": "엔드밀"
+  },
+  {
+   "args": [
+    "D10 X 90 NC DRILL",
+    "",
+    {}
+   ],
+   "result": "드릴"
+  },
+  {
+   "args": [
+    "CNMG 120408",
+    "PCLNR 2525M 12",
+    {}
+   ],
+   "result": "외경"
+  },
+  {
+   "args": [
+    "CNMG 120408",
+    "PCLNL 2525M 12",
+    {}
+   ],
+   "result": "외경"
+  },
+  {
+   "args": [
+    "DNMG150404",
+    "S25T-PCLNR 12",
+    {}
+   ],
+   "result": "내경"
+  },
+  {
+   "args": [
+    "D12 FLAT EN, STRAIGHT | DIA-12.",
+    "MILL TOOL CHECK",
+    {}
+   ],
+   "result": "엔드밀"
+  },
+  {
+   "args": [
+    "D10.BALL EN, STRAIGHT | DIA-10. | R-5.",
+    "MILL TOOL CHECK",
+    {}
+   ],
+   "result": "엔드밀"
+  },
+  {
+   "args": [
+    "D10XR0.8 FILLET EN, STRAIGHT | DIA-10. | R-0.8",
+    "MILL TOOL CHECK",
+    {}
+   ],
+   "result": "엔드밀"
+  },
+  {
+   "args": [
+    "D2X90X6 CHAMF EN, STRAIGHT | DIA-6.",
+    "MILL TOOL CHECK",
+    {}
+   ],
+   "result": "엔드밀"
+  },
+  {
+   "args": [
+    ".2500-28 UNJF_3B, STRAIGHT | DIA-6.35",
+    "MILL TOOL CHECK",
+    {}
+   ],
+   "result": "드릴"
+  },
+  {
+   "args": [
+    "D5.2 CARBIDE DRILL, STRAIGHT | DIA-5.2",
+    "MILL TOOL CHECK",
+    {}
+   ],
+   "result": "드릴"
+  },
+  {
+   "args": [
+    ".3125-24 UNJF_3B, STRAIGHT",
+    "MILL TOOL CHECK",
+    {}
+   ],
+   "result": "드릴"
+  },
+  {
+   "args": [
+    "M6X1.0 TAP",
+    "",
+    {}
+   ],
+   "result": "드릴"
+  },
+  {
+   "args": [
+    ".2500-28 UNJF_3B | DIA-6.35",
+    "ER25",
+    {}
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "16ER 16UNJ | R-0.24",
+    "SER 2525 M16",
+    {}
+   ],
+   "result": "외경나사"
+  },
+  {
+   "args": [
+    "DNMG 150404",
+    "BORING BAR S25T-PCLNR 12",
+    {}
+   ],
+   "result": "내경"
+  },
+  {
+   "args": [
+    "CNMG 120400",
+    "",
+    {}
+   ],
+   "result": "외경"
+  },
+  {
+   "args": [
+    "",
+    "MGEHR 2525-3",
+    {}
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "D50.0 X H103 T-DRILL",
+    "SLEEVE"
+   ],
+   "result": "드릴"
+  },
+  {
+   "args": [
+    "",
+    "드릴 홀더"
+   ],
+   "result": "드릴"
+  },
+  {
+   "args": [
+    "CUT-OFF 3MM",
+    ""
+   ],
+   "result": "절단"
+  },
+  {
+   "args": [
+    "정면 홈 3",
+    ""
+   ],
+   "result": "정면홈"
+  },
+  {
+   "args": [
+    "내경 홈",
+    ""
+   ],
+   "result": "내경홈"
+  },
+  {
+   "args": [
+    "CNMG 120408",
+    "PCLNR 2525M 12"
+   ],
+   "result": "외경"
+  },
+  {
+   "args": [
+    "DNMG150404",
+    "S25T-PCLNR 12"
+   ],
+   "result": "내경"
+  },
+  {
+   "args": [
+    "16ER 1.5 ISO",
+    "SER 2525M16"
+   ],
+   "result": "외경나사"
+  },
+  {
+   "args": [
+    "16IR 1.5 ISO",
+    "SIR 0016 M16"
+   ],
+   "result": "내경나사"
+  },
+  {
+   "args": [
+    "N123G2-0300-0004-GM",
+    "MGEHR 2525-3"
+   ],
+   "result": "외경홈"
+  },
+  {
+   "args": [
+    "MGMN300-M",
+    "S25T-MGEHR 3"
+   ],
+   "result": "내경홈"
+  },
+  {
+   "args": [
+    "",
+    "",
+    {
+     "thread": true,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": "1.5"
+    }
+   ],
+   "result": "외경나사"
+  },
+  {
+   "args": [
+    "CNMG 120408",
+    "",
+    {
+     "thread": true,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": "1.5"
+    }
+   ],
+   "result": "외경"
+  },
+  {
+   "args": [
+    "",
+    "",
+    {
+     "thread": false,
+     "groove": true,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": ""
+    }
+   ],
+   "result": "외경홈"
+  },
+  {
+   "args": [
+    "",
+    "",
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": true,
+     "turning": false,
+     "milling": false,
+     "pitch": ""
+    }
+   ],
+   "result": "정면홈"
+  },
+  {
+   "args": [
+    "",
+    "",
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": true,
+     "milling": false,
+     "pitch": ""
+    }
+   ],
+   "result": "외경"
+  },
+  {
+   "args": [
+    "",
+    ""
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "MY-GROOVE INSERT",
+    "MGEHR 2525-3",
+    {}
+   ],
+   "result": "외경홈"
+  },
+  {
+   "args": [
+    "N123G2-0300-0004-GM",
+    "",
+    {}
+   ],
+   "result": "외경홈"
+  },
+  {
+   "args": [
+    "16ER AG60",
+    "",
+    {
+     "pitch": "1.5",
+     "thread": true
+    }
+   ],
+   "result": "외경나사"
+  },
+  {
+   "args": [
+    "16ER AG60",
+    "",
+    {}
+   ],
+   "result": "외경나사"
+  },
+  {
+   "args": [
+    "16ER 1.0 ISO",
+    "",
+    {
+     "pitch": "1.5",
+     "thread": true
+    }
+   ],
+   "result": "외경나사"
+  },
+  {
+   "args": [
+    "CNMG 120408",
+    "",
+    {}
+   ],
+   "result": "외경"
+  },
+  {
+   "args": [
+    "CNMG 120408 | R-1.2",
+    "",
+    {}
+   ],
+   "result": "외경"
+  },
+  {
+   "args": [
+    "CNMG 120408",
+    "S25T-PCLNR 12",
+    {}
+   ],
+   "result": "내경"
+  },
+  {
+   "args": [
+    "16ER AG60",
+    "SER 2525M16",
+    {
+     "thread": true,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": "1.5"
+    }
+   ],
+   "result": "외경나사"
+  },
+  {
+   "args": [
+    "N123G2-0300-0004-GM",
+    "MGEHR 2525-3",
+    {
+     "thread": false,
+     "groove": true,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": ""
+    }
+   ],
+   "result": "외경홈"
+  },
+  {
+   "args": [
+    "CNMG 120408",
+    "PCLNR 2525M 12",
+    {
+     "thread": false,
+     "groove": false,
+     "face_groove": false,
+     "turning": true,
+     "milling": false,
+     "pitch": ""
+    }
+   ],
+   "result": "외경"
+  },
+  {
+   "args": [
+    "MY-GROOVE INSERT",
+    "S25T-MGEHR 3",
+    {
+     "thread": false,
+     "groove": true,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": ""
+    }
+   ],
+   "result": "내경홈"
+  },
+  {
+   "args": [
+    "MY-GROOVE INSERT",
+    "S25T-MGEHR 3",
+    {}
+   ],
+   "result": "내경홈"
+  },
+  {
+   "args": [
+    "DNMG150404",
+    "PCLNR 2525M 12",
+    {}
+   ],
+   "result": "외경"
+  },
+  {
+   "args": [
+    "16ER AG60",
+    "SER 2525M16",
+    {}
+   ],
+   "result": "외경나사"
+  },
+  {
+   "args": [
+    "",
+    "MGEHR 2525-3",
+    {
+     "thread": false,
+     "groove": true,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": ""
+    }
+   ],
+   "result": "외경홈"
+  },
+  {
+   "args": [
+    "TNMG160404",
+    "PCLNL 2525M 12",
+    {}
+   ],
+   "result": "외경"
+  },
+  {
+   "args": [
+    "16ER AG60",
+    "SER 2525M16",
+    {
+     "thread": true,
+     "groove": false,
+     "face_groove": false,
+     "turning": false,
+     "milling": false,
+     "pitch": "1"
+    }
+   ],
+   "result": "외경나사"
+  }
+ ]
+}

@@ -1,0 +1,137 @@
+{
+ "func": "lis.normalize_key",
+ "calls": [
+  {
+   "args": [
+    "MTI 0808 D30 A60 MT8"
+   ],
+   "result": "MTI 0808 D30 A60 MT8"
+  },
+  {
+   "args": [
+    "MILL TOOL CHECK"
+   ],
+   "result": "MILL TOOL CHECK"
+  },
+  {
+   "args": [
+    ""
+   ],
+   "result": ""
+  },
+  {
+   "args": [
+    "MGEHR 2525-3"
+   ],
+   "result": "MGEHR 2525-3"
+  },
+  {
+   "args": [
+    "mgehr  2525-3"
+   ],
+   "result": "MGEHR 2525-3"
+  },
+  {
+   "args": [
+    "OTHER HOLDER"
+   ],
+   "result": "OTHER HOLDER"
+  },
+  {
+   "args": [
+    "MY-GROOVE INSERT"
+   ],
+   "result": "MY-GROOVE INSERT"
+  },
+  {
+   "args": [
+    "16ER AG60"
+   ],
+   "result": "16ER AG60"
+  },
+  {
+   "args": [
+    "CNMG 120408"
+   ],
+   "result": "CNMG 120408"
+  },
+  {
+   "args": [
+    "PCLNR 2525M 12"
+   ],
+   "result": "PCLNR 2525M 12"
+  },
+  {
+   "args": [
+    "S25T-PCLNR 12"
+   ],
+   "result": "S25T-PCLNR 12"
+  },
+  {
+   "args": [
+    "PCLNL 2525M 12"
+   ],
+   "result": "PCLNL 2525M 12"
+  },
+  {
+   "args": [
+    " cnmg  120408 [R 0.4] "
+   ],
+   "result": "CNMG 120408"
+  },
+  {
+   "args": [
+    "cnmg  120408"
+   ],
+   "result": "CNMG 120408"
+  },
+  {
+   "args": [
+    "CNMG 120408 [R 9]"
+   ],
+   "result": "CNMG 120408"
+  },
+  {
+   "args": [
+    "pclnr 2525m 12"
+   ],
+   "result": "PCLNR 2525M 12"
+  },
+  {
+   "args": [
+    "cnmg 120408"
+   ],
+   "result": "CNMG 120408"
+  },
+  {
+   "args": [
+    "S25T-MGEHR 3"
+   ],
+   "result": "S25T-MGEHR 3"
+  },
+  {
+   "args": [
+    "SER 2525M16"
+   ],
+   "result": "SER 2525M16"
+  },
+  {
+   "args": [
+    "N123G2-0300-0004-GM"
+   ],
+   "result": "N123G2-0300-0004-GM"
+  },
+  {
+   "args": [
+    "DNMG150404"
+   ],
+   "result": "DNMG150404"
+  },
+  {
+   "args": [
+    "TNMG160404"
+   ],
+   "result": "TNMG160404"
+  }
+ ]
+}
