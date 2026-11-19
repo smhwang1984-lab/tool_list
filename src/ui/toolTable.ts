@@ -8,7 +8,7 @@ import {
 import { describeHolder, describeInsert, SOURCE_SAVED } from '../core/latheInsertSpec';
 import { rowSources } from '../core/latheParser';
 import type { ProgramMetadata } from '../core/metadata';
-import { RADIUS_COMP_DISPLAY_RE, RADIUS_COMP_MISMATCH_RE } from '../core/radiusComp';
+import { RADIUS_COMP_DISPLAY_RE, isProbeMismatch } from '../core/radiusComp';
 import { el, toast } from './dialog';
 import { getPref, setPref } from '../platform/prefs';
 
@@ -105,17 +105,22 @@ function latheTooltip(key: string, row: TableRow): string {
 
 /** "(G41)" 같은 경보정 표기만 굵게 */
 function fillRemark(td: HTMLElement, text: string): void {
-  const re = new RegExp(RADIUS_COMP_DISPLAY_RE.source, 'g');
-  let pos = 0;
-  for (const m of text.matchAll(re)) {
-    td.append(document.createTextNode(text.slice(pos, m.index)));
-    const b = el('b');
-    b.textContent = m[0];
-    if (RADIUS_COMP_MISMATCH_RE.test(m[0])) b.style.color = '#d00000';
-    td.append(b);
-    pos = m.index! + m[0].length;
-  }
-  td.append(document.createTextNode(text.slice(pos)));
+  const re = new RegExp(RADIUS_COMP_DISPLAY_RE.source, 'gu');
+  // v2.5.5: "N3(G41), N7 / M300H3 · M200" — 2줄이면 줄바꿈 허용
+  if (text.includes('\n')) td.classList.add('two-line');
+  text.split('\n').forEach((line, index) => {
+    if (index > 0) td.append(el('br'));
+    let pos = 0;
+    for (const m of line.matchAll(re)) {
+      td.append(document.createTextNode(line.slice(pos, m.index)));
+      const b = el('b');
+      b.textContent = m[0];
+      if (isProbeMismatch(m[0])) b.style.color = '#d00000';
+      td.append(b);
+      pos = m.index! + m[0].length;
+    }
+    td.append(document.createTextNode(line.slice(pos)));
+  });
 }
 
 export function createToolTable(): ToolTable {
@@ -199,7 +204,7 @@ export function createToolTable(): ToolTable {
       ctx.font = `${px}px ${FONT_FAMILY}`;
       for (const row of data) {
         const text = cellText(row, key);
-        if (text) content = Math.max(content, ctx.measureText(text).width + (key === 'REMARK' ? 4 : 0));
+        if (text) content = Math.max(content, Math.max(...text.split('\n').map((t) => ctx.measureText(t).width)) + (key === 'REMARK' ? 4 : 0));
       }
       dynamicWidths[key] = Math.max(Math.ceil(content) + TABLE_CELL_PADDING_PX * 2 + 12, LATHE_COL_WIDTH[key] ?? 60);
     }

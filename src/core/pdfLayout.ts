@@ -1,10 +1,11 @@
 // 공구 리스트 PDF 배치 — 원본 export_tool_list_pdf / export_lathe_tool_list_pdf (ReportLab, NC_Tool_List.py 703~1030)
 // pdfmake 문서 정의(순수 데이터)만 만든다. 글꼴을 읽고 PDF 로 굽는 일은 platform/pdf.ts 가 한다.
 import { COLUMNS, LATHE_COLUMNS, type Column } from './columns';
-import { RADIUS_COMP_DISPLAY_RE, RADIUS_COMP_MISMATCH_RE } from './radiusComp';
+import { RADIUS_COMP_DISPLAY_RE, hasCompDisplay, isProbeMismatch } from './radiusComp';
 import type { ProgramMetadata } from './metadata';
 
-export const PDF_COLUMN_WEIGHTS = [48, 100, 150, 40, 40, 40, 40, 40, 40, 40, 40, 60, 140, 70, 70, 88];
+// v2.5.5: REMARK 88→130(프로브 2줄 표기 자리), NAME 150→135, 홀더 140→113 — 합계 동일
+export const PDF_COLUMN_WEIGHTS = [48, 100, 135, 40, 40, 40, 40, 40, 40, 40, 40, 60, 113, 70, 70, 130];
 export const LATHE_PDF_COLUMN_WEIGHTS = [46, 175, 30, 30, 38, 175, 32, 60, 30, 32, 32, 80, 66, 74];
 export const PDF_ROWS_PER_PAGE = 28;
 export const PDF_METADATA_FIELDS: readonly [column: number, label: string, key: keyof ProgramMetadata][] = [
@@ -67,6 +68,9 @@ function alignFor(lathe: boolean, key: string, col: number, tableRow: number): A
   return 'center';
 }
 
+/** 2줄 REMARK 의 글자 크기, 그 행의 위아래 여백(pt) */
+const TWO_LINE_REMARK_FONT = 5.6;
+const TWO_LINE_PAD = 1.6;
 const rowFont = (i: number): number => (i === 0 ? 7.5 : i === 1 ? 7.2 : 6.5);
 /** pdfmake 의 heights 는 안쪽 여백을 뺀 내용 높이다 — 원본 행 높이에서 위아래 여백을 뺀다 */
 const verticalPad = (rowHeight: number, fontSize: number): number => Math.max(0, (rowHeight - fontSize * FONT_LINE * LINE_FACTOR) / 2);
@@ -74,17 +78,23 @@ const contentHeights = ROW_HEIGHTS.map((h, i) => h - 2 * verticalPad(h, rowFont(
 
 function remarkCell(text: string, fontSize: number, color: string, extra: Record<string, unknown>): Record<string, unknown> {
   // "(G41)" 같은 경보정 표기만 굵게 — 본문은 모두 굵은 글꼴이라 나머지는 보통 글꼴로 되돌린다(원본 v1.7.8)
-  if (!text || !RADIUS_COMP_DISPLAY_RE.test(text)) return { text: text ?? '', ...extra, noWrap: true };
-  const re = new RegExp(RADIUS_COMP_DISPLAY_RE.source, 'g');
+  if (!text || !hasCompDisplay(text)) return { text: text ?? '', ...extra, noWrap: true };
+  const re = new RegExp(RADIUS_COMP_DISPLAY_RE.source, 'gu');
   const parts: Record<string, unknown>[] = [];
-  let pos = 0;
-  for (const m of text.matchAll(re)) {
-    if (m.index! > pos) parts.push({ text: text.slice(pos, m.index), bold: false });
-    parts.push(RADIUS_COMP_MISMATCH_RE.test(m[0]) ? { text: m[0], bold: true, color: '#d00000' } : { text: m[0], bold: true });
-    pos = m.index! + m[0].length;
-  }
-  if (pos < text.length) parts.push({ text: text.slice(pos), bold: false });
-  return { text: parts, fontSize, color, ...extra };
+  const twoLine = text.includes('\n');
+  text.split('\n').forEach((line, index) => {
+    if (index > 0) parts.push({ text: '\n', bold: false });
+    const size = twoLine && index === 1 ? { fontSize: TWO_LINE_REMARK_FONT - 0.6 } : {};
+    let pos = 0;
+    for (const m of line.matchAll(re)) {
+      if (m.index! > pos) parts.push({ text: line.slice(pos, m.index), bold: false, ...size });
+      parts.push(isProbeMismatch(m[0]) ? { text: m[0], bold: true, color: '#d00000', ...size } : { text: m[0], bold: true, ...size });
+      pos = m.index! + m[0].length;
+    }
+    if (pos < line.length) parts.push({ text: line.slice(pos), bold: false, ...size });
+  });
+  // 2줄이면 15.5pt 행에 들어가게 글자·줄간격을 줄인다(원본 v2.5.5)
+  return twoLine ? { text: parts, fontSize: TWO_LINE_REMARK_FONT, lineHeight: 0.75, color, ...extra } : { text: parts, fontSize, color, ...extra };
 }
 
 function infoRow(metadata: ProgramMetadata, lathe: boolean, colCount: number): Record<string, unknown>[] {
@@ -114,6 +124,7 @@ function table(rows: PdfRow[], metadata: ProgramMetadata, lathe: boolean): Recor
   body.push(columns.map(([key, label], col) => ({
     text: label, bold: true, fontSize: 7.2, color: FONT_BLUE, fillColor: HEADER_GRAY, alignment: alignFor(lathe, key, col, 1), noWrap: true,
   })));
+  const tight = pageRows.map((row) => !lathe && !!row && String(row['REMARK'] ?? '').includes('\n'));
   pageRows.forEach((row, i) => {
     const tableRow = i + 2;
     const fill = i % 2 === 1 ? ALT_GRAY : undefined; // 원본: 표의 3,5,7… 번째 줄(데이터 2,4,6… 번째)이 회색
@@ -121,7 +132,9 @@ function table(rows: PdfRow[], metadata: ProgramMetadata, lathe: boolean): Recor
       const value = row ? row[key] : '';
       const text = value === undefined || value === null ? '' : String(value);
       const alertKey = row && !lathe && (key === 'SO' || key === 'SPINDL' || key === 'NO') ? row[`${key}_ALERT`] : '';
-      const common = { alignment: alignFor(lathe, key, col, tableRow), ...(fill ? { fillColor: fill } : {}) };
+      // 2줄 REMARK 행: 여백을 줄였으므로 다른 칸은 아래로 내려 세로 가운데에 맞춘다
+      const shift = tight[i] && key !== 'REMARK' ? { margin: [0, verticalPad(ROW_HEIGHTS[tableRow]!, rowFont(tableRow)) - TWO_LINE_PAD, 0, 0] } : {};
+      const common = { alignment: alignFor(lathe, key, col, tableRow), ...(fill ? { fillColor: fill } : {}), ...shift };
       const color = alertKey ? ALERT_RED : FONT_BLUE;
       if (key === 'REMARK') return remarkCell(text, 6.5, color, common);
       return { text, bold: true, fontSize: 6.5, color, noWrap: true, ...common };
@@ -133,8 +146,8 @@ function table(rows: PdfRow[], metadata: ProgramMetadata, lathe: boolean): Recor
     layout: {
       hLineWidth: () => 0.35, vLineWidth: () => 0.35, hLineColor: () => GRID_GRAY, vLineColor: () => GRID_GRAY,
       paddingLeft: () => 2.5, paddingRight: () => 2.5,
-      paddingTop: (i: number) => verticalPad(ROW_HEIGHTS[i] ?? 15.5, rowFont(i)),
-      paddingBottom: (i: number) => verticalPad(ROW_HEIGHTS[i] ?? 15.5, rowFont(i)),
+      paddingTop: (i: number) => (i >= 2 && tight[i - 2] ? TWO_LINE_PAD : verticalPad(ROW_HEIGHTS[i] ?? 15.5, rowFont(i))),
+      paddingBottom: (i: number) => (i >= 2 && tight[i - 2] ? TWO_LINE_PAD : verticalPad(ROW_HEIGHTS[i] ?? 15.5, rowFont(i))),
     },
   };
 }

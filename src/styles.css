@@ -159,6 +159,7 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
   position: sticky; top: 0; z-index: 1; padding: 4px; background: var(--toolbar_bg); color: var(--muted_text);
   border: 1px solid var(--border); font-weight: 500; white-space: nowrap; overflow: hidden;
 }
+.tool-table td.two-line { white-space: nowrap; line-height: 1.15; }
 .tool-table td { height: 1.9em; padding: 4px; border: 1px solid var(--border); white-space: nowrap; overflow: hidden; text-overflow: clip; user-select: none; }
 .tool-table td.center { text-align: center; }
 .tool-table tbody tr:nth-child(even) { background: var(--list_hover); }

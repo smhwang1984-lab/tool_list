@@ -6,10 +6,12 @@ import { M6_RE } from './patterns';
 
 export const RADIUS_COMP_RE = pyRe(String.raw`G0*4([12])(?![\d.])`, RE_I);
 /** 화면/PDF에서 굵게 그릴 "(G41)" "(G41/G42)" 부분 */
-export const RADIUS_COMP_DISPLAY_RE = pyRe(String.raw`\(G4[12](?:/G4[12])*\)|\(M[23]00(?:H\d+(?:≠H\d+)?)?\)`);
+export const RADIUS_COMP_DISPLAY_RE = pyRe(
+  String.raw`\(G4[12](?:/G4[12])*\)|\(M[23]00(?:H\d+(?:≠H\d+)?)?\)|(?<![A-Za-z\d])M[23]00(?:H\d+(?:≠H\d+)?)?(?!\d)`,
+);
 /** v2.3.7: M300/M200(H번호) 표기 "(M300H1)" — 공정의 G43 H(없으면 M6 T)와 다르면 "(M300H2≠H1)" 로 적고 빨간 글씨로 그린다 */
 const M_PROBE_RE = pyRe(String.raw`(?<![A-Z])M0*([23]00)(?![\d.])\s*(?:H\s*0*(\d+)(?![\d.]))?`, RE_I);
-export const RADIUS_COMP_MISMATCH_RE = pyRe(String.raw`\(M[23]00H\d+≠H\d+\)`);
+export const RADIUS_COMP_MISMATCH_RE = pyRe(String.raw`\(?M[23]00H\d+≠H\d+\)?`);
 const G43_RE = pyRe(String.raw`(?<![A-Z])G43(?:\.[0-9])?(?![0-9])`, RE_I);
 const H_WORD_RE = pyRe(String.raw`(?<![A-Z])H\s*(\d+)(?![\d.])`, RE_I);
 const SUBPROGRAM_O_HEADER_RE = pyRe(String.raw`^\s*O\s*0*(\d+)\b`, RE_I);
@@ -105,7 +107,36 @@ export function radiusCompByN(lines: readonly string[], nRe: RegExp): Record<str
   return result;
 }
 
-/** REMARK 표시 문구 "N8(G41), N9, N10" */
+/** 전역(g·u) 정규식의 .test() 는 lastIndex 가 남아 번갈아 틀리므로 매번 0으로 되돌려 검사한다 */
+export function isProbeMismatch(text: string): boolean {
+  RADIUS_COMP_MISMATCH_RE.lastIndex = 0;
+  const hit = RADIUS_COMP_MISMATCH_RE.test(text);
+  RADIUS_COMP_MISMATCH_RE.lastIndex = 0;
+  return hit;
+}
+
+export function hasCompDisplay(text: string): boolean {
+  RADIUS_COMP_DISPLAY_RE.lastIndex = 0;
+  const hit = RADIUS_COMP_DISPLAY_RE.test(text);
+  RADIUS_COMP_DISPLAY_RE.lastIndex = 0;
+  return hit;
+}
+
+const PROBE_TOKEN_RE = /\(M[23]00(?:H\d+(?:≠H\d+)?)?\)/g;
+
+/** REMARK 표시 문구 "N8(G41), N9, N10" — v2.5.5: M300/M200 은 2줄로 내린다("N3(G41), N7\nM300H3 · M200", 같은 코드는 합침) */
 export function formatRemark(labels: readonly string[], compMap: Readonly<Record<string, string>>): string {
-  return labels.map((label) => label + (Object.prototype.hasOwnProperty.call(compMap, label) ? compMap[label] : '')).join(', ');
+  const heads: string[] = [];
+  const probes: string[] = [];
+  for (const label of labels) {
+    const suffix = Object.prototype.hasOwnProperty.call(compMap, label) ? compMap[label]! : '';
+    for (const token of suffix.match(PROBE_TOKEN_RE) ?? []) {
+      const text = token.slice(1, -1);
+      if (!probes.includes(text)) probes.push(text);
+    }
+    heads.push(label + suffix.replace(PROBE_TOKEN_RE, ''));
+  }
+  let text = heads.join(', ');
+  if (probes.length) text += '\n' + probes.join(' · ');
+  return text;
 }
