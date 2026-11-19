@@ -30,6 +30,9 @@
 - 라이선스 서명 개인키(`*.pem`)와 발급한 `*.lic`, `license_server/data/`는 절대 커밋하지 않는다.
 - `license_server/sumpath_license.py`는 루트 `sumpath_license.py`와 바이트 단위로 같게 유지한다.
 - 설치본 빌드(PyInstaller onedir + Inno Setup)는 Windows 빌드 PC에서 한다.
+- 2026-11-19 정리: 옛 계획 문서(`v1.6.7_PLAN.md`~`v2.3.4_PLAN.md`)와 `_archive/`를 저장소에서 지웠다. 코드 주석에 나오는
+  `vX.Y.Z_PLAN.md`는 `git show fbcc0df:v1.8.0_PLAN.md`처럼 정리 전 커밋 `fbcc0df`에서 볼 수 있다.
+- 로컬 `installer\`와 `tool_list_android\out\`에는 최신 빌드본만 남긴다(이전 버전 설치본·APK는 지운다).
 
 ## 4. 안드로이드 앱(tool_list_android)과 병행 작업 규칙 (항상 적용, 2026-11-17 지정 / 2026-11-19 단일 저장소로 이관)
 
