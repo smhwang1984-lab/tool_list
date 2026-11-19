@@ -52,7 +52,9 @@ Last updated: 2026-11-05 (NC_Tool_List v2.3.0 — 로컬 v2.2.9(STOCK SIZE)와 G
 - Version: 2.5.5 → 2.5.6
 - Summary: 사용자 요청(시안 승인: 한 줄 합침, 밝은 테마도 흑연색). **상단바 숨김 + 상단바 정리.** ① 제목 줄과 아이콘 툴바를 48px 한 줄로 합침(104px → 48px). 남색 고정 제목 줄을 없애고 라이트/다크 모두 흑연색 면 + 얇은 선. 강조색은 Tool List 실행 버튼 하나만, 활성 모드는 한 단계 밝은 면. 글자 굵기 400~500, 보조 버튼(설정/도움말/About/다크모드)과 PG ADD·예제·지우기·장비 등은 아이콘만(마우스를 올리면 설명). ② **숨김**: Ctrl+H 또는 맨 오른쪽 ▲ — 제목+툴바가 함께 사라지고 맨 위 8px 손잡이만 남음. 손잡이에 마우스를 올리면 상단바가 본문을 밀지 않고 위에 겹쳐 내려오며(벗어나면 0.3초 뒤 닫힘, 메뉴가 열려 있으면 유지), 손잡이를 누르거나 Ctrl+H면 고정해서 펼침. 숨김 상태는 ui_layout 설정에 저장. ③ **숨김 화살표가 화면 밖으로 나가지 않게**: 화살표는 항상 맨 오른쪽 고정 칸이고, 폭이 모자라면 글자 버튼을 아이콘만 남기며(`_update_top_bar_density`, 리사이즈·Viewer/편집 모드 전환 때 재계산), 프로그램 번호는 260px에서 말줄임. ④ 다크모드 아이콘 색을 테마에 맞춤(밝은 바에서 안 보이던 문제 방지). ⑤ 도움말에 Ctrl+H 안내. v2.5.5 내용(REMARK M300/M200 2줄 표기, 공구 리스트 확대/축소)을 함께 배포.
 - Open source: 변경 없음.
-- Installer/package status: 아래 Verification·빌드 기록 참고.
+- Installer/package status: **생성 완료**. `installer\NC_Tool_List_Setup_v2.5.6.exe`(dist exe 파일 버전 2.5.6.0, 실행 10초 확인).
+  - Setup EXE SHA-256: 4570F93EA0BD23CAFC47F730861CC9A58D8DCA2DA129E7C1A7D91DDEB2611C93
+  - 같이 만든 안드로이드: tool_list_android v1.9.9 `out\SumPath_v1.9.9.apk`(release 서명 확인), SHA-256 1C1509D745ECAC9F69B0788EDAB03D58B6E758B9B078939715A311B33FE3DDEB
 - 같이 반영한 안드로이드: tool_list_android v1.9.9(한 줄 상단바·숨김 손잡이·Ctrl+H, 주요 버튼 앞으로, 보조 버튼 아이콘만).
 - Code review(빌드 전): 리사이즈마다 상단바 폭을 다시 재던 부분은 "펼쳤을 때 필요한 폭"을 기억해 상태가 바뀔 때만 스타일을 바꾸게 고침, 모달 대화상자가 떠 있는 동안 임시 표시가 닫히지 않게 고침, 실행 버튼 스타일을 전용 문자열로 분리, 안 쓰는 `TOP_BAR_EDGE_GAP_PX`·`header_*` 색 키 삭제. Ctrl+H는 편집창이 쓰지 않는 키라 충돌 없음(Windows QPlainTextEdit 기본 바인딩 없음).
 - Verification: 빌드 venv pytest — 새 `tests/test_v256_top_bar.py` 9개(숨김/펼침, 임시 표시가 본문을 밀지 않음, 저장·복원, Ctrl+H, 최소 폭에서 숨김 화살표가 창 안, Viewer·편집 모드 후에도 유지) 통과. 기존 테스트 중 상단바 구성 3개를 새 구성에 맞게 고침. 기존에 실패하던 `test_switching_to_lathe_changes_table_schema_and_machine` 1개만 실패.
