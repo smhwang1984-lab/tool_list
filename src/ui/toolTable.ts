@@ -106,7 +106,7 @@ function latheTooltip(key: string, row: TableRow): string {
 /** "(G41)" 같은 경보정 표기만 굵게 */
 function fillRemark(td: HTMLElement, text: string): void {
   const re = new RegExp(RADIUS_COMP_DISPLAY_RE.source, 'gu');
-  // v2.5.5: "N3(G41), N7 / M300H3 · M200" — 2줄이면 줄바꿈 허용
+  // v2.5.5: "N3(G41), N7 / M300H3: N3, N7 · M200: N3" — 2줄이면 줄바꿈 허용
   if (text.includes('\n')) td.classList.add('two-line');
   text.split('\n').forEach((line, index) => {
     if (index > 0) td.append(el('br'));

@@ -127,16 +127,19 @@ const PROBE_TOKEN_RE = /\(M[23]00(?:H\d+(?:≠H\d+)?)?\)/g;
 /** REMARK 표시 문구 "N8(G41), N9, N10" — v2.5.5: M300/M200 은 2줄로 내린다("N3(G41), N7\nM300H3 · M200", 같은 코드는 합침) */
 export function formatRemark(labels: readonly string[], compMap: Readonly<Record<string, string>>): string {
   const heads: string[] = [];
-  const probes: string[] = [];
+  const probes = new Map<string, string[]>();
   for (const label of labels) {
     const suffix = Object.prototype.hasOwnProperty.call(compMap, label) ? compMap[label]! : '';
     for (const token of suffix.match(PROBE_TOKEN_RE) ?? []) {
-      const text = token.slice(1, -1);
-      if (!probes.includes(text)) probes.push(text);
+      const code = token.slice(1, -1);
+      const owners = probes.get(code) ?? [];
+      if (!owners.includes(label)) owners.push(label);
+      probes.set(code, owners);
     }
     heads.push(label + suffix.replace(PROBE_TOKEN_RE, ''));
   }
   let text = heads.join(', ');
-  if (probes.length) text += '\n' + probes.join(' · ');
+  // v2.5.8: 어느 N에서 측정하는지 "M300H3: N3, N7 · M200: N3"
+  if (probes.size) text += '\n' + [...probes].map(([c, o]) => `${c}: ${o.join(', ')}`).join(' · ');
   return text;
 }

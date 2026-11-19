@@ -6,7 +6,8 @@ import type { ProgramMetadata } from './metadata';
 
 // v2.5.5: REMARK 88→130(프로브 2줄 표기 자리), NAME 150→135, 홀더 140→113 — 합계 동일
 export const PDF_COLUMN_WEIGHTS = [48, 100, 135, 40, 40, 40, 40, 40, 40, 40, 40, 60, 113, 70, 70, 130];
-export const LATHE_PDF_COLUMN_WEIGHTS = [46, 175, 30, 30, 38, 175, 32, 60, 30, 32, 32, 80, 66, 74];
+// v2.5.8: 선반 REMARK 74→130(M300/M200 2줄에 측정한 N번호가 붙어 길어짐), INSERT/홀더 합계 56 감소 — 합계 동일
+export const LATHE_PDF_COLUMN_WEIGHTS = [46, 148, 30, 30, 38, 146, 32, 60, 30, 32, 32, 80, 66, 130];
 export const PDF_ROWS_PER_PAGE = 28;
 export const PDF_METADATA_FIELDS: readonly [column: number, label: string, key: keyof ProgramMetadata][] = [
   [0, 'PART NO', 'part_no'], [3, 'OPERATION', 'operation'], [7, 'PROGRAM', 'program'], [11, 'RUN TIME', 'runtime'], [13, 'DATE', 'date'],
@@ -76,15 +77,38 @@ const rowFont = (i: number): number => (i === 0 ? 7.5 : i === 1 ? 7.2 : 6.5);
 const verticalPad = (rowHeight: number, fontSize: number): number => Math.max(0, (rowHeight - fontSize * FONT_LINE * LINE_FACTOR) / 2);
 const contentHeights = ROW_HEIGHTS.map((h, i) => h - 2 * verticalPad(h, rowFont(i)));
 
-function remarkCell(text: string, fontSize: number, color: string, extra: Record<string, unknown>): Record<string, unknown> {
+/** 굵은 맑은 고딕 영문·숫자 한 글자의 평균 폭(em) — 실측 0.52에 여유를 얹은 값 */
+const REMARK_CHAR_EM = 0.56;
+const REMARK_MIN_FONT = 4.2;
+
+/**
+ * v2.5.8: REMARK 한 줄이 칸 폭(pt)을 넘으면 글자를 줄이고, 최소 크기에서도 넘으면
+ * "M300H3: N3, N7, N12" 의 N 나열을 "N3 외2" 로 줄인다 — 줄바꿈으로 다음 줄과 겹치는 것을 막는다.
+ */
+export function fitRemarkLine(line: string, maxWidth: number, size: number): { line: string; size: number } {
+  const width = (t: string, pt: number): number => t.length * pt * REMARK_CHAR_EM;
+  if (!maxWidth || width(line, size) <= maxWidth) return { line, size };
+  const fitted = (maxWidth / width(line, size)) * size;
+  if (fitted >= REMARK_MIN_FONT) return { line, size: fitted };
+  const short = line.split(' · ').map((item) => {
+    const i = item.indexOf(': ');
+    const names = i < 0 ? [] : item.slice(i + 2).split(', ');
+    return names.length > 1 ? `${item.slice(0, i)}: ${names[0]} 외${names.length - 1}` : item;
+  }).join(' · ');
+  return { line: short, size: Math.max(REMARK_MIN_FONT, Math.min(size, (maxWidth / width(short, size)) * size)) };
+}
+
+function remarkCell(text: string, fontSize: number, color: string, extra: Record<string, unknown>, maxWidth = 0): Record<string, unknown> {
   // "(G41)" 같은 경보정 표기만 굵게 — 본문은 모두 굵은 글꼴이라 나머지는 보통 글꼴로 되돌린다(원본 v1.7.8)
   if (!text || !hasCompDisplay(text)) return { text: text ?? '', ...extra, noWrap: true };
   const re = new RegExp(RADIUS_COMP_DISPLAY_RE.source, 'gu');
   const parts: Record<string, unknown>[] = [];
   const twoLine = text.includes('\n');
-  text.split('\n').forEach((line, index) => {
+  text.split('\n').forEach((rawLine, index) => {
     if (index > 0) parts.push({ text: '\n', bold: false });
-    const size = twoLine && index === 1 ? { fontSize: TWO_LINE_REMARK_FONT - 0.6 } : {};
+    const base = twoLine ? (index === 1 ? TWO_LINE_REMARK_FONT - 0.6 : TWO_LINE_REMARK_FONT) : fontSize;
+    const { line, size: lineSize } = fitRemarkLine(rawLine, maxWidth, base);
+    const size = Math.abs(lineSize - (twoLine ? TWO_LINE_REMARK_FONT : fontSize)) > 0.05 ? { fontSize: lineSize } : {};
     let pos = 0;
     for (const m of line.matchAll(re)) {
       if (m.index! > pos) parts.push({ text: line.slice(pos, m.index), bold: false, ...size });
@@ -124,6 +148,7 @@ function table(rows: PdfRow[], metadata: ProgramMetadata, lathe: boolean): Recor
   body.push(columns.map(([key, label], col) => ({
     text: label, bold: true, fontSize: 7.2, color: FONT_BLUE, fillColor: HEADER_GRAY, alignment: alignFor(lathe, key, col, 1), noWrap: true,
   })));
+  const widths = pdfColumnWidths(lathe);
   const tight = pageRows.map((row) => !lathe && !!row && String(row['REMARK'] ?? '').includes('\n'));
   pageRows.forEach((row, i) => {
     const tableRow = i + 2;
@@ -136,13 +161,13 @@ function table(rows: PdfRow[], metadata: ProgramMetadata, lathe: boolean): Recor
       const shift = tight[i] && key !== 'REMARK' ? { margin: [0, verticalPad(ROW_HEIGHTS[tableRow]!, rowFont(tableRow)) - TWO_LINE_PAD, 0, 0] } : {};
       const common = { alignment: alignFor(lathe, key, col, tableRow), ...(fill ? { fillColor: fill } : {}), ...shift };
       const color = alertKey ? ALERT_RED : FONT_BLUE;
-      if (key === 'REMARK') return remarkCell(text, 6.5, color, common);
+      if (key === 'REMARK') return remarkCell(text, 6.5, color, common, widths[col]!);
       return { text, bold: true, fontSize: 6.5, color, noWrap: true, ...common };
     }));
   });
 
   return {
-    table: { headerRows: 0, widths: pdfColumnWidths(lathe), heights: contentHeights, dontBreakRows: true, body },
+    table: { headerRows: 0, widths, heights: contentHeights, dontBreakRows: true, body },
     layout: {
       hLineWidth: () => 0.35, vLineWidth: () => 0.35, hLineColor: () => GRID_GRAY, vLineColor: () => GRID_GRAY,
       paddingLeft: () => 2.5, paddingRight: () => 2.5,
