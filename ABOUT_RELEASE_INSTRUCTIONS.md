@@ -47,7 +47,17 @@ Last updated: 2026-11-05 (NC_Tool_List v2.3.0 — 로컬 v2.2.9(STOCK SIZE)와 G
 
 ## Version history
 
-### 2026-11-19 (latest, v2.5.7)
+### 2026-11-19 (latest, v2.5.8)
+
+- Version: 2.5.7 → 2.5.8
+- Summary: 사용자 요청. **REMARK에서 M300/M200을 어느 N에서 측정했는지 보이게.** 둘째 줄을 `M300H3: N3, N7 · M200: N3`처럼 코드별 측정 N번호와 함께 적는다(H 불일치는 `M300H6≠H5: N5`, 코드만 빨간 굵은 글씨 그대로). 길어진 문구가 v2.5.5에서 고친 겹침·가림을 되살리지 않게 함께 손봄: ① PDF 밀링·선반 REMARK 셀 폭에 맞춰 글자를 줄이고(최소 4.2pt), 그래도 넘치면 N 나열을 `N3 외2`로 줄임(`_fit_remark_line`) — 줄바꿈으로 다음 줄과 겹치지 않음. ② 선반 PDF 열 비율 REMARK 74→130(INSERT 175→148, 홀더 175→146, 합계 동일) — 선반은 기본 문구도 3줄로 넘쳤다. ③ 밀링 화면 REMARK 열이 내용 폭만큼 넓어져 잘림(가림)이 없음(기준 176px보다 좁아지지 않음).
+- Open source: 변경 없음.
+- Installer/package status: 빌드 대기(아래 기록 참고).
+- 같이 반영한 안드로이드: tool_list_android v2.0.1(같은 문구·PDF 맞춤 `fitRemarkLine`, 선반 PDF 열 비율).
+- Verification: `tests/test_v237_probe_remark.py`(2줄 표기 N번호, PDF 맞춤) — 이 PC에는 PySide6가 없어 pytest는 건너뛰었고, `_format_remark`/`_fit_remark_line`/`_pdf_remark_cell`을 맑은 고딕 실폰트로 직접 실행해 확인: 밀링·선반 PDF 모두 N 8개까지 2줄(행 15.5pt 안).
+
+
+### 2026-11-19 (v2.5.7)
 
 - Version: 2.5.6 → 2.5.7
 - Summary: 사용자 요청(시안 승인). ① **모든 상단바 버튼에 이름을 항상 보인다** — 설정·도움말·About·PG ADD·예제·지우기·장비·정지 옵션·소재·소재 지우기·저장·비밀번호·다크모드까지 아이콘 옆에 글자. 아이콘만 남기는 접힘은 없앴다(처음 쓰는 사람이 헷갈린다). ② 폭이 모자라면 글자를 줄이지 않고 **툴바를 둘째 줄로 자동으로 내린다**(제목 줄 48px + 툴바 줄 44px, `_update_top_bar_density`/`_set_top_bar_rows`, 창을 넓히면 한 줄로 복귀). ③ **상단바 숨김은 설정 창의 선택 항목**(`상단바 숨김 기능 사용`, 기본 꺼짐, `top_bar_hide_enabled`). 꺼져 있으면 숨김 버튼과 Ctrl+H가 없고, 끄면 숨겨 둔 상단바도 펼친다. 켜면 v2.5.6의 숨김·임시 표시·저장이 그대로 동작. 도움말 문구 갱신.

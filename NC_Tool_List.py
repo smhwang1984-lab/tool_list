@@ -33,7 +33,7 @@ import lathe_insert_spec
 import sumpath_license
 
 
-APP_VERSION = '2.5.7'
+APP_VERSION = '2.5.8'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-11-19'
 APP_CREATOR = 'Hwang.seonmun'
@@ -638,17 +638,19 @@ def _format_remark(labels, comp_map):
     PDF 셀 넘침·화면 잘림을 막으려는 사용자 확정안 A.
     comp_map에 없는 라벨은 접미어 없이 그대로 둔다."""
     heads = []
-    probes = []
+    probes = {}
     for label in labels:
         suffix = comp_map.get(label, '')
         for token in PROBE_TOKEN_RE.findall(suffix):
-            text = token[1:-1]
-            if text not in probes:
-                probes.append(text)
+            owners = probes.setdefault(token[1:-1], [])
+            if label not in owners:
+                owners.append(label)
         heads.append(label + PROBE_TOKEN_RE.sub('', suffix))
     text = ', '.join(heads)
     if probes:
-        text += '\n' + ' · '.join(probes)
+        # v2.5.8: 어느 N에서 측정하는지 보이도록 "M300H3: N3, N7 · M200: N3".
+        text += '\n' + ' · '.join('%s: %s' % (code, ', '.join(owners))
+                                  for code, owners in probes.items())
     return text
 
 
@@ -864,7 +866,30 @@ def pdf_column_widths(available_width):
     return [available_width * weight / total for weight in PDF_COLUMN_WEIGHTS]
 
 
-def _pdf_remark_cell(text, regular_font, bold_font):
+def _fit_remark_line(line, max_width, bold_font, size, min_size=4.2):
+    """v2.5.8: PDF REMARK 한 줄이 셀 폭(max_width, pt)을 넘으면 글자를 줄이고,
+    최소 크기에서도 넘으면 "M300H3: N3, N7, N12"의 N 나열을 "N3 외2"로
+    줄인다 — 줄바꿈으로 다음 줄과 겹치는 것을 막는다. (줄, 글자 크기) 반환."""
+    def width(text, pt):
+        return pdfmetrics.stringWidth(text, bold_font, pt)
+
+    if not max_width or width(line, size) <= max_width:
+        return line, size
+    fitted = max_width / width(line, size) * size
+    if fitted >= min_size:
+        return line, fitted
+    items = []
+    for item in line.split(' · '):
+        code, sep, owners = item.partition(': ')
+        names = owners.split(', ') if sep else []
+        if len(names) > 1:
+            item = '%s: %s 외%d' % (code, names[0], len(names) - 1)
+        items.append(item)
+    short = ' · '.join(items)
+    return short, max(min_size, min(size, max_width / width(short, size) * size))
+
+
+def _pdf_remark_cell(text, regular_font, bold_font, max_width=None):
     """REMARK 셀에 경보정 표기("(G41)" 등)가 있으면 그 부분만 굵게 그리는
     Paragraph로 바꾼다(v1.7.8) — PDF 본문은 이미 전체가 굵은 글꼴이라
     "(G41)"만으로는 구분되지 않으므로, N번호는 보통 글꼴로 되돌리고
@@ -881,6 +906,8 @@ def _pdf_remark_cell(text, regular_font, bold_font):
     )
     lines = []
     for index, line in enumerate(text.split('\n')):
+        line_size = size - 0.6 if (two_line and index == 1) else size
+        line, line_size = _fit_remark_line(line, max_width, bold_font, line_size)
         pos = 0
         chunks = []
         for match in RADIUS_COMP_DISPLAY_RE.finditer(line):
@@ -890,18 +917,18 @@ def _pdf_remark_cell(text, regular_font, bold_font):
             pos = match.end()
         chunks.append(escape(line[pos:]))
         body = ''.join(chunks)
-        if two_line and index == 1:
-            body = '<font size="%.1f">%s</font>' % (size - 0.6, body)
+        if abs(line_size - size) > 0.05:
+            body = '<font size="%.1f">%s</font>' % (line_size, body)
         lines.append(body)
     return Paragraph('<br/>'.join(lines), style)
 
 
-def _pdf_row_cells(row, columns, regular_font, bold_font):
+def _pdf_row_cells(row, columns, regular_font, bold_font, remark_width=None):
     cells = []
     for key, _label in columns:
         value = row.get(key)
         if key == 'REMARK':
-            value = _pdf_remark_cell(value, regular_font, bold_font)
+            value = _pdf_remark_cell(value, regular_font, bold_font, remark_width)
         cells.append(value)
     return cells
 
@@ -914,7 +941,9 @@ def make_pdf_table(rows, metadata, available_width, fonts):
         page_rows.append(blank_row)
     data = [make_pdf_metadata_row(metadata, regular_font)]
     data.append([label for _key, label in COLUMNS])
-    data.extend([_pdf_row_cells(row, COLUMNS, regular_font, bold_font) for row in page_rows])
+    remark_width = pdf_column_widths(available_width)[-1] - 5.0   # 셀 좌우 여백 2.5×2
+    data.extend([_pdf_row_cells(row, COLUMNS, regular_font, bold_font, remark_width)
+                 for row in page_rows])
     # v2.2.6: 공구명 SO와 주석 SO가 다른 행은 SO 칸 글자를 붉은색으로 강조한다(데이터 행은 표의 3번째 줄부터).
     so_col = [key for key, _label in COLUMNS].index('SO')
     alerts = [(so_col, 2 + i) for i, row in enumerate(page_rows) if row.get('_SO_ALERT')]
@@ -1033,7 +1062,8 @@ def make_pdf_story(rows, metadata, available_width, fonts):
 # v2.1.0: R/T/PITCH/KIND/DIR 5열 추가 — INSERT/홀더 비중을 줄여 한 페이지에 맞춘다.
 # v2.2.0: TIP/D 2열 추가. 순서는 LATHE_COLUMNS와 같다
 # (NO/INSERT/R/T/PITCH/HOLDER/SO/KIND/DIR/TIP/D/SPINDL/FEED/REMARK).
-LATHE_PDF_COLUMN_WEIGHTS = [46, 175, 30, 30, 38, 175, 32, 60, 30, 32, 32, 80, 66, 74]
+# v2.5.8: REMARK 74→130(M300/M200 2줄에 측정한 N번호가 붙어 길어짐), INSERT/홀더 합계 56 감소 — 합계 동일.
+LATHE_PDF_COLUMN_WEIGHTS = [46, 148, 30, 30, 38, 146, 32, 60, 30, 32, 32, 80, 66, 130]
 
 
 def lathe_pdf_column_widths(available_width):
@@ -1064,7 +1094,9 @@ def make_lathe_pdf_table(rows, metadata, available_width, fonts):
         page_rows.append(blank_row)
     data = [make_lathe_pdf_info_row(metadata, regular_font)]
     data.append([label for _key, label in LATHE_COLUMNS])
-    data.extend([_pdf_row_cells(row, LATHE_COLUMNS, regular_font, bold_font) for row in page_rows])
+    remark_width = lathe_pdf_column_widths(available_width)[-1] - 5.0
+    data.extend([_pdf_row_cells(row, LATHE_COLUMNS, regular_font, bold_font, remark_width)
+                 for row in page_rows])
     return style_lathe_pdf_table(data, available_width, regular_font, bold_font)
 
 
@@ -2941,6 +2973,7 @@ else:
             # 보다 길어 말줄임이 나던 문제 — 실제 표시 중인 행 내용 폭을 재서
             # 그때그때 넓힌다(run()에서 갱신). 비어 있으면 고정폭으로 되돌아감.
             self._lathe_dynamic_col_width = {}
+            self._mill_remark_width = COL_WIDTH['REMARK']
             # v2.2.7: 편집 모드. 앱은 항상 읽기 모드로 시작한다(상태를 저장하지 않는다).
             self.edit_mode = False
             self._file_encoding = 'utf-8'
@@ -5175,13 +5208,15 @@ else:
             if self.is_lathe_program():
                 widths = self._lathe_dynamic_col_width or LATHE_COL_WIDTH
                 return widths.get(key, 60)
+            if key == 'REMARK':
+                return self._mill_remark_width
             return COL_WIDTH.get(key, 60)
 
         def _active_col_width_total(self):
             if self.is_lathe_program():
                 widths = self._lathe_dynamic_col_width or LATHE_COL_WIDTH
                 return sum(widths.values())
-            return _COL_WIDTH_TOTAL
+            return _COL_WIDTH_TOTAL - COL_WIDTH['REMARK'] + self._mill_remark_width
 
         def _update_lathe_dynamic_col_width(self, rows):
             """v1.6.6: 선반 표는 폰트를 줄이지 않고(요청) 셀이 잘리지 않게
@@ -5189,6 +5224,17 @@ else:
             (LATHE_COL_WIDTH)보다 넓은 경우에만 그 값을 쓴다."""
             if not self.is_lathe_program():
                 self._lathe_dynamic_col_width = {}
+                # v2.5.8: 밀링 REMARK도 "M300H3: N3, N7 · M200: N3" 같은 긴 2줄이
+                # 잘리지(가려지지) 않게 내용 폭만큼 넓힌다(기준 폭보다 좁아지진 않음).
+                font = QFont('맑은 고딕')
+                font.setPointSizeF(TABLE_FONT_PT)
+                bold_font = QFont('맑은 고딕', weight=QFont.Bold)
+                bold_font.setPointSizeF(TABLE_FONT_PT)
+                metrics, bold_metrics = QFontMetrics(font), QFontMetrics(bold_font)
+                widest = max((_measure_remark_width(str(row.get('REMARK') or ''), metrics, bold_metrics)
+                              for row in rows), default=0)
+                self._mill_remark_width = max(COL_WIDTH['REMARK'],
+                                              widest + TABLE_CELL_PADDING_PX * 2 + 12)
                 return
             font = QFont('맑은 고딕')
             font.setPointSizeF(TABLE_FONT_PT)
