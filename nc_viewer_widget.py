@@ -1392,6 +1392,8 @@ class ProjectionOverlayWidget(QWidget):
     pick_toggled = pyqtSignal(bool)
     # v2.4.6: [가공형상즉시보기] 버튼(투영 버튼 옆) 토글.
     shape_toggled = pyqtSignal(bool)
+    # v2.5.9: [테이블 회전] 버튼 토글(5축 재생 중 공구 고정·테이블 회전 표시).
+    table_toggled = pyqtSignal(bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1441,6 +1443,14 @@ class ProjectionOverlayWidget(QWidget):
         self.shape_button.setFocusPolicy(Qt.NoFocus)
         self.shape_button.setToolTip("소재를 깎은 가공 형상을 바로 계산해서 보기 (진행률 %는 화면 가운데)")
         self.shape_button.toggled.connect(self.shape_toggled.emit)
+        # v2.5.9: 5축(A·B·C 회전) 재생 중에 공구는 고정하고 테이블이 도는 것처럼 보이게 하는 토글. 기본 켜짐.
+        self.table_button = QPushButton("테이블 회전")
+        self.table_button.setObjectName("tableButton")
+        self.table_button.setCheckable(True)
+        self.table_button.setChecked(True)
+        self.table_button.setFocusPolicy(Qt.NoFocus)
+        self.table_button.setToolTip("5축 재생 중 공구는 고정하고 테이블·소재가 A/B/C 회전축 값만큼 돌게 보기")
+        self.table_button.toggled.connect(self.table_toggled.emit)
         self._rebuild_buttons(self.MILL_BUTTONS)
 
     # 밀링과 선반은 축 개념 자체가 달라 투영 버튼 구성을 다르게 쓴다(v1.6.4).
@@ -1460,6 +1470,11 @@ class ProjectionOverlayWidget(QWidget):
             button.setChecked(key == view_type)
         self._view_group.setExclusive(True)
 
+    def set_table_checked(self, checked):
+        if self.table_button.isChecked() != bool(checked):
+            with QSignalBlocker(self.table_button):
+                self.table_button.setChecked(bool(checked))
+
     def set_shape_checked(self, checked):
         if self.shape_button.isChecked() != bool(checked):
             blocker = QSignalBlocker(self.shape_button)
@@ -1472,6 +1487,7 @@ class ProjectionOverlayWidget(QWidget):
         self._view_buttons = {}
         row = self._row
         row.removeWidget(self.shape_button)      # 아래 정리 루프가 지우지 않도록 잠시 뺀다
+        row.removeWidget(self.table_button)
         while row.count() > self._fixed_item_count:
             item = row.takeAt(self._fixed_item_count)
             widget = item.widget() if item is not None else None
@@ -1522,6 +1538,9 @@ class ProjectionOverlayWidget(QWidget):
                 drag_zoom_button.show()
             self.drag_zoom_button = drag_zoom_button
         # v2.4.6: [가공형상즉시보기]는 투영 버튼들 맨 끝(옆)에 둔다.
+        # v2.5.9: [테이블 회전]은 밀링(5축)에만 둔다 — 선반은 C축 회전 시뮬레이션을 따로 쓴다.
+        row.addWidget(self.table_button)
+        self.table_button.setVisible(buttons is not self.LATHE_BUTTONS and self.isVisible())
         row.addWidget(self.shape_button)
         if self.isVisible():
             self.shape_button.show()
@@ -1563,6 +1582,7 @@ class ProjectionOverlayWidget(QWidget):
             if self._row.itemAt(index).widget() is not None
             and self._row.itemAt(index).widget() is not self.drag_zoom_button
             and self._row.itemAt(index).widget() is not self.shape_button
+            and self._row.itemAt(index).widget() is not self.table_button
         ]
 
     def _on_view_clicked(self, value):
@@ -1625,10 +1645,22 @@ class CoordOverlayWidget(QWidget):
             "background: transparent; font-weight: bold; font-size: 14px; color: #DDDDDD;"
         )
         row.addWidget(self.time_label)
+        # v2.5.9: 장비 설정과 다르게 계산했을 때(예: 3축 설정인데 G43.4 프로그램) 안내문을 붙인다.
+        self.note_label = QLabel("")
+        self.note_label.setStyleSheet(
+            "background: transparent; font-weight: normal; font-size: 12px; color: #F0B24A;"
+        )
+        self.note_label.setVisible(False)
+        row.addWidget(self.note_label)
         self.adjustSize()
 
     def set_time_text(self, text):
         self.time_label.setText(text)
+        self.adjustSize()
+
+    def set_note_text(self, text):
+        self.note_label.setText(text)
+        self.note_label.setVisible(bool(text))
         self.adjustSize()
 
 
@@ -2763,6 +2795,10 @@ class NCViewerWidget(QWidget):
         # 트레이스만 남겨 프로그램 줄과 경로를 1:1로 대조할 수 있게 한다.
         # 일시적인 확인용 모드라 QSettings에 저장하지 않는다.
         self.pg_match_mode = False
+        # v2.5.9: 5축 재생 중 공구 고정·테이블 회전 표시(기본 켜짐, 설정에 기억)
+        self.table_rotation_on = str(self.settings.value("table_rotation", "true")).lower() not in ("false", "0")
+        self.seq_to_table_rot = {}
+        self._table_rot_keys = []
         # 마우스 감도는 PC/마우스마다 맞는 값이 달라 PG 매칭과 달리 저장한다.
         self._initial_sensitivity = self._load_navigation_sensitivity()
         self._initial_cube_size = self._load_view_cube_size()
@@ -3000,6 +3036,8 @@ class NCViewerWidget(QWidget):
             overlay.projection_clicked.connect(self.set_camera_projection)
             overlay.pick_toggled.connect(self.set_pick_mode)
             overlay.shape_toggled.connect(self._on_shape_button_toggled)
+            overlay.set_table_checked(self.table_rotation_on)
+            overlay.table_toggled.connect(self._on_table_rotation_toggled)
             self.sim_state_changed.connect(self._sync_shape_button)
             # v1.6.5: 선반 전용 "드래그줌" 버튼 <-> gl_view의 실제 상태를
             # 양방향으로 맞춘다(버튼 클릭 -> gl_view 활성화, 드래그 확정 후
@@ -5297,6 +5335,33 @@ class NCViewerWidget(QWidget):
             return matrix
         return self._axis_rotation(2, i_deg) @ self._axis_rotation(0, j_deg) @ self._axis_rotation(2, k_deg)
 
+    _TCP_OR_TILT_RE = re.compile(r"G43\.4(?!\d)|G68\.2(?!\d)")
+    _B_WORD_RE = re.compile(r"(?<![A-Z])B\s*[+-]?\.?\d")
+    _A_WORD_RE = re.compile(r"(?<![A-Z])A\s*[+-]?\.?\d")
+
+    def detect_rotary_machine(self, lines):
+        """v2.5.9: 장비 설정이 3축인데 프로그램이 G43.4(공구 중심점)/G68.2(경사면)를 쓰면
+        회전축 워드로 5축 구성을 읽는다. B 워드가 있으면 B→C, A 워드가 있으면 A→C.
+        해당 없으면 None. 반환: MACHINE_5AXIS_BC / MACHINE_5AXIS_AC / None."""
+        uses_5axis = has_b = has_a = False
+        for line in lines:
+            code = self._code_without_comments(line).upper().replace(" ", "")
+            if not code:
+                continue
+            if self._TCP_OR_TILT_RE.search(code):
+                uses_5axis = True
+            if self._B_WORD_RE.search(code):
+                has_b = True
+            if self._A_WORD_RE.search(code):
+                has_a = True
+        if not uses_5axis:
+            return None
+        if has_b:
+            return MACHINE_5AXIS_BC
+        if has_a:
+            return MACHINE_5AXIS_AC
+        return None
+
     def process_nc_lines(self, lines):
         self._clear_path_items()
         self.tool_paths.clear()
@@ -5315,6 +5380,8 @@ class NCViewerWidget(QWidget):
         self.seq_to_modal_state.clear()
         self.seq_to_c_rot.clear()
         self.line_to_c_rot.clear()
+        self.seq_to_table_rot = {}
+        self._table_rot_keys = []
         self.line_feed_state.clear()
         self.seq_to_elapsed_sec.clear()
         self._elapsed_seq_keys = []
@@ -5327,6 +5394,22 @@ class NCViewerWidget(QWidget):
         is_4axis = "4축" in machine_type
         is_5axis_ac = MACHINE_5AXIS_AC in machine_type
         is_5axis_bc = MACHINE_5AXIS_BC in machine_type
+        # v2.5.9: 3축 설정인데 프로그램이 G43.4/G68.2 + 회전축을 쓰면 프로그램에서 축 구성을 읽는다.
+        # 장비 설정(행정 등)은 그대로 두고, 공구 축·경사면 계산만 5축으로 한다.
+        self.machine_auto_note = ""
+        if not is_lathe and not is_4axis and not (is_5axis_ac or is_5axis_bc):
+            detected = self.detect_rotary_machine(lines)
+            if detected == MACHINE_5AXIS_BC:
+                is_5axis_bc = True
+            elif detected == MACHINE_5AXIS_AC:
+                is_5axis_ac = True
+            if detected:
+                self.machine_auto_note = "%s로 계산 · 장비 설정 %s" % (
+                    detected.replace("5축 MCT ", "5축 ").replace("(A to C)", "A→C").replace("(B to C)", "B→C").strip(),
+                    machine_type.split(" (")[0].replace(" MCT", ""))
+        overlay = getattr(self, "coord_overlay", None)
+        if overlay is not None:
+            overlay.set_note_text(self.machine_auto_note)
 
         try:
             m_x = float(self.machine_specs[machine_type].get("X 행정", "500")) / 2.0
@@ -5387,6 +5470,7 @@ class NCViewerWidget(QWidget):
         pending_origin = np.zeros(3)
         active_origin = np.zeros(3)
         tcp_active = False
+        table_c = 0.0
         self.line_axis_map = {}
         self.line_lathe_map = {}
         # v1.8.4: Fanuc 전원 투입 기본값은 G98(초기점 복귀)이다. 예전에는
@@ -5740,6 +5824,23 @@ class NCViewerWidget(QWidget):
                         )
                 if tool_axis is not None and (abs(tool_axis[0]) > 1e-9 or abs(tool_axis[1]) > 1e-9):
                     self.line_axis_map[idx] = tool_axis
+
+                # v2.5.9: 테이블 회전 표시용 — 이 줄 시점의 회전축 상태(종류, A, B, C 도). 없으면 None.
+                table_rot = None
+                if is_4axis:
+                    table_rot = ('b4', 0.0, float(modal_values[4]), 0.0)
+                elif is_5axis_ac or is_5axis_bc:
+                    kind = 'ac' if is_5axis_ac else 'bc'
+                    if not np.allclose(active_matrix, np.eye(3)):
+                        ax, ay, az = (float(v) for v in active_matrix[:, 2])
+                        tilt = float(np.degrees(np.arctan2(np.hypot(ax, ay), az)))
+                        if np.hypot(ax, ay) > 1e-9:
+                            table_c = float(np.degrees(np.arctan2(ax, -ay) if is_5axis_ac else np.arctan2(ay, ax)))
+                        table_rot = (kind, tilt if is_5axis_ac else 0.0, 0.0 if is_5axis_ac else tilt, table_c)
+                    elif tcp_active:
+                        table_rot = (kind, float(modal_values[3]), float(modal_values[4]), float(modal_values[5]))
+                        table_c = table_rot[3]
+                self.seq_to_table_rot[seq_pos] = table_rot
 
             if not is_lathe:
                 # v1.7.2: 선반의 G98/G99는 밀링/MCT의 "고정 사이클 복귀
@@ -6555,6 +6656,11 @@ class NCViewerWidget(QWidget):
                     item.setVisible(False)
         mesh, arrow = self.tool_marker_items[process_key]
         axis = self.line_axis_map.get(self.seq_to_line[seq] if self.seq_to_line else seq, (0.0, 0.0, 1.0))
+        # v2.5.9: 테이블 회전 표시 — 공구는 기계 방향에 두고(위치·방향 모두 테이블 회전을 적용), 소재가 돈다.
+        table = self._table_rotation_matrices(seq)
+        if table is not None:
+            pt = table[0] @ np.asarray(pt, dtype=np.float64)
+            axis = table[1][:, 2]
         mesh.setTransform(QMatrix4x4(*nc_tool_marker.placement_matrix(pt, axis)))
         mesh.setVisible(True)
         # v2.4.5: 진입 방향 화살표는 같은 축으로 처음 만난 절삭(G1/G2/G3/사이클) 위치에,
@@ -6564,7 +6670,11 @@ class NCViewerWidget(QWidget):
             arrow.setVisible(False)
             return
         length = self._axis_arrow_length() * 0.5
-        arrow.setData(pos=nc_tool_marker.build_entry_arrow(group['entry'], group['direction'], length))
+        entry, direction = group['entry'], group['direction']
+        if table is not None:
+            entry = table[0] @ np.asarray(entry, dtype=np.float64)
+            direction = table[0] @ np.asarray(direction, dtype=np.float64)
+        arrow.setData(pos=nc_tool_marker.build_entry_arrow(entry, direction, length))
         arrow.setVisible(True)
 
     def _compute_scene_radius(self):
@@ -6766,6 +6876,65 @@ class NCViewerWidget(QWidget):
             if c_rot:
                 item.rotate(c_rot, 1, 0, 0)
 
+    @staticmethod
+    def _mat3_to_qmatrix(m):
+        return QMatrix4x4(
+            float(m[0][0]), float(m[0][1]), float(m[0][2]), 0.0,
+            float(m[1][0]), float(m[1][1]), float(m[1][2]), 0.0,
+            float(m[2][0]), float(m[2][1]), float(m[2][2]), 0.0,
+            0.0, 0.0, 0.0, 1.0)
+
+    def _table_rotation_matrices(self, seq):
+        """v2.5.9: 테이블 회전 표시 — seq 시점의 (소재 회전 3x3, 공구 방향 3x3). 해당 없으면 None.
+
+        재생(PG 매칭) 중 [테이블 회전]이 켜져 있을 때만 적용한다. 회전축 값으로 만든 공구 방향 R을
+        공구 쪽에서 소재 쪽으로 옮긴다 — A→C: 소재 = (Rz(C)·Rx(A))ᵀ, 공구는 수직 /
+        B→C: 소재 = Rz(C)ᵀ, 공구는 Ry(B)만큼 기욺 / 4축: 소재 = Ry(B)ᵀ. 회전 중심은 공작물 원점."""
+        if (not self.table_rotation_on or not self.pg_match_mode or self.is_lathe_mode()
+                or not self.seq_to_table_rot):
+            return None
+        if len(self._table_rot_keys) != len(self.seq_to_table_rot):
+            self._table_rot_keys = sorted(self.seq_to_table_rot)
+        pos = bisect.bisect_right(self._table_rot_keys, seq) - 1
+        if pos < 0:
+            return None
+        info = self.seq_to_table_rot.get(self._table_rot_keys[pos])
+        if info is None:
+            return None
+        kind, a_deg, b_deg, c_deg = info
+        rot = self._axis_rotation
+        if kind == 'ac':
+            return (rot(2, c_deg) @ rot(0, a_deg)).T, np.eye(3)
+        if kind == 'bc':
+            return rot(2, c_deg).T, rot(1, b_deg)
+        return rot(1, b_deg).T, np.eye(3)
+
+    def _apply_table_rotation(self, seq):
+        """소재 쪽 3D 아이템(툴패스·실시간 트레이스·가공 형상)에 테이블 회전을 건다. 꺼져 있으면 되돌린다."""
+        table = self._table_rotation_matrices(seq)
+        key = None if table is None else tuple(round(float(v), 6) for v in table[0].ravel())
+        items = list(self.dynamic_trace_items)
+        items.extend(item for group in self.plot_items.values() for item in group)
+        items.extend((self.sim_mesh_item, self.sim_edge_item))
+        matrix = None if table is None else self._mat3_to_qmatrix(table[0])
+        for item in items:
+            if item is None or getattr(item, "_sp_table_key", None) == key:
+                continue
+            if matrix is None:
+                item.resetTransform()
+            else:
+                item.setTransform(matrix)
+            item._sp_table_key = key
+
+    def _on_table_rotation_toggled(self, checked):
+        self.table_rotation_on = bool(checked)
+        try:
+            self.settings.setValue("table_rotation", "true" if self.table_rotation_on else "false")
+        except Exception:
+            pass
+        if self.seq_to_line:
+            self.set_cursor_seq(getattr(self, "current_seq", 0))
+
     def sequence_length(self):
         """v1.7.6: 실행 시퀀스(M98/M99 확장 결과)의 길이. 재생기가 "seq가
         몇까지 갈 수 있는가"를 물을 때 쓴다. 파싱 전이면 0."""
@@ -6864,6 +7033,9 @@ class NCViewerWidget(QWidget):
             # 커서 구는 회전 성분을 뺀 위치에 둔다 — 화면상 항상 +X 센터
             # (주축 수직 위, M35 Y밀링이면 거기서 Y만큼 오프셋)에 고정된다.
             sphere_pt = lathe_rotate_c(current_pt, -c_rot) if c_rot else current_pt
+            table = self._table_rotation_matrices(seq)
+            if table is not None:
+                sphere_pt = table[0] @ np.asarray(current_pt, dtype=np.float64)
             self.cursor_sphere.translate(sphere_pt[0], sphere_pt[1], sphere_pt[2])
             self.cursor_sphere.setVisible(True)
         else:
@@ -6871,6 +7043,7 @@ class NCViewerWidget(QWidget):
 
         if not current_tool or current_tool not in self.tool_paths or not self._tool_selected(current_tool):
             self._hide_dynamic_trace_from(0)
+            self._apply_table_rotation(seq)
             return
 
         try:
@@ -6890,7 +7063,10 @@ class NCViewerWidget(QWidget):
         # 시작하므로, 매 틱마다 커서 구와 같은 C 역회전을 걸어준다 —
         # 시뮬레이션 진행 중에만 보이는 트레이스라 정적 경로(plot_items)와
         # 달리 항목4의 "공구 고정" 요구가 그대로 적용된다.
-        self._rotate_gl_items(self.dynamic_trace_items, c_rot)
+        if self.is_lathe_mode():
+            self._rotate_gl_items(self.dynamic_trace_items, c_rot)
+        else:
+            self._apply_table_rotation(seq)
 
     def elapsed_seconds_at_seq(self, seq):
         """v1.7.6: `elapsed_seconds_at_line()`과 같은 계산을 seq(실행

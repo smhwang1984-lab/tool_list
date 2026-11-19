@@ -40,6 +40,9 @@ export interface MachineSpec {
   [key: string]: string | undefined;
 }
 
+/** 'ac' = A→C, 'bc' = B→C, 'b4' = 4축 B */
+export type TableRot = ['ac' | 'bc' | 'b4', number, number, number];
+
 export interface ToolpathResult {
   tool_paths: Map<string, PathPoint[]>;
   process_tool_map: Map<string, string>;
@@ -56,6 +59,10 @@ export interface ToolpathResult {
   line_to_seq_all: Map<number, number[]>;
   line_feed_state: Map<number, FeedState>;
   line_axis_map: Map<number, Vec3>;
+  /** v2.5.9: 장비 설정과 다르게 계산했을 때의 안내문(없으면 빈 문자열/미정의) */
+  machine_auto_note?: string;
+  /** v2.5.9: seq → 테이블 회전 표시용 회전축 상태 [종류, A, B, C(도)] (회전 없으면 null) */
+  seq_to_table_rot?: Map<number, TableRot | null>;
   line_lathe_map: Map<number, LatheLineInfo>;
   modal_state_map: Map<number, string[]>;
   seq_to_modal_state: Map<number, string[]>;
@@ -466,6 +473,29 @@ const ARC_PATS: ArcPatterns = { i: I_PAT, j: J_PAT, k: K_PAT, r: R_PAT };
 
 const f = (m: RegExpExecArray): number => Number.parseFloat(m[1]!);
 
+const TCP_OR_TILT_RE = /G43\.4(?!\d)|G68\.2(?!\d)/;
+const B_WORD_RE = /(?<![A-Z])B\s*[+-]?\.?\d/;
+const A_WORD_RE = /(?<![A-Z])A\s*[+-]?\.?\d/;
+
+/**
+ * v2.5.9: 장비 설정이 3축인데 프로그램이 G43.4(공구 중심점)/G68.2(경사면)를 쓰면 회전축 워드로 5축 구성을 읽는다.
+ * B 워드가 있으면 B→C, A 워드가 있으면 A→C. 해당 없으면 null (원본 detect_rotary_machine).
+ */
+export function detectRotaryMachine(lines: readonly string[]): string | null {
+  let uses = false, hasB = false, hasA = false;
+  for (const line of lines) {
+    const code = codeWithoutCommentsViewer(line).toUpperCase().replace(/ /g, '');
+    if (!code) continue;
+    if (TCP_OR_TILT_RE.test(code)) uses = true;
+    if (B_WORD_RE.test(code)) hasB = true;
+    if (A_WORD_RE.test(code)) hasA = true;
+  }
+  if (!uses) return null;
+  if (hasB) return MACHINE_5AXIS_BC;
+  if (hasA) return MACHINE_5AXIS_AC;
+  return null;
+}
+
 // ---------------------------------------------------------------- 본체
 export function processNcLines(lines: readonly string[], machineType: string, specs: MachineSpec | undefined): ToolpathResult {
   const res: ToolpathResult = {
@@ -478,8 +508,20 @@ export function processNcLines(lines: readonly string[], machineType: string, sp
   };
   const isLathe = isLatheMachine(machineType);
   const is4 = machineType.includes('4축');
-  const is5ac = machineType.includes(MACHINE_5AXIS_AC);
-  const is5bc = machineType.includes(MACHINE_5AXIS_BC);
+  let is5ac = machineType.includes(MACHINE_5AXIS_AC);
+  let is5bc = machineType.includes(MACHINE_5AXIS_BC);
+  // v2.5.9: 3축 설정인데 G43.4/G68.2 + 회전축이면 프로그램에서 축 구성을 읽는다(장비 행정 등 설정은 그대로)
+  res.machine_auto_note = '';
+  res.seq_to_table_rot = new Map();
+  if (!isLathe && !is4 && !is5ac && !is5bc) {
+    const detected = detectRotaryMachine(lines);
+    if (detected === MACHINE_5AXIS_BC) is5bc = true;
+    else if (detected === MACHINE_5AXIS_AC) is5ac = true;
+    if (detected) {
+      const label = detected === MACHINE_5AXIS_BC ? '5축 B→C' : '5축 A→C';
+      res.machine_auto_note = `${label}로 계산 · 장비 설정 ${machineType.split(' (')[0]!.replace(' MCT', '')}`;
+    }
+  }
   const is5 = is5ac || is5bc;
 
   let mX: number, mY: number, mZ: number;
@@ -514,6 +556,7 @@ export function processNcLines(lines: readonly string[], machineType: string, sp
   let pendingOrigin: number[] = [0, 0, 0];
   let activeOrigin: number[] = [0, 0, 0];
   let tcp = false;
+  let tableC = 0;
   let g98Active = true;
   let cycleActive = false;
   let detectedT = '';
@@ -653,6 +696,23 @@ export function processNcLines(lines: readonly string[], machineType: string, sp
         }
       }
       if (axis && (Math.abs(axis[0]) > 1e-9 || Math.abs(axis[1]) > 1e-9)) res.line_axis_map.set(idx, axis);
+      // v2.5.9: 테이블 회전 표시용 회전축 상태(원본 seq_to_table_rot)
+      let tableRot: TableRot | null = null;
+      if (is4) {
+        tableRot = ['b4', 0, Number.parseFloat(modal[4]!), 0];
+      } else if (is5) {
+        const kind = is5ac ? 'ac' : 'bc';
+        if (!allcloseEye(activeMatrix)) {
+          const ax = activeMatrix[0]![2]!, ay = activeMatrix[1]![2]!, az = activeMatrix[2]![2]!;
+          const tilt = (Math.atan2(Math.hypot(ax, ay), az) * 180) / Math.PI;
+          if (Math.hypot(ax, ay) > 1e-9) tableC = ((is5ac ? Math.atan2(ax, -ay) : Math.atan2(ay, ax)) * 180) / Math.PI;
+          tableRot = [kind, is5ac ? tilt : 0, is5ac ? 0 : tilt, tableC];
+        } else if (tcp) {
+          tableRot = [kind, Number.parseFloat(modal[3]!), Number.parseFloat(modal[4]!), Number.parseFloat(modal[5]!)];
+          tableC = tableRot[3];
+        }
+      }
+      res.seq_to_table_rot!.set(seqPos, tableRot);
     }
 
     if (!isLathe) {

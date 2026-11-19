@@ -678,6 +678,101 @@ G1 X1. Y2. Z3.
         self.assertLess(np.degrees(np.arccos(np.clip(unit @ -axis, -1, 1))), 0.01)
 
 
+    def test_g43_4_program_on_three_axis_setting_reads_axis_from_program(self):
+        """v2.5.9: 장비 설정이 3축이어도 G43.4+B 워드가 있으면 B→C로 읽어 공구가 기운다."""
+        text = open(os.path.join(DATA_DIR, 'O3210_excerpt.nc'), encoding='utf-8').read()
+        viewer = load_viewer(self, text, MILLING, SHAPES_T6)
+        lines = text.splitlines()
+        first_move = next(i for i, l in enumerate(lines) if l.startswith('G0 X-114.977'))
+        axis = np.array(viewer.line_axis_map[first_move])
+        reference = load_viewer(self, text, BC_MACHINE, SHAPES_T6)
+        self.assertTrue(np.allclose(axis, reference.line_axis_map[first_move]))
+        self.assertGreater(float(np.linalg.norm(axis[:2])), 0.1)          # 수직(+Z)이 아니다
+        self.assertIn('B→C', viewer.machine_auto_note)
+        self.assertEqual(reference.machine_auto_note, '')                  # 5축 설정이면 안내 없음
+
+    def test_plain_three_axis_program_has_no_auto_note(self):
+        viewer = load_viewer(self, PROGRAM, MILLING)
+        self.assertEqual(viewer.machine_auto_note, '')
+        self.assertIsNone(viewer.detect_rotary_machine(PROGRAM.splitlines()))
+        self.assertEqual(viewer.detect_rotary_machine(['G43.4 Z150. H6', 'G1 A30. C10.']), '5축 MCT (A to C)')
+
+
+@unittest.skipIf(IMPORT_ERROR is not None, 'viewer dependencies are not available')
+class TableRotationTests(unittest.TestCase):
+    """v2.5.9: 5축 재생 중 공구 고정·테이블 회전 표시."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.qapp = QApplication.instance() or QApplication([])
+
+    @staticmethod
+    def _z_column(item):
+        m = item.transform()
+        return np.array([m.row(r).z() for r in range(3)])
+
+    def _play(self, program, machine, line_text):
+        viewer = load_viewer(self, program, machine, SHAPES_T6)
+        viewer.table_rotation_on = True
+        viewer.pg_match_mode = True
+        lines = program.splitlines()
+        seq = viewer.line_to_seq[lines.index(line_text)]
+        viewer.set_cursor_seq(seq)
+        key = viewer.seq_to_tool_map.get(seq)
+        return viewer, seq, viewer.tool_marker_items[key][0]
+
+    def test_bc_tool_tilts_by_b_and_table_turns_by_minus_c(self):
+        program = """M6 T6
+G43.4 Z150. H6
+G0 X0. Y0. B30. C90.
+G1 X10. Y0. Z5. F500
+G1 X20. Y0. Z5.
+M30
+"""
+        viewer, seq, mesh = self._play(program, BC_MACHINE, 'G1 X20. Y0. Z5.')
+        tool_axis = self._z_column(mesh)
+        self.assertTrue(np.allclose(tool_axis, (np.sin(np.radians(30)), 0.0, np.cos(np.radians(30))), atol=1e-6))
+        trace = next(i for i in viewer.dynamic_trace_items if i.visible())
+        part_z = np.array([trace.transform().row(r).z() for r in range(3)])
+        self.assertTrue(np.allclose(part_z, (0.0, 0.0, 1.0), atol=1e-6))            # Rz(C)ᵀ — Z 축은 그대로
+        part_x = np.array([trace.transform().row(r).x() for r in range(3)])
+        self.assertTrue(np.allclose(part_x, (0.0, -1.0, 0.0), atol=1e-6))           # C=90 → 소재가 -90° 돈다
+
+    def test_ac_tool_stays_vertical_and_table_tilts(self):
+        program = """M6 T6
+G43.4 Z150. H6
+G0 X0. Y0. A-30. C0.
+G1 X10. Y0. Z5. F500
+G1 X20. Y0. Z5.
+M30
+"""
+        viewer, seq, mesh = self._play(program, AC_MACHINE, 'G1 X20. Y0. Z5.')
+        self.assertTrue(np.allclose(self._z_column(mesh), (0.0, 0.0, 1.0), atol=1e-6))
+        trace = next(i for i in viewer.dynamic_trace_items if i.visible())
+        part_y = np.array([trace.transform().row(r).y() for r in range(3)])
+        self.assertAlmostEqual(abs(part_y[2]), np.sin(np.radians(30)), places=5)   # 테이블이 A만큼 기운다
+
+    def test_off_or_not_playing_keeps_workpiece_fixed(self):
+        program = """M6 T6
+G43.4 Z150. H6
+G0 X0. Y0. B30. C90.
+G1 X10. Y0. Z5. F500
+G1 X20. Y0. Z5.
+M30
+"""
+        viewer, seq, mesh = self._play(program, BC_MACHINE, 'G1 X20. Y0. Z5.')
+        viewer.table_rotation_on = False
+        viewer.set_cursor_seq(seq)
+        trace = next(i for i in viewer.dynamic_trace_items if i.visible())
+        self.assertTrue(trace.transform().isIdentity())
+        axis = np.array(viewer.line_axis_map[viewer.seq_to_line[seq]])
+        self.assertTrue(np.allclose(self._z_column(mesh), axis, atol=1e-6))        # 공작물 고정 — 공구가 기운 방향 그대로
+        viewer.table_rotation_on = True
+        viewer.pg_match_mode = False
+        viewer.set_cursor_seq(seq)
+        self.assertTrue(trace.transform().isIdentity())
+
+
 @unittest.skipIf(IMPORT_ERROR is not None, 'viewer dependencies are not available')
 class Sim3DViewerTests(unittest.TestCase):
     @classmethod

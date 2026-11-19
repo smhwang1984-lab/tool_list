@@ -171,9 +171,12 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
   const axes = new THREE.AxesHelper(1);
   scene.add(axes);
 
+  // v2.5.9: 테이블 회전 — 경로(group)와 가공 형상(sim)을 한 부모(workGroup)에 두고 통째로 돌린다
+  const workGroup = new THREE.Group();
+  scene.add(workGroup);
   const group = new THREE.Group();
-  scene.add(group);
-  const sim: SimLayer = createSimLayer(scene, () => { dirty = true; instantBtn.disabled = !sim.hasStock(); hooks.onSimChange?.(); }, (busy, pct) => {
+  workGroup.add(group);
+  const sim: SimLayer = createSimLayer(workGroup, () => { dirty = true; instantBtn.disabled = !sim.hasStock(); hooks.onSimChange?.(); }, (busy, pct) => {
     progressBox.hidden = !busy;
     if (busy) progressBox.textContent = `가공 형상 ${Math.round(pct * 100)}%`;
   });
@@ -191,6 +194,39 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
   const paintLive = (): void => {
     liveBtn.classList.toggle('on', simLive);
     liveBtn.setAttribute('aria-pressed', String(simLive));
+  };
+  // v2.5.9: 5축 재생 중 공구는 고정하고 테이블·소재가 A/B/C 값만큼 도는 표시(기본 켜짐, 설정에 기억)
+  let tableOn = getPref('table_rotation') !== 'off';
+  const tableBtn = el('button', { type: 'button', class: 'v-live', 'aria-pressed': String(tableOn),
+    title: '5축 재생 중 공구는 고정하고 테이블·소재가 A/B/C 회전축 값만큼 돌게 봅니다.' });
+  tableBtn.textContent = '테이블 회전';
+  tableBtn.classList.toggle('on', tableOn);
+  tableBtn.addEventListener('click', () => {
+    tableOn = !tableOn;
+    setPref('table_rotation', tableOn ? 'on' : 'off');
+    tableBtn.classList.toggle('on', tableOn);
+    tableBtn.setAttribute('aria-pressed', String(tableOn));
+    showSeq(seqNow, false);
+  });
+  let tableKeys: number[] = [];
+  let tableKeysFor: Map<number, unknown> | null = null;
+  const rotX = (d: number): THREE.Matrix4 => new THREE.Matrix4().makeRotationX((d * Math.PI) / 180);
+  const rotY = (d: number): THREE.Matrix4 => new THREE.Matrix4().makeRotationY((d * Math.PI) / 180);
+  const rotZ = (d: number): THREE.Matrix4 => new THREE.Matrix4().makeRotationZ((d * Math.PI) / 180);
+  /** 원본 _table_rotation_matrices: seq 시점의 소재 회전(part)과 공구 방향(tool). 해당 없으면 null */
+  const tableMats = (seq: number): { part: THREE.Matrix4; tool: THREE.Matrix4 } | null => {
+    const map = result?.seq_to_table_rot;
+    if (!map || !map.size) return null;
+    if (tableKeysFor !== map) { tableKeys = [...map.keys()].sort((a, b) => a - b); tableKeysFor = map; }
+    let lo = 0, hi = tableKeys.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (tableKeys[mid]! <= seq) lo = mid + 1; else hi = mid; }
+    if (lo === 0) return null;
+    const info = map.get(tableKeys[lo - 1]!);
+    if (!info) return null;
+    const [kind, a, b, c] = info;
+    if (kind === 'ac') return { part: rotZ(c).multiply(rotX(a)).transpose(), tool: new THREE.Matrix4() };
+    if (kind === 'bc') return { part: rotZ(c).transpose(), tool: rotY(b) };
+    return { part: rotY(b).transpose(), tool: new THREE.Matrix4() };
   };
   const SECTION_LABEL = { '3q': '단면 3/4', half: '단면 1/2', full: '원통' } as const;
   const SECTION_ORDER = ['3q', 'half', 'full'] as const;
@@ -298,8 +334,9 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
       b.addEventListener('click', () => { setProjection(name); }); // v2.4.2: 뷰를 바꿔도 위치 찍기는 유지
       projButtons.push(b);
     }
-    projBar.append(instantBtn, liveBtn, sectionBtn);
+    projBar.append(instantBtn, liveBtn, tableBtn, sectionBtn);
     sectionBtn.hidden = !lathe;
+    tableBtn.hidden = lathe;
   };
 
   const bPrevTool = mkIconBtn(playBar, 'prev', '이전 공정');
@@ -741,6 +778,8 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     }
     // 선반 C축: 공구는 +X 센터에 고정되고 경로가 도는 것처럼 — 마커는 C 역회전, 진행 선은 C 만큼 회전(원본 v1.6.6)
     const cRot = lathe ? (result.seq_to_c_rot.get(seqNow) ?? 0) : 0;
+    const tm = !lathe && pgMatch && tableOn ? tableMats(seqNow) : null;
+    if (tm) workGroup.quaternion.setFromRotationMatrix(tm.part); else workGroup.quaternion.identity();
     if (c) {
       let [mx, my, mz] = c;
       if (cRot) {
@@ -748,7 +787,9 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
         const sn = Math.sin(r), cs = Math.cos(r);
         [my, mz] = [my * cs - mz * sn, my * sn + mz * cs];
       }
-      marker.position.set(mx, my, mz); marker.visible = true;
+      marker.position.set(mx, my, mz);
+      if (tm) marker.position.applyMatrix4(tm.part);
+      marker.visible = true;
     } else marker.visible = false;
     for (const p of processes) for (const t of p.trace) t.obj.rotation.x = (cRot * Math.PI) / 180;
     // 진입 방향 화살표
@@ -758,13 +799,16 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
       const g = key ? groupAt(entryGroups.get(key) ?? [], seqNow) : null;
       if (g && (!keysVisible || keysVisible.has(key!))) {
         entryArrow.position.set(g.entry[0], g.entry[1], g.entry[2]);
-        entryArrow.quaternion.setFromUnitVectors(Z_UP, axisVec.set(g.direction[0], g.direction[1], g.direction[2]));
+        axisVec.set(g.direction[0], g.direction[1], g.direction[2]);
+        if (tm) { entryArrow.position.applyMatrix4(tm.part); axisVec.transformDirection(tm.part); }
+        entryArrow.quaternion.setFromUnitVectors(Z_UP, axisVec);
         entryArrow.scale.setScalar(axes.scale.x * 0.35);
         entryArrow.visible = true;
       }
     }
     const ax = result.line_axis_map.get(result.seq_to_line[seqNow] ?? -1);
     if (ax && Math.hypot(ax[0], ax[1], ax[2]) > 1e-9) axisVec.set(ax[0], ax[1], ax[2]).normalize(); else axisVec.copy(Z_UP);
+    if (tm) axisVec.copy(Z_UP).transformDirection(tm.tool);
     marker.quaternion.setFromUnitVectors(Z_UP, axisVec);
     toolMesh.visible = false;
     if (!lathe && marker.visible) {
@@ -785,7 +829,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
       }
     }
     const modal = result.seq_to_modal_state.get(seqNow);
-    coordBox.textContent = modal ? `X ${modal[0]}  Y ${modal[1]}  Z ${modal[2]}${lathe ? `  C ${modal[5]}` : `  A ${modal[3]}  B ${modal[4]}  C ${modal[5]}`}` : '';
+    coordBox.textContent = (modal ? `X ${modal[0]}  Y ${modal[1]}  Z ${modal[2]}${lathe ? `  C ${modal[5]}` : `  A ${modal[3]}  B ${modal[4]}  C ${modal[5]}`}` : '') + (result.machine_auto_note ? `   (${result.machine_auto_note})` : '');
     timeText.textContent = formatElapsedOverTotal(elapsedSecondsAtSeq(result, seqNow, sortedKeys), result.total_time_sec);
     dirty = true;
     if (emit) hooks.onLine?.(lineAtSeq(result, seqNow));

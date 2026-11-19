@@ -33,7 +33,7 @@ import lathe_insert_spec
 import sumpath_license
 
 
-APP_VERSION = '2.5.8'
+APP_VERSION = '2.5.9'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-11-19'
 APP_CREATOR = 'Hwang.seonmun'
@@ -633,25 +633,37 @@ PROBE_TOKEN_RE = re.compile(r'\(M[23]00(?:H\d+(?:≠H\d+)?)?\)')
 
 def _format_remark(labels, comp_map):
     """REMARK 표시 문구를 만든다 — "N8(G41), N9, N10" 형태(v1.7.8).
-    v2.5.5: M300/M200 표기는 1줄에 섞지 않고 2줄로 내린다 —
-    "N3(G41), N7\nM300H3 · M200"(같은 코드는 합침, H 불일치는 그대로).
-    PDF 셀 넘침·화면 잘림을 막으려는 사용자 확정안 A.
+    v2.5.9: M300/M200 표기는 같은 줄 안에 이어 적는다(사용자 확정, 2줄 표기 폐지).
+      - 모든 N이 같은 코드를 쓰면 코드를 앞에 한 번: "M300 N1, N2, N3"
+      - 안 쓰는 N이 섞이면 안 쓰는 N을 먼저 적고 "코드:" 뒤로 쓰는 N을 묶는다:
+        "N1, M300:N2, N3" / H가 있으면 "N1, M300H1:N2, N3"
+      - 코드가 둘이면 같은 N 묶음끼리 "·"로 잇고, 묶음이 다르면 " · "로 나눈다.
     comp_map에 없는 라벨은 접미어 없이 그대로 둔다."""
-    heads = []
-    probes = {}
+    heads = {}
+    tokens_of = {}
     for label in labels:
         suffix = comp_map.get(label, '')
-        for token in PROBE_TOKEN_RE.findall(suffix):
-            owners = probes.setdefault(token[1:-1], [])
+        tokens_of[label] = [t[1:-1] for t in PROBE_TOKEN_RE.findall(suffix)]
+        heads[label] = label + PROBE_TOKEN_RE.sub('', suffix)
+    plain = [heads[label] for label in labels if not tokens_of[label]]
+    owners_of = {}
+    for label in labels:
+        for token in tokens_of[label]:
+            owners = owners_of.setdefault(token, [])
             if label not in owners:
                 owners.append(label)
-        heads.append(label + PROBE_TOKEN_RE.sub('', suffix))
-    text = ', '.join(heads)
-    if probes:
-        # v2.5.8: 어느 N에서 측정하는지 보이도록 "M300H3: N3, N7 · M200: N3".
-        text += '\n' + ' · '.join('%s: %s' % (code, ', '.join(owners))
-                                  for code, owners in probes.items())
-    return text
+    if not owners_of:
+        return ', '.join(plain)
+    groups = {}
+    for token, owners in owners_of.items():
+        groups.setdefault(tuple(owners), []).append(token)
+    probe_labels = [label for label in labels if tokens_of[label]]
+    if not plain and len(groups) == 1:
+        (owners, codes), = groups.items()
+        return '%s %s' % ('·'.join(codes), ', '.join(heads[label] for label in owners))
+    parts = ['%s:%s' % ('·'.join(codes), ', '.join(heads[label] for label in owners))
+             for owners, codes in groups.items()]
+    return ', '.join(plain + [' · '.join(parts)]) if plain else ' · '.join(parts)
 
 
 def _measure_remark_width(text, regular_metrics, bold_metrics):
@@ -880,10 +892,10 @@ def _fit_remark_line(line, max_width, bold_font, size, min_size=4.2):
         return line, fitted
     items = []
     for item in line.split(' · '):
-        code, sep, owners = item.partition(': ')
-        names = owners.split(', ') if sep else []
+        match = re.search(r'(M[23]00[^:\s]*):(.*)$', item)
+        names = match.group(2).split(', ') if match else []
         if len(names) > 1:
-            item = '%s: %s 외%d' % (code, names[0], len(names) - 1)
+            item = '%s%s:%s 외%d' % (item[:match.start()], match.group(1), names[0], len(names) - 1)
         items.append(item)
     short = ' · '.join(items)
     return short, max(min_size, min(size, max_width / width(short, size) * size))

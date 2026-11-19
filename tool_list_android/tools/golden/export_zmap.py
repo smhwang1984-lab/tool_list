@@ -21,7 +21,7 @@ MAX_LINES = 700
 RES = 0.5
 MARGIN = 2.0
 M3 = '3축 MCT (X Y Z)'
-FILES = ['5ax_A_To_C.nc', 'O3210_excerpt.nc', 'ncdata.nc', 'sub_pg_test.nc', 'O4811.nc', 'O4812.nc', 'O1699.nc']
+FILES = ['zmap3_plain.nc', '5ax_A_To_C.nc', 'O3210_excerpt.nc', 'ncdata.nc', 'sub_pg_test.nc', 'O4811.nc', 'O4812.nc', 'O1699.nc']
 TYPES = ['FLAT E/M', 'BALL E/M', 'FILLET E/M', 'DRILL', 'CHAMFER MILL']
 
 
@@ -76,6 +76,10 @@ def main(argv):
         seg = viewer.sim_seg
         if seg is None:
             print('경로 없음', name)
+            continue
+        # v2.5.9: 3축 설정이어도 G43.4/G68.2 + 회전축이 있으면 5축으로 읽어 3D 엔진을 쓴다 — Z-map 골든은 Z-map 엔진 파일만
+        if viewer.sim_engine != 'zmap':
+            print('3D 엔진 — Z-map 골든 제외', name)
             continue
         bounds = viewer.toolpath_bounds(margin=MARGIN)
         keep = ~seg['tilt']

@@ -83,7 +83,7 @@ const REMARK_MIN_FONT = 4.2;
 
 /**
  * v2.5.8: REMARK 한 줄이 칸 폭(pt)을 넘으면 글자를 줄이고, 최소 크기에서도 넘으면
- * "M300H3: N3, N7, N12" 의 N 나열을 "N3 외2" 로 줄인다 — 줄바꿈으로 다음 줄과 겹치는 것을 막는다.
+ * "N1, M300H3:N3, N7, N12" 의 N 나열을 "M300H3:N3 외2" 로 줄인다 — 줄바꿈으로 다음 줄과 겹치는 것을 막는다.
  */
 export function fitRemarkLine(line: string, maxWidth: number, size: number): { line: string; size: number } {
   const width = (t: string, pt: number): number => t.length * pt * REMARK_CHAR_EM;
@@ -91,9 +91,9 @@ export function fitRemarkLine(line: string, maxWidth: number, size: number): { l
   const fitted = (maxWidth / width(line, size)) * size;
   if (fitted >= REMARK_MIN_FONT) return { line, size: fitted };
   const short = line.split(' · ').map((item) => {
-    const i = item.indexOf(': ');
-    const names = i < 0 ? [] : item.slice(i + 2).split(', ');
-    return names.length > 1 ? `${item.slice(0, i)}: ${names[0]} 외${names.length - 1}` : item;
+    const m = /(M[23]00[^:\s]*):(.*)$/.exec(item);
+    const names = m ? m[2]!.split(', ') : [];
+    return m && names.length > 1 ? `${item.slice(0, m.index)}${m[1]}:${names[0]} 외${names.length - 1}` : item;
   }).join(' · ');
   return { line: short, size: Math.max(REMARK_MIN_FONT, Math.min(size, (maxWidth / width(short, size)) * size)) };
 }
