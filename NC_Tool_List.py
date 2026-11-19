@@ -33,7 +33,7 @@ import lathe_insert_spec
 import sumpath_license
 
 
-APP_VERSION = '2.5.5'
+APP_VERSION = '2.5.6'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-11-19'
 APP_CREATOR = 'Hwang.seonmun'
@@ -65,7 +65,11 @@ INPUT_SPLITTER_INITIAL_SIZES = [480, 208]
 MAIN_SPLITTER_INITIAL_SIZES = [PROGRAM_PANE_MIN_WIDTH, VIEWER_PANE_INITIAL_WIDTH]
 
 # v1.6.2: 상단 바 맨 끝(다크모드 버튼)과 창 오른쪽 가장자리 사이의 여백.
-TOP_BAR_EDGE_GAP_PX = 8
+# v2.5.6: 한 줄 상단바 높이, 숨김 상태의 위쪽 손잡이 높이, 임시 표시가 닫히기까지의 지연(ms)
+TOP_BAR_HEIGHT_PX = 48
+TOP_BAR_EDGE_PX = 8
+TOP_BAR_PEEK_CLOSE_MS = 300
+PROGRAM_LABEL_MAX_PX = 260
 
 # v1.8.3: 창이 뜬 뒤 OpenGL 컨텍스트가 살아 있는지 확인하기까지의 지연.
 # 창이 실제로 화면에 올라온 다음에 재야 의미가 있고, 이 시간이 그대로
@@ -104,7 +108,6 @@ THEMES = {
     'light': {
         'window_bg': '#f0f4f8', 'panel_bg': '#ffffff', 'text': '#1f2937',
         'muted_text': '#5a6577', 'faint_text': '#8a94a3', 'border': '#c5ced8',
-        'header_bg': '#1f3a5f', 'header_text': '#ffffff', 'header_caption': '#c8d4e2',
         'accent': '#2f6fb0', 'accent_text': '#ffffff', 'accent_hover': '#255a92',
         'success': '#4c7f31', 'success_text': '#ffffff',
         'neutral_button': '#555555', 'neutral_button_text': '#ffffff',
@@ -118,13 +121,13 @@ THEMES = {
         'nc_g0': '#b71c1c', 'nc_g1': '#256b29', 'nc_g2': '#1565c0', 'nc_g3': '#7b1fa2',
         'nc_cycle': '#8d4e1f', 'nc_spindle': '#7a6000', 'nc_coolant': '#a84300',
         # v2.2.8: 상단 툴바와 아이콘 색
-        'toolbar_bg': '#e3e9f0', 'toolbar_sep': '#b9c4d0', 'toolbar_hover': '#d2dce8',
-        'icon': '#34577f',
+        # v2.5.6: 상단바는 흑연색 한 줄(제목 줄과 툴바를 합침). 남색 제목 줄은 없앴다.
+        'toolbar_bg': '#eceef1', 'toolbar_sep': '#d3d7dd', 'toolbar_hover': '#dfe2e7',
+        'toolbar_active': '#d6dae0', 'icon': '#4a5561',
     },
     'dark': {
         'window_bg': '#1b1f27', 'panel_bg': '#242a35', 'text': '#e4e8f0',
         'muted_text': '#9aa5b8', 'faint_text': '#7a8494', 'border': '#3a4250',
-        'header_bg': '#10192b', 'header_text': '#e4e8f0', 'header_caption': '#8ea3c4',
         'accent': '#3f7fc9', 'accent_text': '#ffffff', 'accent_hover': '#5090d6',
         'success': '#4f9a38', 'success_text': '#ffffff',
         'neutral_button': '#4a5164', 'neutral_button_text': '#ffffff',
@@ -136,8 +139,8 @@ THEMES = {
         'mode_inactive_bg': '#2a2f3a', 'mode_inactive_text': '#c7d0e0',
         'nc_g0': '#ff7b7b', 'nc_g1': '#5fd068', 'nc_g2': '#6bb2ff', 'nc_g3': '#c792ff',
         'nc_cycle': '#d9a066', 'nc_spindle': '#ffd84d', 'nc_coolant': '#ffa040',
-        'toolbar_bg': '#222936', 'toolbar_sep': '#3a4250', 'toolbar_hover': '#2f3949',
-        'icon': '#c7d0e0',
+        'toolbar_bg': '#1b2027', 'toolbar_sep': '#2d343d', 'toolbar_hover': '#262d36',
+        'toolbar_active': '#313944', 'icon': '#a9b3c0',
     },
 }
 
@@ -2284,10 +2287,10 @@ QT_IMPORT_ERROR = None
 VIEWER_IMPORT_ERROR = None
 NCViewerWidget = None
 try:
-    from PyQt5.QtCore import Qt, QSettings, QSize, QTimer, QSignalBlocker, pyqtSignal, QEvent, QFileSystemWatcher
+    from PyQt5.QtCore import Qt, QSettings, QSize, QTimer, QSignalBlocker, pyqtSignal, QEvent, QFileSystemWatcher, QRectF
     from PyQt5.QtGui import (
-        QAbstractTextDocumentLayout, QColor, QFont, QFontMetrics, QIcon, QKeySequence,
-        QPalette, QSyntaxHighlighter, QTextCharFormat, QTextCursor, QTextDocument, QTextFormat,
+        QAbstractTextDocumentLayout, QColor, QCursor, QFont, QFontMetrics, QIcon, QKeySequence,
+        QPainter, QPalette, QSyntaxHighlighter, QTextCharFormat, QTextCursor, QTextDocument, QTextFormat,
     )
     from PyQt5.QtWidgets import (
         QApplication, QAbstractItemView, QCheckBox, QComboBox, QDialog,
@@ -2348,6 +2351,41 @@ else:
                     self.zoom_requested.emit(0)
                     return
             super().keyPressEvent(event)
+
+    class TopBarEdge(QWidget):
+        """v2.5.6: 상단바를 숨기면 창 맨 위에 남는 8px 손잡이. 마우스를 올리면 상단바가
+        임시로 내려오고(entered), 누르면 고정으로 펼친다(clicked)."""
+        entered = pyqtSignal()
+        clicked = pyqtSignal()
+
+        def __init__(self, parent=None):
+            super().__init__(parent)
+            self.setFixedHeight(TOP_BAR_EDGE_PX)
+            self.setCursor(Qt.PointingHandCursor)
+            self.setToolTip('상단바 펼치기 (Ctrl+H)')
+            self._color = QColor('#7b8693')
+
+        def set_color(self, color):
+            self._color = QColor(color)
+            self.update()
+
+        def enterEvent(self, event):
+            super().enterEvent(event)
+            self.entered.emit()
+
+        def mousePressEvent(self, event):
+            if event.button() == Qt.LeftButton:
+                self.clicked.emit()
+            else:
+                super().mousePressEvent(event)
+
+        def paintEvent(self, _event):
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.Antialiasing)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(self._color)
+            width = 72
+            painter.drawRoundedRect(QRectF((self.width() - width) / 2.0, 2.0, width, 3.0), 1.5, 1.5)
 
     class RemarkCompDelegate(QStyledItemDelegate):
         """REMARK 열에서 "(G41)"/"(G42)" 같은 경보정 표기만 굵게 그린다
@@ -2969,6 +3007,9 @@ else:
             # restore_layout_settings()가 그대로 복원하고, 최대화만 항상
             # 뒤이어 예약한다.
             self.restore_layout_settings()
+            # v2.5.6: 지난번에 상단바를 숨겼으면 그대로 시작한다.
+            if self._as_bool_setting(self.layout_settings.value('top_bar_hidden', False), False):
+                self.set_top_bar_hidden(True, save=False)
             QTimer.singleShot(0, self.showMaximized)
             # v2.2.8: Windows는 프로세스의 첫 ShowWindow에 바로가기/실행 측의 창 상태를
             # 덮어쓸 수 있다. 창이 뜬 직후 실제 상태를 한 번 더 보고 최대화를 확정한다.
@@ -3193,11 +3234,13 @@ else:
 
         def _apply_widget_themes(self):
             """하드코딩된 인라인 색을 쓰던 각 위젯을 현재 self.theme 값으로 다시 칠한다."""
-            self._style_header_bar(self.top_bar)
-            for button in (self.btn_settings, self.btn_help, self.btn_about):
-                self._style_header_tool_button(button)
-            self._style_toolbar(self.main_toolbar)
-            self._style_accent_button(self.run_button)
+            self._style_top_bar(self.top_bar)
+            self.top_bar_edge.set_color(self.theme['faint_text'])
+            self.program_no_label.setStyleSheet('color: %s;' % self.theme['muted_text'])
+            # v2.5.6: 한 곳만 진하게 — 실행 버튼만 강조색으로 채운다.
+            self.run_button.setStyleSheet(
+                'background: %s; color: %s; padding: 5px 9px; border: 1px solid transparent; border-radius: 6px;'
+                % (self.theme['accent'], self.theme['accent_text']))
             self._style_accent_button_large(self.copy_button)
             self._style_success_button_large(self.pdf_button)
             self._style_neutral_button(self.machine_save_button)
@@ -3213,11 +3256,6 @@ else:
 
         def _style_faint(self, widget):
             widget.setStyleSheet('color: %s;' % self.theme['faint_text'])
-
-        def _style_header_bar(self, widget):
-            widget.setStyleSheet(
-                'background: %s; color: %s;' % (self.theme['header_bg'], self.theme['header_text'])
-            )
 
         def _style_accent_button(self, widget):
             widget.setStyleSheet(
@@ -3280,61 +3318,51 @@ else:
             root_layout.setSpacing(0)
             self.setCentralWidget(central)
 
+            # v2.5.6: 제목 줄과 아이콘 툴바를 한 줄로 합친다(사용자 승인 시안, 흑연색).
+            # [제목][프로그램 번호] | [파일 · 편집 · 산출 · 화면 모드 …] | [설정][도움말][About][다크][숨김]
+            # 숨김 버튼은 항상 맨 오른쪽에 고정이라 창이 좁아져도 밖으로 나가지 않는다
+            # (폭이 모자라면 글자를 줄이고 아이콘만 둔다 — _update_top_bar_density).
             self.top_bar = QWidget()
+            self.top_bar.setObjectName('topBar')
+            self.top_bar.setAttribute(Qt.WA_StyledBackground, True)
+            self.top_bar.setFixedHeight(TOP_BAR_HEIGHT_PX)
             top_layout = QHBoxLayout(self.top_bar)
-            top_layout.setContentsMargins(14, 7, 10, 7)
-            title = QLabel('%s v%s' % (APP_NAME, APP_VERSION))
-            title.setFont(QFont('맑은 고딕', 13, QFont.Bold))
-            top_layout.addWidget(title)
+            top_layout.setContentsMargins(12, 4, 8, 4)
+            top_layout.setSpacing(4)
+            self.title_label = QLabel('%s v%s' % (APP_NAME, APP_VERSION))
+            self.title_label.setFont(QFont('맑은 고딕', 11, QFont.DemiBold))
+            top_layout.addWidget(self.title_label)
+            top_layout.addSpacing(12)
 
             # v1.7.3: 좌상단에 지금 운용 중인 프로그램 번호를 표기(사용자
             # 요청) — 제목 바로 옆, 선반/밀링 공통. run()/clear()에서
             # update_program_no_label()이 채우거나 비운다.
             self.program_no_label = QLabel('')
-            self.program_no_label.setFont(QFont('맑은 고딕', 12))
+            self.program_no_label.setFont(QFont('맑은 고딕', 10))
             top_layout.addWidget(self.program_no_label)
+            top_layout.addSpacing(8)
 
             # v2.2.8: 테마가 바뀌면 다시 그릴 아이콘 목록 —
             # (버튼, 아이콘 이름, 테마 색 키, 크기). _refresh_icons()가 쓴다.
             self._themed_icons = []
 
-            # v2.2.8: 제목 줄 오른쪽 끝에는 보조 버튼(설정/도움말/About/다크모드)만
-            # 둔다. 이 줄은 테마와 무관하게 항상 어두운 header_bg라 아이콘도
-            # header_text(밝은 색)로 그린다.
-            top_layout.addStretch()
-            utility_font = QFont('맑은 고딕', 10, QFont.Bold)
-            self.btn_settings = self._make_tool_button(
-                '설정', 'gear', self.show_settings, '설정 — 툴패스 선 굵기, 마우스 감도, 방향 큐브 크기',
-                font=utility_font, icon_size=self.HEADER_ICON_PX, style=Qt.ToolButtonTextBesideIcon, color_key='header_text',
-            )
-            # v1.6.1: 단축키 및 유용한 기능을 설명하는 도움말 팝업.
-            self.btn_help = self._make_tool_button(
-                '도움말', 'help', self.show_help, '단축키와 기능 설명',
-                font=utility_font, icon_size=self.HEADER_ICON_PX, style=Qt.ToolButtonTextBesideIcon, color_key='header_text',
-            )
-            self.btn_about = self._make_tool_button(
-                'About', 'info', self.show_about, '프로그램 정보, 업데이트, 라이선스',
-                font=utility_font, icon_size=self.HEADER_ICON_PX, style=Qt.ToolButtonTextBesideIcon, color_key='header_text',
-            )
-            for button in (self.btn_settings, self.btn_help, self.btn_about):
-                top_layout.addWidget(button)
-            root_layout.addWidget(self.top_bar)
-
-            # v2.2.8: 제목 줄 아래 아이콘 툴바 — 파일 / 편집 / 산출 / 화면 모드
-            # 묶음을 세로 구분선으로 나눈다. 버튼이 부르는 함수는 예전 그대로다.
             self.main_toolbar = QWidget()
             self.main_toolbar.setObjectName('mainToolbar')
             toolbar_layout = QHBoxLayout(self.main_toolbar)
-            toolbar_layout.setContentsMargins(8, 3, 8, 3)
+            toolbar_layout.setContentsMargins(0, 0, 0, 0)
             toolbar_layout.setSpacing(2)
             self._toolbar_layout = toolbar_layout  # 테스트에서 버튼 순서를 확인하는 용도
+            icon_only = Qt.ToolButtonIconOnly
 
             self.btn_open_file = self._make_tool_button('파일 열기', 'folder_open', self.open_file,
                                                         'NC 프로그램 파일 열기')
             self.btn_add_program = self._make_tool_button('PG ADD', 'folder_add', self.open_add_program_files,
-                                                          '여러 프로그램 파일을 지금 프로그램 뒤에 이어 붙이기')
-            self.btn_example = self._make_tool_button('예제', 'document', self.load_example, '예제 프로그램 불러오기')
-            self.btn_clear = self._make_tool_button('지우기', 'eraser', self.clear, '프로그램과 공구 리스트 지우기')
+                                                          '여러 프로그램 파일을 지금 프로그램 뒤에 이어 붙이기',
+                                                          style=icon_only)
+            self.btn_example = self._make_tool_button('예제', 'document', self.load_example,
+                                                      '예제 프로그램 불러오기', style=icon_only)
+            self.btn_clear = self._make_tool_button('지우기', 'eraser', self.clear,
+                                                    '프로그램과 공구 리스트 지우기', style=icon_only)
             self._add_toolbar_group(toolbar_layout, (
                 self.btn_open_file, self.btn_add_program, self.btn_example, self.btn_clear,
             ))
@@ -3342,17 +3370,18 @@ else:
             # v2.3.10: 장비 / 정지 옵션 / 소재 아이콘은 상단 툴바, 편집 모드 앞에 둔다
             # (Viewer 모드에서만 보인다 — set_mode).
             self.btn_machine = self._make_tool_button(
-                '장비', 'machine', lambda: None, '장비 타입 및 스펙 설정')
+                '장비', 'machine', lambda: None, '장비 타입 및 스펙 설정', style=icon_only)
             self.btn_machine.setPopupMode(QToolButton.InstantPopup)
             self.btn_stop_options = self._make_tool_button(
                 '정지 옵션', 'stop', lambda: None,
-                '재생 정지 옵션 — 텍스트 정지 · 정지(M00) · 옵션정지(M01) · 실시간 형상')
+                '재생 정지 옵션 — 텍스트 정지 · 정지(M00) · 옵션정지(M01) · 실시간 형상', style=icon_only)
             self.btn_stop_options.setPopupMode(QToolButton.InstantPopup)
             self.stock_button = self._make_tool_button(
-                '소재', 'stock', self.open_stock_dialog, '소재(STOCK) 설정과 가공 형상 시뮬레이션')
+                '소재', 'stock', self.open_stock_dialog, '소재(STOCK) 설정과 가공 형상 시뮬레이션', style=icon_only)
             # v2.4.6: [소재] 옆에 [소재 지우기] — 적용한 소재와 가공 형상을 지운다.
             self.stock_clear_button = self._make_tool_button(
-                '소재 지우기', 'stock_clear', self.clear_stock, '적용한 소재와 가공 형상 시뮬레이션 지우기')
+                '소재 지우기', 'stock_clear', self.clear_stock, '적용한 소재와 가공 형상 시뮬레이션 지우기',
+                style=icon_only)
             viewer_separator = self._add_toolbar_group(toolbar_layout, (
                 self.btn_machine, self.btn_stop_options, self.stock_button, self.stock_clear_button,
             ))
@@ -3361,10 +3390,11 @@ else:
 
             self.btn_edit_mode = self._make_tool_button(
                 '편집 모드', 'pencil', self.toggle_edit_mode, '편집 모드 켜기/끄기 (비밀번호)', checkable=True)
-            self.btn_edit_save = self._make_tool_button('저장', 'save', self.save_edit, '저장 (Ctrl+S)')
+            self.btn_edit_save = self._make_tool_button('저장', 'save', self.save_edit, '저장 (Ctrl+S)',
+                                                        style=icon_only)
             self.btn_edit_save.hide()
             self.btn_edit_password = self._make_tool_button(
-                '비밀번호', 'key', self.change_edit_password, '편집 모드 비밀번호 변경')
+                '비밀번호', 'key', self.change_edit_password, '편집 모드 비밀번호 변경', style=icon_only)
             self.btn_edit_password.hide()
             self._add_toolbar_group(toolbar_layout, (
                 self.btn_edit_mode, self.btn_edit_save, self.btn_edit_password,
@@ -3382,7 +3412,53 @@ else:
                 checkable=True)
             self._add_toolbar_group(toolbar_layout, (self.btn_tool_mode, self.btn_viewer_mode), separator=False)
             toolbar_layout.addStretch()
-            root_layout.addWidget(self.main_toolbar)
+            top_layout.addWidget(self.main_toolbar, 1)
+            # 폭이 모자랄 때 글자를 접는 버튼(Tool List 실행 버튼은 항상 글자가 보인다)
+            self._label_toolbar_buttons = [self.btn_open_file, self.btn_edit_mode,
+                                           self.btn_tool_mode, self.btn_viewer_mode]
+            self._top_bar_compact = False
+
+            # 오른쪽 끝: 보조 버튼(아이콘만, 마우스를 올리면 설명) + 다크모드 + 숨김
+            utility_font = QFont('맑은 고딕', 10)
+            self.btn_settings = self._make_tool_button(
+                '설정', 'gear', self.show_settings, '설정 — 툴패스 선 굵기, 마우스 감도, 방향 큐브 크기',
+                font=utility_font, icon_size=self.HEADER_ICON_PX, style=icon_only,
+            )
+            # v1.6.1: 단축키 및 유용한 기능을 설명하는 도움말 팝업.
+            self.btn_help = self._make_tool_button(
+                '도움말', 'help', self.show_help, '단축키와 기능 설명',
+                font=utility_font, icon_size=self.HEADER_ICON_PX, style=icon_only,
+            )
+            self.btn_about = self._make_tool_button(
+                'About', 'info', self.show_about, '프로그램 정보, 업데이트, 라이선스',
+                font=utility_font, icon_size=self.HEADER_ICON_PX, style=icon_only,
+            )
+            for button in (self.btn_settings, self.btn_help, self.btn_about):
+                top_layout.addWidget(button)
+
+            # v2.5.6: 상단바 숨김 버튼(맨 오른쪽, 항상 보임). 아이콘은 _refresh_hide_button()이 그린다.
+            self.btn_hide_top_bar = QToolButton()
+            self.btn_hide_top_bar.setText('상단바 숨김')
+            self.btn_hide_top_bar.setToolButtonStyle(Qt.ToolButtonIconOnly)
+            self.btn_hide_top_bar.setIconSize(QSize(self.HEADER_ICON_PX, self.HEADER_ICON_PX))
+            self.btn_hide_top_bar.setAutoRaise(True)
+            self.btn_hide_top_bar.setFocusPolicy(Qt.NoFocus)
+            self.btn_hide_top_bar.clicked.connect(self.toggle_top_bar_hidden)
+            root_layout.addWidget(self.top_bar)
+
+            # 숨김 상태: 맨 위 8px 손잡이(마우스를 올리면 임시 표시, 누르면 고정 펼침)
+            self._root_layout = root_layout
+            self.top_bar_hidden = False
+            self._top_bar_peeking = False
+            self.top_bar_edge = TopBarEdge()
+            self.top_bar_edge.hide()
+            self.top_bar_edge.entered.connect(lambda: self._peek_top_bar(True))
+            self.top_bar_edge.clicked.connect(lambda: self.set_top_bar_hidden(False))
+            self._top_bar_peek_timer = QTimer(self)
+            self._top_bar_peek_timer.setSingleShot(True)
+            self._top_bar_peek_timer.setInterval(TOP_BAR_PEEK_CLOSE_MS)
+            self._top_bar_peek_timer.timeout.connect(self._end_top_bar_peek)
+            self.top_bar.installEventFilter(self)
 
             self.main_splitter = QSplitter(Qt.Horizontal)
             self.main_splitter.setChildrenCollapsible(False)
@@ -3394,9 +3470,8 @@ else:
             if hasattr(self.viewer, 'take_dark_mode_button'):
                 self.btn_dark_mode = self.viewer.take_dark_mode_button(self.top_bar)
                 top_layout.addWidget(self.btn_dark_mode)
-                # 창 가장 오른쪽 가장자리에 버튼이 바로 붙지 않도록 한 칸
-                # 띄운다(v1.6.2 요청).
-                top_layout.addSpacing(TOP_BAR_EDGE_GAP_PX)
+            top_layout.addWidget(self.btn_hide_top_bar)
+            self._refresh_hide_button()
 
             self.program_panel = QWidget()
             self.program_panel.setMinimumWidth(PROGRAM_PANE_MIN_WIDTH)
@@ -3629,26 +3704,24 @@ else:
             return button
 
         # ---------- v2.2.8: 아이콘 툴바 ----------
-        TOOLBAR_ICON_PX = 26
-        HEADER_ICON_PX = 20
+        TOOLBAR_ICON_PX = 18
+        HEADER_ICON_PX = 18
         PANEL_ICON_PX = 16
 
         def _make_tool_button(self, text, icon_name, slot, tooltip, checkable=False, font=None,
                               icon_size=None, style=None, color_key='icon'):
-            """아이콘 + 글자 툴바 버튼(기본은 아이콘 위·글자 아래, 사용자 승인 D-3 (a))."""
+            """아이콘 + 글자 툴바 버튼(v2.5.6: 한 줄 상단바라 기본은 아이콘 옆에 글자)."""
             button = QToolButton()
             button.setText(text)
             button.setToolTip(tooltip)
             button.setFont(font or QFont('맑은 고딕', 9))
-            button.setToolButtonStyle(style if style is not None else Qt.ToolButtonTextUnderIcon)
+            button.setToolButtonStyle(style if style is not None else Qt.ToolButtonTextBesideIcon)
             size = icon_size or self.TOOLBAR_ICON_PX
             button.setIconSize(QSize(size, size))
             button.setCheckable(checkable)
             button.setAutoRaise(True)
             # 툴바 버튼이 포커스를 가져가면 프로그램 창 방향키 이동이 끊긴다.
             button.setFocusPolicy(Qt.NoFocus)
-            if style is None:
-                button.setMinimumWidth(62)
             button.clicked.connect(slot)
             self._themed_icons.append((button, icon_name, color_key, size))
             return button
@@ -3680,31 +3753,38 @@ else:
                 color = t[color_key]
                 # 켜져 있는(강조색 배경) 토글 버튼은 아이콘도 배경 위 글자색으로 바꾼다.
                 if color_key == 'icon' and isinstance(target, QToolButton) and target.isChecked():
-                    color = t['accent_text']
+                    color = t['text']
                 if isinstance(target, QLabel):
                     target.setPixmap(ui_icons.icon_pixmap(icon_name, color, size))
                 else:
                     target.setIcon(ui_icons.icon(icon_name, color, size))
+            if hasattr(self, 'btn_hide_top_bar'):
+                self._refresh_hide_button()
 
-        def _style_toolbar(self, widget):
+        def _refresh_hide_button(self):
+            """v2.5.6: 숨김 버튼 — 펼친 상태는 ▲(숨기기), 숨긴 상태(임시 표시 중)는 ▼(고정해서 펼치기)."""
+            hidden = bool(getattr(self, 'top_bar_hidden', False))
+            self.btn_hide_top_bar.setIcon(ui_icons.icon(
+                'chevron_down' if hidden else 'chevron_up', self.theme['icon'], self.HEADER_ICON_PX))
+            self.btn_hide_top_bar.setToolTip(
+                '상단바 고정해서 펼치기 (Ctrl+H)' if hidden else '상단바 숨기기 (Ctrl+H)')
+
+        def _style_top_bar(self, widget):
+            """v2.5.6: 한 줄 상단바 — 흑연색 면 + 얇은 아래 선. 버튼은 테두리 없이 올렸을 때만 면이 생긴다."""
             t = self.theme
             widget.setStyleSheet(
-                '#mainToolbar { background: %(toolbar_bg)s; border-bottom: 1px solid %(toolbar_sep)s; }'
-                '#mainToolbar QToolButton { background: transparent; color: %(text)s; border: 1px solid transparent;'
-                ' border-radius: 4px; padding: 2px 6px; }'
-                '#mainToolbar QToolButton:hover { background: %(toolbar_hover)s; border-color: %(toolbar_sep)s; }'
-                '#mainToolbar QToolButton:disabled { color: %(faint_text)s; }'
-                '#mainToolbar QFrame#toolbarSeparator { color: %(toolbar_sep)s; }'
+                '#topBar { background: %(toolbar_bg)s; border-bottom: 1px solid %(toolbar_sep)s; }'
+                '#topBar #mainToolbar { background: transparent; }'
+                '#topBar QLabel { background: transparent; color: %(text)s; }'
+                '#topBar QToolButton { background: transparent; color: %(text)s; border: 1px solid transparent;'
+                ' border-radius: 6px; padding: 4px 8px; }'
+                '#topBar QToolButton:hover { background: %(toolbar_hover)s; }'
+                '#topBar QToolButton:checked { background: %(toolbar_active)s; }'
+                '#topBar QToolButton:disabled { color: %(faint_text)s; }'
+                '#topBar QPushButton { background: transparent; border: 1px solid transparent; border-radius: 6px; }'
+                '#topBar QPushButton:hover { background: %(toolbar_hover)s; }'
+                '#topBar QFrame#toolbarSeparator { color: %(toolbar_sep)s; }'
                 % t
-            )
-
-        def _style_header_tool_button(self, widget):
-            t = self.theme
-            widget.setStyleSheet(
-                'QToolButton { background: transparent; color: %s; border: 1px solid transparent;'
-                ' border-radius: 4px; padding: 3px 7px; }'
-                'QToolButton:hover { background: rgba(255, 255, 255, 30); border-color: rgba(255, 255, 255, 60); }'
-                % t['header_text']
             )
 
         def _install_shortcuts(self):
@@ -3723,9 +3803,12 @@ else:
             shortcut_next_tool.activated.connect(self.playback_next_tool)
             shortcut_save = QShortcut(QKeySequence('Ctrl+S'), self)
             shortcut_save.activated.connect(lambda: self.edit_mode and self.save_edit())
+            # v2.5.6: Ctrl+H — 상단바 숨기기/펼치기
+            shortcut_top_bar = QShortcut(QKeySequence('Ctrl+H'), self)
+            shortcut_top_bar.activated.connect(self.toggle_top_bar_hidden)
             self._shortcuts = (
                 shortcut_reset, shortcut_prev_tool, shortcut_toggle_play, shortcut_next_tool,
-                shortcut_save,
+                shortcut_save, shortcut_top_bar,
             )
 
         HELP_TEXT = (
@@ -3736,10 +3819,13 @@ else:
             '  F8   다음 공구(선택된 공정 중 뒤쪽)로 이동\n'
             '  Esc  뷰어의 위치 찍기 모드(우클릭 드래그 줌 뒤 켜짐) 끝내기\n'
             '\n'
-            '■ 화면 배치 (v2.2.8)\n'
-            '  제목 줄 오른쪽: 설정 / 도움말 / About / 다크모드.\n'
-            '  아래 툴바: [파일 열기 · PG ADD · 예제 · 지우기] [편집 모드 · 저장 · 비밀번호]\n'
-            '  [Tool List] [툴리스트 산출 · Viewer]. 버튼에 마우스를 올리면 설명이 나옵니다.\n'
+            '■ 상단바 (v2.5.6)\n'
+            '  한 줄입니다: [제목 · 프로그램 번호] [파일 열기 · PG ADD · 예제 · 지우기] [편집 모드 · 저장 · 비밀번호]\n'
+            '  [Tool List] [툴리스트 산출 · Viewer] ··· [설정 · 도움말 · About · 다크모드 · ▲]\n'
+            '  버튼에 마우스를 올리면 설명이 나옵니다.\n'
+            '  Ctrl+H 또는 맨 오른쪽 ▲로 상단바를 숨기면 맨 위에 얇은 손잡이만 남습니다.\n'
+            '  손잡이에 마우스를 올리면 잠시 내려오고, 손잡이를 누르거나 Ctrl+H를 누르면 고정해서 펼칩니다.\n'
+            '  Ctrl+휠 / Ctrl+(+ - 0): 공구 리스트 표 확대·축소(0은 처음 크기).\n'
             '\n'
             '■ 화면 모드\n'
             '  툴바의 "툴리스트 산출" / "Viewer" 버튼으로 전환합니다.\n'
@@ -4593,6 +4679,8 @@ else:
             for widget in getattr(self, '_viewer_only_toolbar', ()):
                 if widget is not None:
                     widget.setVisible(is_viewer)
+            # 버튼 수가 바뀌었으니 한 줄 상단바 폭을 다시 맞춘다(숨김 화살표가 항상 보이게).
+            self._update_top_bar_density(force=True)
             if not is_viewer:
                 self.set_machine_panel_expanded(False)
             if is_viewer:
@@ -4609,12 +4697,12 @@ else:
             # v1.6.2: "툴리스트 산출 모드"/"Viewer 모드" 버튼을 "도움말" 버튼과
             # 같은 크기로 맞춘다 — 패딩을 도움말/About이 쓰는 전역 기본값
             # (4px 8px)과 같게 둔다(이전엔 7px 12px로 더 컸다).
-            active = 'background: %s; color: %s; padding: 4px 8px;' % (
-                t['mode_active_bg'], t['mode_active_text']
-            )
-            inactive = 'background: %s; color: %s; padding: 4px 8px;' % (
-                t['mode_inactive_bg'], t['mode_inactive_text']
-            )
+            # v2.5.6: 활성 모드는 강조색이 아니라 한 단계 밝은 면 + 얇은 선(실행 버튼만 강조색).
+            active = ('QToolButton { background: %s; color: %s; border: 1px solid %s; border-radius: 6px;'
+                      ' padding: 4px 8px; }' % (t['toolbar_active'], t['text'], t['toolbar_sep']))
+            inactive = ('QToolButton { background: transparent; color: %s; border: 1px solid transparent;'
+                        ' border-radius: 6px; padding: 4px 8px; }'
+                        'QToolButton:hover { background: %s; }' % (t['muted_text'], t['toolbar_hover']))
             self.btn_tool_mode.setStyleSheet(active if self.current_mode == 'tool' else inactive)
             self.btn_viewer_mode.setStyleSheet(active if self.current_mode == 'viewer' else inactive)
             self._refresh_icons()
@@ -5649,7 +5737,10 @@ else:
         def update_program_no_label(self, source_text):
             """v1.7.3: 좌상단 프로그램 번호 표시를 현재 입력 프로그램의 첫
             `Onnnn` 줄로 갱신한다(§4 요구, 주석 없으면 괄호 생략)."""
-            self.program_no_label.setText(program_header_text(source_text))
+            full = program_header_text(source_text)
+            metrics = QFontMetrics(self.program_no_label.font())
+            self.program_no_label.setText(metrics.elidedText(full, Qt.ElideRight, PROGRAM_LABEL_MAX_PX))
+            self.program_no_label.setToolTip(full if full else '')
 
         def _relayout_tool_table(self):
             """공구 리스트 표의 폰트/셀 폭을 현재 패널 폭에 맞춰 가변으로
@@ -5710,7 +5801,103 @@ else:
 
         def resizeEvent(self, event):
             super().resizeEvent(event)
+            self._update_top_bar_density()
+            if getattr(self, '_top_bar_peeking', False):
+                self._place_peeking_top_bar()
             self._relayout_tool_table()
+
+        # ---------- 상단바 숨김 (v2.5.6) ----------
+        def _update_top_bar_density(self, force=False):
+            """한 줄 상단바가 창 폭보다 넓으면 글자를 접고 아이콘만 둔다(Tool List 버튼 제외).
+            숨김 버튼이 맨 오른쪽에 항상 보이도록 하는 안전장치다.
+            리사이즈마다 스타일을 바꾸지 않도록 "글자를 펼쳤을 때 필요한 폭"을 기억해 두고,
+            상태가 실제로 바뀔 때만 버튼 스타일을 건드린다. 버튼 수가 바뀌면 force=True로 다시 잰다."""
+            bar = getattr(self, 'top_bar', None)
+            central = self.centralWidget()
+            if bar is None or central is None or not hasattr(self, '_label_toolbar_buttons'):
+                return
+
+            def apply(wide):
+                style = Qt.ToolButtonTextBesideIcon if wide else Qt.ToolButtonIconOnly
+                for button in self._label_toolbar_buttons:
+                    button.setToolButtonStyle(style)
+                bar.layout().activate()
+
+            if force or getattr(self, '_top_bar_wide_need', None) is None or not self._top_bar_compact:
+                if self._top_bar_compact:
+                    apply(True)
+                bar.layout().activate()
+                self._top_bar_wide_need = bar.layout().minimumSize().width()
+                self._top_bar_compact = False
+            compact = self._top_bar_wide_need > central.width()
+            if compact != self._top_bar_compact:
+                apply(not compact)
+                self._top_bar_compact = compact
+
+        def eventFilter(self, obj, event):
+            if obj is getattr(self, 'top_bar', None) and getattr(self, 'top_bar_hidden', False):
+                if event.type() == QEvent.Leave:
+                    self._top_bar_peek_timer.start()
+                elif event.type() == QEvent.Enter:
+                    self._top_bar_peek_timer.stop()
+            return super().eventFilter(obj, event)
+
+        def toggle_top_bar_hidden(self):
+            self.set_top_bar_hidden(not self.top_bar_hidden)
+
+        def set_top_bar_hidden(self, hidden, save=True):
+            """상단바(제목 + 툴바)를 숨기거나 고정해서 펼친다. 숨기면 맨 위에 8px 손잡이만 남고,
+            마우스를 올리면 임시로 내려온다. 상태는 ui_layout 설정에 저장한다."""
+            hidden = bool(hidden)
+            if hidden == self.top_bar_hidden:
+                return
+            self._top_bar_peek_timer.stop()
+            self._top_bar_peeking = False
+            layout = self._root_layout
+            if hidden:
+                layout.removeWidget(self.top_bar)
+                self.top_bar.hide()
+                layout.insertWidget(0, self.top_bar_edge)
+                self.top_bar_edge.show()
+            else:
+                layout.removeWidget(self.top_bar_edge)
+                self.top_bar_edge.hide()
+                layout.insertWidget(0, self.top_bar)
+                self.top_bar.show()
+            self.top_bar_hidden = hidden
+            self._refresh_hide_button()
+            self._update_top_bar_density()
+            if save:
+                self.layout_settings.setValue('top_bar_hidden', hidden)
+                self.layout_settings.sync()
+
+        def _place_peeking_top_bar(self):
+            central = self.centralWidget()
+            self.top_bar.setGeometry(0, 0, central.width(), TOP_BAR_HEIGHT_PX)
+
+        def _peek_top_bar(self, on):
+            if not self.top_bar_hidden:
+                return
+            if not on:
+                self._top_bar_peek_timer.start()
+                return
+            self._top_bar_peek_timer.stop()
+            if not self._top_bar_peeking:
+                self._top_bar_peeking = True
+                self._place_peeking_top_bar()
+                self.top_bar.show()
+                self.top_bar.raise_()
+
+        def _end_top_bar_peek(self):
+            """임시 표시를 닫는다. 메뉴가 열려 있거나 마우스가 아직 상단바 위면 다시 기다린다."""
+            if not (self.top_bar_hidden and self._top_bar_peeking):
+                return
+            inside = self.top_bar.rect().contains(self.top_bar.mapFromGlobal(QCursor.pos()))
+            if inside or QApplication.activePopupWidget() is not None or QApplication.activeModalWidget() is not None:
+                self._top_bar_peek_timer.start()
+                return
+            self._top_bar_peeking = False
+            self.top_bar.hide()
 
         def _ensure_maximized_on_start(self):
             """시작 직후 한 번: 보이는데 최대화가 아니면(최소화 제외) 최대화한다."""
@@ -5780,6 +5967,7 @@ else:
             self.edit_mode_label.setVisible(self.edit_mode)
             self.btn_edit_save.setVisible(self.edit_mode)
             self.btn_edit_password.setVisible(self.edit_mode)
+            self._update_top_bar_density(force=True)
             self._apply_edit_mode_style()
             if self.edit_mode:
                 self.src.setFocus()

@@ -245,13 +245,13 @@ def test_theme_change_redraws_icons(window, monkeypatch):
     assert app.THEMES['light']['icon'] not in colors
 
 
-def test_checked_mode_button_icon_uses_accent_text(window, monkeypatch):
+def test_checked_mode_button_icon_uses_text_color(window, monkeypatch):
     import ui_icons
     calls = []
     original = ui_icons.icon
     monkeypatch.setattr(ui_icons, 'icon', lambda n, c, s=20: (calls.append((n, c)), original(n, c, s))[1])
     window.set_mode('viewer')
-    assert ('toolpath', window.theme['accent_text']) in calls
+    assert ('toolpath', window.theme['text']) in calls
     assert ('table', window.theme['icon']) in calls
 
 

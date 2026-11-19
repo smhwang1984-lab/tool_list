@@ -307,6 +307,11 @@ def _chevron_down(d):
     d.poly((0.20, 0.36), (0.50, 0.66), (0.80, 0.36), closed=False)
 
 
+def _chevron_up(d):
+    d.stroke(0.12)
+    d.poly((0.20, 0.64), (0.50, 0.34), (0.80, 0.64), closed=False)
+
+
 def _stop(d):
     # 재생 정지 조건(팔각형 정지 표지)
     points = []
@@ -372,6 +377,7 @@ ICON_PAINTERS = {
     'drag_zoom': _drag_zoom,
     'chevron_right': _chevron_right,
     'chevron_down': _chevron_down,
+    'chevron_up': _chevron_up,
     'stop': _stop,
     'filter': _filter,
     'pin': _pin,

@@ -368,8 +368,10 @@ X60 Y10 Z0
             widgets = [top_layout.itemAt(i).widget() for i in range(top_layout.count())]
             widgets = [w for w in widgets if w is not None]
             self.assertEqual(widgets[1], window.program_no_label)
+            # v2.5.6: 한 줄 상단바 — [제목][프로그램 번호][툴바 …][설정][도움말][About][다크][숨김]
+            self.assertIs(widgets[2], window.main_toolbar)
             self.assertEqual(
-                widgets[2:5], [window.btn_settings, window.btn_help, window.btn_about],
+                widgets[3:6], [window.btn_settings, window.btn_help, window.btn_about],
             )
             toolbar = window._toolbar_layout
             self.assertEqual(
@@ -455,7 +457,9 @@ X60 Y10 Z0
             top_layout = window.top_bar.layout()
             widgets = [top_layout.itemAt(i).widget() for i in range(top_layout.count())]
             widgets = [w for w in widgets if w is not None]
-            self.assertIs(widgets[-1], window.btn_dark_mode)
+            # v2.5.6: 맨 오른쪽은 상단바 숨김 버튼, 그 바로 앞이 다크모드 버튼
+            self.assertIs(widgets[-1], window.btn_hide_top_bar)
+            self.assertIs(widgets[-2], window.btn_dark_mode)
         finally:
             window.deleteLater()
             settings_dir.cleanup()
@@ -2635,7 +2639,7 @@ G02 X0 Y10 I-10 J0
 
 
     @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
-    def test_dark_mode_icon_color_is_fixed_regardless_of_theme(self):
+    def test_dark_mode_icon_color_follows_theme_on_graphite_bar(self):
         """v1.6.3 버그 수정: 다크모드 토글 버튼은 v1.6.2부터 항상 어두운
         상단 바(top_bar) 위에 있으므로, 아이콘 색은 앱 테마(_dark_mode)와
         무관하게 항상 같은(밝은) 색을 써야 한다 — 라이트 테마일 때 어두운
@@ -2668,8 +2672,10 @@ G02 X0 Y10 I-10 J0
             viewer_mod.moon_icon = original_moon
             viewer.deleteLater()
             qapp.processEvents()
+        # v2.5.6: 상단바가 테마를 따라가므로 다크는 밝은 회색, 라이트는 어두운 회색 아이콘이다.
         self.assertEqual(len(captured), 3)
-        self.assertEqual(len(set(captured)), 1)
+        self.assertEqual(captured[0], captured[2])
+        self.assertNotEqual(captured[0], captured[1])
 
     @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
     def test_cube_ui_controls_shrunk_but_cube_defaults_untouched(self):
