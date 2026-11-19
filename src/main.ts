@@ -44,8 +44,9 @@ import { MACHINE_LATHE } from './core/machines';
 
 type Mode = 'tool' | 'viewer';
 
-function toolButton(label: string, iconName: string, title: string, opts: { accent?: boolean; disabled?: boolean } = {}) {
-  const b = el('button', { class: 'tool-btn' + (opts.accent ? ' accent' : ''), title, type: 'button' },
+function toolButton(label: string, iconName: string, title: string, opts: { accent?: boolean; disabled?: boolean; iconOnly?: boolean } = {}) {
+  // iconOnly: 글자 없이 아이콘만(길게 누르면 설명이 나온다). 한 줄 상단바에서 자리를 아낀다.
+  const b = el('button', { class: 'tool-btn' + (opts.accent ? ' accent' : '') + (opts.iconOnly ? ' icon-only' : ''), title, 'aria-label': label, type: 'button' },
     icon(iconName) + `<span>${label}</span>`);
   if (opts.disabled) b.disabled = true;
   return b;
@@ -59,8 +60,8 @@ function group(...buttons: HTMLElement[]): HTMLElement {
 
 const HELP_TEXT = [
   '■ 화면 (가로 전용)',
-  '  제목 줄 오른쪽: 설정 / 도움말 / About / 다크모드.',
-  '  툴바: [파일 열기 · 예제 · 지우기] [편집 모드] [Tool List] [툴리스트 산출 · Viewer].',
+  '  상단바는 한 줄: 제목 · 툴바([파일 열기] [Tool List] [툴리스트 산출 · Viewer] [편집 모드] 그리고 아이콘만 있는 장비·정지 옵션·소재·예제·지우기) · 설정 / 도움말 / About / 다크모드 / ▲.',
+  '  툴바가 길면 옆으로 밀어서 봅니다. 맨 오른쪽 ▲로 상단바를 숨기면 맨 위에 얇은 손잡이만 남고, 손잡이를 누르거나 아래로 끌면 다시 펼칩니다(블루투스 키보드는 Ctrl+H).',
   '  버튼을 길게 누르면 설명이 나옵니다. 가운데 손잡이를 끌어 폭을 조절합니다.',
   '',
   '■ 파일',
@@ -104,7 +105,7 @@ const HELP_TEXT = [
   '  두 손가락 핀치로 글자 크기를 바꿉니다(저장됨). 읽기 모드에서 입력창을 탭하면 장비 설정 패널이 접힙니다.',
   '',
   '■ 키보드(블루투스)',
-  '  F5 처음으로(Viewer)  F6 이전 공구/공정  F7 재생·정지  F8 다음 공구/공정  Ctrl+S 저장(편집 모드)',
+  '  F5 처음으로(Viewer)  F6 이전 공구/공정  F7 재생·정지  F8 다음 공구/공정  Ctrl+S 저장(편집 모드)  Ctrl+H 상단바 숨김/펼침',
   '',
   '■ 설정',
   '  툴패스 선 굵기·감도·방향 큐브 크기·FOV, 선반 스펙 저장소 내보내기/가져오기.',
@@ -118,51 +119,85 @@ function mount(root: HTMLElement): void {
   applyTheme(theme);
 
   // ---------- 제목 줄 ----------
+  // v1.9.9: 제목 줄과 툴바를 한 줄로 합쳤다(원본 v2.5.6 시안). 오른쪽 끝 보조 버튼과 숨김 화살표는
+  // 줄어들지 않는 칸이라 화면이 좁아져도 밖으로 나가지 않고, 툴바만 가로로 스크롤된다.
   const topBar = el('header', { class: 'top-bar' });
-  topBar.innerHTML = `<span class="title">${APP_NAME}</span><span class="ver">v${APP_VERSION}</span>` +
-    `<span class="caption" id="file-caption">Android</span><span class="spacer"></span>`;
+  const brand = el('div', { class: 'brand' });
+  brand.innerHTML = `<span class="title">${APP_NAME}</span><span class="ver">v${APP_VERSION}</span>` +
+    `<span class="caption" id="file-caption">Android</span>`;
+  const utility = el('div', { class: 'utility' });
   const btnSettings = el('button', { class: 'icon-btn', title: '설정', type: 'button' }, icon('gear'));
   const btnHelp = el('button', { class: 'icon-btn', title: '도움말', type: 'button' }, icon('help'));
   const btnAbout = el('button', { class: 'icon-btn', title: 'About', type: 'button' }, icon('info'));
   const btnDark = el('button', { class: 'icon-btn', title: '다크모드', type: 'button' });
   const paintDark = () => { btnDark.innerHTML = icon(theme === 'dark' ? 'sun' : 'moon'); };
   paintDark();
-  topBar.append(btnSettings, btnHelp, btnAbout, btnDark);
+  const btnHide = el('button', { class: 'icon-btn', type: 'button', title: '상단바 숨기기 (Ctrl+H)', 'aria-label': '상단바 숨기기' }, icon('chevron_up'));
+  utility.append(btnSettings, btnHelp, btnAbout, btnDark, btnHide);
 
   // ---------- 툴바 (원본 순서) ----------
   const toolbar = el('nav', { class: 'main-toolbar' });
   const btnOpen = toolButton('파일 열기', 'folder_open', 'NC 파일 열기');
   const btnEdit = toolButton('편집 모드', 'pencil', '편집 모드 (비밀번호)');
-  const btnEditSave = toolButton('저장', 'save', '편집 내용을 파일에 저장 (원래 인코딩·줄바꿈 유지)');
-  const btnEditPw = toolButton('비밀번호', 'key', '편집 모드 비밀번호 변경');
+  const btnEditSave = toolButton('저장', 'save', '편집 내용을 파일에 저장 (원래 인코딩·줄바꿈 유지)', { iconOnly: true });
+  const btnEditPw = toolButton('비밀번호', 'key', '편집 모드 비밀번호 변경', { iconOnly: true });
   const editLabel = el('span', { class: 'edit-label' });
   editLabel.innerHTML = `${icon('pencil')}<span>편집 중</span>`;
   btnEditSave.hidden = true;
   btnEditPw.hidden = true;
   editLabel.hidden = true;
-  const btnMachine = toolButton('장비', 'gear', '장비 타입 및 스펙 설정');
-  const btnStop = toolButton('정지 옵션', 'run', '텍스트 정지 · 정지 · 옵션정지');
-  const btnStockTb = toolButton('소재', 'document', '소재(STOCK) 설정과 가공 형상 시뮬레이션');
-  const btnStockClear = toolButton('소재 지우기', 'eraser', '소재와 가공 형상을 지우고 툴패스 선을 다시 보이게 합니다');
+  const btnMachine = toolButton('장비', 'gear', '장비 타입 및 스펙 설정', { iconOnly: true });
+  const btnStop = toolButton('정지 옵션', 'run', '텍스트 정지 · 정지 · 옵션정지', { iconOnly: true });
+  const btnStockTb = toolButton('소재', 'document', '소재(STOCK) 설정과 가공 형상 시뮬레이션', { iconOnly: true });
+  const btnStockClear = toolButton('소재 지우기', 'eraser', '소재와 가공 형상을 지우고 툴패스 선을 다시 보이게 합니다', { iconOnly: true });
   btnStockClear.disabled = true;
-  const btnStl = toolButton('STL', 'save', '지금 보이는 가공 형상을 STL 파일로 내보내기');
+  const btnStl = toolButton('STL', 'save', '지금 보이는 가공 형상을 STL 파일로 내보내기', { iconOnly: true });
   btnStl.disabled = true;
   const btnRun = toolButton('Tool List', 'run', '공구 리스트 산출', { accent: true });
-  const btnExample = toolButton('예제', 'document', '예제 프로그램 불러오기');
-  const btnClear = toolButton('지우기', 'eraser', '프로그램과 공구 리스트 지우기');
+  const btnExample = toolButton('예제', 'document', '예제 프로그램 불러오기', { iconOnly: true });
+  const btnClear = toolButton('지우기', 'eraser', '프로그램과 공구 리스트 지우기', { iconOnly: true });
   const btnTool = toolButton('툴리스트 산출', 'table', '툴리스트 산출 모드');
   const btnViewer = toolButton('Viewer', 'toolpath', 'Viewer 모드 (3D 공구 경로)');
+  // v1.9.9: 한 줄이라 자주 쓰는 버튼(파일 열기 · Tool List · 화면 모드)을 앞에 두고, 나머지는 아이콘만 둬서 옆으로 민다.
   toolbar.append(
-    group(
-      btnOpen,
-      btnExample,
-      btnClear,
-    ),
-    group(btnMachine, btnStop, btnStockTb, btnStockClear, btnStl),
-    group(btnEdit, btnEditSave, btnEditPw, editLabel),
+    group(btnOpen),
     group(btnRun),
     group(btnTool, btnViewer),
+    group(btnEdit, btnEditSave, btnEditPw, editLabel),
+    group(btnMachine, btnStop, btnStockTb, btnStockClear, btnStl),
+    group(btnExample, btnClear),
   );
+  topBar.append(brand, toolbar, utility);
+
+  // 상단바 숨김: 숨기면 맨 위에 얇은 손잡이만 남고, 손잡이를 누르거나 아래로 끌면 다시 펼친다. 상태는 저장된다.
+  const topEdge = el('button', { class: 'top-edge', type: 'button', title: '상단바 펼치기 (Ctrl+H)', 'aria-label': '상단바 펼치기' });
+  topEdge.innerHTML = '<i></i>';
+  let topBarHidden = false;
+  const setTopBarHidden = (hidden: boolean): void => {
+    topBarHidden = hidden;
+    topBar.hidden = hidden;
+    topEdge.hidden = !hidden;
+    setPref('top_bar_hidden', hidden ? '1' : '0');
+  };
+  topBarHidden = getPref('top_bar_hidden') === '1';
+  topBar.hidden = topBarHidden;
+  topEdge.hidden = !topBarHidden;
+  btnHide.addEventListener('click', () => setTopBarHidden(true));
+  topEdge.addEventListener('click', () => setTopBarHidden(false));
+  topEdge.addEventListener('pointerdown', (ev) => {
+    const startY = ev.clientY;
+    const move = (e: PointerEvent): void => {
+      if (e.clientY - startY > 16) { cleanup(); setTopBarHidden(false); }
+    };
+    const cleanup = (): void => {
+      topEdge.removeEventListener('pointermove', move);
+      topEdge.removeEventListener('pointerup', cleanup);
+      topEdge.removeEventListener('pointercancel', cleanup);
+    };
+    topEdge.addEventListener('pointermove', move);
+    topEdge.addEventListener('pointerup', cleanup);
+    topEdge.addEventListener('pointercancel', cleanup);
+  });
 
   // ---------- 3D 뷰어 상태 (본문보다 먼저 선언) ----------
   let viewer: import('./viewer/viewer').Viewer | null = null;
@@ -232,7 +267,7 @@ function mount(root: HTMLElement): void {
   rightPane.append(toolView, viewerView);
   body.append(programPane, splitter, rightPane);
 
-  root.append(topBar, toolbar, body);
+  root.append(topBar, topEdge, body);
 
   // ---------- 산출 ----------
   const storeJson = getPref('lathe_store');
@@ -587,6 +622,7 @@ function mount(root: HTMLElement): void {
     if (e.key === 'F7' && inViewer) { e.preventDefault(); viewer!.togglePlay(); }
     if (e.key === 'F8') { e.preventDefault(); if (inViewer) viewer!.jumpTool(1); else searchBar.nextTool(); }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's' && doc.editing()) { e.preventDefault(); void doc.save(); }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'h') { e.preventDefault(); setTopBarHidden(!topBarHidden); }
   });
   installLongPressHints(root);
   // Android 뒤로 버튼: 위치 찍기 종료 → 열린 대화상자 닫기 → Tool List 화면으로 → 종료 확인
