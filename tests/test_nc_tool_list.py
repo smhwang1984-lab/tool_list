@@ -364,14 +364,14 @@ X60 Y10 Z0
         window = app.App(_root=settings_dir.name)
         try:
             self.assertFalse(hasattr(window, 'top_caption'))
-            top_layout = window.top_bar.layout()
+            top_layout = window._top_layout
             widgets = [top_layout.itemAt(i).widget() for i in range(top_layout.count())]
             widgets = [w for w in widgets if w is not None]
+            # v2.5.7: 폭에 따라 툴바가 첫 줄(한 줄)에 있거나 둘째 줄로 내려가므로 툴바·빈 칸은 빼고 본다.
+            widgets = [w for w in widgets if w not in (window.main_toolbar, window._top_spacer)]
             self.assertEqual(widgets[1], window.program_no_label)
-            # v2.5.6: 한 줄 상단바 — [제목][프로그램 번호][툴바 …][설정][도움말][About][다크][숨김]
-            self.assertIs(widgets[2], window.main_toolbar)
             self.assertEqual(
-                widgets[3:6], [window.btn_settings, window.btn_help, window.btn_about],
+                widgets[2:5], [window.btn_settings, window.btn_help, window.btn_about],
             )
             toolbar = window._toolbar_layout
             self.assertEqual(
@@ -453,8 +453,8 @@ X60 Y10 Z0
         window = app.App(_root=settings_dir.name)
         try:
             self.assertIs(window.btn_dark_mode, window.viewer.dark_mode_button)
-            self.assertIs(window.btn_dark_mode.parentWidget(), window.top_bar)
-            top_layout = window.top_bar.layout()
+            self.assertIs(window.btn_dark_mode.parentWidget(), window.top_row1)
+            top_layout = window._top_layout
             widgets = [top_layout.itemAt(i).widget() for i in range(top_layout.count())]
             widgets = [w for w in widgets if w is not None]
             # v2.5.6: 맨 오른쪽은 상단바 숨김 버튼, 그 바로 앞이 다크모드 버튼

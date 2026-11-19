@@ -33,7 +33,7 @@ import lathe_insert_spec
 import sumpath_license
 
 
-APP_VERSION = '2.5.6'
+APP_VERSION = '2.5.7'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-11-19'
 APP_CREATOR = 'Hwang.seonmun'
@@ -67,6 +67,7 @@ MAIN_SPLITTER_INITIAL_SIZES = [PROGRAM_PANE_MIN_WIDTH, VIEWER_PANE_INITIAL_WIDTH
 # v1.6.2: 상단 바 맨 끝(다크모드 버튼)과 창 오른쪽 가장자리 사이의 여백.
 # v2.5.6: 한 줄 상단바 높이, 숨김 상태의 위쪽 손잡이 높이, 임시 표시가 닫히기까지의 지연(ms)
 TOP_BAR_HEIGHT_PX = 48
+TOP_BAR_ROW2_PX = 44
 TOP_BAR_EDGE_PX = 8
 TOP_BAR_PEEK_CLOSE_MS = 300
 PROGRAM_LABEL_MAX_PX = 260
@@ -2298,7 +2299,7 @@ try:
         QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
         QPlainTextEdit, QProgressDialog, QPushButton, QShortcut, QSplitter, QStackedWidget, QStyle,
         QStyledItemDelegate, QStyleOptionViewItem, QTableWidget, QTableWidgetItem, QTextEdit,
-        QVBoxLayout, QWidget, QFrame, QSlider, QToolButton, QMenu, QWidgetAction,
+        QVBoxLayout, QWidget, QFrame, QSlider, QToolButton, QMenu, QWidgetAction, QSizePolicy,
     )
     import ui_icons
 except ImportError as error:
@@ -2801,6 +2802,16 @@ else:
                 form, '방향 큐브 크기', 60, 240, '%dpx', self._on_cube_changed)
             layout.addWidget(group)
 
+            # v2.5.7: 상단바 숨김은 선택 기능(기본 꺼짐). 켜면 상단바 오른쪽에 숨김 버튼이 생기고 Ctrl+H가 동작한다.
+            layout_group = QGroupBox('화면')
+            layout_form = QVBoxLayout(layout_group)
+            self.hide_top_bar_check = QCheckBox('상단바 숨김 기능 사용 (숨김 버튼, Ctrl+H)')
+            self.hide_top_bar_check.setToolTip('켜면 상단바 오른쪽에 숨김 버튼이 나타납니다. 꺼 두면 숨김 버튼과 Ctrl+H는 없습니다.')
+            self.hide_top_bar_check.setChecked(bool(getattr(app_window, 'top_bar_hide_enabled', False)))
+            self.hide_top_bar_check.toggled.connect(app_window.set_top_bar_hide_enabled)
+            layout_form.addWidget(self.hide_top_bar_check)
+            layout.addWidget(layout_group)
+
             self.unavailable_label = QLabel('3D Viewer를 사용할 수 없어 이 항목들을 바꿀 수 없습니다.')
             self.unavailable_label.setWordWrap(True)
             self.unavailable_label.hide()
@@ -2857,6 +2868,8 @@ else:
                     index, QIcon(ui_icons.line_width_pixmap(width, color)))
 
         def load_from_viewer(self):
+            with QSignalBlocker(self.hide_top_bar_check):
+                self.hide_top_bar_check.setChecked(bool(getattr(self.app_window, 'top_bar_hide_enabled', False)))
             viewer = self._viewer()
             enabled = viewer is not None
             for widget in (self.line_width_combo, self.sensitivity_slider, self.cube_slider, self.reset_button):
@@ -3008,7 +3021,8 @@ else:
             # 뒤이어 예약한다.
             self.restore_layout_settings()
             # v2.5.6: 지난번에 상단바를 숨겼으면 그대로 시작한다.
-            if self._as_bool_setting(self.layout_settings.value('top_bar_hidden', False), False):
+            if self.top_bar_hide_enabled and self._as_bool_setting(
+                    self.layout_settings.value('top_bar_hidden', False), False):
                 self.set_top_bar_hidden(True, save=False)
             QTimer.singleShot(0, self.showMaximized)
             # v2.2.8: Windows는 프로세스의 첫 ShowWindow에 바로가기/실행 측의 창 상태를
@@ -3326,9 +3340,28 @@ else:
             self.top_bar.setObjectName('topBar')
             self.top_bar.setAttribute(Qt.WA_StyledBackground, True)
             self.top_bar.setFixedHeight(TOP_BAR_HEIGHT_PX)
-            top_layout = QHBoxLayout(self.top_bar)
+            self._top_bar_height = TOP_BAR_HEIGHT_PX
+            # v2.5.7: 모든 버튼에 이름을 보이고, 폭이 모자라면 툴바를 둘째 줄로 내린다(글자를 줄이지 않는다).
+            bar_outer = QVBoxLayout(self.top_bar)
+            bar_outer.setContentsMargins(0, 0, 0, 0)
+            bar_outer.setSpacing(0)
+            self.top_row1 = QWidget()
+            self.top_row1.setFixedHeight(TOP_BAR_HEIGHT_PX)
+            self.top_row2 = QWidget()
+            self.top_row2.setFixedHeight(TOP_BAR_ROW2_PX)
+            self.top_row2.hide()
+            self._row2_layout = QHBoxLayout(self.top_row2)
+            self._row2_layout.setContentsMargins(12, 0, 8, 4)
+            self._row2_layout.setSpacing(0)
+            bar_outer.addWidget(self.top_row1)
+            bar_outer.addWidget(self.top_row2)
+            top_layout = QHBoxLayout(self.top_row1)
             top_layout.setContentsMargins(12, 4, 8, 4)
             top_layout.setSpacing(4)
+            self._top_layout = top_layout
+            self._top_bar_two_rows = False
+            self.top_bar_hide_enabled = self._as_bool_setting(
+                self.layout_settings.value('top_bar_hide_enabled', False), False)
             self.title_label = QLabel('%s v%s' % (APP_NAME, APP_VERSION))
             self.title_label.setFont(QFont('맑은 고딕', 11, QFont.DemiBold))
             top_layout.addWidget(self.title_label)
@@ -3352,7 +3385,7 @@ else:
             toolbar_layout.setContentsMargins(0, 0, 0, 0)
             toolbar_layout.setSpacing(2)
             self._toolbar_layout = toolbar_layout  # 테스트에서 버튼 순서를 확인하는 용도
-            icon_only = Qt.ToolButtonIconOnly
+            icon_only = None  # v2.5.7: 아이콘만 두는 버튼은 없다(모든 버튼에 이름이 보인다)
 
             self.btn_open_file = self._make_tool_button('파일 열기', 'folder_open', self.open_file,
                                                         'NC 프로그램 파일 열기')
@@ -3413,10 +3446,13 @@ else:
             self._add_toolbar_group(toolbar_layout, (self.btn_tool_mode, self.btn_viewer_mode), separator=False)
             toolbar_layout.addStretch()
             top_layout.addWidget(self.main_toolbar, 1)
-            # 폭이 모자랄 때 글자를 접는 버튼(Tool List 실행 버튼은 항상 글자가 보인다)
-            self._label_toolbar_buttons = [self.btn_open_file, self.btn_edit_mode,
-                                           self.btn_tool_mode, self.btn_viewer_mode]
-            self._top_bar_compact = False
+            self.main_toolbar.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+            self._toolbar_slot = top_layout.indexOf(self.main_toolbar)
+            # 둘째 줄일 때 보조 버튼을 오른쪽으로 미는 빈 칸(한 줄일 땐 숨김)
+            self._top_spacer = QWidget()
+            self._top_spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+            self._top_spacer.hide()
+            top_layout.insertWidget(self._toolbar_slot + 1, self._top_spacer, 1)
 
             # 오른쪽 끝: 보조 버튼(아이콘만, 마우스를 올리면 설명) + 다크모드 + 숨김
             utility_font = QFont('맑은 고딕', 10)
@@ -3438,8 +3474,8 @@ else:
 
             # v2.5.6: 상단바 숨김 버튼(맨 오른쪽, 항상 보임). 아이콘은 _refresh_hide_button()이 그린다.
             self.btn_hide_top_bar = QToolButton()
-            self.btn_hide_top_bar.setText('상단바 숨김')
-            self.btn_hide_top_bar.setToolButtonStyle(Qt.ToolButtonIconOnly)
+            self.btn_hide_top_bar.setText('숨김')
+            self.btn_hide_top_bar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
             self.btn_hide_top_bar.setIconSize(QSize(self.HEADER_ICON_PX, self.HEADER_ICON_PX))
             self.btn_hide_top_bar.setAutoRaise(True)
             self.btn_hide_top_bar.setFocusPolicy(Qt.NoFocus)
@@ -3469,8 +3505,14 @@ else:
             # 맨 끝(오른쪽)으로 옮긴다 — self.viewer가 만들어진 뒤에야 가져올 수 있다.
             if hasattr(self.viewer, 'take_dark_mode_button'):
                 self.btn_dark_mode = self.viewer.take_dark_mode_button(self.top_bar)
+                # v2.5.7: 다크모드 버튼에도 이름을 붙인다(아이콘 옆 글자) — 크기 고정을 풀어 글자 폭에 맞춘다.
+                self.btn_dark_mode.setText(' 다크')
+                self.btn_dark_mode.setMinimumSize(0, 0)
+                self.btn_dark_mode.setMaximumSize(16777215, 16777215)
+                self.btn_dark_mode.setFixedHeight(32)
                 top_layout.addWidget(self.btn_dark_mode)
             top_layout.addWidget(self.btn_hide_top_bar)
+            self.btn_hide_top_bar.setVisible(self.top_bar_hide_enabled)
             self._refresh_hide_button()
 
             self.program_panel = QWidget()
@@ -3823,7 +3865,7 @@ else:
             '  한 줄입니다: [제목 · 프로그램 번호] [파일 열기 · PG ADD · 예제 · 지우기] [편집 모드 · 저장 · 비밀번호]\n'
             '  [Tool List] [툴리스트 산출 · Viewer] ··· [설정 · 도움말 · About · 다크모드 · ▲]\n'
             '  버튼에 마우스를 올리면 설명이 나옵니다.\n'
-            '  Ctrl+H 또는 맨 오른쪽 ▲로 상단바를 숨기면 맨 위에 얇은 손잡이만 남습니다.\n'
+            '  설정에서 \'상단바 숨김 기능 사용\'을 켜면 상단바 오른쪽 숨김 버튼이나 Ctrl+H로 숨길 수 있습니다. 숨기면 맨 위에 얇은 손잡이만 남습니다.\n'
             '  손잡이에 마우스를 올리면 잠시 내려오고, 손잡이를 누르거나 Ctrl+H를 누르면 고정해서 펼칩니다.\n'
             '  Ctrl+휠 / Ctrl+(+ - 0): 공구 리스트 표 확대·축소(0은 처음 크기).\n'
             '\n'
@@ -5808,31 +5850,57 @@ else:
 
         # ---------- 상단바 숨김 (v2.5.6) ----------
         def _update_top_bar_density(self, force=False):
-            """한 줄 상단바가 창 폭보다 넓으면 글자를 접고 아이콘만 둔다(Tool List 버튼 제외).
-            숨김 버튼이 맨 오른쪽에 항상 보이도록 하는 안전장치다.
-            리사이즈마다 스타일을 바꾸지 않도록 "글자를 펼쳤을 때 필요한 폭"을 기억해 두고,
-            상태가 실제로 바뀔 때만 버튼 스타일을 건드린다. 버튼 수가 바뀌면 force=True로 다시 잰다."""
+            """v2.5.7: 상단바 버튼 이름을 항상 보이게 한다. 한 줄에 다 안 들어가면 툴바를 둘째 줄로 내린다.
+            글자를 줄이거나 버튼을 숨기지 않는다. 한 줄에 필요한 폭은 첫 줄 최소 폭(+툴바)으로 잰다."""
             bar = getattr(self, 'top_bar', None)
             central = self.centralWidget()
-            if bar is None or central is None or not hasattr(self, '_label_toolbar_buttons'):
+            if bar is None or central is None or not hasattr(self, '_top_layout'):
                 return
+            # 레이아웃이 실제로 주는 폭은 '권장 크기' 기준이라 최소 폭이 아니라 권장 폭으로 잰다.
+            row1_min = self._top_layout.sizeHint().width()
+            toolbar_min = self.main_toolbar.sizeHint().width()
+            # 한 줄일 때 툴바는 폭 계산에서 빠져 있으므로(Ignored) 첫 줄 최소 폭 + 툴바 최소 폭이 한 줄에 필요한 폭이다.
+            need = row1_min + toolbar_min
+            two = need > central.width()
+            if two != self._top_bar_two_rows or force:
+                self._set_top_bar_rows(two)
 
-            def apply(wide):
-                style = Qt.ToolButtonTextBesideIcon if wide else Qt.ToolButtonIconOnly
-                for button in self._label_toolbar_buttons:
-                    button.setToolButtonStyle(style)
-                bar.layout().activate()
+        def _set_top_bar_rows(self, two):
+            # 한 줄일 땐 툴바가 창 최소 폭을 키우지 않게 Ignored, 둘째 줄일 땐 버튼이 잘리지 않게 Preferred
+            self.main_toolbar.setSizePolicy(QSizePolicy.Preferred if two else QSizePolicy.Ignored,
+                                            QSizePolicy.Preferred)
+            if two:
+                self._top_layout.removeWidget(self.main_toolbar)
+                self._row2_layout.addWidget(self.main_toolbar)
+                self._top_spacer.show()
+                self.top_row2.show()
+                height = TOP_BAR_HEIGHT_PX + TOP_BAR_ROW2_PX
+            else:
+                self._row2_layout.removeWidget(self.main_toolbar)
+                self._top_layout.insertWidget(self._toolbar_slot, self.main_toolbar, 1)
+                self._top_spacer.hide()
+                self.top_row2.hide()
+                height = TOP_BAR_HEIGHT_PX
+            self._top_bar_two_rows = two
+            self._top_bar_height = height
+            self.top_bar.setFixedHeight(height)
+            self._top_layout.activate()
+            if getattr(self, '_top_bar_peeking', False):
+                self._place_peeking_top_bar()
 
-            if force or getattr(self, '_top_bar_wide_need', None) is None or not self._top_bar_compact:
-                if self._top_bar_compact:
-                    apply(True)
-                bar.layout().activate()
-                self._top_bar_wide_need = bar.layout().minimumSize().width()
-                self._top_bar_compact = False
-            compact = self._top_bar_wide_need > central.width()
-            if compact != self._top_bar_compact:
-                apply(not compact)
-                self._top_bar_compact = compact
+        def set_top_bar_hide_enabled(self, enabled, save=True):
+            """v2.5.7: 상단바 숨김은 설정에서 켜는 선택 기능이다(기본 꺼짐). 끄면 숨겨 둔 상단바도 펼친다."""
+            enabled = bool(enabled)
+            self.top_bar_hide_enabled = enabled
+            self.btn_hide_top_bar.setVisible(enabled)
+            if not enabled and self.top_bar_hidden:
+                self.set_top_bar_hidden(False)
+            if save:
+                self.layout_settings.setValue('top_bar_hide_enabled', enabled)
+                if not enabled:
+                    self.layout_settings.setValue('top_bar_hidden', False)
+                self.layout_settings.sync()
+            self._update_top_bar_density(force=True)
 
         def eventFilter(self, obj, event):
             if obj is getattr(self, 'top_bar', None) and getattr(self, 'top_bar_hidden', False):
@@ -5843,6 +5911,8 @@ else:
             return super().eventFilter(obj, event)
 
         def toggle_top_bar_hidden(self):
+            if not self.top_bar_hide_enabled:
+                return
             self.set_top_bar_hidden(not self.top_bar_hidden)
 
         def set_top_bar_hidden(self, hidden, save=True):
@@ -5873,7 +5943,7 @@ else:
 
         def _place_peeking_top_bar(self):
             central = self.centralWidget()
-            self.top_bar.setGeometry(0, 0, central.width(), TOP_BAR_HEIGHT_PX)
+            self.top_bar.setGeometry(0, 0, central.width(), self._top_bar_height)
 
         def _peek_top_bar(self, on):
             if not self.top_bar_hidden:
