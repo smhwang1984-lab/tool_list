@@ -12,6 +12,8 @@ export interface SettingsExtras {
   /** 선반 스펙 저장소 백업(JSON 파일로 내보내기) / 복원(가져오기) */
   exportStore?: () => void;
   importStore?: () => void;
+  /** 상단바 숨김 기능 사용 여부(선택, 기본 꺼짐) */
+  hideTopBar?: { get: () => boolean; set: (enabled: boolean) => void };
 }
 
 export function showSettings(extras: SettingsExtras = {}): void {
@@ -71,6 +73,21 @@ export function showSettings(extras: SettingsExtras = {}): void {
   cube.addEventListener('input', () => { updateViewerSettings({ cubeSizePx: Number(cube.value) }); paint(); });
   fov.addEventListener('input', () => { updateViewerSettings({ fovDeg: Number(fov.value) }); paint(); });
   body.append(group);
+  if (extras.hideTopBar) {
+    const screen = el('fieldset');
+    const sl = el('legend');
+    sl.textContent = '화면';
+    screen.append(sl);
+    const row2 = el('label', { class: 'settings-row' });
+    const box = el('input', { type: 'checkbox' });
+    box.checked = extras.hideTopBar.get();
+    box.addEventListener('change', () => extras.hideTopBar?.set(box.checked));
+    const text = el('span');
+    text.textContent = '상단바 숨김 기능 사용 (숨김 버튼, Ctrl+H)';
+    row2.append(box, text);
+    screen.append(row2);
+    body.append(screen);
+  }
   if (extras.exportStore || extras.importStore) {
     const data = el('fieldset');
     const dl = el('legend');

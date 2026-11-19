@@ -25,19 +25,28 @@ html, body {
 button { transition: background-color .12s var(--ease), border-color .12s var(--ease), color .12s var(--ease); }
 button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-/* ---------- 상단바 (제목 + 툴바 한 줄, v1.9.9) ---------- */
+/* ---------- 상단바 (제목 줄 + 툴바 줄, v2.0.0) ---------- */
 .top-bar {
-  display: flex; align-items: center; gap: 8px; min-height: 48px;
-  padding: 0 8px 0 12px; background: var(--toolbar_bg); color: var(--text);
+  display: flex; flex-direction: column; background: var(--toolbar_bg); color: var(--text);
   border-bottom: 1px solid var(--toolbar_sep);
 }
-.top-bar .brand { display: flex; align-items: baseline; gap: 8px; flex: 0 1 auto; min-width: 0; white-space: nowrap; }
+.top-bar[hidden] { display: none; }
+.top-row { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 8px 0 12px; }
+.top-bar .brand { display: flex; align-items: baseline; gap: 8px; flex: 1 1 auto; min-width: 0; white-space: nowrap; }
 .top-bar .title { font-size: 15px; font-weight: 500; }
 .top-bar .ver { font: 11px var(--mono); color: var(--header_caption); }
-.top-bar .caption { font-size: 12px; color: var(--muted_text); max-width: 14vw; overflow: hidden; text-overflow: ellipsis; }
-.top-bar .main-toolbar { flex: 1 1 0; min-width: 0; }
-.top-bar .utility { display: flex; flex: none; align-items: center; }
-.top-bar .icon-btn { color: var(--icon); }
+.top-bar .caption { font-size: 12px; color: var(--muted_text); max-width: 24vw; overflow: hidden; text-overflow: ellipsis; }
+.top-bar .utility { display: flex; flex: none; align-items: center; gap: 2px; }
+.top-bar .utility .tool-btn[hidden] { display: none; }
+.toolbar-wrap { position: relative; border-top: 1px solid var(--toolbar_sep); }
+.toolbar-wrap .main-toolbar { padding: 2px 4px; }
+.tb-fade {
+  position: absolute; right: 0; top: 0; bottom: 0; width: 48px; pointer-events: none;
+  display: flex; align-items: center; justify-content: flex-end; padding-right: 8px; color: var(--muted_text);
+  background: linear-gradient(to left, var(--toolbar_bg) 40%, transparent);
+}
+.tb-fade[hidden] { display: none; }
+.tb-fade svg { width: 18px; height: 18px; stroke: currentColor; transform: rotate(-90deg); }
 .top-edge {
   display: flex; align-items: flex-start; justify-content: center; flex: none; width: 100%; height: 16px;
   padding: 4px 0 0; border: 0; background: var(--toolbar_bg); cursor: pointer; touch-action: none;
@@ -61,8 +70,6 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
   color: var(--text); font: inherit; font-size: 13px; white-space: nowrap; cursor: pointer;
 }
 .tool-btn svg { width: 18px; height: 18px; color: var(--icon); stroke: currentColor; }
-.tool-btn.icon-only { padding: 0; min-width: 40px; }
-.tool-btn.icon-only span { display: none; }
 .tool-btn:active { background: var(--toolbar_hover); border-color: var(--toolbar_sep); }
 .tool-btn:disabled { color: var(--faint_text); }
 .tool-btn:disabled svg { color: var(--faint_text); }
@@ -250,7 +257,7 @@ dialog.settings { width: min(440px, 94vw); }
 .machine-panel { max-height: 55%; overflow: auto; }
 .filter-panel { max-height: none; min-height: 0; }
 @media (max-height: 520px) {
-  .top-bar { min-height: 40px; }
+  .top-row { min-height: 36px; }
   .top-bar .title { font-size: 14px; }
   .top-bar .icon-btn { min-width: 40px; min-height: 36px; }
   .icon-btn svg { width: 20px; height: 20px; }
