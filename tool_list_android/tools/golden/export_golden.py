@@ -11,7 +11,7 @@ TS 이식본(src/core)은 tests/golden.test.ts에서 이 JSON과 결과를 비�
 3) 기준 원본 커밋 → tests/golden/SOURCE_REV
 
 실행 (Windows, 원본 빌드용 Python 환경):
-    ..\\nc_build_venv\\Scripts\\python.exe tools\\golden\\export_golden.py ..\\tool_list
+    ..\\..\\nc_build_venv\\Scripts\\python.exe tools\\golden\\export_golden.py ..  (tool_list_android 폴더에서 실행, 원본 = 상위 폴더 tool_list)
 원본 코드는 고치지 않는다. 원본 저장소에서 pytest만 돌린다.
 """
 import functools

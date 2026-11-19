@@ -5,7 +5,7 @@ NC 파일마다 가상의 공구표(공구 번호로 종류·지름을 정함)�
 해상도 0.5mm 로 깎아 tests/golden/zmap/<파일>.json(+ .bin.gz: float32 높이 + int16 색)에 쓴다.
 경사 공구축 구간은 3D 소재(P6-T3) 몫이라 뺀다. 원본은 고치지 않는다.
 
-실행: ..\\nc_build_venv\\Scripts\\python.exe tools\\golden\\export_zmap.py ..\\tool_list
+실행: ..\\..\\nc_build_venv\\Scripts\\python.exe tools\\golden\\export_zmap.py ..  (tool_list_android 폴더에서 실행, 원본 = 상위 폴더 tool_list)
 """
 import gzip
 import json

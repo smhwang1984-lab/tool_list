@@ -5,7 +5,7 @@
 tests/golden/lathe/<파일>.json(+ .bin.gz: 선삭 격자 occ(uint8)+col(uint8), 턴밀이면 복셀 occ+col)에 쓴다.
 원본은 고치지 않는다.
 
-실행: nc_build_venv 의 python 으로 tools/golden/export_lathe.py ../tool_list
+실행: nc_build_venv 의 python 으로 tools/golden/export_lathe.py ..  (tool_list_android 폴더에서, 원본 = 상위 폴더 tool_list)
 """
 import gzip
 import json

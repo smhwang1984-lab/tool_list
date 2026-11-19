@@ -5,7 +5,7 @@ NC 파일마다 장비(밀링 3축/4축/5축 AC·BC/선반)별로 경로 계산�
 선분(점·종류·원본 줄·seq)·줄↔seq 대응·가공 시간을 tests/golden/toolpath/<파일>__<장비>.json 에 쓴다.
 원본은 고치지 않는다(QT offscreen + 속성만 지정).
 
-실행: ..\\nc_build_venv\\Scripts\\python.exe tools\\golden\\export_toolpath.py ..\\tool_list
+실행: ..\\..\\nc_build_venv\\Scripts\\python.exe tools\\golden\\export_toolpath.py ..  (tool_list_android 폴더에서 실행, 원본 = 상위 폴더 tool_list)
 """
 import json
 import os

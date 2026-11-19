@@ -31,11 +31,24 @@
 - `license_server/sumpath_license.py`는 루트 `sumpath_license.py`와 바이트 단위로 같게 유지한다.
 - 설치본 빌드(PyInstaller onedir + Inno Setup)는 Windows 빌드 PC에서 한다.
 
-## 4. 안드로이드 앱(tool_list_android)과 연계 규칙 (항상 적용, 2026-11-17 사용자 지정)
+## 4. 안드로이드 앱(tool_list_android)과 병행 작업 규칙 (항상 적용, 2026-11-17 지정 / 2026-11-19 단일 저장소로 이관)
 
-**이 앱과 `C:\dev\tool_list_android`(Sum Path Android)는 항상 같은 결과로 동작해야 한다.**
+**이 앱(데스크톱)과 하위 폴더 `tool_list_android/`(Sum Path Android)는 항상 같은 결과로 동작해야 한다.**
 
-1. 이 저장소의 로직(경로 계산·G코드 해석·소재 시뮬레이션·공구 리스트 등)을 바꾸면 같은 작업 안에서 안드로이드 저장소에도 옮긴다. 한쪽만 고치고 끝내지 않는다.
-2. 안드로이드 쪽에서는 `tools/golden/export_*.py`로 골든을 다시 뽑고, `tests/golden/SOURCE_REV`를 이 저장소 커밋으로 갱신하고, `npm test`를 통과시킨다(안드로이드 `CLAUDE.md` 4절).
-3. 버전은 각자 올리고(`bump_version.py` / `npm run bump`), 양쪽 버전 기록에 상대 버전을 적는다.
-4. 두 저장소 모두 commit → push → `master` 병합 → push까지 끝낸다. 빌드본은 둘 다 만든다(이 앱 설치본 + 안드로이드 release APK).
+- 2026-11-19: 별도 저장소였던 `tool_list_android`를 이 저장소의 `tool_list_android/` 폴더로 옮겼다
+  (`git subtree add`, 안드로이드 이력 포함, 원본 마지막 커밋 7bf2448 v2.0.1). 예전 폴더 `C:\dev\tool_list_android`는 지웠고,
+  GitHub의 예전 저장소 `tool_list_android`는 더 이상 쓰지 않는다(push하지 않는다).
+- 안드로이드 쪽 세부 규칙은 `tool_list_android/CLAUDE.md`를 따른다.
+
+1. 로직(경로 계산·G코드 해석·소재 시뮬레이션·공구 리스트 등)을 바꾸면 **같은 작업·같은 커밋 묶음 안에서** 데스크톱(루트 `*.py`)과
+   안드로이드(`tool_list_android/src/`)를 함께 고친다. 안드로이드에서 먼저 고친 경우도 데스크톱에 넣는다. 한쪽만 고치고 끝내지 않는다.
+2. 안드로이드 골든 갱신: `tool_list_android` 폴더에서
+   `..\..\nc_build_venv\Scripts\python.exe tools\golden\export_golden.py ..` (export_toolpath / export_zmap / export_lathe도 같은 방식, 원본 = 상위 폴더)로
+   다시 뽑고, `tests/golden/SOURCE_REV`를 골든을 뽑은 시점의 커밋으로 갱신하고, `npm test`를 통과시킨다.
+   데스크톱 쪽은 `python -m pytest tests`를 통과시킨다.
+3. 버전은 각자 올린다(루트 `python bump_version.py` / `tool_list_android`에서 `npm run bump`). 양쪽 버전 기록
+   (`ABOUT_RELEASE_INSTRUCTIONS.md` / `tool_list_android/ANDROID_PLAN.md`)에 상대 버전을 적는다.
+4. Git은 이 저장소 하나다. 루트의 `git_sync.bat` / `git_publish.bat`으로 두 앱을 함께 commit → push → `master` 병합 → push 한다(1절).
+5. 빌드본은 둘 다 만든다: 이 앱 설치본(PyInstaller + Inno Setup) + 안드로이드 release APK(`tool_list_android\build_release.bat`).
+6. 안드로이드 서명 키스토어(`tool_list_android/sumpath-upload.jks`, `keystore.properties`)와 `node_modules/`는 Git에 없다.
+   PC를 옮기면 따로 복사하고 `npm install`을 한다. 절대 커밋하지 않는다.

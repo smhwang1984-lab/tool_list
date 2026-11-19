@@ -20,3 +20,8 @@ license_server/.env
 # v2.4.4: 테스트용 로컬 자료(백업/압축본)
 test files/*.bak
 test files/*.zip
+
+# 2026-11-19: 안드로이드 앱(tool_list_android/) 테스트용 NC 샘플은 저장소에 둔다(위 *.nc 규칙의 예외).
+# 안드로이드 쪽 제외 규칙(node_modules, 키스토어 등)은 tool_list_android/.gitignore에 있다.
+!tool_list_android/tests/fixtures/*.nc
+!tool_list_android/tests/fixtures/*.NC

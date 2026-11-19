@@ -28,14 +28,17 @@
 ## 3. 저장소 받기
 
 ```bat
-cd /d D:\work            :: 원하는 폴더
-git clone https://github.com/smhwang1984-lab/tool_list_android
+cd /d C:\dev             :: 원하는 폴더
+git clone https://github.com/smhwang1984-lab/tool_list
+cd tool_list
+git_sync.bat             :: 작업 시작 전에 항상 GitHub와 맞춘다(저장소 루트의 bat)
 cd tool_list_android
-git_sync.bat             :: 작업 시작 전에 항상 GitHub와 맞춘다
+npm install
 ```
 
-> 원본 데스크톱 저장소 `tool_list`도 **같은 상위 폴더**에 받아 두면 좋다(`D:\work\tool_list`).
-> P1부터는 원본 Python으로 정답(골든) 데이터를 만들 때 `..\tool_list`를 읽는다.
+> 2026-11-19부터 안드로이드 앱은 원본 저장소 `tool_list` 안의 `tool_list_android\` 폴더에 있다
+> (예전 별도 저장소 `tool_list_android`는 더 이상 쓰지 않는다). 골든 데이터를 만들 때 원본은 상위 폴더 `..`이다.
+> 서명 키스토어(`sumpath-upload.jks`, `keystore.properties`)는 Git에 없으므로 `tool_list_android\`에 따로 복사해 둔다.
 
 ## 4. 테스트 APK 만들기
 
