@@ -28,8 +28,8 @@ def test_v255_remark_probe_goes_to_second_line():
     """v2.5.5: REMARK은 1줄 N번호(+G41/G42), 2줄 M300/M200(중복 합침).
     v2.5.8: 2줄에 측정한 N번호를 붙인다("M300H3: N3, N7")."""
     comp = {'N3': '(G41)(M300H3)(M200)', 'N7': '(M300H3)', 'N5': '(M300H6≠H5)', 'N9': ''}
-    assert NC._format_remark(['N3', 'N7'], comp) == 'N3(G41), N7\nM300H3 · M200'
-    assert NC._format_remark(['N5'], comp) == 'N5\nM300H6≠H5'
+    assert NC._format_remark(['N3', 'N7'], comp) == 'N3(G41), N7\nM300H3: N3, N7 · M200: N3'
+    assert NC._format_remark(['N5'], comp) == 'N5\nM300H6≠H5: N5'
     assert NC._format_remark(['N9'], comp) == 'N9'
     mismatch = [m.group(0) for m in NC.RADIUS_COMP_DISPLAY_RE.finditer('N5\nM300H6≠H5')]
     assert mismatch == ['M300H6≠H5']

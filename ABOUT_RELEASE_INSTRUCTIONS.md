@@ -52,7 +52,9 @@ Last updated: 2026-11-05 (NC_Tool_List v2.3.0 — 로컬 v2.2.9(STOCK SIZE)와 G
 - Version: 2.5.7 → 2.5.8
 - Summary: 사용자 요청. **REMARK에서 M300/M200을 어느 N에서 측정했는지 보이게.** 둘째 줄을 `M300H3: N3, N7 · M200: N3`처럼 코드별 측정 N번호와 함께 적는다(H 불일치는 `M300H6≠H5: N5`, 코드만 빨간 굵은 글씨 그대로). 길어진 문구가 v2.5.5에서 고친 겹침·가림을 되살리지 않게 함께 손봄: ① PDF 밀링·선반 REMARK 셀 폭에 맞춰 글자를 줄이고(최소 4.2pt), 그래도 넘치면 N 나열을 `N3 외2`로 줄임(`_fit_remark_line`) — 줄바꿈으로 다음 줄과 겹치지 않음. ② 선반 PDF 열 비율 REMARK 74→130(INSERT 175→148, 홀더 175→146, 합계 동일) — 선반은 기본 문구도 3줄로 넘쳤다. ③ 밀링 화면 REMARK 열이 내용 폭만큼 넓어져 잘림(가림)이 없음(기준 176px보다 좁아지지 않음).
 - Open source: 변경 없음.
-- Installer/package status: 빌드 대기(아래 기록 참고).
+- Installer/package status: **생성 완료**. `installer\NC_Tool_List_Setup_v2.5.8.exe`(dist exe 파일 버전 2.5.8.0, 실행 10초 확인).
+  - Setup EXE SHA-256: 062FBA0EBB7345F1F521CE7DAF1F0B85814F5FA184E8F025ED6D5218866BFCB3
+  - 같이 만든 안드로이드: tool_list_android v2.0.1 `out\SumPath_v2.0.1.apk`(release 서명 확인), SHA-256 EFBA317D8845052AC89D468F3442E6C164404423A3254DCC2F97536D623828E3
 - 같이 반영한 안드로이드: tool_list_android v2.0.1(같은 문구·PDF 맞춤 `fitRemarkLine`, 선반 PDF 열 비율).
 - Verification: `tests/test_v237_probe_remark.py`(2줄 표기 N번호, PDF 맞춤) — 이 PC에는 PySide6가 없어 pytest는 건너뛰었고, `_format_remark`/`_fit_remark_line`/`_pdf_remark_cell`을 맑은 고딕 실폰트로 직접 실행해 확인: 밀링·선반 PDF 모두 N 8개까지 2줄(행 15.5pt 안).
 
