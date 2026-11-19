@@ -52,7 +52,9 @@ Last updated: 2026-11-05 (NC_Tool_List v2.3.0 — 로컬 v2.2.9(STOCK SIZE)와 G
 - Version: 2.5.6 → 2.5.7
 - Summary: 사용자 요청(시안 승인). ① **모든 상단바 버튼에 이름을 항상 보인다** — 설정·도움말·About·PG ADD·예제·지우기·장비·정지 옵션·소재·소재 지우기·저장·비밀번호·다크모드까지 아이콘 옆에 글자. 아이콘만 남기는 접힘은 없앴다(처음 쓰는 사람이 헷갈린다). ② 폭이 모자라면 글자를 줄이지 않고 **툴바를 둘째 줄로 자동으로 내린다**(제목 줄 48px + 툴바 줄 44px, `_update_top_bar_density`/`_set_top_bar_rows`, 창을 넓히면 한 줄로 복귀). ③ **상단바 숨김은 설정 창의 선택 항목**(`상단바 숨김 기능 사용`, 기본 꺼짐, `top_bar_hide_enabled`). 꺼져 있으면 숨김 버튼과 Ctrl+H가 없고, 끄면 숨겨 둔 상단바도 펼친다. 켜면 v2.5.6의 숨김·임시 표시·저장이 그대로 동작. 도움말 문구 갱신.
 - Open source: 변경 없음.
-- Installer/package status: 아래 빌드 기록 참고.
+- Installer/package status: **생성 완료**. `installer\NC_Tool_List_Setup_v2.5.7.exe`(dist exe 파일 버전 2.5.7.0, 실행 10초 확인).
+  - Setup EXE SHA-256: E7F71212F296CE530A02CDAB77B7F4C18A586C894A2BD2E89E98911881B393D7
+  - 같이 만든 안드로이드: tool_list_android v2.0.0 `out\SumPath_v2.0.0.apk`(release 서명 확인), SHA-256 E92A005E9E31C21BD7B211302356BEE4E1D746DBC4209CC7BAD42A1C8E8DFF55
 - 같이 반영한 안드로이드: tool_list_android v2.0.0(두 줄 상단바·모든 버튼 이름 표시·소재 버튼 앞쪽 배치·숨김 선택 설정).
 - Verification: `tests/test_v257_top_bar.py` 9개(모든 버튼 이름 표시, 숨김 기본 꺼짐, 설정에서 켜기·저장·복원, 끄면 펼침, 넓은 창 한 줄, 좁은 창 두 줄 + 되돌림, 숨김 버튼 창 안) 통과. v2.5.6의 `test_v256_top_bar.py`는 이 파일로 대체.
 
