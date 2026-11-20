@@ -96,6 +96,13 @@ export function lineStopsPlayback(
 }
 
 /** 대소문자를 가리지 않는 글자 그대로 검색 (정규식 특수 문자는 그냥 글자) */
+/** 원본 find_prev_literal_span (v2.6.1): start보다 앞에서 시작하는 마지막 일치. 없으면 끝에서부터 다시 */
+export function findPrevLiteralSpan(text: string | null | undefined, needle: unknown, start: unknown = 0): Span | null {
+  const n = needle ? pyStr(needle) : '';
+  if (!n) return null;
+  return findPrevRegexSpan(text, pyReOnce(pyReEscape(n), RE_I), start);
+}
+
 export function findNextLiteralSpan(text: string | null | undefined, needle: unknown, start: unknown = 0): Span | null {
   const n = needle ? pyStr(needle) : '';
   if (!n) return null;

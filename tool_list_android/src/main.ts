@@ -60,7 +60,7 @@ function group(...buttons: HTMLElement[]): HTMLElement {
 
 const HELP_TEXT = [
   '■ 화면 (가로 전용)',
-  '  상단바는 두 줄: 위 줄에 제목 · 설정 / 도움말 / About / 다크, 아래 줄에 툴바([파일 열기] [Tool List] [툴리스트 산출 · Viewer] [장비 · 정지 옵션 · 소재 · 소재 지우기 · STL] [편집 모드] [예제 · 지우기]). 모든 버튼에 이름이 보입니다.',
+  '  상단바는 두 줄: 위 줄에 제목 · 설정 / 도움말 / About / 다크, 아래 줄에 툴바([파일 열기] [Tool List] [툴리스트 산출 · Viewer] [장비 · 소재 · 소재 지우기 · STL] [편집 모드] [예제 · 지우기]). 모든 버튼에 이름이 보입니다.',
   '  툴바가 길면 옆으로 밀어서 봅니다(오른쪽 끝 화살표가 더 있다는 표시). 설정에서 "상단바 숨김 기능 사용"을 켜면 숨김 버튼으로 상단바를 접고, 맨 위 손잡이를 누르거나 아래로 끌어 펼칩니다(블루투스 키보드는 Ctrl+H).',
   '  버튼을 길게 누르면 설명이 나옵니다. 가운데 손잡이를 끌어 폭을 조절합니다.',
   '',
@@ -150,7 +150,6 @@ function mount(root: HTMLElement): void {
   btnEditPw.hidden = true;
   editLabel.hidden = true;
   const btnMachine = toolButton('장비', 'gear', '장비 타입 및 스펙 설정');
-  const btnStop = toolButton('정지 옵션', 'run', '텍스트 정지 · 정지 · 옵션정지');
   const btnStockTb = toolButton('소재', 'document', '소재(STOCK) 설정과 가공 형상 시뮬레이션');
   const btnStockClear = toolButton('소재 지우기', 'eraser', '소재와 가공 형상을 지우고 툴패스 선을 다시 보이게 합니다');
   btnStockClear.disabled = true;
@@ -167,7 +166,7 @@ function mount(root: HTMLElement): void {
     group(btnOpen),
     group(btnRun),
     group(btnTool, btnViewer),
-    group(btnMachine, btnStop, btnStockTb, btnStockClear, btnStl),
+    group(btnMachine, btnStockTb, btnStockClear, btnStl),
     group(btnEdit, btnEditSave, btnEditPw, editLabel),
     group(btnExample, btnClear),
   );
@@ -445,6 +444,7 @@ function mount(root: HTMLElement): void {
         onLiveToggle: () => filterPanel.setLive(!filterPanel.liveOn()),
         onSimChange: () => { const has = !!viewer?.simStatus().hasStock; btnStockClear.disabled = !has; btnStl.disabled = !has; },
       });
+      viewer?.setStopOptions(filterPanel.stopMenu);
       viewer?.setSimLive(filterPanel.liveOn());
       viewer?.setPgMatch(pgMatchOn);
       viewer?.setToolpathVisible(getPref('sim_toolpath_visible') !== '0');
@@ -576,7 +576,7 @@ function mount(root: HTMLElement): void {
   machinePanel.setExpanded(true);
   machinePanel.root.classList.add('in-popover');
   attachPopover(btnMachine, machinePanel.root);
-  attachPopover(btnStop, filterPanel.stopMenu);
+  // 원본 v2.6.2: 정지 옵션은 상단바 대신 3D 화면 큐브 아래 [« 옵션] 창에 풀어서 둔다(뷰어를 만들 때 넣는다)
 
   filterPanel.onSelectionChange = (keys) => viewer?.setVisible(keys);
   filterPanel.onActivate = (key) => { const line = lastResult?.process_first_line.get(key); if (line !== undefined) editor.selectLine(line); };

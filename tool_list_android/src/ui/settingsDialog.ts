@@ -1,7 +1,7 @@
 // ⚙ 설정 창(비모달) — 원본 SettingsDialog (NC_Tool_List.py 2629~). 값을 바꾸면 바로 반영되고 저장된다.
 import {
   CUBE_DEFAULT, CUBE_MAX, CUBE_MIN, FOV_MAX, FOV_MIN, LINE_WIDTH_DEFAULT_PCT, LINE_WIDTH_STEPS, SENSITIVITY_MAX,
-  SENSITIVITY_MIN, CUT_LINE_BASE_WIDTH, toolpathLineWidth,
+  SENSITIVITY_MIN, CUT_LINE_BASE_WIDTH, TRAIL_BLOCKS_MAX, TRAIL_BLOCKS_MIN, TRAIL_BLOCKS_STEP, toolpathLineWidth,
 } from '../core/viewerSettings';
 import { getViewerSettings, resetViewerSettings, updateViewerSettings } from '../platform/viewerSettings';
 import { el } from './dialog';
@@ -56,8 +56,37 @@ export function showSettings(extras: SettingsExtras = {}): void {
   row('방향 큐브 크기', cube, cubeVal);
   row('시야각 (FOV)', fov, fovVal);
 
+  // 원본 v2.6.0: 'Viewer 5축 · 재생 경로' — 테이블 회전, 지난 경로 숨김(100~500블록)
+  const play = el('fieldset');
+  const pl = el('legend');
+  pl.textContent = 'Viewer 5축 · 재생 경로';
+  play.append(pl);
+  const checkRow = (text: string): HTMLInputElement => {
+    const r = el('label', { class: 'settings-row' });
+    const box = el('input', { type: 'checkbox' });
+    const t = el('span');
+    t.textContent = text;
+    r.append(box, t);
+    play.append(r);
+    return box;
+  };
+  const tableBox = checkRow('테이블 회전 사용 (5축 재생 중 공구 고정, 소재가 돈다)');
+  const trailBox = checkRow('지난 경로 숨김 (재생 중 지금 줄 앞쪽 N블록만)');
+  const trailRange = el('input', { type: 'range', min: String(TRAIL_BLOCKS_MIN), max: String(TRAIL_BLOCKS_MAX), step: String(TRAIL_BLOCKS_STEP) });
+  const trailVal = el('output');
+  const tr = el('label', { class: 'settings-row' });
+  const tn = el('span');
+  tn.textContent = '남길 블록 수';
+  tr.append(tn, trailRange, trailVal);
+  play.append(tr);
+
   const paint = (): void => {
     const v = getViewerSettings();
+    tableBox.checked = v.tableRotation;
+    trailBox.checked = v.trailHide;
+    trailRange.value = String(v.trailBlocks);
+    trailRange.disabled = !v.trailHide;
+    trailVal.textContent = `${v.trailBlocks} 블록`;
     width.value = String(v.lineWidthPct);
     sens.value = String(v.sensitivityPct);
     cube.value = String(v.cubeSizePx);
@@ -72,7 +101,10 @@ export function showSettings(extras: SettingsExtras = {}): void {
   sens.addEventListener('input', () => { updateViewerSettings({ sensitivityPct: Number(sens.value) }); paint(); });
   cube.addEventListener('input', () => { updateViewerSettings({ cubeSizePx: Number(cube.value) }); paint(); });
   fov.addEventListener('input', () => { updateViewerSettings({ fovDeg: Number(fov.value) }); paint(); });
-  body.append(group);
+  tableBox.addEventListener('change', () => { updateViewerSettings({ tableRotation: tableBox.checked }); paint(); });
+  trailBox.addEventListener('change', () => { updateViewerSettings({ trailHide: trailBox.checked }); paint(); });
+  trailRange.addEventListener('input', () => { updateViewerSettings({ trailBlocks: Number(trailRange.value) }); paint(); });
+  body.append(group, play);
   if (extras.hideTopBar) {
     const screen = el('fieldset');
     const sl = el('legend');

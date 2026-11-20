@@ -14,6 +14,22 @@ export const CUBE_DEFAULT = 160;
 export const FOV_MIN = 20;
 export const FOV_MAX = 90;
 export const FOV_DEFAULT = 45;
+/** 원본 v2.6.0: 지난 경로 숨김 — 재생 중 지금 줄 기준 앞쪽 N블록만(100~500, 50 단위, 기본 200) */
+export const TRAIL_BLOCKS_MIN = 100;
+export const TRAIL_BLOCKS_MAX = 500;
+export const TRAIL_BLOCKS_STEP = 50;
+export const TRAIL_BLOCKS_DEFAULT = 200;
+/** 원본 v2.6.0/v2.6.3: 테이블 회전을 천천히 — 지수 수렴 속도(1/초) = 0.3 × max(0.15, 배속 기준값) */
+export const TABLE_ANIM_MIN_RATE = 0.15;
+export const TABLE_ANIM_SPEED_SCALE = 0.3;
+
+/** 원본 clamp_trail_blocks: 100~500, 50 단위. 읽을 수 없으면 기본값 */
+export function clampTrailBlocks(value: unknown): number {
+  const n = value === null || value === undefined || (typeof value === 'string' && value.trim() === '') ? NaN : Number(value);
+  if (!Number.isFinite(n)) return TRAIL_BLOCKS_DEFAULT;
+  const v = Math.max(TRAIL_BLOCKS_MIN, Math.min(TRAIL_BLOCKS_MAX, roundHalfEven(n)));
+  return TRAIL_BLOCKS_MIN + roundHalfEven((v - TRAIL_BLOCKS_MIN) / TRAIL_BLOCKS_STEP) * TRAIL_BLOCKS_STEP;
+}
 
 /** Python round(): 정확히 .5 면 짝수 쪽 */
 function roundHalfEven(x: number): number {

@@ -5,15 +5,18 @@ import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 import { elapsedSecondsAtSeq, formatElapsedOverTotal, lineAtSeq, resolveSeqForLine, sequenceLength } from '../core/playback';
-import { isLatheMachine, type ToolpathResult } from '../core/toolpath';
+import { isLatheMachine, type TableRot, type ToolpathResult } from '../core/toolpath';
 import { createSimLayer, type SimLayer, type SimSource, type SimStatus } from './simLayer';
 import type { SimProgram } from '../sim/segments';
 import type { Bounds } from '../sim/stock';
 import type { LatheProgram } from '../sim/latheSegments';
 import type { LatheBounds } from '../sim/latheStock';
-import { CUT_LINE_BASE_WIDTH, FOV_MAX, FOV_MIN, toolpathLineWidth } from '../core/viewerSettings';
+import {
+  CUT_LINE_BASE_WIDTH, FOV_MAX, FOV_MIN, TABLE_ANIM_MIN_RATE, TABLE_ANIM_SPEED_SCALE, TRAIL_BLOCKS_MAX, TRAIL_BLOCKS_MIN,
+  TRAIL_BLOCKS_STEP, toolpathLineWidth,
+} from '../core/viewerSettings';
 import { getPref, setPref } from '../platform/prefs';
-import { getViewerSettings, onViewerSettings } from '../platform/viewerSettings';
+import { getViewerSettings, onViewerSettings, updateViewerSettings } from '../platform/viewerSettings';
 import { el } from '../ui/dialog';
 import { icon } from '../icons';
 import { cutGroups, groupAt, type CutGroup } from './entryArrow';
@@ -48,6 +51,8 @@ export interface ViewerHooks {
   onSimChange?: () => void;
 }
 export interface Viewer {
+  /** 원본 v2.6.2: 정지 옵션(텍스트 정지·정지·옵션정지)을 큐브 아래 옵션 창에 풀어서 넣는다 */
+  setStopOptions(content: HTMLElement): void;
   setProgram(result: ToolpathResult | null, machineType: string): void;
   /** 표시할 공정(null = 전부) */
   setVisible(keys: string[] | null): void;
@@ -191,42 +196,114 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     title: '실시간 형상: 켜면 재생·커서 위치까지 소재를 깎아 보여 주고, 끄면 선택한 공정의 끝까지 깎은 모양을 보여 줍니다.' });
   liveBtn.textContent = '실시간 형상';
   liveBtn.addEventListener('click', () => hooks.onLiveToggle?.());
+  let paintMoreRef: (() => void) | null = null;
   const paintLive = (): void => {
     liveBtn.classList.toggle('on', simLive);
     liveBtn.setAttribute('aria-pressed', String(simLive));
+    paintMoreRef?.();
   };
-  // v2.5.9: 5축 재생 중 공구는 고정하고 테이블·소재가 A/B/C 값만큼 도는 표시(기본 켜짐, 설정에 기억)
-  let tableOn = getPref('table_rotation') !== 'off';
+  // v2.5.9: 5축 재생 중 공구는 고정하고 테이블·소재가 A/B/C 값만큼 도는 표시(기본 켜짐, 설정 창과 같은 값)
+  let tableOn = getViewerSettings().tableRotation;
   const tableBtn = el('button', { type: 'button', class: 'v-live', 'aria-pressed': String(tableOn),
     title: '5축 재생 중 공구는 고정하고 테이블·소재가 A/B/C 회전축 값만큼 돌게 봅니다.' });
   tableBtn.textContent = '테이블 회전';
-  tableBtn.classList.toggle('on', tableOn);
-  tableBtn.addEventListener('click', () => {
-    tableOn = !tableOn;
-    setPref('table_rotation', tableOn ? 'on' : 'off');
+  const paintTable = (): void => {
     tableBtn.classList.toggle('on', tableOn);
     tableBtn.setAttribute('aria-pressed', String(tableOn));
-    showSeq(seqNow, false);
-  });
+  };
+  paintTable();
+  tableBtn.addEventListener('click', () => { updateViewerSettings({ tableRotation: !tableOn }); });
+  // 원본 v2.6.0: 지난 경로 숨김 — 재생(PG 매칭) 중 지금 줄 기준 앞쪽 N블록만 그린다
+  let trailOn = getViewerSettings().trailHide;
+  let trailBlocks = getViewerSettings().trailBlocks;
+  const trailBtn = el('button', { type: 'button', class: 'v-live', title: '켜면 재생 중 지금 줄 기준 앞쪽 N블록만 보입니다 (블록 수는 − + 또는 설정 창)' });
+  trailBtn.textContent = '지난 경로 숨김';
+  const trailMinus = el('button', { type: 'button', class: 'v-step', title: `표시 블록 수 -${TRAIL_BLOCKS_STEP}` });
+  trailMinus.textContent = '−';
+  const trailPlus = el('button', { type: 'button', class: 'v-step', title: `표시 블록 수 +${TRAIL_BLOCKS_STEP}` });
+  trailPlus.textContent = '+';
+  const trailLabel = el('span', { class: 'v-step-label' });
+  const paintTrail = (): void => {
+    trailBtn.classList.toggle('on', trailOn);
+    trailBtn.setAttribute('aria-pressed', String(trailOn));
+    trailLabel.textContent = `${trailBlocks} 블록`;
+    trailMinus.disabled = !trailOn;
+    trailPlus.disabled = !trailOn;
+    trailLabel.classList.toggle('off', !trailOn);
+  };
+  paintTrail();
+  trailBtn.addEventListener('click', () => { updateViewerSettings({ trailHide: !trailOn }); });
+  const stepTrail = (d: number): void => {
+    updateViewerSettings({ trailBlocks: Math.max(TRAIL_BLOCKS_MIN, Math.min(TRAIL_BLOCKS_MAX, trailBlocks + d)) });
+  };
+  trailMinus.addEventListener('click', () => stepTrail(-TRAIL_BLOCKS_STEP));
+  trailPlus.addEventListener('click', () => stepTrail(TRAIL_BLOCKS_STEP));
+  /** 지난 경로 숨김이 켜져 있으면 그릴 첫 seq(원본 _trail_seq_from). 아니면 0 */
+  const trailSeqFrom = (seq: number): number => (trailOn && pgMatch ? Math.max(0, seq - trailBlocks + 1) : 0);
+  /** 이미 만든 선 묶음에서 [from, count) 구간만 그리게 한다(인스턴스 시작 위치를 옮긴다) */
+  const setTraceWindow = (g: LineSegmentsGeometry, from: number, count: number): void => {
+    const ud = g.userData as { from?: number };
+    if ((ud.from ?? 0) !== from) {
+      const start = g.getAttribute('instanceStart') as THREE.InterleavedBufferAttribute;
+      const data = start.data;
+      g.setAttribute('instanceStart', new THREE.InterleavedBufferAttribute(data, 3, from * 6));
+      g.setAttribute('instanceEnd', new THREE.InterleavedBufferAttribute(data, 3, from * 6 + 3));
+      ud.from = from;
+    }
+    (g as LineSegmentsGeometry & { instanceCount: number }).instanceCount = Math.max(0, count - from);
+  };
   let tableKeys: number[] = [];
   let tableKeysFor: Map<number, unknown> | null = null;
   const rotX = (d: number): THREE.Matrix4 => new THREE.Matrix4().makeRotationX((d * Math.PI) / 180);
   const rotY = (d: number): THREE.Matrix4 => new THREE.Matrix4().makeRotationY((d * Math.PI) / 180);
   const rotZ = (d: number): THREE.Matrix4 => new THREE.Matrix4().makeRotationZ((d * Math.PI) / 180);
-  /** 원본 _table_rotation_matrices: seq 시점의 소재 회전(part)과 공구 방향(tool). 해당 없으면 null */
-  const tableMats = (seq: number): { part: THREE.Matrix4; tool: THREE.Matrix4 } | null => {
+  /** 원본 _table_target_info: seq 시점 회전축 상태(종류, A, B, C 도). 테이블 회전을 보이지 않으면 null */
+  const tableInfo = (seq: number): TableRot | null => {
+    if (lathe || !pgMatch || !tableOn) return null;
     const map = result?.seq_to_table_rot;
     if (!map || !map.size) return null;
     if (tableKeysFor !== map) { tableKeys = [...map.keys()].sort((a, b) => a - b); tableKeysFor = map; }
     let lo = 0, hi = tableKeys.length;
     while (lo < hi) { const mid = (lo + hi) >> 1; if (tableKeys[mid]! <= seq) lo = mid + 1; else hi = mid; }
     if (lo === 0) return null;
-    const info = map.get(tableKeys[lo - 1]!);
-    if (!info) return null;
+    return map.get(tableKeys[lo - 1]!) ?? null;
+  };
+  /** 원본 _table_rotation_matrices: 소재 회전(part)과 공구 방향(tool). 공구 축 Rᵀ·z 관계를 지켜 공구 모양·진입 방향·가공면이 같다.
+   * A→C: (Rz(C)·Rx(A))ᵀ, B→C(원본 v2.6.2): (Rz(C)·Ry(B))ᵀ — 둘 다 공구는 수직, 4축 B: Ry(B)ᵀ */
+  const tableMatsOf = (info: TableRot): { part: THREE.Matrix4; tool: THREE.Matrix4 } => {
     const [kind, a, b, c] = info;
     if (kind === 'ac') return { part: rotZ(c).multiply(rotX(a)).transpose(), tool: new THREE.Matrix4() };
-    if (kind === 'bc') return { part: rotZ(c).transpose(), tool: rotY(b) };
+    if (kind === 'bc') return { part: rotZ(c).multiply(rotY(b)).transpose(), tool: new THREE.Matrix4() };
     return { part: rotY(b).transpose(), tool: new THREE.Matrix4() };
+  };
+  // 원본 v2.6.0/v2.6.3: 재생 중에는 회전을 천천히 따라간다(지수 수렴). 손으로 옮길 때는 바로 맞춘다.
+  let tableGoal: TableRot | null = null;
+  let tableDisp: TableRot | null = null;
+  const sameRot = (x: TableRot | null, y: TableRot | null): boolean =>
+    x === y || (!!x && !!y && x[0] === y[0] && x[1] === y[1] && x[2] === y[2] && x[3] === y[3]);
+  const tableSync = (seq: number): void => {
+    const target = tableInfo(seq);
+    if (!target) { tableGoal = null; tableDisp = null; return; }
+    if (sameRot(target, tableGoal)) return;
+    tableGoal = target;
+    if (!playing || !tableDisp || tableDisp[0] !== target[0]) tableDisp = target;
+  };
+  /** 한 프레임만큼 표시 각도를 목표 쪽으로 옮긴다. 옮겼으면 true */
+  const tableStep = (dt: number): boolean => {
+    if (!tableGoal || !tableDisp || sameRot(tableGoal, tableDisp)) return false;
+    // Android 배속은 실제 가공 시간 기준(기본 x50)이라, x50을 원본 x1(초당 100줄)과 같은 빠르기로 본다
+    const rate = TABLE_ANIM_SPEED_SCALE * Math.max(TABLE_ANIM_MIN_RATE, Number(speedSel.value) / 50);
+    const f = 1 - Math.exp(-rate * Math.max(0, Math.min(0.2, dt)));
+    const next: TableRot = [tableGoal[0], 0, 0, 0];
+    let done = true;
+    for (const i of [1, 2, 3] as const) {
+      let delta = tableGoal[i] - tableDisp[i];
+      if (i === 3) delta = ((((delta + 180) % 360) + 360) % 360) - 180; // C는 가까운 쪽으로
+      if (Math.abs(delta) < 0.05) next[i] = tableGoal[i];
+      else { next[i] = tableDisp[i] + delta * f; done = false; }
+    }
+    tableDisp = done ? tableGoal : next;
+    return true;
   };
   const SECTION_LABEL = { '3q': '단면 3/4', half: '단면 1/2', full: '원통' } as const;
   const SECTION_ORDER = ['3q', 'half', 'full'] as const;
@@ -287,6 +364,34 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
   const cubeBody = el('div', { class: 'v-cube-body' });
   cube.append(cubeBody);
   host.append(cube);
+  // 원본 v2.6.2: 큐브 아래 [« 옵션] — 왼쪽으로 열리는 별도 창에 테이블 회전 · 가공형상 즉시 보기 · 정지 옵션 · 지난 경로 숨김을 나열
+  const dock = el('div', { class: 'v-dock' });
+  const moreBtn = el('button', { type: 'button', class: 'v-more', 'aria-expanded': 'false',
+    title: '옵션 창 열기 / 닫기 — 테이블 회전 · 가공형상 즉시 보기 · 정지 옵션 · 지난 경로 숨김' });
+  const panel = el('div', { class: 'v-panel' });
+  panel.hidden = true;
+  const section = (title: string): HTMLElement => { const h = el('div', { class: 'v-sec' }); h.textContent = title; return h; };
+  const stopSlot = el('div', { class: 'v-stop' });
+  const stepRow = el('div', { class: 'v-steprow' });
+  stepRow.append(trailMinus, trailLabel, trailPlus);
+  panel.append(section('뷰'), tableBtn, instantBtn, section('재생 정지'), stopSlot, liveBtn, section('지난 경로'), trailBtn, stepRow);
+  dock.append(moreBtn, panel);
+  host.append(dock);
+  let moreOpen = getPref('overlay_more_open') === 'true';
+  const activeCount = (): number => {
+    let n = (tableOn && !lathe ? 1 : 0) + (trailOn ? 1 : 0) + (simLive ? 1 : 0);
+    for (const box of stopSlot.querySelectorAll<HTMLInputElement>('input[type=checkbox]')) if (box.checked) n++;
+    return n;
+  };
+  function paintMore(): void {
+    panel.hidden = !moreOpen;
+    moreBtn.setAttribute('aria-expanded', String(moreOpen));
+    const n = activeCount();
+    moreBtn.textContent = `${moreOpen ? '» 옵션' : '« 옵션'}${n && !moreOpen ? `  ${n}` : ''}`;
+  }
+  paintMoreRef = paintMore;
+  moreBtn.addEventListener('click', () => { moreOpen = !moreOpen; setPref('overlay_more_open', String(moreOpen)); paintMore(); });
+  stopSlot.addEventListener('change', paintMore);
   const CUBE_FACES: [label: string, transform: string, view: [number, number]][] = [
     ['+Z', 'translateZ(var(--h))', [90, -90]],
     ['-Z', 'rotateX(180deg) translateZ(var(--h))', [-90, -90]],
@@ -310,6 +415,8 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     const size = Math.round(getViewerSettings().cubeSizePx * 0.4);
     cube.style.setProperty('--s', `${size}px`);
     cube.style.setProperty('--h', `${size / 2}px`);
+    host.style.setProperty('--cube-s', `${size}px`);
+    dock.hidden = false;
     cube.hidden = lathe;
     const e = (elevation * Math.PI) / 180;
     const a = (azimuth * Math.PI) / 180;
@@ -334,9 +441,10 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
       b.addEventListener('click', () => { setProjection(name); }); // v2.4.2: 뷰를 바꿔도 위치 찍기는 유지
       projButtons.push(b);
     }
-    projBar.append(instantBtn, liveBtn, tableBtn, sectionBtn);
+    projBar.append(sectionBtn);
     sectionBtn.hidden = !lathe;
     tableBtn.hidden = lathe;
+    paintMore();
   };
 
   const bPrevTool = mkIconBtn(playBar, 'prev', '이전 공정');
@@ -757,6 +865,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     if (simLive) sim.setTarget(seqNow);
     const keysVisible = visibleKeys();
     const curKey = pgMatch ? currentProcessKey() : null;
+    const fromSeq = trailSeqFrom(seqNow);
     for (const p of processes) {
       const on = !keysVisible || keysVisible.has(p.key);
       for (const o of p.objs) o.visible = on && !pgMatch && toolpathOn; // PG 매칭 중에는 전체 경로를 숨긴다
@@ -767,8 +876,14 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
         let lo = 0, hi = s.length;
         while (lo < hi) { const mid = (lo + hi) >> 1; if (s[mid]! <= seqNow) lo = mid + 1; else hi = mid; }
         count = lo;
-        t.obj.visible = traceOn && count > 0;
-        if (count > 0) (t.obj.geometry as LineSegmentsGeometry & { instanceCount: number }).instanceCount = count;
+        let from = 0;
+        if (fromSeq > 0) {
+          let a = 0, z = count;
+          while (a < z) { const mid = (a + z) >> 1; if (s[mid]! < fromSeq) a = mid + 1; else z = mid; }
+          from = a;
+        }
+        t.obj.visible = traceOn && count > from;
+        if (count > from) setTraceWindow(t.obj.geometry as LineSegmentsGeometry, from, count);
       }
     }
     // 현재 위치 표시와 좌표
@@ -778,8 +893,10 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     }
     // 선반 C축: 공구는 +X 센터에 고정되고 경로가 도는 것처럼 — 마커는 C 역회전, 진행 선은 C 만큼 회전(원본 v1.6.6)
     const cRot = lathe ? (result.seq_to_c_rot.get(seqNow) ?? 0) : 0;
-    const tm = !lathe && pgMatch && tableOn ? tableMats(seqNow) : null;
+    tableSync(seqNow);
+    const tm = tableDisp ? tableMatsOf(tableDisp) : null;
     if (tm) workGroup.quaternion.setFromRotationMatrix(tm.part); else workGroup.quaternion.identity();
+    axes.quaternion.copy(workGroup.quaternion); // 원본 v2.6.0: 축 원점 표시도 소재와 함께 돈다
     if (c) {
       let [mx, my, mz] = c;
       if (cRot) {
@@ -869,6 +986,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
   };
 
   let holdSince: number | null = null;
+  let animClock: number | null = null;
   const tick = (now: number): void => {
     raf = requestAnimationFrame(tick);
     // 실시간 형상: 계산이 재생 위치를 못 따라오면 잠깐 기다린다(최대 3초 — 계산이 멈춘 경우 재생이 영영 서지 않게)
@@ -894,6 +1012,8 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
       if (next >= 0 && next !== seqNow) showSeq(next, true);
       if (seqNow >= n - 1) stopPlaying();
     }
+    if (tableStep((now - (animClock ?? now)) / 1000)) showSeq(seqNow, false);
+    animClock = now;
     if (dirty) {
       dirty = false;
       // 선 굵기 계산용 해상도가 0이면 선이 사라진다 — 매 그리기 전에 실제 크기와 맞춘다
@@ -907,6 +1027,14 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
   // ---------------------------------------------------------------- 설정 반영·크기
   const offSettings = onViewerSettings((s) => {
     fovDeg = s.fovDeg;
+    const changed = s.tableRotation !== tableOn || s.trailHide !== trailOn || s.trailBlocks !== trailBlocks;
+    tableOn = s.tableRotation;
+    trailOn = s.trailHide;
+    trailBlocks = s.trailBlocks;
+    paintTable();
+    paintTrail();
+    paintMore();
+    if (changed) { tableGoal = null; tableDisp = null; showSeq(seqNow, false); }
     for (const { m, base } of materials) m.linewidth = toolpathLineWidth(base, s.lineWidthPct);
     applyMarkerScale();
     apply();
@@ -967,6 +1095,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     simStatus: () => sim.status(),
     exportStl: () => sim.exportStl(),
     setSection: (m) => { applySection(m); },
+    setStopOptions(content) { stopSlot.replaceChildren(content); paintMore(); },
     dispose() {
       sim.dispose();
       cancelAnimationFrame(raf);

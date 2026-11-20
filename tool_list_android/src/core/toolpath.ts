@@ -497,6 +497,15 @@ export function detectRotaryMachine(lines: readonly string[]): string | null {
 }
 
 // ---------------------------------------------------------------- 본체
+/** 원본 a_axis_prefers_negative (v2.6.1): A축 범위가 음수 쪽으로 더 넓은가. 범위를 못 읽으면 true(기본 -120~+30). */
+export function aAxisPrefersNegative(specs: MachineSpec | undefined): boolean {
+  const text = specs?.['A축 범위'];
+  if (text === undefined) return true;
+  const parts = String(text).replace(/\+/g, '').split('~').map((v) => Number.parseFloat(v));
+  if (parts.length !== 2 || parts.some((v) => !Number.isFinite(v))) return true;
+  return Math.abs(parts[0]!) >= Math.abs(parts[1]!);
+}
+
 export function processNcLines(lines: readonly string[], machineType: string, specs: MachineSpec | undefined): ToolpathResult {
   const res: ToolpathResult = {
     tool_paths: new Map(), process_tool_map: new Map(), process_first_line: new Map(), process_first_seq: new Map(),
@@ -513,6 +522,7 @@ export function processNcLines(lines: readonly string[], machineType: string, sp
   // v2.5.9: 3축 설정인데 G43.4/G68.2 + 회전축이면 프로그램에서 축 구성을 읽는다(장비 행정 등 설정은 그대로)
   res.machine_auto_note = '';
   res.seq_to_table_rot = new Map();
+  const aNegative = aAxisPrefersNegative(specs);
   if (!isLathe && !is4 && !is5ac && !is5bc) {
     const detected = detectRotaryMachine(lines);
     if (detected === MACHINE_5AXIS_BC) is5bc = true;
@@ -705,8 +715,13 @@ export function processNcLines(lines: readonly string[], machineType: string, sp
         if (!allcloseEye(activeMatrix)) {
           const ax = activeMatrix[0]![2]!, ay = activeMatrix[1]![2]!, az = activeMatrix[2]![2]!;
           const tilt = (Math.atan2(Math.hypot(ax, ay), az) * 180) / Math.PI;
-          if (Math.hypot(ax, ay) > 1e-9) tableC = ((is5ac ? Math.atan2(ax, -ay) : Math.atan2(ay, ax)) * 180) / Math.PI;
-          tableRot = [kind, is5ac ? tilt : 0, is5ac ? 0 : tilt, tableC];
+          // 원본 v2.6.1: 같은 공구 축을 만드는 A·C 해가 둘이다(A+tilt / A-tilt). 장비 A축 범위 안에 드는 쪽을 쓴다
+          // (5축 A to C: A -120~+30 → A 음수 — I0 J-90 K0 = A-90 C0, I180 J-90 K0 = A-90 C180). B→C는 B 양수 해.
+          const aSigned = is5ac && aNegative ? -tilt : tilt;
+          if (Math.hypot(ax, ay) > 1e-9) {
+            tableC = ((is5ac ? (aSigned > 0 ? Math.atan2(ax, -ay) : Math.atan2(-ax, ay)) : Math.atan2(ay, ax)) * 180) / Math.PI;
+          }
+          tableRot = [kind, is5ac ? aSigned : 0, is5ac ? 0 : tilt, tableC];
         } else if (tcp) {
           tableRot = [kind, Number.parseFloat(modal[3]!), Number.parseFloat(modal[4]!), Number.parseFloat(modal[5]!)];
           tableC = tableRot[3];

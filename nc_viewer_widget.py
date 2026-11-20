@@ -74,6 +74,8 @@ TRAIL_BLOCKS_DEFAULT = 200
 # v2.6.0: 테이블 회전을 천천히 보인다. 재생 x1(= 초당 100줄)에서 큰 회전이 약 3초에 끝나고,
 # 배속에 반비례해 빨라진다. 지수 수렴 속도(1/초) k = 배속 표기값, 너무 느린 배속에서는 바닥값을 둔다.
 TABLE_ANIM_MIN_RATE = 0.15
+# v2.6.3: 사용자 요청 — 테이블·A·B·C 회전을 v2.6.2 속도의 30%로 더 천천히.
+TABLE_ANIM_SPEED_SCALE = 0.3
 
 
 def clamp_trail_blocks(value):
@@ -1095,6 +1097,9 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
         )
         dock = getattr(self, "options_dock_widget", None)
         if dock is not None:
+            need = dock.sizeHint().expandedTo(dock.minimumSizeHint())
+            if dock.width() < need.width() or dock.height() < need.height():
+                dock.resize(need)
             dock.move(
                 max(0, self.width() - dock.width() - margin),
                 margin + self.overlay_widget.height() + 8,
@@ -1451,6 +1456,10 @@ class ProjectionOverlayWidget(QWidget):
             " QLineEdit { color: white; background-color: rgba(0, 0, 0, 90);"
             " border: 1px solid rgba(255, 255, 255, 70); border-radius: 4px; padding: 2px 6px; }"
             " QLineEdit:disabled { color: rgba(255, 255, 255, 90); }"
+            # v2.6.3: 옵션 창 안 글자 크기·버튼 높이를 한 가지로 맞춘다(앱 글꼴 배율과 섞여 겹쳐 보였다).
+            " QWidget#moreRow QPushButton { padding: 6px 12px; min-height: 16px; }"
+            " QWidget#moreRow QCheckBox, QWidget#moreRow QLineEdit, QWidget#moreRow QPushButton { font-size: 12px; }"
+            " QWidget#moreRow QCheckBox { min-height: 24px; }"
             # v2.4.3: 버튼은 모두 본래 크기(위치 찍기 포함). 눌린 버튼만 파랗게.
             # v2.4.6: [가공형상즉시보기]는 켜지면 초록색.
             " QPushButton#shapeButton:checked { background-color: #2ea043; border-color: #7ee787; }"
@@ -1597,7 +1606,21 @@ class ProjectionOverlayWidget(QWidget):
         self.more_row.setVisible(bool(expanded))
         self._update_more_text()
         self._fit_to_contents()
+        # v2.6.3: 화면 배율이 큰 PC에서는 글꼴·스타일이 늦게 잡혀 첫 계산이 작게 나온다 — 한 번 더 맞춘다.
+        QTimer.singleShot(0, self._fit_to_contents)
         self.more_toggled.emit(bool(expanded))
+
+    def _fit_dock(self):
+        """v2.6.3: 옵션 창을 내용이 필요한 크기 그대로 둔다(작게 눌리면 글자가 겹친다)."""
+        for widget in self.dock.findChildren(QWidget):
+            widget.ensurePolished()
+        self._more_layout.invalidate()
+        self._dock_layout.invalidate()
+        QApplication.sendPostedEvents(self.more_row, QEvent.LayoutRequest)
+        QApplication.sendPostedEvents(self.dock, QEvent.LayoutRequest)
+        self._more_layout.activate()
+        self._dock_layout.activate()
+        self.dock.resize(self.dock.sizeHint().expandedTo(self.dock.minimumSizeHint()))
 
     def set_more_expanded(self, expanded):
         if self.more_button.isChecked() != bool(expanded):
@@ -1748,9 +1771,7 @@ class ProjectionOverlayWidget(QWidget):
         self._row.activate()
         self._outer.activate()
         self.adjustSize()
-        self._dock_layout.invalidate()
-        self._dock_layout.activate()
-        self.dock.adjustSize()
+        self._fit_dock()
         gl_parent = self.parent()
         dock_reposition = getattr(gl_parent, "_reposition_overlay", None)
         if callable(dock_reposition):
@@ -7199,8 +7220,8 @@ class NCViewerWidget(QWidget):
             self._table_disp = target
             self._table_anim_timer.stop()
             return
-        self._table_anim_rate = max(TABLE_ANIM_MIN_RATE,
-                                    float(speed) / float(PLAYBACK_SPEED_DISPLAY_DIVISOR))
+        self._table_anim_rate = TABLE_ANIM_SPEED_SCALE * max(
+            TABLE_ANIM_MIN_RATE, float(speed) / float(PLAYBACK_SPEED_DISPLAY_DIVISOR))
         if not self._table_anim_timer.isActive():
             self._table_anim_clock = time.monotonic()
             self._table_anim_timer.start()
