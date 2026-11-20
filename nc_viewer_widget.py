@@ -77,6 +77,11 @@ TRAIL_BLOCKS_DEFAULT = 200
 TABLE_ANIM_MIN_RATE = 0.15
 # v2.6.3: 사용자 요청 — 테이블·A·B·C 회전을 v2.6.2 속도의 30%로 더 천천히.
 TABLE_ANIM_SPEED_SCALE = 0.3
+# v2.6.5: 사용자 요청 — A·B·C 회전(인덱스)은 재생 배속과 상관없이 x10일 때 빠르기로 고정한다.
+# 동시 5축(G43.4 중 회전축이 들어간 절삭 이동)은 따로 돌리지 않고 재생(이송 · 배속)을 그대로 따른다.
+TABLE_ANIM_FIXED_SPEED = 10
+TABLE_ANIM_FIXED_RATE = TABLE_ANIM_SPEED_SCALE * max(
+    TABLE_ANIM_MIN_RATE, float(TABLE_ANIM_FIXED_SPEED) / 100.0)
 
 
 def clamp_trail_blocks(value):
@@ -212,25 +217,52 @@ RENAMED_MACHINE_TYPES = {
 }
 
 
+def add_incremental_word(previous, word):
+    """v2.6.5: G91 증분 워드를 이전 좌표 문자열에 더한 표시용 문자열('-90' + '-5.' → '-95')."""
+    try:
+        value = float(previous) + float(word)
+    except (TypeError, ValueError):
+        return word
+    text = ("%.4f" % value).rstrip("0").rstrip(".")
+    return "0" if text in ("", "-0") else text
+
+
 def migrate_machine_type_name(machine_type):
     """이전 버전의 장비 이름을 v1.6.7 이름으로 바꿔 준다(모르는 이름은 그대로)."""
     return RENAMED_MACHINE_TYPES.get(str(machine_type or ""), machine_type)
 
 
+SPEC_RAPID = "급속 속도"            # v2.6.5: mm/min, 가공시간의 G00 속도(없으면 RAPID_FEED_MM_PER_MIN)
+
 DEFAULT_MACHINE_SPECS = {
     MACHINE_5AXIS_AC: {
         "X 행정": "800", "Y 행정": "800", "Z 행정": "600",
-        "A축 범위": "-120~+30", "C축 범위": "360",
+        "A축 범위": "-120~+30", "C축 범위": "360", SPEC_RAPID: "24000",
     },
-    "3축 MCT (X Y Z)": {"X 행정": "1000", "Y 행정": "600", "Z 행정": "600"},
+    "3축 MCT (X Y Z)": {"X 행정": "1000", "Y 행정": "600", "Z 행정": "600", SPEC_RAPID: "24000"},
     "4축 MCT (B-Type)": {
-        "X 행정": "1200", "Y 행정": "800", "Z 행정": "800", "B축 범위": "-120~+120",
+        "X 행정": "1200", "Y 행정": "800", "Z 행정": "800", "B축 범위": "-120~+120", SPEC_RAPID: "24000",
     },
-    MACHINE_LATHE: {"X 행정": "300", "Z 행정": "500", "최대 RPM": "4000"},
+    MACHINE_LATHE: {"X 행정": "300", "Z 행정": "500", "최대 RPM": "4000", SPEC_RAPID: "24000"},
     MACHINE_5AXIS_BC: {
         "X 행정": "600", "Y 행정": "600", "Z 행정": "500",
-        "B축 범위": "-110~+110", "C축 범위": "360",
+        "B축 범위": "-110~+110", "C축 범위": "360", SPEC_RAPID: "24000",
     },
+    # v2.6.5: 실제 장비(VERICUT 장비 파일의 행정 · 회전축 범위). 이름에 장비 종류 문구가 들어 있어
+    # A→C / B→C / 3축 판정은 위 기본 장비와 같다.
+    MACHINE_5AXIS_AC + " 화천 M2": {
+        "X 행정": "750", "Y 행정": "650", "Z 행정": "500",
+        "A축 범위": "-120~+30", "C축 범위": "360", SPEC_RAPID: "24000",
+    },
+    MACHINE_5AXIS_AC + " 화천 M4": {
+        "X 행정": "950", "Y 행정": "1000", "Z 행정": "651",
+        "A축 범위": "-120~+120", "C축 범위": "360", SPEC_RAPID: "24000",
+    },
+    MACHINE_5AXIS_BC + " 화천 D2": {
+        "X 행정": "650", "Y 행정": "500", "Z 행정": "500",
+        "B축 범위": "-30~+110", "C축 범위": "360", SPEC_RAPID: "24000",
+    },
+    "3축 MCT 화천 VESTA-2000": {"X 행정": "2004", "Y 행정": "850", "Z 행정": "801", SPEC_RAPID: "24000"},
 }
 
 
@@ -329,24 +361,34 @@ def lathe_world_point(z_value, x_diameter, c_deg=0.0, y_value=0.0):
 # --------------------------------------------------------------------------
 
 # G00은 프로그램의 F와 무관하게 항상 이 속도로 움직이는 것으로 본다.
-RAPID_FEED_MM_PER_MIN = 7000.0
+# v2.6.5: 7000 -> 24000(사용자 지정). 장비 설정의 "급속 속도"가 있으면 그 값을 쓴다.
+RAPID_FEED_MM_PER_MIN = 24000.0
 # 이 이하 간격의 미세 이동은 가감속 때문에 지령 속도가 다 안 나온다.
 SHORT_SEGMENT_MM = 0.5
 # 원호(G02/G03)와 위 미세 이동에 적용하는 실효 비율.
 SLOW_FEED_RATIO = 0.7
 
 
-def effective_feed_mm_per_min(motion, feed_mm_per_min, distance_mm):
+def machine_rapid_feed(spec):
+    """v2.6.5: 장비 설정의 "급속 속도"(mm/min). 비었거나 숫자가 아니면 RAPID_FEED_MM_PER_MIN."""
+    try:
+        value = float(str((spec or {}).get(SPEC_RAPID, "")).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return RAPID_FEED_MM_PER_MIN
+    return value if value > 0.0 else RAPID_FEED_MM_PER_MIN
+
+
+def effective_feed_mm_per_min(motion, feed_mm_per_min, distance_mm, rapid_mm_per_min=RAPID_FEED_MM_PER_MIN):
     """세그먼트 하나에 실제로 적용할 이송속도(mm/min)를 돌려준다.
 
-    - G00: F를 무시하고 항상 RAPID_FEED_MM_PER_MIN.
+    - G00: F를 무시하고 항상 rapid_mm_per_min(장비의 급속 속도, 기본 RAPID_FEED_MM_PER_MIN).
     - G02/G03: F의 70% (원호는 지령 속도가 다 나오지 않는다).
     - G01: 이동량이 SHORT_SEGMENT_MM 이하면 70%, 그보다 크면 100%.
     F가 아직 한 번도 안 나온 절삭 이동은 0을 돌려준다 — 호출부가
     시간 0으로 넘긴다(추정으로 시간을 부풀리지 않는다).
     """
     if motion == "G00":
-        return RAPID_FEED_MM_PER_MIN
+        return rapid_mm_per_min
     try:
         feed = float(feed_mm_per_min or 0.0)
     except (TypeError, ValueError):
@@ -3211,6 +3253,7 @@ class NCViewerWidget(QWidget):
         # v2.5.9: 5축 재생 중 공구 고정·테이블 회전 표시(기본 켜짐, 설정에 기억)
         self.table_rotation_on = str(self.settings.value("table_rotation", "true")).lower() not in ("false", "0")
         self.seq_to_table_rot = {}
+        self.seq_table_follow = set()     # v2.6.5: 동시 5축 이동 seq(회전이 재생을 그대로 따른다)
         self._table_rot_keys = []
         # v2.6.0: 테이블 회전은 천천히 따라 돈다. 재생 틱이 table_anim_speed(초당 줄 수)를 걸어 두면
         # 목표 각도를 지수로 따라가고, 걸려 있지 않으면(방향키·클릭 이동) 바로 맞춘다.
@@ -3262,9 +3305,11 @@ class NCViewerWidget(QWidget):
                         if isinstance(values, dict):
                             # v1.6.7: 예전 이름으로 저장된 항목은 새 이름으로
                             # 옮겨 받는다(사용자가 고쳐 둔 행정값 보존).
-                            specs[migrate_machine_type_name(machine_type)] = {
-                                str(key): str(value) for key, value in values.items()
-                            }
+                            # v2.6.5: 저장값에 없는 새 항목(급속 속도 등)은 기본값으로 채운다.
+                            name = migrate_machine_type_name(machine_type)
+                            merged = dict(specs.get(name, {}))
+                            merged.update({str(key): str(value) for key, value in values.items()})
+                            specs[name] = merged
                     return specs
             except (TypeError, ValueError):
                 pass
@@ -5902,6 +5947,7 @@ class NCViewerWidget(QWidget):
         self.seq_to_c_rot.clear()
         self.line_to_c_rot.clear()
         self.seq_to_table_rot = {}
+        self.seq_table_follow = set()     # v2.6.5: 동시 5축 이동 seq(회전이 재생을 그대로 따른다)
         self._table_rot_keys = []
         self._table_goal = None
         self._table_disp = None
@@ -5973,6 +6019,7 @@ class NCViewerWidget(QWidget):
         # 움직여야 한다(사용자 확정, 2026-09-06).
         lathe_polar_theta_deg = 0.0
         modal_values = ["0.000", "0.000", "0.000", "0.000", "0.000", "0.000"]
+        mill_incremental = False      # v2.6.5: 밀링 G91(증분) 모달
 
         g43_active = False
         current_motion = "G00"
@@ -6074,6 +6121,11 @@ class NCViewerWidget(QWidget):
         # 다른 코드에도 우연히 매칭됐다.
         g28_pattern = re.compile(r"G28(?!\d)")
         g91_pattern = re.compile(r"G91")
+        # v2.6.5(VERICUT fan30im 비교): 밀링 G90/G91은 모달이다 — G91이면 축 워드가 증분이다.
+        # G30(2·3·4번째 원점 복귀)은 G28처럼 원점으로 간다(장비별 원점 위치는 모르므로 같은 자리).
+        g90_mode_pattern = re.compile(r"G90(?![\d.])")
+        g91_mode_pattern = re.compile(r"G91(?![\d.])")
+        g30_pattern = re.compile(r"G30(?![\d.])")
         g68_pattern = re.compile(r"G68\.2")
         g69_pattern = re.compile(r"G69")
         g53_1_pattern = re.compile(r"G53\.1")
@@ -6150,10 +6202,23 @@ class NCViewerWidget(QWidget):
             if dwell_sec is not None:
                 self.seq_to_dwell_sec[seq_pos] = dwell_sec
 
+            # v2.6.5: 밀링 G90/G91 모달과 원점 복귀(G28/G30) 줄. 선반은 G91 개념이 없다(v1.7.3).
+            mill_ref_return = False
+            if not is_lathe:
+                if g91_mode_pattern.search(line_upper):
+                    mill_incremental = True
+                elif g90_mode_pattern.search(line_upper):
+                    mill_incremental = False
+                mill_ref_return = bool(g28_pattern.search(line_upper) or g30_pattern.search(line_upper))
             for pos, pattern in enumerate((x_pattern, y_pattern, z_pattern, a_pattern, b_pattern, c_pattern)):
                 match = pattern.search(line_upper)
                 if match:
-                    modal_values[pos] = match.group(1)
+                    if mill_ref_return and pos >= 3:
+                        modal_values[pos] = "0"          # 회전축 원점 복귀 — 원점은 0°
+                    elif mill_incremental and not mill_ref_return:
+                        modal_values[pos] = add_incremental_word(modal_values[pos], match.group(1))
+                    else:
+                        modal_values[pos] = match.group(1)
             self.modal_state_map[idx] = self.seq_to_modal_state[seq_pos] = tuple(modal_values)
             # v1.7.4: 같은 idx가 서브프로그램 반복으로 여러 번 실행되면
             # 마지막 실행의 seq가 남는다(modal_state_map과 같은 계약).
@@ -6501,6 +6566,18 @@ class NCViewerWidget(QWidget):
                 self.line_to_tool_map[idx] = self.seq_to_tool_map[seq_pos] = current_tool
 
             motion_match = motion_pattern.search(line_upper)
+            if motion_match and cycle_active and not cycle_match:
+                # v2.6.5: 01그룹(G00~G03)은 고정 사이클을 해제한다(Fanuc · VERICUT fan30im과 같게).
+                # 예전에는 G80이 나올 때까지 사이클로 계속 그렸다.
+                cycle_active = False
+                if is_lathe:
+                    lathe_cycle_axis = None
+                    lathe_cycle_ref = None
+                    lathe_cycle_r = 0.0
+                    lathe_cycle_depth = 0.0
+                else:
+                    mill_cycle_r = 0.0
+                    mill_cycle_depth = 0.0
             if motion_match and not cycle_active:
                 mot = motion_match.group(1)
                 if mot in ("G0", "G00"):
@@ -6511,6 +6588,13 @@ class NCViewerWidget(QWidget):
                     current_motion = "G02"
                 elif mot in ("G3", "G03"):
                     current_motion = "G03"
+
+            # v2.6.5: 동시 5축 — G43.4(공구 중심점) 중 회전축 워드가 들어간 절삭 이동. 테이블 회전 표시가
+            # 따로 천천히 돌지 않고 재생(이송 · 배속)을 그대로 따른다.
+            if (not is_lathe and tcp_active and current_motion in ("G01", "G02", "G03")
+                    and (a_pattern.search(line_upper) or b_pattern.search(line_upper)
+                         or c_pattern.search(line_upper))):
+                self.seq_table_follow.add(seq_pos)
 
             if is_5axis_ac or is_5axis_bc:
                 if g69_pattern.search(line_upper):
@@ -6560,9 +6644,15 @@ class NCViewerWidget(QWidget):
             g28_here = g28_pattern.search(line_upper)
             # v1.7.3: 선반에는 G91(증분 모드) 개념이 없다(사용자 확정) —
             # G28 H.. 는 G91 유무와 무관하게 C축 기계원점 복귀다. 밀링/MCT는
-            # 기존대로 G91이 같은 줄에 있어야만 이 분기를 탄다.
+            # G91(증분)일 때 이 분기를 탄다 — v2.6.5부터 G91은 앞 줄에서 이어진 모달이어도 되고,
+            # G30(2번째 원점 복귀)도 같은 원점으로 본다.
             g28_c_home = is_lathe and g28_here and h_pattern.search(line_upper)
-            if g28_here and (g91_pattern.search(line_upper) or g28_c_home):
+            if is_lathe:
+                ref_return_incremental = bool(g91_pattern.search(line_upper))
+            else:
+                g28_here = mill_ref_return
+                ref_return_incremental = mill_incremental
+            if g28_here and (ref_return_incremental or g28_c_home):
                 if is_lathe:
                     # v1.6.4: 선반의 원점 복귀. cx는 지름 값을 들고 있으므로
                     # 반쪽(m_x)이 아니라 X 행정 전체를 지름으로 넣어야 반경이
@@ -6708,12 +6798,15 @@ class NCViewerWidget(QWidget):
                             cc_deg + lathe_polar_theta_deg
                         )
                 else:
+                    # v2.6.5: G91(증분)이면 X/Y/Z를 지금 위치에 더한다. 고정 사이클의 Z는
+                    # 사이클 깊이라 아래 사이클 분기가 그대로 읽는다.
                     if x_match:
-                        cx = float(x_match.group(1))
+                        cx = cx + float(x_match.group(1)) if mill_incremental else float(x_match.group(1))
                     if y_match:
-                        cy = float(y_match.group(1))
+                        cy = cy + float(y_match.group(1)) if mill_incremental else float(y_match.group(1))
                     if z_match:
-                        cz = float(z_match.group(1))
+                        cz = (cz + float(z_match.group(1))
+                              if (mill_incremental and not cycle_active) else float(z_match.group(1)))
                     # Keep the pre-rotation ("local") point around so arcs can be built in the
                     # same unrotated coordinate space as start_pt, then rotate the whole arc as
                     # a batch below — mixing an unrotated start with a rotated end (as before)
@@ -6982,6 +7075,7 @@ class NCViewerWidget(QWidget):
                 owner = process_starts[min(position, len(process_starts) - 1)][1]
             dwells_by_process.setdefault(owner, []).append(dwell_seq)
 
+        rapid = machine_rapid_feed(self.machine_spec())      # v2.6.5: 장비별 급속 속도
         elapsed = 0.0
         for process_key, points in self.tool_paths.items():
             process_start = elapsed
@@ -7023,7 +7117,7 @@ class NCViewerWidget(QWidget):
                         else:
                             feed = feed_state[0]
                         speed = effective_feed_mm_per_min(
-                            point.get("type"), feed, distance
+                            point.get("type"), feed, distance, rapid
                         )
                         if speed > 0.0:
                             elapsed += distance / speed * 60.0
@@ -7474,12 +7568,13 @@ class NCViewerWidget(QWidget):
             return
         self._table_goal = target
         speed = self.table_anim_speed
-        if speed is None or self._table_disp is None or self._table_disp[0] != target[0]:
+        follow = seq in self.seq_table_follow          # v2.6.5: 동시 5축은 재생을 그대로 따른다
+        if (speed is None or follow or self._table_disp is None
+                or self._table_disp[0] != target[0]):
             self._table_disp = target
             self._table_anim_timer.stop()
             return
-        self._table_anim_rate = TABLE_ANIM_SPEED_SCALE * max(
-            TABLE_ANIM_MIN_RATE, float(speed) / float(PLAYBACK_SPEED_DISPLAY_DIVISOR))
+        self._table_anim_rate = TABLE_ANIM_FIXED_RATE    # v2.6.5: 배속과 상관없이 x10 빠르기
         if not self._table_anim_timer.isActive():
             self._table_anim_clock = time.monotonic()
             self._table_anim_timer.start()

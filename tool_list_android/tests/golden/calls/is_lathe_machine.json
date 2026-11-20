@@ -3,12 +3,6 @@
  "calls": [
   {
    "args": [
-    "3축 MCT (X Y Z)"
-   ],
-   "result": false
-  },
-  {
-   "args": [
     "5축 MCT (A to C)"
    ],
    "result": false
@@ -16,6 +10,12 @@
   {
    "args": [
     "4축 MCT (B-Type)"
+   ],
+   "result": false
+  },
+  {
+   "args": [
+    "3축 MCT (X Y Z)"
    ],
    "result": false
   },

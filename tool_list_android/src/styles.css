@@ -143,6 +143,10 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 .machine-form { display: grid; grid-template-columns: max-content 1fr; gap: 4px 8px; align-items: center; }
 .machine-form label { display: contents; font-size: 13px; color: var(--muted_text); }
 .machine-form input { font-variant-numeric: tabular-nums; }
+/* 원본 v2.6.5: 단위를 칸 오른쪽에 */
+.machine-field { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.machine-field input { flex: 1; min-width: 0; }
+.machine-unit { min-width: 3.6em; font-size: 12px; color: var(--muted_text); }
 .machine-save {
   min-height: 40px; border: none; border-radius: 8px; background: var(--neutral_button);
   color: var(--neutral_button_text); font: inherit;

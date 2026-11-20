@@ -863,7 +863,10 @@ M30
         self.assertNotEqual(goal[1], 0.0)
         self.assertNotAlmostEqual(viewer._table_disp[1], goal[1], places=3)      # 바로 가지 않고 따라간다
         self.assertTrue(viewer._table_anim_timer.isActive())
-        for _ in range(400):
+        # v2.6.5: 회전 빠르기는 배속과 상관없이 x10 고정
+        from nc_viewer_widget import TABLE_ANIM_FIXED_RATE
+        self.assertEqual(viewer._table_anim_rate, TABLE_ANIM_FIXED_RATE)
+        for _ in range(3000):
             viewer._table_anim_clock = time.monotonic() - 0.2
             viewer._table_anim_step()
         self.assertEqual(viewer._table_disp, goal)

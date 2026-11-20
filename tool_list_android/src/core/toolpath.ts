@@ -20,7 +20,10 @@ const ARC_CHORD_TOLERANCE_MM = 0.05;
 const ARC_MIN_SEGMENTS = 6;
 const ARC_MAX_SEGMENTS = 720;
 const LATHE_C_ARC_STEP_DEG = 5.0;
-export const RAPID_FEED_MM_PER_MIN = 7000.0;
+// 원본 v2.6.5: 7000 -> 24000(사용자 지정). 장비 설정의 "급속 속도"가 있으면 그 값을 쓴다.
+export const RAPID_FEED_MM_PER_MIN = 24000.0;
+/** 원본 v2.6.5 SPEC_RAPID: 장비 설정의 급속 속도(mm/min) 항목 이름 */
+export const SPEC_RAPID = '급속 속도';
 const SHORT_SEGMENT_MM = 0.5;
 const SLOW_FEED_RATIO = 0.7;
 const CLOSED_KEY = '__lathe_closed_gap__';
@@ -64,6 +67,8 @@ export interface ToolpathResult {
   machine_auto_note?: string;
   /** v2.5.9: seq → 테이블 회전 표시용 회전축 상태 [종류, A, B, C(도)] (회전 없으면 null) */
   seq_to_table_rot?: Map<number, TableRot | null>;
+  /** 원본 v2.6.5 seq_table_follow: 동시 5축 이동 seq */
+  seq_table_follow?: Set<number>;
   /** v2.6.4: 재생 바 [모달 정보] (원본 viewer.modal_timeline) */
   modal_timeline?: ModalTimeline;
   line_lathe_map: Map<number, LatheLineInfo>;
@@ -138,8 +143,22 @@ export function latheCRolloverEnd(startC: number, endC: number): number {
 }
 
 // ---------------------------------------------------------------- 시간 계산 도우미
-export function effectiveFeedMmPerMin(motion: string, feed: number, distance: number): number {
-  if (motion === 'G00') return RAPID_FEED_MM_PER_MIN;
+/** 원본 machine_rapid_feed (v2.6.5): 장비 설정의 급속 속도. 비었거나 숫자가 아니면 RAPID_FEED_MM_PER_MIN */
+export function machineRapidFeed(spec: MachineSpec | undefined): number {
+  const v = Number(String(spec?.[SPEC_RAPID] ?? '').replace(/,/g, '').trim());
+  return String(spec?.[SPEC_RAPID] ?? '').trim() !== '' && Number.isFinite(v) && v > 0 ? v : RAPID_FEED_MM_PER_MIN;
+}
+
+/** 원본 add_incremental_word (v2.6.5): G91 증분 워드를 이전 좌표 문자열에 더한 표시용 문자열 */
+export function addIncrementalWord(previous: string, word: string): string {
+  const v = Number(previous) + Number(word);
+  if (!Number.isFinite(v) || previous.trim() === '' || word.trim() === '') return word;
+  const text = v.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+  return text === '' || text === '-0' ? '0' : text;
+}
+
+export function effectiveFeedMmPerMin(motion: string, feed: number, distance: number, rapid = RAPID_FEED_MM_PER_MIN): number {
+  if (motion === 'G00') return rapid;
   const f = Number.isFinite(Number(feed)) ? Number(feed || 0) : 0;
   if (f <= 0) return 0;
   if (motion === 'G02' || motion === 'G03' || Number(distance) <= SHORT_SEGMENT_MM) return f * SLOW_FEED_RATIO;
@@ -442,6 +461,10 @@ const B_PAT = /B\s*([+-]?\d*\.?\d+)/;
 const C_PAT = /C\s*([+-]?\d*\.?\d+)/;
 const G28 = /G28(?!\d)/;
 const G91 = /G91/;
+// 원본 v2.6.5: 밀링 G90/G91 모달, G30(원점 복귀)
+const G90_MODE = /G90(?![\d.])/;
+const G91_MODE = /G91(?![\d.])/;
+const G30 = /G30(?![\d.])/;
 const G68 = /G68\.2/;
 const G69 = /G69/;
 const G53_1 = /G53\.1/;
@@ -525,6 +548,7 @@ export function processNcLines(lines: readonly string[], machineType: string, sp
   // v2.5.9: 3축 설정인데 G43.4/G68.2 + 회전축이면 프로그램에서 축 구성을 읽는다(장비 행정 등 설정은 그대로)
   res.machine_auto_note = '';
   res.seq_to_table_rot = new Map();
+  res.seq_table_follow = new Set();
   const aNegative = aAxisPrefersNegative(specs);
   if (!isLathe && !is4 && !is5ac && !is5bc) {
     const detected = detectRotaryMachine(lines);
@@ -557,6 +581,7 @@ export function processNcLines(lines: readonly string[], machineType: string, sp
 
   let cx = 0, cy = 0, cz = 0, ccDeg = 0, cyLathe = 0, polarTheta = 0;
   const modal = ['0.000', '0.000', '0.000', '0.000', '0.000', '0.000'];
+  let millIncremental = false; // 원본 v2.6.5: 밀링 G91(증분) 모달
   let g43Active = false;
   let currentMotion = 'G00';
   let currentPlane = 'G17';
@@ -602,9 +627,19 @@ export function processNcLines(lines: readonly string[], machineType: string, sp
     lineUpper = rest;
     if (dwell !== null) res.seq_to_dwell_sec.set(seqPos, dwell);
 
+    // 원본 v2.6.5: 밀링 G90/G91 모달과 원점 복귀(G28/G30) 줄. 선반은 G91 개념이 없다.
+    let millRefReturn = false;
+    if (!isLathe) {
+      if (G91_MODE.test(lineUpper)) millIncremental = true;
+      else if (G90_MODE.test(lineUpper)) millIncremental = false;
+      millRefReturn = G28.test(lineUpper) || G30.test(lineUpper);
+    }
     [X_PAT, Y_PAT, Z_PAT, A_PAT, B_PAT, C_PAT].forEach((pat, pos) => {
       const m = pat.exec(lineUpper);
-      if (m) modal[pos] = m[1]!;
+      if (!m) return;
+      if (millRefReturn && pos >= 3) modal[pos] = '0'; // 회전축 원점 복귀 — 원점은 0°
+      else if (millIncremental && !millRefReturn) modal[pos] = addIncrementalWord(modal[pos]!, m[1]!);
+      else modal[pos] = m[1]!;
     });
     res.modal_state_map.set(idx, [...modal]);
     res.seq_to_modal_state.set(seqPos, [...modal]);
@@ -798,6 +833,12 @@ export function processNcLines(lines: readonly string[], machineType: string, sp
     }
 
     const mm = MOTION.exec(lineUpper);
+    if (mm && cycleActive && !cycleMatch) {
+      // 원본 v2.6.5: 01그룹(G00~G03)은 고정 사이클을 해제한다(Fanuc · VERICUT fan30im)
+      cycleActive = false;
+      if (isLathe) { latheCycleAxis = null; latheCycleRef = null; latheCycleR = 0; latheCycleDepth = 0; }
+      else { millCycleR = 0; millCycleDepth = 0; }
+    }
     if (mm && !cycleActive) {
       const mot = mm[1]!;
       if (mot === 'G0' || mot === 'G00') currentMotion = 'G00';
@@ -805,6 +846,9 @@ export function processNcLines(lines: readonly string[], machineType: string, sp
       else if (mot === 'G2' || mot === 'G02') currentMotion = 'G02';
       else if (mot === 'G3' || mot === 'G03') currentMotion = 'G03';
     }
+    // 원본 v2.6.5: 동시 5축 — G43.4 중 회전축 워드가 들어간 절삭 이동은 테이블 회전 표시가 재생을 그대로 따른다
+    if (!isLathe && tcp && (currentMotion === 'G01' || currentMotion === 'G02' || currentMotion === 'G03')
+        && (A_PAT.test(lineUpper) || B_PAT.test(lineUpper) || C_PAT.test(lineUpper))) res.seq_table_follow!.add(seqPos);
 
     if (is5) {
       if (G69.test(lineUpper)) {
@@ -834,9 +878,11 @@ export function processNcLines(lines: readonly string[], machineType: string, sp
       }
     }
 
-    const g28Here = G28.test(lineUpper);
+    // 원본 v2.6.5: 밀링은 G91 모달(앞 줄에서 이어진 것 포함)이면 원점 복귀, G30도 같은 원점으로 본다
+    const g28Here = isLathe ? G28.test(lineUpper) : millRefReturn;
     const g28CHome = isLathe && g28Here && H_PAT.test(lineUpper);
-    if (g28Here && (G91.test(lineUpper) || g28CHome)) {
+    const refIncremental = isLathe ? G91.test(lineUpper) : millIncremental;
+    if (g28Here && (refIncremental || g28CHome)) {
       if (isLathe) {
         if (/X\s*0/.test(lineUpper)) cx = mX * 2.0;
         if (/Z\s*0/.test(lineUpper)) cz = mZ;
@@ -911,9 +957,10 @@ export function processNcLines(lines: readonly string[], machineType: string, sp
         res.line_to_c_rot.set(idx, v); res.seq_to_c_rot.set(seqPos, v);
       }
     } else {
-      if (xM) cx = f(xM);
-      if (yM) cy = f(yM);
-      if (zM) cz = f(zM);
+      // 원본 v2.6.5: G91(증분)이면 X/Y/Z를 지금 위치에 더한다. 고정 사이클의 Z는 사이클 깊이다
+      if (xM) cx = millIncremental ? cx + f(xM) : f(xM);
+      if (yM) cy = millIncremental ? cy + f(yM) : f(yM);
+      if (zM) cz = millIncremental && !cycleActive ? cz + f(zM) : f(zM);
       localTargetPt = [cx, cy, cz];
       targetPt = is5 || is4 ? addVec(matVec(activeMatrix, localTargetPt), activeOrigin) : [...localTargetPt] as Vec3;
     }
@@ -1019,7 +1066,7 @@ export function processNcLines(lines: readonly string[], machineType: string, sp
   paths.delete(CLOSED_KEY);
   for (const [key, pts] of [...paths]) if (!pts.length) paths.delete(key);
   for (const key of [...res.process_tool_map.keys()]) if (!paths.has(key)) res.process_tool_map.delete(key);
-  computeMachiningTimes(res, isLathe);
+  computeMachiningTimes(res, isLathe, machineRapidFeed(specs));
   return res;
 }
 
@@ -1036,7 +1083,7 @@ function bisectRight(arr: number[], x: number): number {
   return lo;
 }
 
-function computeMachiningTimes(res: ToolpathResult, isLathe: boolean): void {
+function computeMachiningTimes(res: ToolpathResult, isLathe: boolean, rapid = RAPID_FEED_MM_PER_MIN): void {
   res.seq_to_elapsed_sec.clear();
   res.process_time_sec.clear();
   res.total_time_sec = 0;
@@ -1091,7 +1138,7 @@ function computeMachiningTimes(res: ToolpathResult, isLathe: boolean): void {
               feed = fv * latheSpindleRpm(mode, sv, meanDia, mr);
             }
           } else feed = fs[0];
-          const speed = effectiveFeedMmPerMin(point.type, feed, distance);
+          const speed = effectiveFeedMmPerMin(point.type, feed, distance, rapid);
           if (speed > 0) elapsed += (distance / speed) * 60.0;
         }
       }

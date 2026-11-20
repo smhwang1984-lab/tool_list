@@ -19,6 +19,34 @@ os.environ.setdefault('NC_TOOL_LIST_GL_SAFE_MODE', '0')
 
 
 @pytest.fixture(autouse=True)
+def _isolate_qt_settings(tmp_path, monkeypatch):
+    """뷰어(NC Tool List/EmbeddedViewer)·메인 창(NC Tool List/MainWindow) 설정을 테스트마다 임시 INI로
+    돌린다. 예전에는 테스트가 장비를 바꿀 때마다 이 PC의 실제 레지스트리 설정(장비 종류·행정 값)을
+    덮어썼다(v2.6.5, 2026-11-20 실측 — 3축 X 행정이 테스트 값으로 바뀜). 경로를 주고 만드는
+    QSettings(path, IniFormat)는 그대로 둔다."""
+    import sys
+    try:
+        from PyQt5.QtCore import QSettings
+    except Exception:  # noqa: BLE001 - Qt가 없는 환경
+        yield
+        return
+
+    class _TestSettings(QSettings):
+        def __init__(self, *args, **kwargs):
+            if len(args) == 2 and all(isinstance(a, str) for a in args) and not kwargs:
+                name = '%s__%s.ini' % args
+                super().__init__(str(tmp_path / 'qsettings' / name), QSettings.IniFormat)
+            else:
+                super().__init__(*args, **kwargs)
+
+    for module_name in ('nc_viewer_widget', 'NC_Tool_List'):
+        module = sys.modules.get(module_name)
+        if module is not None and getattr(module, 'QSettings', None) is QSettings:
+            monkeypatch.setattr(module, 'QSettings', _TestSettings)
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _isolate_license_maker_dirs(tmp_path, monkeypatch):
     """발급 프로그램 테스트가 이 PC의 실제 %APPDATA%\\SumPath License Maker 나 저장소 폴더에
     서명 키·발급 기록·발급 파일을 남기지 않게 한다. 예전에는 일부 테스트가 portable_dir만 바꿔서

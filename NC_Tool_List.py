@@ -33,7 +33,7 @@ import lathe_insert_spec
 import sumpath_license
 
 
-APP_VERSION = '2.6.4'
+APP_VERSION = '2.6.5'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-11-20'
 APP_CREATOR = 'Hwang.seonmun'
@@ -2657,7 +2657,50 @@ else:
             "X 행정": "600", "Y 행정": "600", "Z 행정": "500",
             "B축 범위": "-110~+110", "C축 범위": "360",
         },
+        # v2.6.5: 실제 장비 — 뷰어 DEFAULT_MACHINE_SPECS와 같은 이름(급속 속도는 뷰어에서만 쓴다)
+        "5축 MCT (A to C) 화천 M2": {
+            "X 행정": "750", "Y 행정": "650", "Z 행정": "500", "A축 범위": "-120~+30", "C축 범위": "360",
+        },
+        "5축 MCT (A to C) 화천 M4": {
+            "X 행정": "950", "Y 행정": "1000", "Z 행정": "651", "A축 범위": "-120~+120", "C축 범위": "360",
+        },
+        "5축 MCT (B to C) 화천 D2": {
+            "X 행정": "650", "Y 행정": "500", "Z 행정": "500", "B축 범위": "-30~+110", "C축 범위": "360",
+        },
+        "3축 MCT 화천 VESTA-2000": {"X 행정": "2004", "Y 행정": "850", "Z 행정": "801"},
     }
+
+
+    # v2.6.5: 장비 목록 표시 이름 — 실제 장비는 "화천 D2 · 5축 B→C"처럼 장비 이름을 앞에 둔다.
+    # 저장 이름(5축 A→C/B→C · 3축 판정에 쓰는 문구가 들어 있음)은 그대로 두고 표시만 바꾼다.
+    _MACHINE_KIND_SHORT = (
+        ('5축 MCT (A to C)', '5축 A→C'), ('5축 MCT (B to C)', '5축 B→C'),
+        ('4축 MCT (B-Type)', '4축'), ('3축 MCT (X Y Z)', '3축'), ('3축 MCT', '3축'),
+    )
+
+    def machine_display_name(name):
+        name = str(name or '')
+        if ' 화천 ' not in name:
+            return name
+        kind, model = name.split(' 화천 ', 1)
+        for full, short in _MACHINE_KIND_SHORT:
+            if kind == full:
+                kind = short
+                break
+        return '화천 %s · %s' % (model, kind)
+
+    def machine_spec_unit(key):
+        # v2.6.5: 스펙 칸 오른쪽 단위
+        key = str(key)
+        if key.endswith('행정'):
+            return 'mm'
+        if key.endswith('범위'):
+            return '°'
+        if key == '최대 RPM':
+            return 'rpm'
+        if key == '급속 속도':
+            return 'mm/min'
+        return ''
 
 
     class ViewerFallbackWidget(QWidget):
@@ -3405,6 +3448,8 @@ else:
             self._style_accent_button_large(self.copy_button)
             self._style_success_button_large(self.pdf_button)
             self._style_neutral_button(self.machine_save_button)
+            for unit_label in getattr(self, '_machine_unit_labels', []):
+                self._style_muted(unit_label)
             self._style_groupbox_border(self.machine_settings_panel)
             self._style_tool_filter_list(self.tool_filter)
             self.pg_match_check.setStyleSheet(pg_match_checkbox_style(self.theme))
@@ -4483,10 +4528,11 @@ else:
 
             self.machine_type_combo = QComboBox()
             self.machine_type_combo.setFont(font)
-            self.machine_type_combo.addItems(self.viewer.machine_types())
-            self.machine_type_combo.setCurrentText(self.viewer.current_machine_type)
+            self._fill_machine_combo()
             self.machine_type_combo.currentIndexChanged.connect(self._viewer_machine_type_changed)
             body_layout.addWidget(self.machine_type_combo)
+            # v2.6.5: 장비 이름이 잘리지 않게 패널을 넓힌다(시안 제안 2, 282 -> 320px)
+            panel.setMinimumWidth(int(round(320 * max(1.0, panel.logicalDpiX() / 96.0))))
 
             self.machine_spec_form_widget = QWidget()
             self.machine_spec_form = QFormLayout(self.machine_spec_form_widget)
@@ -4497,7 +4543,7 @@ else:
             self.machine_spec_inputs = {}
             self._rebuild_machine_spec_form()
 
-            self.machine_save_button = QPushButton('현재 장비 스펙 기록/저장')
+            self.machine_save_button = QPushButton('스펙 저장')
             self.machine_save_button.setFont(font)
             self._style_neutral_button(self.machine_save_button)
             self.machine_save_button.clicked.connect(self.save_visible_machine_settings)
@@ -4552,11 +4598,48 @@ else:
             while self.machine_spec_form.rowCount():
                 self.machine_spec_form.removeRow(0)
             self.machine_spec_inputs = {}
-            machine_type = self.machine_type_combo.currentText()
+            self._machine_unit_labels = []
+            machine_type = self.current_machine_combo_value()
             for key, value in self.viewer.machine_spec(machine_type).items():
                 edit = QLineEdit(str(value))
                 self.machine_spec_inputs[key] = edit
-                self.machine_spec_form.addRow('%s:' % key, edit)
+                unit = machine_spec_unit(key)
+                if not unit:
+                    self.machine_spec_form.addRow(key, edit)
+                    continue
+                # v2.6.5: 단위(mm · ° · mm/min)를 칸 오른쪽에 둔다(시안 제안 2)
+                row = QWidget()
+                row_layout = QHBoxLayout(row)
+                row_layout.setContentsMargins(0, 0, 0, 0)
+                row_layout.setSpacing(6)
+                row_layout.addWidget(edit, 1)
+                unit_label = QLabel(unit)
+                unit_label.setMinimumWidth(unit_label.fontMetrics().horizontalAdvance('mm/min'))
+                self._style_muted(unit_label)
+                self._machine_unit_labels.append(unit_label)
+                row_layout.addWidget(unit_label)
+                self.machine_spec_form.addRow(key, row)
+
+        def _fill_machine_combo(self):
+            """v2.6.5: 장비 콤보 — 표시는 짧은 이름, 항목 데이터는 저장 이름."""
+            combo = self.machine_type_combo
+            combo.clear()
+            for name in self.viewer.machine_types():
+                combo.addItem(machine_display_name(name), name)
+            self.set_machine_combo_value(self.viewer.current_machine_type)
+
+        def current_machine_combo_value(self):
+            combo = self.machine_type_combo
+            value = combo.currentData()
+            return value if value else combo.currentText()
+
+        def set_machine_combo_value(self, name):
+            combo = self.machine_type_combo
+            index = combo.findData(name)
+            if index < 0:
+                index = combo.findText(name)
+            if index >= 0:
+                combo.setCurrentIndex(index)
 
         def clear_stock(self):
             """v2.4.6: [소재 지우기] — 소재·가공 형상을 지우고 열려 있는 소재 창 상태도 맞춘다."""
@@ -4569,7 +4652,7 @@ else:
                 self.viewer.open_stock_dialog(self)
 
         def _viewer_machine_type_changed(self):
-            machine_type = self.machine_type_combo.currentText()
+            machine_type = self.current_machine_combo_value()
             self._rebuild_machine_spec_form()
             self.viewer.set_machine_type(machine_type)
             self.machine_settings_status.setText('')
@@ -4631,13 +4714,13 @@ else:
                 target_machine = lathe_name
             else:
                 target_machine = self._last_mct_machine_type or self._default_mct_machine_type()
-            self.machine_type_combo.setCurrentText(target_machine)
+            self.set_machine_combo_value(target_machine)
             # 표 양식(4열<->16열)을 바로 반영한다 — run()이 스키마 불일치를
             # 감지해 알아서 표를 다시 구성한다(NC_Tool_List.py:run()).
             self.run()
 
         def save_visible_machine_settings(self):
-            machine_type = self.machine_type_combo.currentText()
+            machine_type = self.current_machine_combo_value()
             specs = {key: edit.text() for key, edit in self.machine_spec_inputs.items()}
             self.viewer.update_machine_spec(machine_type, specs)
             self.machine_settings_status.setText('장비 스펙 설정이 저장되었습니다.')
@@ -4650,9 +4733,7 @@ else:
             if not hasattr(self, 'machine_type_combo'):
                 return
             with QSignalBlocker(self.machine_type_combo):
-                self.machine_type_combo.clear()
-                self.machine_type_combo.addItems(self.viewer.machine_types())
-                self.machine_type_combo.setCurrentText(self.viewer.current_machine_type)
+                self._fill_machine_combo()
             self._rebuild_machine_spec_form()
             self._sync_tool_mode_combo()
 
@@ -5304,7 +5385,7 @@ else:
             갈리므로 파싱과 '다음공구검색'이 이 값을 본다(v1.6.4)."""
             combo = getattr(self, 'machine_type_combo', None)
             if combo is not None:
-                return is_lathe_machine(combo.currentText())
+                return is_lathe_machine(combo.currentData() or combo.currentText())
             return is_lathe_machine(getattr(self, 'current_machine_type', ''))
 
         def active_columns(self):

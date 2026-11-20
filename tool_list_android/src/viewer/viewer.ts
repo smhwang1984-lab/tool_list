@@ -12,7 +12,7 @@ import type { Bounds } from '../sim/stock';
 import type { LatheProgram } from '../sim/latheSegments';
 import type { LatheBounds } from '../sim/latheStock';
 import {
-  CUT_LINE_BASE_WIDTH, FOV_MAX, FOV_MIN, TABLE_ANIM_MIN_RATE, TABLE_ANIM_SPEED_SCALE, TRAIL_BLOCKS_MAX, TRAIL_BLOCKS_MIN,
+  CUT_LINE_BASE_WIDTH, FOV_MAX, FOV_MIN, TABLE_ANIM_FIXED_RATE, TRAIL_BLOCKS_MAX, TRAIL_BLOCKS_MIN,
   TRAIL_BLOCKS_STEP, toolpathLineWidth,
 } from '../core/viewerSettings';
 import { getPref, setPref } from '../platform/prefs';
@@ -289,13 +289,15 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     if (!target) { tableGoal = null; tableDisp = null; return; }
     if (sameRot(target, tableGoal)) return;
     tableGoal = target;
-    if (!playing || !tableDisp || tableDisp[0] !== target[0]) tableDisp = target;
+    // 원본 v2.6.5: 동시 5축은 재생(이송 · 배속)을 그대로 따른다 — 바로 맞춘다
+    const follow = result?.seq_table_follow?.has(seq) ?? false;
+    if (!playing || follow || !tableDisp || tableDisp[0] !== target[0]) tableDisp = target;
   };
   /** 한 프레임만큼 표시 각도를 목표 쪽으로 옮긴다. 옮겼으면 true */
   const tableStep = (dt: number): boolean => {
     if (!tableGoal || !tableDisp || sameRot(tableGoal, tableDisp)) return false;
-    // Android 배속은 실제 가공 시간 기준(기본 x50)이라, x50을 원본 x1(초당 100줄)과 같은 빠르기로 본다
-    const rate = TABLE_ANIM_SPEED_SCALE * Math.max(TABLE_ANIM_MIN_RATE, Number(speedSel.value) / 50);
+    // 원본 v2.6.5: A·B·C 회전(인덱스)은 배속과 상관없이 원본 x10일 때 빠르기로 고정한다
+    const rate = TABLE_ANIM_FIXED_RATE;
     const f = 1 - Math.exp(-rate * Math.max(0, Math.min(0.2, dt)));
     const next: TableRot = [tableGoal[0], 0, 0, 0];
     let done = true;

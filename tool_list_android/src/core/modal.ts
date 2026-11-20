@@ -120,6 +120,20 @@ export function applyLine(state: ModalState, line: string, lathe: boolean, table
       if (state.F !== f) { state.F = f; changed.add('F'); }
     }
   }
+  // 원본 v2.6.5 (VERICUT fan30im 비교): 경로 계산과 같은 규칙
+  const gCodes = new Set(words.filter(([l]) => l === 'G').map(([, n]) => normalizeCode('G', n)));
+  const cycleGid = lathe ? '10' : '09';
+  const hasCycleCode = [...gCodes].some((c) => table.get(c) === cycleGid);
+  const hasMotion = ['G00', 'G01', 'G02', 'G03'].some((c) => gCodes.has(c));
+  const cycleNow = state.groups[cycleGid];
+  if (hasMotion && !hasCycleCode && cycleNow !== undefined && cycleNow !== 'G80') {
+    state.groups[cycleGid] = 'G80'; // 01그룹(G00~G03)은 고정 사이클을 해제한다
+    changed.add(cycleGid);
+  }
+  if (!lathe && (gCodes.has('G28') || gCodes.has('G30')) && state.groups['08'] !== 'G49') {
+    state.groups['08'] = 'G49'; // 원점 복귀는 공구 길이 보정을 해제한다
+    changed.add('08');
+  }
   return changed;
 }
 

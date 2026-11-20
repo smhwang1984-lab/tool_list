@@ -163,6 +163,17 @@ def apply_line(state, line, lathe, code_to_group=None):
             if state["F"] != f:
                 state["F"] = f
                 changed.add("F")
+    # v2.6.5(VERICUT fan30im 비교): 경로 계산과 같은 규칙.
+    g_codes = {normalize_code("G", number) for letter, number in words if letter == "G"}
+    cycle_gid = "10" if lathe else "09"
+    cycle_codes = {code for code, gid in code_to_group.items() if gid == cycle_gid}
+    if (g_codes & {"G00", "G01", "G02", "G03"} and not (g_codes & cycle_codes)
+            and groups.get(cycle_gid) not in (None, "G80")):
+        groups[cycle_gid] = "G80"             # 01그룹(G00~G03)은 고정 사이클을 해제한다
+        changed.add(cycle_gid)
+    if not lathe and g_codes & {"G28", "G30"} and groups.get("08") != "G49":
+        groups["08"] = "G49"                  # 원점 복귀는 공구 길이 보정을 해제한다
+        changed.add("08")
     return changed
 
 

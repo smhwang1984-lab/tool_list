@@ -3525,9 +3525,9 @@ G01 X60. Z0. F0.2
             viewer.set_source_text(source, {'T01': 'OD ROUGH'})
             # 절삭: 이송 = 0.2mm/rev x 1000rev/min = 200mm/min, 거리 = 반경
             # 20mm -> 20 / 200 x 60 = 6초.
-            # 급속: X100(반경 50)까지 50mm를 7000mm/min으로 -> 50 / 7000 x 60.
+            # 급속: X100(반경 50)까지 50mm를 24000mm/min으로 -> 50 / 24000 x 60.
             self.assertAlmostEqual(
-                viewer.total_time_sec, 6.0 + 50.0 / 7000.0 * 60.0, places=3
+                viewer.total_time_sec, 6.0 + 50.0 / 24000.0 * 60.0, places=3
             )
         finally:
             self._restore(viewer, original, qapp)
@@ -3546,9 +3546,9 @@ G01 X60. Z0. F200.
         try:
             viewer.set_source_text(source, {'T01': 'OD ROUGH'})
             # 반경 20mm / 200mm/min x 60 = 6초 (회전수를 곱하지 않는다).
-            # 앞의 G00 50mm(반경)도 7000mm/min으로 함께 잡힌다.
+            # 앞의 G00 50mm(반경)도 24000mm/min으로 함께 잡힌다.
             self.assertAlmostEqual(
-                viewer.total_time_sec, 6.0 + 50.0 / 7000.0 * 60.0, places=3
+                viewer.total_time_sec, 6.0 + 50.0 / 24000.0 * 60.0, places=3
             )
         finally:
             self._restore(viewer, original, qapp)
@@ -3584,7 +3584,7 @@ G98 X100. Z10.
                 last['type'], 'G00',
                 '자기 G-워드가 없는 G98 줄이 이전 모달 G00을 잃으면 안 된다',
             )
-            # 마지막 이동(200,0,100 -> 10,0,50, G00 7000mm/min)이 F1.5875
+            # 마지막 이동(200,0,100 -> 10,0,50, G00 24000mm/min)이 F1.5875
             # (mm/rev)로 잘못 걸렸다면 수백~수천 초가 나온다 — 몇 초 이내여야 한다.
             self.assertLess(viewer.total_time_sec, 30.0)
         finally:
@@ -3613,7 +3613,7 @@ G01 X50. Z-30.
             # G98 전환 뒤 새 F 없는 마지막 절삭은 F를 모르는 채로(0초) 넘어가야
             # 한다 — 무효화되지 않았다면 0.2(mm/rev 값을 mm/min으로 오인)가
             # 남아 시간이 수 시간대로 부풀었을 것이다.
-            expected = rapid_dist / 7000.0 * 60.0 + cut1_dist / 200.0 * 60.0
+            expected = rapid_dist / 24000.0 * 60.0 + cut1_dist / 200.0 * 60.0
             self.assertAlmostEqual(viewer.total_time_sec, expected, places=3)
         finally:
             self._restore(viewer, original, qapp)
@@ -3637,7 +3637,7 @@ G98 G01 X50. Z-30. F300.
             cut1_dist = 50.0
             cut2_dist = math.hypot(30.0, 25.0)
             expected = (
-                rapid_dist / 7000.0 * 60.0
+                rapid_dist / 24000.0 * 60.0
                 + cut1_dist / 200.0 * 60.0
                 + cut2_dist / 300.0 * 60.0
             )
@@ -3728,7 +3728,7 @@ G01 X20. Z-50. F0.2
             # 상한 500rpm이 걸린 쪽은 이송 = 0.2 x 500 = 100mm/min, 절삭
             # 거리 50mm -> 30초. 앞의 G00 10mm(반경)가 여기에 더해진다.
             self.assertAlmostEqual(
-                slow_seconds, 30.0 + 10.0 / 7000.0 * 60.0, places=3
+                slow_seconds, 30.0 + 10.0 / 24000.0 * 60.0, places=3
             )
         finally:
             self._restore(viewer, original, qapp)
@@ -5773,17 +5773,17 @@ class MachiningTimeTests(unittest.TestCase):
     """v1.6.7 가공시간 계산 (v1.6.7.md 2항).
 
     MCT는 F를 mm/min으로 직독하고, 선반은 G99(mm/rev) x 회전수로 환산한다.
-    어느 쪽이든 G00은 7000mm/min 고정, G02/G03과 0.5mm 이하 미세 이동은
+    어느 쪽이든 G00은 24000mm/min 고정(v2.6.5, 이전 7000), G02/G03과 0.5mm 이하 미세 이동은
     지령 F의 70%로 본다.
     """
 
-    def test_rapid_moves_ignore_feed_and_use_7000(self):
+    def test_rapid_moves_ignore_feed_and_use_default_rapid(self):
         from nc_viewer_widget import RAPID_FEED_MM_PER_MIN, effective_feed_mm_per_min
 
-        self.assertEqual(RAPID_FEED_MM_PER_MIN, 7000.0)
-        # F가 무엇이든(심지어 없어도) G00은 7000이다.
-        self.assertEqual(effective_feed_mm_per_min('G00', 100.0, 50.0), 7000.0)
-        self.assertEqual(effective_feed_mm_per_min('G00', 0.0, 0.1), 7000.0)
+        self.assertEqual(RAPID_FEED_MM_PER_MIN, 24000.0)
+        # F가 무엇이든(심지어 없어도) G00은 24000이다.
+        self.assertEqual(effective_feed_mm_per_min('G00', 100.0, 50.0), 24000.0)
+        self.assertEqual(effective_feed_mm_per_min('G00', 0.0, 0.1), 24000.0)
 
     def test_cutting_feed_applies_100_and_70_percent_rules(self):
         from nc_viewer_widget import effective_feed_mm_per_min
@@ -5830,7 +5830,7 @@ class MachiningTimeTests(unittest.TestCase):
     @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
     def test_milling_program_time_uses_modal_feed_and_rapid_rate(self):
         """F는 모달이라 한 번 나오면 이후 G01에도 계속 적용되고, G00 구간만
-        7000mm/min으로 계산된다(사용자 확정 사항)."""
+        24000mm/min으로 계산된다(사용자 확정 사항, v2.6.5에 7000 -> 24000)."""
         from nc_viewer_widget import NCViewerWidget
 
         qapp = app.QApplication.instance() or app.QApplication([])
@@ -5845,11 +5845,11 @@ G01 X270 Y0 Z0
         try:
             self.assertTrue(viewer.set_source_text(source, {'T01': 'END MILL'}))
             key = list(viewer.tool_paths)[0]
-            # G00 70mm / 7000 = 0.6초, G01 100mm / 1000 = 6초가 두 번(모달 F).
-            self.assertAlmostEqual(viewer.process_time_sec[key], 0.6 + 6.0 + 6.0, places=3)
-            self.assertAlmostEqual(viewer.total_time_sec, 12.6, places=3)
+            # G00 70mm / 24000 = 0.175초, G01 100mm / 1000 = 6초가 두 번(모달 F).
+            self.assertAlmostEqual(viewer.process_time_sec[key], 0.175 + 6.0 + 6.0, places=3)
+            self.assertAlmostEqual(viewer.total_time_sec, 12.175, places=3)
             # 공정 필터 항목 끝에 그 시간이 붙는다.
-            self.assertTrue(viewer._tool_display_text(key).endswith('| 00:13'))
+            self.assertTrue(viewer._tool_display_text(key).endswith('| 00:12'))
         finally:
             viewer.deleteLater()
             qapp.processEvents()

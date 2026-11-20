@@ -1,6 +1,6 @@
 // 장비 타입·스펙 패널 — 원본 _build_machine_settings_panel (NC_Tool_List.py 4053~)
-// ▶/▼ 접이식, 장비 타입 콤보, 스펙 입력칸, "현재 장비 스펙 기록/저장". 저장하면 자동으로 접힌다.
-import { type MachineSpecs, isLatheMachine, loadMachineSpecs } from '../core/machines';
+// ▶/▼ 접이식, 장비 타입 콤보, 스펙 입력칸(원본 v2.6.5: 단위 표시), "스펙 저장". 저장하면 자동으로 접힌다.
+import { type MachineSpecs, isLatheMachine, loadMachineSpecs, machineDisplayName, machineSpecUnit } from '../core/machines';
 import { getPref, setPref } from '../platform/prefs';
 import { el } from './dialog';
 
@@ -29,10 +29,10 @@ export function createMachinePanel(onChange: (machineType: string) => void): Mac
   const toggle = el('button', { type: 'button', class: 'machine-toggle' });
   const body = el('div', { class: 'machine-body' });
   const combo = el('select', { 'aria-label': '장비 타입' });
-  for (const name of names) combo.append(new Option(name, name));
+  for (const name of names) combo.append(new Option(machineDisplayName(name), name));
   const form = el('div', { class: 'machine-form' });
   const save = el('button', { type: 'button', class: 'machine-save' });
-  save.textContent = '현재 장비 스펙 기록/저장';
+  save.textContent = '스펙 저장';
   const status = el('div', { class: 'machine-status' });
   body.append(combo, form, save);
   root.append(toggle, body, status);
@@ -46,10 +46,18 @@ export function createMachinePanel(onChange: (machineType: string) => void): Mac
     for (const [key, value] of Object.entries(specs[current] ?? {})) {
       const label = el('label');
       const name = el('span');
-      name.textContent = `${key}:`;
+      name.textContent = key;
       const input = el('input', { type: 'text', 'data-key': key, inputmode: 'text', autocomplete: 'off' });
       input.value = value;
-      label.append(name, input);
+      const unit = machineSpecUnit(key);
+      if (unit) {
+        // 원본 v2.6.5: 단위(mm · ° · mm/min)를 칸 오른쪽에 둔다
+        const box = el('span', { class: 'machine-field' });
+        const u = el('span', { class: 'machine-unit' });
+        u.textContent = unit;
+        box.append(input, u);
+        label.append(name, box);
+      } else label.append(name, input);
       form.append(label);
     }
   };
