@@ -26,7 +26,7 @@ def window():
 
 def _all_named_buttons(win):
     buttons = [win.btn_open_file, win.btn_add_program, win.btn_example, win.btn_clear, win.btn_machine,
-               win.btn_stop_options, win.stock_button, win.stock_clear_button, win.btn_edit_mode,
+               win.stock_button, win.stock_clear_button, win.btn_edit_mode,
                win.btn_edit_save, win.btn_edit_password, win.run_button, win.btn_tool_mode,
                win.btn_viewer_mode, win.btn_settings, win.btn_help, win.btn_about, win.btn_hide_top_bar]
     return buttons

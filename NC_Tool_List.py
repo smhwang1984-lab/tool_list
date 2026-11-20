@@ -33,7 +33,7 @@ import lathe_insert_spec
 import sumpath_license
 
 
-APP_VERSION = '2.6.1'
+APP_VERSION = '2.6.2'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-11-20'
 APP_CREATOR = 'Hwang.seonmun'
@@ -3527,10 +3527,6 @@ else:
             self.btn_machine = self._make_tool_button(
                 '장비', 'machine', lambda: None, '장비 타입 및 스펙 설정', style=icon_only)
             self.btn_machine.setPopupMode(QToolButton.InstantPopup)
-            self.btn_stop_options = self._make_tool_button(
-                '정지 옵션', 'stop', lambda: None,
-                '재생 정지 옵션 — 텍스트 정지 · 정지(M00) · 옵션정지(M01) · 실시간 형상', style=icon_only)
-            self.btn_stop_options.setPopupMode(QToolButton.InstantPopup)
             self.stock_button = self._make_tool_button(
                 '소재', 'stock', self.open_stock_dialog, '소재(STOCK) 설정과 가공 형상 시뮬레이션', style=icon_only)
             # v2.4.6: [소재] 옆에 [소재 지우기] — 적용한 소재와 가공 형상을 지운다.
@@ -3538,9 +3534,9 @@ else:
                 '소재 지우기', 'stock_clear', self.clear_stock, '적용한 소재와 가공 형상 시뮬레이션 지우기',
                 style=icon_only)
             viewer_separator = self._add_toolbar_group(toolbar_layout, (
-                self.btn_machine, self.btn_stop_options, self.stock_button, self.stock_clear_button,
+                self.btn_machine, self.stock_button, self.stock_clear_button,
             ))
-            self._viewer_only_toolbar = [self.btn_machine, self.btn_stop_options, self.stock_button,
+            self._viewer_only_toolbar = [self.btn_machine, self.stock_button,
                                          self.stock_clear_button, viewer_separator]
 
             self.btn_edit_mode = self._make_tool_button(
@@ -3764,27 +3760,11 @@ else:
             self.sim_live_check.setChecked(
                 self._as_bool_setting(self.layout_settings.value('sim_live_shape', None), False))
             self.sim_live_check.toggled.connect(self._on_sim_live_toggled)
-            # v2.3.8: 정지 옵션은 한 줄 체크박스 대신 툴바 [정지 옵션] 드롭다운에 둔다.
-            stop_panel = QWidget()
-            stop_layout = QVBoxLayout(stop_panel)
-            stop_layout.setContentsMargins(10, 8, 10, 8)
-            stop_layout.setSpacing(scaled(6))
-            stop_text_row = QHBoxLayout()
-            stop_text_row.addWidget(self.stop_text_check)
-            stop_text_row.addWidget(self.stop_text_input)
-            stop_layout.addLayout(stop_text_row)
-            stop_layout.addWidget(self.stop_m00_check)
-            stop_layout.addWidget(self.stop_m01_check)
-            stop_layout.addWidget(self.sim_live_check)
-            stop_action = QWidgetAction(self)
-            stop_action.setDefaultWidget(stop_panel)
-            self.stop_options_menu = QMenu(self)
-            self.stop_options_menu.addAction(stop_action)
-            self.btn_stop_options.setMenu(self.stop_options_menu)
-            # v2.6.0: 같은 정지 옵션 메뉴를 화면 왼쪽 위 [>>] 옵션 줄에서도 연다.
+            # v2.6.2: 정지 옵션은 상단바 버튼 대신 3D 화면 큐브 아래 [« 옵션] 창에 풀어서 둔다.
             overlay = getattr(self.viewer, 'projection_overlay', None)
-            if overlay is not None and hasattr(overlay, 'set_stop_menu'):
-                overlay.set_stop_menu(self.stop_options_menu)
+            if overlay is not None and hasattr(overlay, 'set_stop_widgets'):
+                overlay.set_stop_widgets(self.stop_text_check, self.stop_text_input,
+                                         self.stop_m00_check, self.stop_m01_check, self.sim_live_check)
 
             filter_bar = QHBoxLayout()
             filter_bar.setSpacing(scaled(6))

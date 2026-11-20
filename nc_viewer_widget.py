@@ -637,6 +637,7 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
         # 주입한다). Ctrl+휠(FOV 줌)은 기존 동작을 그대로 유지한다.
         self.alt_wheel_callback = None
         self.overlay_widget = None
+        self.options_dock_widget = None     # v2.6.2: 큐브 아래 [« 옵션] 창
         self.bottom_bar_widget = None
         # v1.6.2: 투영(ISO/XY/XZ/YZ) 표기부를 3D 화면 왼쪽 위에 반투명하게
         # 얹어, 별도 행이 차지하던 자리에도 공구 경로가 보이게 한다.
@@ -1092,6 +1093,13 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
         self.overlay_widget.move(
             max(0, self.width() - self.overlay_widget.width() - margin), margin
         )
+        dock = getattr(self, "options_dock_widget", None)
+        if dock is not None:
+            dock.move(
+                max(0, self.width() - dock.width() - margin),
+                margin + self.overlay_widget.height() + 8,
+            )
+            dock.raise_()
 
     def _reposition_top_left(self):
         """좌표/투영 오버레이를 3D 화면 왼쪽 위 모서리에 위→아래로 쌓아 붙인다
@@ -1436,8 +1444,13 @@ class ProjectionOverlayWidget(QWidget):
             " padding: 3px 7px; font-size: 12px; }"
             " QToolButton:hover { background-color: rgba(255, 255, 255, 65); }"
             " QToolButton::menu-indicator { image: none; }"
-            " QWidget#moreRow { background-color: rgba(24, 26, 30, 170);"
-            " border: 1px solid rgba(255, 255, 255, 50); border-radius: 8px; }"
+            " QWidget#moreRow { background-color: rgba(24, 26, 30, 200);"
+            " border: 1px solid rgba(255, 255, 255, 50); border-radius: 10px; }"
+            " QLabel#optionsSection { color: rgba(255, 255, 255, 130); font-size: 11px; padding-top: 4px; }"
+            " QCheckBox { color: white; font-size: 12px; spacing: 8px; background: transparent; }"
+            " QLineEdit { color: white; background-color: rgba(0, 0, 0, 90);"
+            " border: 1px solid rgba(255, 255, 255, 70); border-radius: 4px; padding: 2px 6px; }"
+            " QLineEdit:disabled { color: rgba(255, 255, 255, 90); }"
             # v2.4.3: 버튼은 모두 본래 크기(위치 찍기 포함). 눌린 버튼만 파랗게.
             # v2.4.6: [가공형상즉시보기]는 켜지면 초록색.
             " QPushButton#shapeButton:checked { background-color: #2ea043; border-color: #7ee787; }"
@@ -1489,50 +1502,69 @@ class ProjectionOverlayWidget(QWidget):
         self.table_button.toggled.connect(self.table_toggled.emit)
         self.table_button.toggled.connect(lambda _checked: self._update_more_text())
 
-        # v2.6.0: [>>] — 테이블 회전·정지 옵션·지난 경로 숨김을 접어 둔다. 접힌 동안은 켜진 옵션 수만 보인다.
-        self.more_button = QPushButton(">>")
+        # v2.6.2: [« 옵션] — 큐브 아래 오른쪽 가장자리에서 왼쪽으로 열리는 별도 창.
+        # 테이블 회전 · 정지 옵션(풀어서) · 지난 경로 숨김 · 가공형상 즉시 보기를 모두 나열한다.
+        self.dock = QWidget(parent)
+        self.dock.setObjectName("optionsDock")
+        self.dock.setAttribute(Qt.WA_TranslucentBackground)
+        self.dock.setStyleSheet(self.styleSheet())
+        dock_layout = QVBoxLayout(self.dock)
+        dock_layout.setContentsMargins(0, 0, 0, 0)
+        dock_layout.setSpacing(8)
+        self._dock_layout = dock_layout
+        self.more_button = QPushButton("« 옵션")
         self.more_button.setObjectName("moreButton")
         self.more_button.setCheckable(True)
         self.more_button.setFocusPolicy(Qt.NoFocus)
-        self.more_button.setToolTip("옵션 펼치기 / 접기 — 테이블 회전 · 정지 옵션 · 지난 경로 숨김")
+        self.more_button.setToolTip("옵션 창 열기 / 닫기 — 테이블 회전 · 정지 옵션 · 지난 경로 숨김 · 가공형상 즉시 보기")
         self.more_button.toggled.connect(self._on_more_toggled)
+        dock_layout.addWidget(self.more_button, 0, Qt.AlignRight)
         self.more_row = QWidget()
         self.more_row.setObjectName("moreRow")
-        more_layout = QHBoxLayout(self.more_row)
-        more_layout.setContentsMargins(8, 8, 8, 8)
-        more_layout.setSpacing(8)
-        more_layout.addWidget(self.table_button)
-        self.stop_button = QToolButton()
-        self.stop_button.setText("정지 옵션")
-        self.stop_button.setPopupMode(QToolButton.InstantPopup)
-        self.stop_button.setFocusPolicy(Qt.NoFocus)
-        self.stop_button.setToolTip("재생 정지 옵션 — 텍스트 정지 · 정지(M00) · 옵션정지(M01) · 실시간 형상")
-        self.stop_button.setVisible(False)
-        more_layout.addWidget(self.stop_button)
+        self.more_row.setAttribute(Qt.WA_StyledBackground, True)
+        self._more_layout = QVBoxLayout(self.more_row)
+        self._more_layout.setContentsMargins(12, 12, 12, 12)
+        self._more_layout.setSpacing(8)
+
+        def section(title):
+            label = QLabel(title)
+            label.setObjectName("optionsSection")
+            self._more_layout.addWidget(label)
+
+        section("뷰")
+        self._more_layout.addWidget(self.table_button)
+        self._more_layout.addWidget(self.shape_button)
+        section("재생 정지")
+        self._stop_section_index = self._more_layout.count()
+        section("지난 경로")
         self.trail_button = QPushButton("지난 경로 숨김")
         self.trail_button.setCheckable(True)
         self.trail_button.setFocusPolicy(Qt.NoFocus)
         self.trail_button.setToolTip("켜면 재생 중 지금 줄 기준 앞쪽 N블록만 보입니다 (블록 수는 − + 또는 설정 창)")
         self.trail_button.toggled.connect(self._on_trail_button_toggled)
-        more_layout.addWidget(self.trail_button)
+        self._more_layout.addWidget(self.trail_button)
+        step_row = QHBoxLayout()
+        step_row.setSpacing(8)
         self.trail_minus = QPushButton("−")
         self.trail_plus = QPushButton("+")
         self.trail_label = QLabel("%d 블록" % TRAIL_BLOCKS_DEFAULT)
-        self.trail_label.setMinimumWidth(56)
+        self.trail_label.setMinimumWidth(64)
         self.trail_label.setAlignment(Qt.AlignCenter)
         for step_button, delta in ((self.trail_minus, -TRAIL_BLOCKS_STEP), (self.trail_plus, TRAIL_BLOCKS_STEP)):
             step_button.setFocusPolicy(Qt.NoFocus)
-            step_button.setFixedWidth(26)
+            step_button.setFixedWidth(32)
             step_button.setToolTip("표시 블록 수 %+d" % delta)
             step_button.clicked.connect(lambda _checked=False, d=delta: self._step_trail_blocks(d))
-        more_layout.addWidget(self.trail_minus)
-        more_layout.addWidget(self.trail_label)
-        more_layout.addWidget(self.trail_plus)
+        step_row.addWidget(self.trail_minus)
+        step_row.addWidget(self.trail_label, 1)
+        step_row.addWidget(self.trail_plus)
+        self._more_layout.addLayout(step_row)
         self._trail_blocks = TRAIL_BLOCKS_DEFAULT
         self._trail_on = False
+        self._stop_widgets = []
+        self.shape_button.toggled.connect(lambda _checked: self._update_more_text())
         self.more_row.setVisible(False)
-        outer.addWidget(self.more_row, 0)
-        outer.setAlignment(self.more_row, Qt.AlignLeft)
+        dock_layout.addWidget(self.more_row, 0, Qt.AlignRight)
         self._set_trail_enabled_look()
         self._update_more_text()
         self._rebuild_buttons(self.MILL_BUTTONS)
@@ -1577,6 +1609,9 @@ class ProjectionOverlayWidget(QWidget):
             count += 1
         if self._trail_on:
             count += 1
+        if self.shape_button.isChecked():
+            count += 1
+        count += sum(1 for widget in self._stop_widgets if widget.isChecked())
         return count
 
     def _update_more_text(self):
@@ -1585,12 +1620,23 @@ class ProjectionOverlayWidget(QWidget):
             return
         count = self._active_option_count()
         suffix = "  %d" % count if (count and not self.more_button.isChecked()) else ""
-        self.more_button.setText(">>" + suffix)
+        self.more_button.setText(("» 옵션" if self.more_button.isChecked() else "« 옵션") + suffix)
 
-    def set_stop_menu(self, menu):
-        """앱이 만든 [정지 옵션] 메뉴를 이 줄에도 건다(툴바 버튼과 같은 메뉴를 쓴다)."""
-        self.stop_button.setMenu(menu)
-        self.stop_button.setVisible(menu is not None)
+    def set_stop_widgets(self, text_check, text_input, m00_check, m01_check, live_check):
+        """앱이 만든 정지 옵션 위젯을 옵션 창의 [재생 정지] 구역에 풀어서 늘어놓는다(v2.6.2)."""
+        layout = self._more_layout
+        index = self._stop_section_index
+        text_row = QHBoxLayout()
+        text_row.setSpacing(8)
+        text_row.addWidget(text_check)
+        text_row.addWidget(text_input, 1)
+        layout.insertLayout(index, text_row)
+        for offset, widget in enumerate((m00_check, m01_check, live_check), start=1):
+            layout.insertWidget(index + offset, widget)
+        self._stop_widgets = [text_check, m00_check, m01_check, live_check]
+        for widget in self._stop_widgets:
+            widget.toggled.connect(lambda _checked: self._update_more_text())
+        self._update_more_text()
         self._fit_to_contents()
 
     def _set_trail_enabled_look(self):
@@ -1631,8 +1677,6 @@ class ProjectionOverlayWidget(QWidget):
             self._view_group.removeButton(old)
         self._view_buttons = {}
         row = self._row
-        row.removeWidget(self.shape_button)      # 아래 정리 루프가 지우지 않도록 잠시 뺀다
-        row.removeWidget(self.more_button)
         while row.count() > self._fixed_item_count:
             item = row.takeAt(self._fixed_item_count)
             widget = item.widget() if item is not None else None
@@ -1686,12 +1730,6 @@ class ProjectionOverlayWidget(QWidget):
         # v2.5.9: [테이블 회전]은 밀링(5축)에만 둔다 — 선반은 C축 회전 시뮬레이션을 따로 쓴다.
         # v2.6.0: [테이블 회전]은 [>>] 안의 옵션 줄로 옮겼다(선반에서는 숨김).
         self.table_button.setVisible(buttons is not self.LATHE_BUTTONS)
-        row.addWidget(self.shape_button)
-        if self.isVisible():
-            self.shape_button.show()
-        row.addWidget(self.more_button)
-        if self.isVisible():
-            self.more_button.show()
         self._update_more_text()
         self._fit_to_contents()
 
@@ -1710,6 +1748,13 @@ class ProjectionOverlayWidget(QWidget):
         self._row.activate()
         self._outer.activate()
         self.adjustSize()
+        self._dock_layout.invalidate()
+        self._dock_layout.activate()
+        self.dock.adjustSize()
+        gl_parent = self.parent()
+        dock_reposition = getattr(gl_parent, "_reposition_overlay", None)
+        if callable(dock_reposition):
+            dock_reposition()
         # 크기가 바뀌었으니 부모(3D 화면) 안에서의 위치도 다시 잡아준다.
         parent = self.parent()
         reposition = getattr(parent, "_reposition_top_left", None)
@@ -1732,9 +1777,6 @@ class ProjectionOverlayWidget(QWidget):
             for index in range(self._fixed_item_count, self._row.count())
             if self._row.itemAt(index).widget() is not None
             and self._row.itemAt(index).widget() is not self.drag_zoom_button
-            and self._row.itemAt(index).widget() is not self.shape_button
-            and self._row.itemAt(index).widget() is not self.more_button
-            and self._row.itemAt(index).widget() is not self.table_button
         ]
 
     def _on_view_clicked(self, value):
@@ -3219,6 +3261,9 @@ class NCViewerWidget(QWidget):
             overlay.drag_zoom_toggled.connect(self.gl_view.set_drag_zoom_active)
             self.gl_view.drag_zoom_state_changed.connect(overlay.set_drag_zoom_checked)
             overlay.raise_()
+            self.gl_view.options_dock_widget = overlay.dock
+            overlay.dock.show()
+            overlay._fit_to_contents()
         except Exception:
             overlay = None
         self.projection_overlay = overlay
@@ -7119,7 +7164,7 @@ class NCViewerWidget(QWidget):
 
         재생(PG 매칭) 중 [테이블 회전]이 켜져 있을 때만 적용한다. 회전축 값으로 만든 공구 방향 R을
         공구 쪽에서 소재 쪽으로 옮긴다 — A→C: 소재 = (Rz(C)·Rx(A))ᵀ, 공구는 수직 /
-        B→C: 소재 = Rz(C)ᵀ, 공구는 Ry(B)만큼 기욺 / 4축: 소재 = Ry(B)ᵀ. 회전 중심은 공작물 원점.
+        B→C(v2.6.2): 소재 = (Rz(C)·Ry(B))ᵀ, 공구는 수직(B-90이면 소재 윗면이 오른쪽 +X로) / 4축: 소재 = Ry(B)ᵀ. 회전 중심은 공작물 원점.
 
         공구 축(tool_axis_from_rotary = Rz(C)·Rx(A)·z)이 소재 쪽에서 정확히 +Z(수직)로 오는 관계라서
         공구 모양·진입 화살표·가공면이 항상 같은 방향이다. (v2.6.0 첫 빌드는 A 부호만 뒤집어 이 관계를
@@ -7135,7 +7180,7 @@ class NCViewerWidget(QWidget):
         if kind == 'ac':
             return (rot(2, c_deg) @ rot(0, a_deg)).T, np.eye(3)
         if kind == 'bc':
-            return rot(2, c_deg).T, rot(1, b_deg)
+            return (rot(2, c_deg) @ rot(1, b_deg)).T, np.eye(3)     # v2.6.2: B도 A처럼 공구 수직 고정, 소재가 기운다
         return rot(1, b_deg).T, np.eye(3)
 
     def _table_sync(self, seq):

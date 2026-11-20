@@ -722,7 +722,13 @@ class TableRotationTests(unittest.TestCase):
         key = viewer.seq_to_tool_map.get(seq)
         return viewer, seq, viewer.tool_marker_items[key][0]
 
-    def test_bc_tool_tilts_by_b_and_table_turns_by_minus_c(self):
+    @staticmethod
+    def _part_matrix(item):
+        m = item.transform()
+        return np.array([[m.row(r).x(), m.row(r).y(), m.row(r).z()] for r in range(3)])
+
+    def test_bc_tool_stays_vertical_and_table_tilts_like_a(self):
+        """v2.6.2: B→C도 A→C처럼 공구는 수직, 소재가 (Rz(C)·Ry(B))ᵀ로 돈다. 공구 축 관계(Rᵀ·z = 공구 축) 유지."""
         program = """M6 T6
 G43.4 Z150. H6
 G0 X0. Y0. B30. C90.
@@ -731,13 +737,47 @@ G1 X20. Y0. Z5.
 M30
 """
         viewer, seq, mesh = self._play(program, BC_MACHINE, 'G1 X20. Y0. Z5.')
-        tool_axis = self._z_column(mesh)
-        self.assertTrue(np.allclose(tool_axis, (np.sin(np.radians(30)), 0.0, np.cos(np.radians(30))), atol=1e-6))
+        self.assertTrue(np.allclose(self._z_column(mesh), (0.0, 0.0, 1.0), atol=1e-6))
         trace = next(i for i in viewer.dynamic_trace_items if i.visible())
-        part_z = np.array([trace.transform().row(r).z() for r in range(3)])
-        self.assertTrue(np.allclose(part_z, (0.0, 0.0, 1.0), atol=1e-6))            # Rz(C)ᵀ — Z 축은 그대로
-        part_x = np.array([trace.transform().row(r).x() for r in range(3)])
-        self.assertTrue(np.allclose(part_x, (0.0, -1.0, 0.0), atol=1e-6))           # C=90 → 소재가 -90° 돈다
+        part = self._part_matrix(trace)
+        tool_axis = (np.sin(np.radians(30)) * np.cos(np.radians(90)),
+                     np.sin(np.radians(30)) * np.sin(np.radians(90)), np.cos(np.radians(30)))
+        self.assertTrue(np.allclose(part.T @ np.array([0.0, 0.0, 1.0]), tool_axis, atol=1e-6))
+
+    def test_v262_bc_b_minus_90_tips_part_top_to_the_right(self):
+        program = """M6 T6
+G43.4 Z150. H6
+G0 X0. Y0. B-90. C0.
+G1 X10. Y0. Z5. F500
+G1 X20. Y0. Z5.
+M30
+"""
+        viewer, seq, mesh = self._play(program, BC_MACHINE, 'G1 X20. Y0. Z5.')
+        trace = next(i for i in viewer.dynamic_trace_items if i.visible())
+        part = self._part_matrix(trace)
+        self.assertTrue(np.allclose(part @ np.array([0.0, 0.0, 1.0]), (1.0, 0.0, 0.0), atol=1e-6))   # 윗면이 +X(오른쪽)
+
+    def test_v262_bc_g682_p1_i0_j90_k_minus_90_reads_as_b90_c_minus_90(self):
+        """B→C 장비에서 G68.2 P1 X0 Y0 Z0 I0 J90 K-90 = B90 C-90 (공구 축 (0,-1,0)). 소재 윗면이 왼쪽(-X)으로 눕는다."""
+        program = """M6 T6
+G68.2 P1 X0. Y0. Z0. I0. J90. K-90.
+G53.1
+G43 Z50. H6
+G00 X-20. Y0.
+G01 Z-5. F500
+G01 X20.
+G69
+M30
+"""
+        viewer, seq, mesh = self._play(program, BC_MACHINE, 'G01 X20.')
+        pos = max(k for k in viewer._table_rot_keys if k <= seq)
+        kind, a_deg, b_deg, c_deg = viewer.seq_to_table_rot[pos]
+        self.assertEqual(kind, 'bc')
+        self.assertAlmostEqual(b_deg, 90.0, places=4)
+        self.assertAlmostEqual(c_deg, -90.0, places=4)
+        trace = next(i for i in viewer.dynamic_trace_items if i.visible())
+        part = self._part_matrix(trace)
+        self.assertTrue(np.allclose(part.T @ np.array([0.0, 0.0, 1.0]), (0.0, -1.0, 0.0), atol=1e-6))
 
     def test_ac_tool_stays_vertical_and_table_tilts(self):
         program = """M6 T6

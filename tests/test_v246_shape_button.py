@@ -11,18 +11,18 @@ from tests.test_v233_live_reload import viewer, needs_viewer, _spec  # noqa: F40
 
 
 @needs_viewer
-def test_shape_button_next_to_projection_and_green_when_on(viewer):
+def test_shape_button_lives_in_options_dock_and_green_when_on(viewer):
     ov = viewer.projection_overlay
     assert ov.shape_button.text() == '가공형상즉시보기'
-    row = ov._row
-    # v2.6.0: 맨 끝은 [>>]이고, [가공형상즉시보기]는 그 바로 앞(투영 버튼들 옆)이다
-    assert row.itemAt(row.count() - 1).widget() is ov.more_button
-    assert row.itemAt(row.count() - 2).widget() is ov.shape_button
+    # v2.6.2: [가공형상즉시보기]는 큐브 아래 [« 옵션] 창 안에 있다(투영 줄에는 없다)
+    assert ov._row.indexOf(ov.shape_button) == -1
+    assert ov.shape_button.parent() is ov.more_row
+    assert ov.more_button.parent() is ov.dock
     assert 'shapeButton:checked' in ov.styleSheet() and '#2ea043' in ov.styleSheet()
     # 렌더 후 투영 버튼을 갈아 끼워도 버튼은 남는다
     ov.set_lathe_mode(True)
     ov.set_lathe_mode(False)
-    assert ov.shape_button.parent() is ov and row.indexOf(ov.shape_button) == row.count() - 2
+    assert ov.shape_button.parent() is ov.more_row
 
 
 @needs_viewer
@@ -202,3 +202,24 @@ def test_pg_off_hides_live_shape_until_instant_button(viewer):
     viewer.set_pg_match_mode(True)
     viewer.set_pg_match_mode(False)
     assert viewer.sim_enabled                                 # 버튼으로 켠 것은 유지
+
+
+@needs_viewer
+def test_v262_options_dock_opens_under_the_cube_and_lists_everything(viewer):
+    ov = viewer.projection_overlay
+    gl = viewer.gl_view
+    viewer.resize(1100, 700)
+    gl.resize(1100, 700)
+    ov.set_more_expanded(True)
+    gl._reposition_overlay()
+    assert gl.options_dock_widget is ov.dock
+    cube = gl.overlay_widget
+    # 큐브 아래, 오른쪽 가장자리 안쪽에 있다
+    assert ov.dock.y() >= cube.y() + cube.height()
+    assert ov.dock.x() + ov.dock.width() <= gl.width()
+    assert ov.more_row.isVisibleTo(ov.dock)
+    # 테이블 회전 · 가공형상 즉시 보기 · 지난 경로 숨김이 한 창에 모두 있다
+    for widget in (ov.table_button, ov.shape_button, ov.trail_button):
+        assert widget.parent() is ov.more_row
+    ov.set_more_expanded(False)
+    assert not ov.more_row.isVisibleTo(ov.dock)
