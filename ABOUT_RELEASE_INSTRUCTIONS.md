@@ -52,7 +52,9 @@ Last updated: 2026-11-05 (NC_Tool_List v2.3.0 — 로컬 v2.2.9(STOCK SIZE)와 G
 - Version: 2.6.5 → 2.6.6 (안드로이드 2.0.5 → 2.0.6)
 - Summary: 시뮬레이션 창 공정 이동·소재 설정 흐름(사용자 시안 승인). **① 재생 바 [이전 공구]/[다음 공구]**는 공구 교체(M6) 줄이 아니라 그 공정의 **첫 N 시퀀스 줄**로 이동한다(`nc_process_marker.py`: 교체 줄에서 위로 올라가며 앞 공정의 마지막 G0~G3 이동 줄 또는 N 뒤 M00/M01/M30에서 멈추고 가장 위 N 줄 선택, N이 없으면 교체 줄). 시작 N 줄에서 [다음 공구]는 다음 공정, 공정 중간의 [이전 공구]는 그 공정 시작 줄. 재생 바 지금 공구 칸에 공정 머리말 주석 **2줄**을 함께 표시한다(N 줄 위치부터 그 공정 공구·주석). 프로그램 패널의 검색 버튼은 그대로. **② 소재 [적용]**은 "가공 시뮬레이션을 하시겠습니까?"를 묻지 않고 바로 켜며, PG 매칭과 실시간 형상을 자동으로 켠다(`viewer.stock_applied` → `App._on_stock_applied`). **③ [가공형상 즉시 보기]**는 작업자가 직접 켜는 선택이며 소재를 적용할 때와 프로그램 시작 때 늘 꺼짐이다. 안드로이드: 같은 규칙(`core/processMarker.ts`), 소재 대화상자의 '가공 형상 표시' 체크는 숨김.
 - Open source: 변경 없음.
-- Installer/package status: **미생성**(Windows 빌드 PC에서 PyInstaller + Inno Setup, `build_release.bat` 필요).
+- Installer/package status: **생성 완료**. `installer\NC_Tool_List_Setup_v2.6.6.exe`(dist exe 파일 버전 2.6.6.0, 실행 10초 확인) + 안드로이드 `tool_list_android\out\SumPath_v2.0.6.apk`.
+  - Setup EXE SHA-256: F9B6B2D9A7C0E4D3383937B61C3E0A0C4E49F96C510C32D9F80959626E7F2F6E
+  - APK SHA-256: D967FC6BCFB56AE4D405E7D1ABDF60B9728CDD1F2B45FEFF3B71F1D54F9E95C8
 - Verification: 데스크톱 pytest 전체 통과(새 `tests/test_v266_process_marker.py`, 소재 적용 테스트 갱신), 안드로이드 `npm test` 344 통과(새 `tests/processMarker.test.ts`), `tsc --noEmit` 통과. 골든은 로직 변경이 없어 재생성하지 않음.
 
 ### 2026-11-20 (v2.6.5 / 안드로이드 v2.0.5)
