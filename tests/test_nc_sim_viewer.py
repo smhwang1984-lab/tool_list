@@ -4,6 +4,7 @@
 실제 사용자 QSettings를 건드리지 않는다 — 장비 종류는 속성만 바꾸고(저장하지
 않음), 소재 팝업의 [적용]/저장 경로는 호출하지 않는다."""
 import os
+import time
 import sys
 import unittest
 
@@ -771,6 +772,90 @@ M30
         viewer.pg_match_mode = False
         viewer.set_cursor_seq(seq)
         self.assertTrue(trace.transform().isIdentity())
+
+    def test_v260_a_minus_tips_the_top_backward_and_tilt_plus_tips_it_forward(self):
+        """v2.6.0: 보는 방향만 바꿨다. A-90.은 소재 윗면이 뒤(+Y)로, G68.2 J-90(기울기 +90)은 앞(-Y)으로 넘어간다."""
+        viewer = load_viewer(self, PROGRAM, MILLING)
+        viewer.table_rotation_on = True
+        viewer.pg_match_mode = True
+        top = np.array([0.0, 0.0, 1.0])
+        for info, expected_sign in ((('ac', -90.0, 0.0, 0.0), 1.0),       # A-90.
+                                    (('ac', 90.0, 0.0, 0.0), -1.0),       # G68.2 I180. J-90. K0 → A+90, C0
+                                    (('ac', 90.0, 0.0, 180.0), -1.0)):    # G68.2 I0 J-90. K0 → A+90, C180
+            viewer.seq_to_table_rot = {0: info}
+            viewer._table_rot_keys = []
+            part = viewer._table_rotation_matrices(0)[0]
+            moved_top = part @ top
+            self.assertAlmostEqual(moved_top[1], expected_sign, places=6, msg=str(info))
+            self.assertAlmostEqual(moved_top[0], 0.0, places=6)
+
+    def test_v260_table_turns_slowly_during_playback_and_snaps_otherwise(self):
+        program = """M6 T6
+G43.4 Z150. H6
+G0 X0. Y0. A-30. C0.
+G1 X10. Y0. Z5. F500
+G1 X20. Y0. Z5.
+M30
+"""
+        viewer, seq, _mesh = self._play(program, AC_MACHINE, 'G43.4 Z150. H6')
+        lines = program.splitlines()
+        later = viewer.line_to_seq[lines.index('G1 X20. Y0. Z5.')]
+        self.assertIsNotNone(viewer._table_disp)
+        viewer.table_anim_speed = 100                      # 재생 중(x1)
+        viewer.set_cursor_seq(later)
+        goal = viewer._table_goal
+        self.assertNotEqual(goal[1], 0.0)
+        self.assertNotAlmostEqual(viewer._table_disp[1], goal[1], places=3)      # 바로 가지 않고 따라간다
+        self.assertTrue(viewer._table_anim_timer.isActive())
+        for _ in range(400):
+            viewer._table_anim_clock = time.monotonic() - 0.2
+            viewer._table_anim_step()
+        self.assertEqual(viewer._table_disp, goal)
+        self.assertFalse(viewer._table_anim_timer.isActive())
+        # 방향키·클릭 이동(table_anim_speed 없음)은 바로 맞춘다.
+        viewer.table_anim_speed = None
+        viewer.set_cursor_seq(seq)
+        self.assertEqual(viewer._table_disp, viewer._table_goal)
+
+    def test_v260_trail_window_keeps_only_the_last_blocks(self):
+        viewer = load_viewer(self, PROGRAM, MILLING)
+        nodes = [{'valid': True, 'type': 'G01', 'pt': (float(i), 0.0, 0.0), 'seq': i} for i in range(10)]
+        full = viewer._render_segment_buckets(nodes, 9)['CUT']
+        cut = viewer._render_segment_buckets(nodes, 9, 5)['CUT']
+        self.assertEqual(len(full), 18)
+        self.assertEqual(len(cut), 8)                      # 블록 5~9의 선분 4개
+        self.assertEqual(cut[0], (5.0, 0.0, 0.0))
+        viewer.pg_match_mode = True
+        viewer.trail_hide_on = True
+        viewer.trail_blocks = 200
+        self.assertEqual(viewer._trail_seq_from(500), 301)
+        self.assertEqual(viewer._trail_seq_from(50), 0)
+        viewer.trail_hide_on = False
+        self.assertIsNone(viewer._trail_seq_from(500))
+
+    def test_v260_trail_blocks_are_clamped_to_100_500_in_steps_of_50(self):
+        import nc_viewer_widget as module
+        self.assertEqual(module.clamp_trail_blocks(0), 100)
+        self.assertEqual(module.clamp_trail_blocks(999), 500)
+        self.assertEqual(module.clamp_trail_blocks('x'), 200)
+        self.assertEqual(module.clamp_trail_blocks(120), 100)
+        self.assertEqual(module.clamp_trail_blocks(130), 150)
+        self.assertEqual(module.clamp_trail_blocks(350), 350)
+
+    def test_v260_axis_origin_turns_with_the_table(self):
+        program = """M6 T6
+G43.4 Z150. H6
+G0 X0. Y0. A-30. C0.
+G1 X10. Y0. Z5. F500
+G1 X20. Y0. Z5.
+M30
+"""
+        viewer, seq, _mesh = self._play(program, AC_MACHINE, 'G1 X20. Y0. Z5.')
+        shaft = viewer._axis_items[0]
+        self.assertFalse(shaft.transform().isIdentity())
+        viewer.table_rotation_on = False
+        viewer.set_cursor_seq(seq)
+        self.assertTrue(shaft.transform().isIdentity())
 
 
 @unittest.skipIf(IMPORT_ERROR is not None, 'viewer dependencies are not available')

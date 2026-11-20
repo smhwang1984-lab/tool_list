@@ -33,9 +33,9 @@ import lathe_insert_spec
 import sumpath_license
 
 
-APP_VERSION = '2.5.9'
+APP_VERSION = '2.6.0'
 APP_NAME = 'Sum Path'
-APP_BUILD_DATE = '2026-11-19'
+APP_BUILD_DATE = '2026-11-20'
 APP_CREATOR = 'Hwang.seonmun'
 APP_PURPOSE = 'NC 프로그램에서 공구 리스트를 산출하고 NC 경로를 Viewer로 확인하는 도구'
 OPEN_SOURCE_COMPONENTS = (
@@ -2846,6 +2846,32 @@ else:
                 form, '방향 큐브 크기', 60, 240, '%dpx', self._on_cube_changed)
             layout.addWidget(group)
 
+            # v2.6.0: 5축 재생 표시 — 화면 왼쪽 위 [>>] 안의 옵션과 같은 값이다.
+            play_group = QGroupBox('Viewer 5축 · 재생 경로')
+            play_form = QFormLayout(play_group)
+            play_form.setSpacing(10)
+            self.table_rotation_check = QCheckBox('테이블 회전 사용')
+            self.table_rotation_check.setToolTip(
+                '5축 재생 중 공구는 고정하고 소재·테이블과 축 원점 표기가 A/B/C 값만큼 돕니다.\n'
+                '도는 속도는 재생 속도에 맞춰 천천히 보입니다. 화면 왼쪽 위 [>>]의 [테이블 회전]과 같은 값입니다.')
+            self.table_rotation_check.toggled.connect(self._on_table_rotation_changed)
+            play_form.addRow(self.table_rotation_check)
+            self.trail_hide_check = QCheckBox('지난 경로 숨김')
+            self.trail_hide_check.setToolTip('켜면 재생 중 지금 줄 기준 앞쪽 N블록의 경로만 보입니다.')
+            self.trail_hide_check.toggled.connect(self._on_trail_hide_changed)
+            play_form.addRow(self.trail_hide_check)
+            self.trail_blocks_slider, self.trail_blocks_label = self._slider_row(
+                play_form, '표시 블록 수',
+                viewer_module.TRAIL_BLOCKS_MIN if viewer_module else 100,
+                viewer_module.TRAIL_BLOCKS_MAX if viewer_module else 500,
+                '%d', self._on_trail_blocks_changed)
+            step = viewer_module.TRAIL_BLOCKS_STEP if viewer_module else 50
+            self.trail_blocks_slider.setSingleStep(step)
+            self.trail_blocks_slider.setPageStep(step)
+            self.trail_blocks_slider.setTickInterval(step)
+            self.trail_blocks_slider.setTickPosition(QSlider.TicksBelow)
+            layout.addWidget(play_group)
+
             # v2.5.7: 상단바 숨김은 선택 기능(기본 꺼짐). 켜면 상단바 오른쪽에 숨김 버튼이 생기고 Ctrl+H가 동작한다.
             layout_group = QGroupBox('화면')
             layout_form = QVBoxLayout(layout_group)
@@ -2876,6 +2902,8 @@ else:
                 # Alt+휠처럼 설정 창 밖에서 바뀐 값도 열린 창에 따라오게 한다.
                 viewer.sensitivity_slider.valueChanged.connect(self._sync_sensitivity_from_viewer)
                 viewer.view_cube_size_slider.valueChanged.connect(self._sync_cube_from_viewer)
+                if hasattr(viewer, 'view_options_changed'):
+                    viewer.view_options_changed.connect(self._sync_play_options_from_viewer)
             self.refresh_previews()
             self.load_from_viewer()
 
@@ -2916,7 +2944,8 @@ else:
                 self.hide_top_bar_check.setChecked(bool(getattr(self.app_window, 'top_bar_hide_enabled', False)))
             viewer = self._viewer()
             enabled = viewer is not None
-            for widget in (self.line_width_combo, self.sensitivity_slider, self.cube_slider, self.reset_button):
+            for widget in (self.line_width_combo, self.sensitivity_slider, self.cube_slider, self.reset_button,
+                           self.table_rotation_check, self.trail_hide_check, self.trail_blocks_slider):
                 widget.setEnabled(enabled)
             self.unavailable_label.setVisible(not enabled)
             if not enabled:
@@ -2926,6 +2955,43 @@ else:
                 self.line_width_combo.setCurrentIndex(max(0, index))
             self._sync_sensitivity_from_viewer(viewer.sensitivity_slider.value())
             self._sync_cube_from_viewer(viewer.view_cube_size_slider.value())
+            self._sync_play_options_from_viewer()
+
+        def _sync_play_options_from_viewer(self):
+            """화면 [>>]에서 바꾼 테이블 회전·지난 경로 숨김 값을 설정 창에 맞춘다."""
+            viewer = self._viewer()
+            if viewer is None or not hasattr(viewer, 'trail_blocks'):
+                return
+            with QSignalBlocker(self.table_rotation_check):
+                self.table_rotation_check.setChecked(bool(viewer.table_rotation_on))
+            with QSignalBlocker(self.trail_hide_check):
+                self.trail_hide_check.setChecked(bool(viewer.trail_hide_on))
+            with QSignalBlocker(self.trail_blocks_slider):
+                self.trail_blocks_slider.setValue(viewer.trail_blocks)
+            self.trail_blocks_label.setText('%d' % viewer.trail_blocks)
+            self.trail_blocks_slider.setEnabled(bool(viewer.trail_hide_on))
+            self.trail_blocks_label.setEnabled(bool(viewer.trail_hide_on))
+
+        def _on_table_rotation_changed(self, checked):
+            viewer = self._viewer()
+            if viewer is not None:
+                viewer.set_table_rotation(checked)
+
+        def _on_trail_hide_changed(self, checked):
+            viewer = self._viewer()
+            if viewer is not None:
+                viewer.set_trail_hide(checked)
+
+        def _on_trail_blocks_changed(self, value):
+            viewer = self._viewer()
+            if viewer is None or self.viewer_module is None:
+                return
+            snapped = self.viewer_module.clamp_trail_blocks(value)
+            if snapped != value:
+                with QSignalBlocker(self.trail_blocks_slider):
+                    self.trail_blocks_slider.setValue(snapped)
+                self.trail_blocks_label.setText('%d' % snapped)
+            viewer.set_trail_blocks(snapped)
 
         def _sync_sensitivity_from_viewer(self, value):
             with QSignalBlocker(self.sensitivity_slider):
@@ -2962,6 +3028,9 @@ else:
                 self.line_width_combo.findData(module.TOOLPATH_LINE_WIDTH_DEFAULT_PCT))
             self.sensitivity_slider.setValue(round(module.DEFAULT_NAVIGATION_SENSITIVITY * 100))
             self.cube_slider.setValue(module.DEFAULT_VIEW_CUBE_SIZE)
+            viewer.set_table_rotation(True)
+            viewer.set_trail_hide(False)
+            viewer.set_trail_blocks(module.TRAIL_BLOCKS_DEFAULT)
 
 
     class App(QMainWindow):
@@ -3701,6 +3770,10 @@ else:
             self.stop_options_menu = QMenu(self)
             self.stop_options_menu.addAction(stop_action)
             self.btn_stop_options.setMenu(self.stop_options_menu)
+            # v2.6.0: 같은 정지 옵션 메뉴를 화면 왼쪽 위 [>>] 옵션 줄에서도 연다.
+            overlay = getattr(self.viewer, 'projection_overlay', None)
+            if overlay is not None and hasattr(overlay, 'set_stop_menu'):
+                overlay.set_stop_menu(self.stop_options_menu)
 
             filter_bar = QHBoxLayout()
             filter_bar.setSpacing(scaled(6))
@@ -5142,7 +5215,12 @@ else:
             else:
                 destination = target_seq
             if destination != current_seq:
-                self._goto_seq(destination)
+                # v2.6.0: 재생 중에만 테이블 회전이 천천히 따라 돈다(방향키·클릭 이동은 바로 맞춘다).
+                self.viewer.table_anim_speed = self.effective_playback_speed()
+                try:
+                    self._goto_seq(destination)
+                finally:
+                    self.viewer.table_anim_speed = None
             if stop_seq is not None or destination >= total - 1:
                 self.pause_playback()
             elif dwell_seq is not None:

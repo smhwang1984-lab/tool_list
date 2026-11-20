@@ -2709,7 +2709,7 @@ G02 X0 Y10 I-10 J0
         viewer = NCViewerWidget()
         try:
             self.assertIsNotNone(viewer.projection_overlay)
-            self.assertGreaterEqual(viewer.projection_overlay.layout().spacing(), 10)
+            self.assertGreaterEqual(viewer.projection_overlay._row.spacing(), 10)   # v2.6.0: 첫 줄 버튼 간격
         finally:
             viewer.deleteLater()
             qapp.processEvents()

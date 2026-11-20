@@ -66,6 +66,24 @@ MAX_PLAYBACK_SPEED = 5000
 PLAYBACK_SPEED_DISPLAY_DIVISOR = 100
 # v2.4.2: 재생바 앞 드롭업에서 고르는 배속(= 초당 실행 줄 수). 5000x가 이전 최대(슬라이더 5000)와 같다.
 PLAYBACK_SPEED_CHOICES = (1, 5, 10, 50, 100, 500, 1000, 5000)
+# v2.6.0: 지난 경로 숨김 — 재생 중 현재 줄(실행 순서) 기준 앞쪽 N블록만 보인다. 설정 창에서 100~500(50 단위).
+TRAIL_BLOCKS_MIN = 100
+TRAIL_BLOCKS_MAX = 500
+TRAIL_BLOCKS_STEP = 50
+TRAIL_BLOCKS_DEFAULT = 200
+# v2.6.0: 테이블 회전을 천천히 보인다. 재생 x1(= 초당 100줄)에서 큰 회전이 약 3초에 끝나고,
+# 배속에 반비례해 빨라진다. 지수 수렴 속도(1/초) k = 배속 표기값, 너무 느린 배속에서는 바닥값을 둔다.
+TABLE_ANIM_MIN_RATE = 0.15
+
+
+def clamp_trail_blocks(value):
+    """지난 경로 숨김의 표시 블록 수를 100~500, 50 단위로 맞춘다. 읽을 수 없으면 기본값."""
+    try:
+        number = int(round(float(value)))
+    except (TypeError, ValueError):
+        return TRAIL_BLOCKS_DEFAULT
+    number = max(TRAIL_BLOCKS_MIN, min(TRAIL_BLOCKS_MAX, number))
+    return TRAIL_BLOCKS_MIN + int(round((number - TRAIL_BLOCKS_MIN) / TRAIL_BLOCKS_STEP)) * TRAIL_BLOCKS_STEP
 
 
 def snap_playback_speed(value):
@@ -1394,6 +1412,10 @@ class ProjectionOverlayWidget(QWidget):
     shape_toggled = pyqtSignal(bool)
     # v2.5.9: [테이블 회전] 버튼 토글(5축 재생 중 공구 고정·테이블 회전 표시).
     table_toggled = pyqtSignal(bool)
+    # v2.6.0: [>>] 접이식 옵션 줄 — 펼침/접힘, 지난 경로 숨김 켜기/끄기, 표시 블록 수.
+    more_toggled = pyqtSignal(bool)
+    trail_toggled = pyqtSignal(bool)
+    trail_blocks_changed = pyqtSignal(int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1409,15 +1431,29 @@ class ProjectionOverlayWidget(QWidget):
             " padding: 3px 7px; font-size: 12px; }"
             " QPushButton:hover { background-color: rgba(255, 255, 255, 65); }"
             " QPushButton:checked { background-color: #2e86de; border-color: #8ec5ff; color: white; }"
+            " QToolButton { color: white; background-color: rgba(40, 44, 52, 90);"
+            " border: 1px solid rgba(255, 255, 255, 70); border-radius: 5px;"
+            " padding: 3px 7px; font-size: 12px; }"
+            " QToolButton:hover { background-color: rgba(255, 255, 255, 65); }"
+            " QToolButton::menu-indicator { image: none; }"
+            " QWidget#moreRow { background-color: rgba(24, 26, 30, 170);"
+            " border: 1px solid rgba(255, 255, 255, 50); border-radius: 8px; }"
             # v2.4.3: 버튼은 모두 본래 크기(위치 찍기 포함). 눌린 버튼만 파랗게.
             # v2.4.6: [가공형상즉시보기]는 켜지면 초록색.
             " QPushButton#shapeButton:checked { background-color: #2ea043; border-color: #7ee787; }"
         )
-        row = QHBoxLayout(self)
-        row.setContentsMargins(6, 4, 6, 4)
+        # v2.6.0: 첫 줄(투영 버튼들) 아래에 [>>]로 여닫는 옵션 줄을 둔다.
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(6, 4, 6, 4)
+        outer.setSpacing(8)
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
         # v1.6.3: 버튼끼리 너무 붙어 있다는 피드백으로 간격을 4 -> 10px로
         # 넓힌다. "투영" 라벨과 첫 버튼 사이에는 조금 더 띄운다.
         row.setSpacing(10)
+        outer.addLayout(row, 0)
+        outer.setAlignment(row, Qt.AlignLeft)
+        self._outer = outer
         self.pick_button = QPushButton("위치 찍기")
         self.pick_button.setIcon(ui_icons.icon("pin", "#e4e8f0", 14))
         self.pick_button.setIconSize(QSize(14, 14))
@@ -1451,6 +1487,54 @@ class ProjectionOverlayWidget(QWidget):
         self.table_button.setFocusPolicy(Qt.NoFocus)
         self.table_button.setToolTip("5축 재생 중 공구는 고정하고 테이블·소재가 A/B/C 회전축 값만큼 돌게 보기")
         self.table_button.toggled.connect(self.table_toggled.emit)
+        self.table_button.toggled.connect(lambda _checked: self._update_more_text())
+
+        # v2.6.0: [>>] — 테이블 회전·정지 옵션·지난 경로 숨김을 접어 둔다. 접힌 동안은 켜진 옵션 수만 보인다.
+        self.more_button = QPushButton(">>")
+        self.more_button.setObjectName("moreButton")
+        self.more_button.setCheckable(True)
+        self.more_button.setFocusPolicy(Qt.NoFocus)
+        self.more_button.setToolTip("옵션 펼치기 / 접기 — 테이블 회전 · 정지 옵션 · 지난 경로 숨김")
+        self.more_button.toggled.connect(self._on_more_toggled)
+        self.more_row = QWidget()
+        self.more_row.setObjectName("moreRow")
+        more_layout = QHBoxLayout(self.more_row)
+        more_layout.setContentsMargins(8, 8, 8, 8)
+        more_layout.setSpacing(8)
+        more_layout.addWidget(self.table_button)
+        self.stop_button = QToolButton()
+        self.stop_button.setText("정지 옵션")
+        self.stop_button.setPopupMode(QToolButton.InstantPopup)
+        self.stop_button.setFocusPolicy(Qt.NoFocus)
+        self.stop_button.setToolTip("재생 정지 옵션 — 텍스트 정지 · 정지(M00) · 옵션정지(M01) · 실시간 형상")
+        self.stop_button.setVisible(False)
+        more_layout.addWidget(self.stop_button)
+        self.trail_button = QPushButton("지난 경로 숨김")
+        self.trail_button.setCheckable(True)
+        self.trail_button.setFocusPolicy(Qt.NoFocus)
+        self.trail_button.setToolTip("켜면 재생 중 지금 줄 기준 앞쪽 N블록만 보입니다 (블록 수는 − + 또는 설정 창)")
+        self.trail_button.toggled.connect(self._on_trail_button_toggled)
+        more_layout.addWidget(self.trail_button)
+        self.trail_minus = QPushButton("−")
+        self.trail_plus = QPushButton("+")
+        self.trail_label = QLabel("%d 블록" % TRAIL_BLOCKS_DEFAULT)
+        self.trail_label.setMinimumWidth(56)
+        self.trail_label.setAlignment(Qt.AlignCenter)
+        for step_button, delta in ((self.trail_minus, -TRAIL_BLOCKS_STEP), (self.trail_plus, TRAIL_BLOCKS_STEP)):
+            step_button.setFocusPolicy(Qt.NoFocus)
+            step_button.setFixedWidth(26)
+            step_button.setToolTip("표시 블록 수 %+d" % delta)
+            step_button.clicked.connect(lambda _checked=False, d=delta: self._step_trail_blocks(d))
+        more_layout.addWidget(self.trail_minus)
+        more_layout.addWidget(self.trail_label)
+        more_layout.addWidget(self.trail_plus)
+        self._trail_blocks = TRAIL_BLOCKS_DEFAULT
+        self._trail_on = False
+        self.more_row.setVisible(False)
+        outer.addWidget(self.more_row, 0)
+        outer.setAlignment(self.more_row, Qt.AlignLeft)
+        self._set_trail_enabled_look()
+        self._update_more_text()
         self._rebuild_buttons(self.MILL_BUTTONS)
 
     # 밀링과 선반은 축 개념 자체가 달라 투영 버튼 구성을 다르게 쓴다(v1.6.4).
@@ -1474,6 +1558,67 @@ class ProjectionOverlayWidget(QWidget):
         if self.table_button.isChecked() != bool(checked):
             with QSignalBlocker(self.table_button):
                 self.table_button.setChecked(bool(checked))
+        self._update_more_text()
+
+    # ---- v2.6.0: [>>] 접이식 옵션 줄 ----
+    def _on_more_toggled(self, expanded):
+        self.more_row.setVisible(bool(expanded))
+        self._update_more_text()
+        self._fit_to_contents()
+        self.more_toggled.emit(bool(expanded))
+
+    def set_more_expanded(self, expanded):
+        if self.more_button.isChecked() != bool(expanded):
+            self.more_button.setChecked(bool(expanded))
+
+    def _active_option_count(self):
+        count = 0
+        if self.table_button.isChecked() and not self._lathe_mode:
+            count += 1
+        if self._trail_on:
+            count += 1
+        return count
+
+    def _update_more_text(self):
+        """접혀 있는 동안은 켜진 옵션 수를 >> 옆에 보인다."""
+        if not hasattr(self, "more_button"):
+            return
+        count = self._active_option_count()
+        suffix = "  %d" % count if (count and not self.more_button.isChecked()) else ""
+        self.more_button.setText(">>" + suffix)
+
+    def set_stop_menu(self, menu):
+        """앱이 만든 [정지 옵션] 메뉴를 이 줄에도 건다(툴바 버튼과 같은 메뉴를 쓴다)."""
+        self.stop_button.setMenu(menu)
+        self.stop_button.setVisible(menu is not None)
+        self._fit_to_contents()
+
+    def _set_trail_enabled_look(self):
+        for widget in (self.trail_minus, self.trail_plus, self.trail_label):
+            widget.setEnabled(self._trail_on)
+
+    def set_trail_state(self, on, blocks):
+        """뷰어의 지난 경로 숨김 상태를 버튼에 맞춘다(신호는 내보내지 않는다)."""
+        self._trail_on = bool(on)
+        self._trail_blocks = int(blocks)
+        with QSignalBlocker(self.trail_button):
+            self.trail_button.setChecked(self._trail_on)
+        self.trail_label.setText("%d 블록" % self._trail_blocks)
+        self._set_trail_enabled_look()
+        self._update_more_text()
+
+    def _on_trail_button_toggled(self, checked):
+        self._trail_on = bool(checked)
+        self._set_trail_enabled_look()
+        self._update_more_text()
+        self.trail_toggled.emit(bool(checked))
+
+    def _step_trail_blocks(self, delta):
+        blocks = max(TRAIL_BLOCKS_MIN, min(TRAIL_BLOCKS_MAX, self._trail_blocks + int(delta)))
+        if blocks != self._trail_blocks:
+            self._trail_blocks = blocks
+            self.trail_label.setText("%d 블록" % blocks)
+            self.trail_blocks_changed.emit(blocks)
 
     def set_shape_checked(self, checked):
         if self.shape_button.isChecked() != bool(checked):
@@ -1487,7 +1632,7 @@ class ProjectionOverlayWidget(QWidget):
         self._view_buttons = {}
         row = self._row
         row.removeWidget(self.shape_button)      # 아래 정리 루프가 지우지 않도록 잠시 뺀다
-        row.removeWidget(self.table_button)
+        row.removeWidget(self.more_button)
         while row.count() > self._fixed_item_count:
             item = row.takeAt(self._fixed_item_count)
             widget = item.widget() if item is not None else None
@@ -1539,11 +1684,15 @@ class ProjectionOverlayWidget(QWidget):
             self.drag_zoom_button = drag_zoom_button
         # v2.4.6: [가공형상즉시보기]는 투영 버튼들 맨 끝(옆)에 둔다.
         # v2.5.9: [테이블 회전]은 밀링(5축)에만 둔다 — 선반은 C축 회전 시뮬레이션을 따로 쓴다.
-        row.addWidget(self.table_button)
-        self.table_button.setVisible(buttons is not self.LATHE_BUTTONS and self.isVisible())
+        # v2.6.0: [테이블 회전]은 [>>] 안의 옵션 줄로 옮겼다(선반에서는 숨김).
+        self.table_button.setVisible(buttons is not self.LATHE_BUTTONS)
         row.addWidget(self.shape_button)
         if self.isVisible():
             self.shape_button.show()
+        row.addWidget(self.more_button)
+        if self.isVisible():
+            self.more_button.show()
+        self._update_more_text()
         self._fit_to_contents()
 
     def _fit_to_contents(self):
@@ -1555,9 +1704,11 @@ class ProjectionOverlayWidget(QWidget):
         캐시는 LayoutRequest 이벤트가 배달돼야 갱신되므로, 이벤트 루프를
         기다리지 않고 그 이벤트를 동기로 흘려보낸 뒤 크기를 잡는다."""
         self._row.invalidate()
+        self._outer.invalidate()
         self.updateGeometry()
         QApplication.sendPostedEvents(self, QEvent.LayoutRequest)
         self._row.activate()
+        self._outer.activate()
         self.adjustSize()
         # 크기가 바뀌었으니 부모(3D 화면) 안에서의 위치도 다시 잡아준다.
         parent = self.parent()
@@ -1582,6 +1733,7 @@ class ProjectionOverlayWidget(QWidget):
             if self._row.itemAt(index).widget() is not None
             and self._row.itemAt(index).widget() is not self.drag_zoom_button
             and self._row.itemAt(index).widget() is not self.shape_button
+            and self._row.itemAt(index).widget() is not self.more_button
             and self._row.itemAt(index).widget() is not self.table_button
         ]
 
@@ -2693,6 +2845,8 @@ class NCViewerWidget(QWidget):
     line_activated = pyqtSignal(int)
     # v2.3.3: 소재 적용/해제·PG 매칭 전환처럼 [실시간 형상]을 쓸 수 있는지가 바뀔 때.
     sim_state_changed = pyqtSignal()
+    # v2.6.0: 테이블 회전·지난 경로 숨김 옵션이 바뀌었다(설정 창이 따라 간다).
+    view_options_changed = pyqtSignal()
 
     # 3D 캔버스는 앱 라이트/다크 테마와
     # 무관하게 항상 이 어두운 배경을 쓴다 — 경로 선 색이 밝은색 위주라
@@ -2799,6 +2953,20 @@ class NCViewerWidget(QWidget):
         self.table_rotation_on = str(self.settings.value("table_rotation", "true")).lower() not in ("false", "0")
         self.seq_to_table_rot = {}
         self._table_rot_keys = []
+        # v2.6.0: 테이블 회전은 천천히 따라 돈다. 재생 틱이 table_anim_speed(초당 줄 수)를 걸어 두면
+        # 목표 각도를 지수로 따라가고, 걸려 있지 않으면(방향키·클릭 이동) 바로 맞춘다.
+        self.table_anim_speed = None
+        self._table_goal = None
+        self._table_disp = None
+        self._table_anim_rate = 1.0
+        self._table_anim_clock = 0.0
+        self._table_anim_timer = QTimer(self)
+        self._table_anim_timer.setInterval(33)
+        self._table_anim_timer.timeout.connect(self._table_anim_step)
+        self._axis_table_matrix = None
+        # v2.6.0: 지난 경로 숨김(기본 꺼짐) — 켜면 재생 중 현재 줄 앞쪽 N블록만 그린다.
+        self.trail_hide_on = str(self.settings.value("trail_hide", "false")).lower() in ("true", "1")
+        self.trail_blocks = clamp_trail_blocks(self.settings.value("trail_blocks", TRAIL_BLOCKS_DEFAULT))
         # 마우스 감도는 PC/마우스마다 맞는 값이 달라 PG 매칭과 달리 저장한다.
         self._initial_sensitivity = self._load_navigation_sensitivity()
         self._initial_cube_size = self._load_view_cube_size()
@@ -3038,6 +3206,12 @@ class NCViewerWidget(QWidget):
             overlay.shape_toggled.connect(self._on_shape_button_toggled)
             overlay.set_table_checked(self.table_rotation_on)
             overlay.table_toggled.connect(self._on_table_rotation_toggled)
+            overlay.trail_toggled.connect(self.set_trail_hide)
+            overlay.trail_blocks_changed.connect(self.set_trail_blocks)
+            overlay.more_toggled.connect(self._on_more_options_toggled)
+            overlay.set_trail_state(self.trail_hide_on, self.trail_blocks)
+            if str(self.settings.value("overlay_more_open", "false")).lower() in ("true", "1"):
+                overlay.set_more_expanded(True)
             self.sim_state_changed.connect(self._sync_shape_button)
             # v1.6.5: 선반 전용 "드래그줌" 버튼 <-> gl_view의 실제 상태를
             # 양방향으로 맞춘다(버튼 클릭 -> gl_view 활성화, 드래그 확정 후
@@ -3054,6 +3228,13 @@ class NCViewerWidget(QWidget):
                 overlay.set_lathe_mode(self.is_lathe_mode())
             except Exception:
                 pass
+
+    def _on_more_options_toggled(self, expanded):
+        """[>>] 옵션 줄을 펼쳤는지 기억한다(기본 접힘)."""
+        try:
+            self.settings.setValue("overlay_more_open", "true" if expanded else "false")
+        except Exception:
+            pass
 
     def _build_playback_bar(self):
         """PG 매칭 자동 재생 컨트롤 바를 만든다. 실패해도 뷰어 전체를 잃지 않는다."""
@@ -3440,6 +3621,11 @@ class NCViewerWidget(QWidget):
             self.gl_view.addItem(text_item)
             self._axis_items.append(text_item)
             self._axis_label_items.append(text_item)
+        # v2.6.0: 다시 만든 축 표기에도 지금의 테이블 회전을 건다.
+        try:
+            self._apply_table_rotation(getattr(self, "current_seq", 0))
+        except AttributeError:
+            pass
 
     def _update_axis_lines_live(self):
         """카메라가 움직일 때(줌 포함) 호출된다. 화살표를 화면 고정
@@ -3469,7 +3655,10 @@ class NCViewerWidget(QWidget):
                         wing_dir = wing_dir / norm
                     axis_items[index].setData(pos=np.array([tip, tip + wing_dir * head_len]))
                     index += 1
-            label_item.setData(pos=tip + d * (length * 0.06), font=font)
+            label_pos = tip + d * (length * 0.06)
+            if self._axis_table_matrix is not None:
+                label_pos = self._axis_table_matrix @ label_pos      # v2.6.0: 축 원점 표기도 테이블과 같이 돈다
+            label_item.setData(pos=label_pos, font=font)
             # 문자 아이템도 axis_items 안의 한 칸을 차지하므로(shaft + 4개
             # 화살촉 + 문자 = 축 하나당 6개), 다음 축으로 넘어가기 전에
             # 인덱스를 그만큼 건너뛰어야 한다.
@@ -5382,6 +5571,9 @@ class NCViewerWidget(QWidget):
         self.line_to_c_rot.clear()
         self.seq_to_table_rot = {}
         self._table_rot_keys = []
+        self._table_goal = None
+        self._table_disp = None
+        self._table_anim_timer.stop()
         self.line_feed_state.clear()
         self.seq_to_elapsed_sec.clear()
         self._elapsed_seq_keys = []
@@ -6710,7 +6902,7 @@ class NCViewerWidget(QWidget):
         self.gl_view.addItem(line_item)
         self.plot_items[tool].append(line_item)
 
-    def _render_segments(self, path_data, seq_limit=None):
+    def _render_segments(self, path_data, seq_limit=None, seq_from=None):
         """path_data(경로 노드 목록)를 이어진 세그먼트로 묶어 낸다.
         seq_limit이 주어지면 노드의 "seq"(실행 순서)가 그 값을 넘는
         지점부터 잘라낸다.
@@ -6727,6 +6919,8 @@ class NCViewerWidget(QWidget):
         for node in path_data:
             if seq_limit is not None and node.get("seq", -1) > seq_limit:
                 break
+            if seq_from is not None and node.get("seq", -1) < seq_from:
+                continue            # v2.6.0: 지난 경로 숨김 — 이 줄(블록)보다 앞선 경로는 그리지 않는다
             if not node["valid"]:
                 if current_seg:
                     yield current_seg, current_type
@@ -6750,9 +6944,9 @@ class NCViewerWidget(QWidget):
         if current_seg:
             yield current_seg, current_type
 
-    def _render_segment_buckets(self, path_data, seq_limit=None):
+    def _render_segment_buckets(self, path_data, seq_limit=None, seq_from=None):
         buckets = {"G00": [], "CUT": []}
-        for pts_list, motion_type in self._render_segments(path_data, seq_limit):
+        for pts_list, motion_type in self._render_segments(path_data, seq_limit, seq_from):
             if len(pts_list) < 2:
                 continue
             key = "G00" if motion_type == "G00" else "CUT"
@@ -6884,12 +7078,8 @@ class NCViewerWidget(QWidget):
             float(m[2][0]), float(m[2][1]), float(m[2][2]), 0.0,
             0.0, 0.0, 0.0, 1.0)
 
-    def _table_rotation_matrices(self, seq):
-        """v2.5.9: 테이블 회전 표시 — seq 시점의 (소재 회전 3x3, 공구 방향 3x3). 해당 없으면 None.
-
-        재생(PG 매칭) 중 [테이블 회전]이 켜져 있을 때만 적용한다. 회전축 값으로 만든 공구 방향 R을
-        공구 쪽에서 소재 쪽으로 옮긴다 — A→C: 소재 = (Rz(C)·Rx(A))ᵀ, 공구는 수직 /
-        B→C: 소재 = Rz(C)ᵀ, 공구는 Ry(B)만큼 기욺 / 4축: 소재 = Ry(B)ᵀ. 회전 중심은 공작물 원점."""
+    def _table_target_info(self, seq):
+        """seq 시점 회전축 상태 (종류, A, B, C 도). 테이블 회전을 보이지 않는 상황이면 None."""
         if (not self.table_rotation_on or not self.pg_match_mode or self.is_lathe_mode()
                 or not self.seq_to_table_rot):
             return None
@@ -6898,25 +7088,102 @@ class NCViewerWidget(QWidget):
         pos = bisect.bisect_right(self._table_rot_keys, seq) - 1
         if pos < 0:
             return None
-        info = self.seq_to_table_rot.get(self._table_rot_keys[pos])
-        if info is None:
+        return self.seq_to_table_rot.get(self._table_rot_keys[pos])
+
+    def _table_rotation_matrices(self, seq):
+        """v2.5.9: 테이블 회전 표시 — seq 시점의 (소재 회전 3x3, 공구 방향 3x3). 해당 없으면 None.
+
+        재생(PG 매칭) 중 [테이블 회전]이 켜져 있을 때만 적용한다. 회전축 값으로 만든 공구 방향 R을
+        공구 쪽에서 소재 쪽으로 옮긴다 — A→C: 소재 = Rx(A)·Rz(-C), 공구는 수직 /
+        B→C: 소재 = Rz(C)ᵀ, 공구는 Ry(B)만큼 기욺 / 4축: 소재 = Ry(B)ᵀ. 회전 중심은 공작물 원점.
+
+        v2.6.0: A→C의 기움 방향을 반대로 보인다(예전 Rx(-A)·Rz(-C)). 양의 기울기(A+ 또는 G68.2 J-90)는
+        소재 윗면이 앞(-Y)으로, A-90.은 뒤(+Y)로 넘어간다. A·C를 읽는 규칙은 그대로다.
+        천천히 따라 도는 중이면(_table_disp) 그 도중의 각도로 계산한다."""
+        target = self._table_target_info(seq)
+        if target is None:
             return None
+        info = self._table_disp if (self._table_disp is not None and self._table_goal == target) else target
         kind, a_deg, b_deg, c_deg = info
         rot = self._axis_rotation
         if kind == 'ac':
-            return (rot(2, c_deg) @ rot(0, a_deg)).T, np.eye(3)
+            return rot(0, a_deg) @ rot(2, -c_deg), np.eye(3)
         if kind == 'bc':
             return rot(2, c_deg).T, rot(1, b_deg)
         return rot(1, b_deg).T, np.eye(3)
 
+    def _table_sync(self, seq):
+        """v2.6.0: 이 seq의 목표 회전을 잡는다. 재생 중이면 천천히 따라 돌고, 아니면 바로 맞춘다."""
+        target = self._table_target_info(seq)
+        if target is None:
+            self._table_goal = None
+            self._table_disp = None
+            self._table_anim_timer.stop()
+            return
+        if target == self._table_goal:
+            return
+        self._table_goal = target
+        speed = self.table_anim_speed
+        if speed is None or self._table_disp is None or self._table_disp[0] != target[0]:
+            self._table_disp = target
+            self._table_anim_timer.stop()
+            return
+        self._table_anim_rate = max(TABLE_ANIM_MIN_RATE,
+                                    float(speed) / float(PLAYBACK_SPEED_DISPLAY_DIVISOR))
+        if not self._table_anim_timer.isActive():
+            self._table_anim_clock = time.monotonic()
+            self._table_anim_timer.start()
+
+    def _table_anim_step(self):
+        """천천히 도는 중인 표시 각도를 한 걸음 옮기고 소재·공구·축 표시를 다시 건다."""
+        goal, disp = self._table_goal, self._table_disp
+        if goal is None or disp is None:
+            self._table_anim_timer.stop()
+            return
+        now = time.monotonic()
+        dt = max(0.0, min(0.2, now - self._table_anim_clock))
+        self._table_anim_clock = now
+        fraction = 1.0 - float(np.exp(-self._table_anim_rate * dt))
+        values = [goal[0]]
+        done = True
+        for index in (1, 2, 3):
+            delta = goal[index] - disp[index]
+            if index == 3:
+                delta = (delta + 180.0) % 360.0 - 180.0       # C는 가까운 쪽으로 돈다
+            if abs(delta) < 0.05:
+                values.append(goal[index])
+            else:
+                values.append(disp[index] + delta * fraction)
+                done = False
+        self._table_disp = goal if done else tuple(values)
+        if done:
+            self._table_anim_timer.stop()
+        seq = getattr(self, "current_seq", 0)
+        self._apply_table_rotation(seq)
+        self._refresh_tool_marker(seq)
+        self._reposition_cursor_sphere(seq)
+
+    def _reposition_cursor_sphere(self, seq):
+        """테이블 회전이 걸린 동안 커서 구를 돌아간 소재 위 현재 점에 둔다."""
+        table = self._table_rotation_matrices(seq)
+        pt = self.seq_to_coord_map.get(seq)
+        if table is None or pt is None or not self.cursor_sphere.visible():
+            return
+        sphere_pt = table[0] @ np.asarray(pt, dtype=np.float64)
+        self.cursor_sphere.resetTransform()
+        self.cursor_sphere.translate(sphere_pt[0], sphere_pt[1], sphere_pt[2])
+
     def _apply_table_rotation(self, seq):
-        """소재 쪽 3D 아이템(툴패스·실시간 트레이스·가공 형상)에 테이블 회전을 건다. 꺼져 있으면 되돌린다."""
+        """소재 쪽 3D 아이템(툴패스·실시간 트레이스·가공 형상·축 원점 표기)에 테이블 회전을 건다.
+        꺼져 있으면 되돌린다."""
         table = self._table_rotation_matrices(seq)
         key = None if table is None else tuple(round(float(v), 6) for v in table[0].ravel())
         items = list(self.dynamic_trace_items)
         items.extend(item for group in self.plot_items.values() for item in group)
         items.extend((self.sim_mesh_item, self.sim_edge_item))
+        items.extend(getattr(self, "_axis_items", []))
         matrix = None if table is None else self._mat3_to_qmatrix(table[0])
+        axis_changed = False
         for item in items:
             if item is None or getattr(item, "_sp_table_key", None) == key:
                 continue
@@ -6925,6 +7192,11 @@ class NCViewerWidget(QWidget):
             else:
                 item.setTransform(matrix)
             item._sp_table_key = key
+            axis_changed = axis_changed or item in getattr(self, "_axis_items", [])
+        # 축 문자는 GLTextItem이라 변환이 먹지 않는다 — 위치를 직접 돌려 놓는다.
+        self._axis_table_matrix = None if table is None else table[0]
+        if axis_changed:
+            self._update_axis_lines_live()
 
     def _on_table_rotation_toggled(self, checked):
         self.table_rotation_on = bool(checked)
@@ -6934,6 +7206,55 @@ class NCViewerWidget(QWidget):
             pass
         if self.seq_to_line:
             self.set_cursor_seq(getattr(self, "current_seq", 0))
+        self.view_options_changed.emit()
+
+    def set_table_rotation(self, checked):
+        """설정 창에서 테이블 회전을 켜고 끈다(화면 >> 안의 버튼도 같이 따라 간다)."""
+        checked = bool(checked)
+        if checked == self.table_rotation_on:
+            return
+        overlay = getattr(self, "projection_overlay", None)
+        if overlay is not None:
+            overlay.set_table_checked(checked)
+        self._on_table_rotation_toggled(checked)
+
+    def set_trail_hide(self, enabled):
+        """v2.6.0: 지난 경로 숨김 켜기/끄기. 재생 중 현재 줄 앞쪽 trail_blocks 블록만 그린다."""
+        enabled = bool(enabled)
+        changed = enabled != self.trail_hide_on
+        self.trail_hide_on = enabled
+        try:
+            self.settings.setValue("trail_hide", "true" if enabled else "false")
+        except Exception:
+            pass
+        overlay = getattr(self, "projection_overlay", None)
+        if overlay is not None:
+            overlay.set_trail_state(self.trail_hide_on, self.trail_blocks)
+        if changed and self.seq_to_line and self.pg_match_mode:
+            self.set_cursor_seq(getattr(self, "current_seq", 0))
+        self.view_options_changed.emit()
+
+    def set_trail_blocks(self, blocks):
+        """v2.6.0: 지난 경로 숨김에서 남길 블록 수(100~500, 50 단위)."""
+        blocks = clamp_trail_blocks(blocks)
+        changed = blocks != self.trail_blocks
+        self.trail_blocks = blocks
+        try:
+            self.settings.setValue("trail_blocks", blocks)
+        except Exception:
+            pass
+        overlay = getattr(self, "projection_overlay", None)
+        if overlay is not None:
+            overlay.set_trail_state(self.trail_hide_on, self.trail_blocks)
+        if changed and self.trail_hide_on and self.seq_to_line and self.pg_match_mode:
+            self.set_cursor_seq(getattr(self, "current_seq", 0))
+        self.view_options_changed.emit()
+
+    def _trail_seq_from(self, seq):
+        """지난 경로 숨김이 켜져 있으면 그릴 첫 실행 순서(seq). 꺼져 있으면 None."""
+        if not self.trail_hide_on or not self.pg_match_mode:
+            return None
+        return max(0, int(seq) - self.trail_blocks + 1)
 
     def sequence_length(self):
         """v1.7.6: 실행 시퀀스(M98/M99 확장 결과)의 길이. 재생기가 "seq가
@@ -7006,6 +7327,7 @@ class NCViewerWidget(QWidget):
         else:
             self.current_cursor_line = seq
         self.current_seq = seq
+        self._table_sync(seq)
         self._refresh_tool_marker(seq)
         if self.sim_live_active():
             # v2.3.3: [실시간 형상] — 커서(재생) 위치까지 깎는다. 앞으로는 새 선분만
@@ -7054,7 +7376,7 @@ class NCViewerWidget(QWidget):
         trace_index = 0
         trace_visible = self.toolpath_lines_visible()
         for motion_type, pts_list in self._render_segment_buckets(
-            self.tool_paths[current_tool], seq
+            self.tool_paths[current_tool], seq, self._trail_seq_from(seq)
         ).items():
             if self.update_trace_item(trace_index, pts_list, motion_type, base_color, trace_visible):
                 trace_index += 1

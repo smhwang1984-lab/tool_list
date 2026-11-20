@@ -15,13 +15,14 @@ def test_shape_button_next_to_projection_and_green_when_on(viewer):
     ov = viewer.projection_overlay
     assert ov.shape_button.text() == '가공형상즉시보기'
     row = ov._row
-    last = row.itemAt(row.count() - 1).widget()
-    assert last is ov.shape_button                      # 투영 버튼들 맨 끝(옆)
+    # v2.6.0: 맨 끝은 [>>]이고, [가공형상즉시보기]는 그 바로 앞(투영 버튼들 옆)이다
+    assert row.itemAt(row.count() - 1).widget() is ov.more_button
+    assert row.itemAt(row.count() - 2).widget() is ov.shape_button
     assert 'shapeButton:checked' in ov.styleSheet() and '#2ea043' in ov.styleSheet()
     # 렌더 후 투영 버튼을 갈아 끼워도 버튼은 남는다
     ov.set_lathe_mode(True)
     ov.set_lathe_mode(False)
-    assert ov.shape_button.parent() is ov and row.indexOf(ov.shape_button) == row.count() - 1
+    assert ov.shape_button.parent() is ov and row.indexOf(ov.shape_button) == row.count() - 2
 
 
 @needs_viewer
