@@ -773,21 +773,37 @@ M30
         viewer.set_cursor_seq(seq)
         self.assertTrue(trace.transform().isIdentity())
 
-    def test_v260_a_minus_tips_the_top_backward_and_tilt_plus_tips_it_forward(self):
-        """v2.6.0: 보는 방향만 바꿨다. A-90.은 소재 윗면이 뒤(+Y)로, G68.2 J-90(기울기 +90)은 앞(-Y)으로 넘어간다."""
-        viewer = load_viewer(self, PROGRAM, MILLING)
-        viewer.table_rotation_on = True
-        viewer.pg_match_mode = True
+    def _g682_program(self, i_value):
+        return """M6 T6
+A-90. C0.
+G68.2 X0. Y0. Z0. I%s J-90. K0.
+G53.1
+G43 Z50. H6
+G00 X-20. Y0.
+G01 Z-5. F500
+G01 X20.
+G69
+M30
+""" % i_value
+
+    def test_v261_g682_j_minus_90_comes_forward_in_both_cases_and_tool_stays_consistent(self):
+        """G68.2 I0 J-90 K0 = A-90 C0(소재가 바로 앞으로), I180 J-90 K0 = A-90 C180(테이블 회전 후 앞으로).
+        어느 쪽이든 공구 축이 소재 쪽에서 정확히 수직으로 와야 한다(공구 모양·진입 방향·가공면이 같은 방향)."""
         top = np.array([0.0, 0.0, 1.0])
-        for info, expected_sign in ((('ac', -90.0, 0.0, 0.0), 1.0),       # A-90.
-                                    (('ac', 90.0, 0.0, 0.0), -1.0),       # G68.2 I180. J-90. K0 → A+90, C0
-                                    (('ac', 90.0, 0.0, 180.0), -1.0)):    # G68.2 I0 J-90. K0 → A+90, C180
-            viewer.seq_to_table_rot = {0: info}
-            viewer._table_rot_keys = []
-            part = viewer._table_rotation_matrices(0)[0]
-            moved_top = part @ top
-            self.assertAlmostEqual(moved_top[1], expected_sign, places=6, msg=str(info))
-            self.assertAlmostEqual(moved_top[0], 0.0, places=6)
+        for i_value, expected_c in (('0.', 0.0), ('180.', 180.0)):
+            program = self._g682_program(i_value)
+            viewer, seq, mesh = self._play(program, AC_MACHINE, 'G01 X20.')
+            pos = max(k for k in viewer._table_rot_keys if k <= seq)
+            kind, a_deg, b_deg, c_deg = viewer.seq_to_table_rot[pos]
+            self.assertEqual(kind, 'ac')
+            self.assertAlmostEqual(a_deg, -90.0, places=4, msg=i_value)       # 장비 A 범위(-120~+30) 안의 해
+            self.assertAlmostEqual(((c_deg - expected_c + 180.0) % 360.0) - 180.0, 0.0, places=4, msg=i_value)
+            part = viewer._table_rotation_matrices(seq)[0]
+            self.assertAlmostEqual((part @ top)[1], -1.0, places=6, msg=i_value)   # 윗면이 앞(-Y)으로
+            tool_axis = np.array(viewer.line_axis_map[viewer.seq_to_line[seq]])
+            self.assertTrue(np.allclose(part @ tool_axis, top, atol=1e-6), i_value)   # 공구 축 = 수직
+            # 진입 방향 화살표(공구 축 쪽)도 같은 수직선 위에 있다
+            self.assertTrue(np.allclose(self._z_column(mesh), top, atol=1e-6))
 
     def test_v260_table_turns_slowly_during_playback_and_snaps_otherwise(self):
         program = """M6 T6

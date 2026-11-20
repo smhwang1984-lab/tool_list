@@ -6569,6 +6569,47 @@ class PrevToolSearchUiTests(unittest.TestCase):
             settings_dir.cleanup()
 
 
+class PrevTextSearchTests(unittest.TestCase):
+    """v2.6.1 — 문자 검색의 [이전]. 다음과 왕복해도 같은 곳을 다시 잡지 않고, 처음/끝에서 반대쪽으로 이어진다."""
+
+    SOURCE = 'G1 X1\nG0 X0\nG1 X2\nG1 X3'
+
+    @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
+    def test_prev_and_next_text_search_round_trip_and_wrap(self):
+        qapp = app.QApplication.instance() or app.QApplication([])
+        settings_dir = tempfile.TemporaryDirectory()
+        try:
+            window = app.App(_root=settings_dir.name)
+            window.src.setPlainText(self.SOURCE)
+            try:
+                self.assertTrue(hasattr(window, 'btn_prev_search'))
+                layout = window._search_bar_layout
+                self.assertEqual(layout.indexOf(window.btn_search), layout.indexOf(window.btn_prev_search) + 1)
+                window.search_text.setText('G1')
+
+                def picked():
+                    return window.src.textCursor().selectionStart()
+
+                window.find_next_text()
+                first = picked()
+                window.find_next_text()
+                second = picked()
+                self.assertGreater(second, first)
+                window.find_prev_text()
+                self.assertEqual(picked(), first)                    # 왕복해도 같은 곳을 다시 잡지 않는다
+                window.find_prev_text()                              # 맨 위에서 이전 -> 끝에서부터
+                self.assertEqual(window.search_status.text(), '끝에서부터 검색')
+                self.assertEqual(picked(), self.SOURCE.rindex('G1'))
+                window.search_text.setText('')
+                window.find_prev_text()
+                self.assertTrue(window._search_status_error)
+            finally:
+                window.deleteLater()
+                qapp.processEvents()
+        finally:
+            settings_dir.cleanup()
+
+
 @unittest.skipIf(app.QT_IMPORT_ERROR is not None, 'viewer dependencies are not available')
 class BringWindowToFrontTests(unittest.TestCase):
     """v1.7.9 — 파일을 넘겨받아 창을 앞으로 끌어낼 때 최대화 상태를 풀지 않는다."""

@@ -5524,6 +5524,19 @@ class NCViewerWidget(QWidget):
             return matrix
         return self._axis_rotation(2, i_deg) @ self._axis_rotation(0, j_deg) @ self._axis_rotation(2, k_deg)
 
+    def a_axis_prefers_negative(self):
+        """v2.6.1: 장비의 A축 범위가 음수 쪽으로 더 넓은가(기본 5축 A to C: -120~+30 → True).
+        3축 설정에서 프로그램으로 읽은 5축이면 마지막으로 쓴 5축 A to C 설정을 본다. 범위를 못 읽으면 True."""
+        spec = self.machine_spec()
+        text = spec.get("A축 범위")
+        if text is None:
+            text = (self.machine_specs.get(MACHINE_5AXIS_AC) or {}).get("A축 범위")
+        try:
+            low, high = (float(part) for part in str(text).replace("+", "").split("~"))
+            return abs(low) >= abs(high)
+        except (TypeError, ValueError):
+            return True
+
     _TCP_OR_TILT_RE = re.compile(r"G43\.4(?!\d)|G68\.2(?!\d)")
     _B_WORD_RE = re.compile(r"(?<![A-Z])B\s*[+-]?\.?\d")
     _A_WORD_RE = re.compile(r"(?<![A-Z])A\s*[+-]?\.?\d")
@@ -5589,6 +5602,7 @@ class NCViewerWidget(QWidget):
         # v2.5.9: 3축 설정인데 프로그램이 G43.4/G68.2 + 회전축을 쓰면 프로그램에서 축 구성을 읽는다.
         # 장비 설정(행정 등)은 그대로 두고, 공구 축·경사면 계산만 5축으로 한다.
         self.machine_auto_note = ""
+        a_negative = self.a_axis_prefers_negative()          # v2.6.1: G68.2 경사면을 A 음수 해로 읽는지
         if not is_lathe and not is_4axis and not (is_5axis_ac or is_5axis_bc):
             detected = self.detect_rotary_machine(lines)
             if detected == MACHINE_5AXIS_BC:
@@ -6026,9 +6040,19 @@ class NCViewerWidget(QWidget):
                     if not np.allclose(active_matrix, np.eye(3)):
                         ax, ay, az = (float(v) for v in active_matrix[:, 2])
                         tilt = float(np.degrees(np.arctan2(np.hypot(ax, ay), az)))
+                        # v2.6.1: 같은 공구 축을 만드는 A·C 해가 둘이다(A+tilt·C+180° / A-tilt·C).
+                        # 장비 A축 범위 안에 드는 쪽을 쓴다 — 5축 A to C(A -120~+30)는 A가 음수라
+                        # I0 J-90 K0 = A-90 C0(소재가 바로 앞으로 넘어옴), I180 J-90 K0 = A-90 C180(테이블 회전 후 앞으로).
+                        a_signed = tilt
+                        if is_5axis_ac and a_negative:
+                            a_signed = -tilt
                         if np.hypot(ax, ay) > 1e-9:
-                            table_c = float(np.degrees(np.arctan2(ax, -ay) if is_5axis_ac else np.arctan2(ay, ax)))
-                        table_rot = (kind, tilt if is_5axis_ac else 0.0, 0.0 if is_5axis_ac else tilt, table_c)
+                            if is_5axis_ac:
+                                table_c = float(np.degrees(
+                                    np.arctan2(ax, -ay) if a_signed > 0 else np.arctan2(-ax, ay)))
+                            else:
+                                table_c = float(np.degrees(np.arctan2(ay, ax)))
+                        table_rot = (kind, a_signed if is_5axis_ac else 0.0, 0.0 if is_5axis_ac else tilt, table_c)
                     elif tcp_active:
                         table_rot = (kind, float(modal_values[3]), float(modal_values[4]), float(modal_values[5]))
                         table_c = table_rot[3]
@@ -7094,11 +7118,13 @@ class NCViewerWidget(QWidget):
         """v2.5.9: 테이블 회전 표시 — seq 시점의 (소재 회전 3x3, 공구 방향 3x3). 해당 없으면 None.
 
         재생(PG 매칭) 중 [테이블 회전]이 켜져 있을 때만 적용한다. 회전축 값으로 만든 공구 방향 R을
-        공구 쪽에서 소재 쪽으로 옮긴다 — A→C: 소재 = Rx(A)·Rz(-C), 공구는 수직 /
+        공구 쪽에서 소재 쪽으로 옮긴다 — A→C: 소재 = (Rz(C)·Rx(A))ᵀ, 공구는 수직 /
         B→C: 소재 = Rz(C)ᵀ, 공구는 Ry(B)만큼 기욺 / 4축: 소재 = Ry(B)ᵀ. 회전 중심은 공작물 원점.
 
-        v2.6.0: A→C의 기움 방향을 반대로 보인다(예전 Rx(-A)·Rz(-C)). 양의 기울기(A+ 또는 G68.2 J-90)는
-        소재 윗면이 앞(-Y)으로, A-90.은 뒤(+Y)로 넘어간다. A·C를 읽는 규칙은 그대로다.
+        공구 축(tool_axis_from_rotary = Rz(C)·Rx(A)·z)이 소재 쪽에서 정확히 +Z(수직)로 오는 관계라서
+        공구 모양·진입 화살표·가공면이 항상 같은 방향이다. (v2.6.0 첫 빌드는 A 부호만 뒤집어 이 관계를
+        깨뜨렸다 — 공구 방향과 진입 방향이 어긋남. v2.6.1에서 되돌리고, G68.2가 A를 장비 범위 안의
+        해로 읽게 해서 보이는 방향을 바꿨다.)
         천천히 따라 도는 중이면(_table_disp) 그 도중의 각도로 계산한다."""
         target = self._table_target_info(seq)
         if target is None:
@@ -7107,7 +7133,7 @@ class NCViewerWidget(QWidget):
         kind, a_deg, b_deg, c_deg = info
         rot = self._axis_rotation
         if kind == 'ac':
-            return rot(0, a_deg) @ rot(2, -c_deg), np.eye(3)
+            return (rot(2, c_deg) @ rot(0, a_deg)).T, np.eye(3)
         if kind == 'bc':
             return rot(2, c_deg).T, rot(1, b_deg)
         return rot(1, b_deg).T, np.eye(3)

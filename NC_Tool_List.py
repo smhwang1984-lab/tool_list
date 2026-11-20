@@ -33,7 +33,7 @@ import lathe_insert_spec
 import sumpath_license
 
 
-APP_VERSION = '2.6.0'
+APP_VERSION = '2.6.1'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-11-20'
 APP_CREATOR = 'Hwang.seonmun'
@@ -1283,6 +1283,14 @@ def find_next_literal_span(text, needle, start=0):
     if not needle:
         return None
     return find_next_regex_span(text, re.compile(re.escape(needle), re.I), start)
+
+
+def find_prev_literal_span(text, needle, start=0):
+    """v2.6.1: 문자 검색 '이전' — start보다 앞에서 시작하는 마지막 일치. 없으면 끝에서부터 다시(wrapped=True)."""
+    needle = str(needle or '')
+    if not needle:
+        return None
+    return find_prev_regex_span(text, re.compile(re.escape(needle), re.I), start)
 
 
 def open_file_with_default_app(path):
@@ -3675,13 +3683,16 @@ else:
             self.search_text = QLineEdit()
             self.search_text.setFont(kfont)
             self.search_text.setPlaceholderText('문자 검색')
-            self.search_text.setToolTip('문자 검색 — 입력한 문자열이 있는 다음 줄 (Enter)')
+            self.search_text.setToolTip('문자 검색 — 입력한 문자열이 있는 다음 줄 (Enter), 이전 줄 (Shift+Enter)')
             self._search_text_action = self.search_text.addAction(QIcon(), QLineEdit.LeadingPosition)
             self._themed_icons.append((self._search_text_action, 'search', 'faint_text', 16))
-            self.search_text.returnPressed.connect(self.find_next_text)
+            self.search_text.returnPressed.connect(self._on_search_return_pressed)
             search_bar.addWidget(self.search_text, 1)
-            self.btn_search = self._add_button(search_bar, '검색', self.find_next_text, kfont)
-            self._set_button_icon(self.btn_search, 'search', '다음 일치 줄 찾기 (Enter)')
+            # v2.6.1: 문자 검색에 [이전]을 더했다. 기존 [검색]은 [다음]으로 이름만 바꿨다(동작 그대로).
+            self.btn_prev_search = self._add_button(search_bar, '이전', self.find_prev_text, kfont)
+            self._set_button_icon(self.btn_prev_search, 'chevron_up', '이전 일치 줄 찾기 (Shift+Enter)')
+            self.btn_search = self._add_button(search_bar, '다음', self.find_next_text, kfont)
+            self._set_button_icon(self.btn_search, 'chevron_down', '다음 일치 줄 찾기 (Enter)')
             self.search_status = QLabel('')
             search_bar.addWidget(self.search_status)
             left_layout.addLayout(search_bar)
@@ -4014,7 +4025,7 @@ else:
             '■ 검색\n'
             '  이전 공구 / 다음 공구: 공구 교체 지점을 위/아래 방향으로 찾습니다(밀링 M6T, 선반\n'
             '  Tnn00). 끝에 닿으면 반대쪽 끝에서 이어서 찾습니다.\n'
-            '  문자 검색: 입력한 문자열이 있는 다음 줄을 찾습니다(끝까지 가면 처음부터 재검색).\n'
+            '  문자 검색: 입력한 문자열이 있는 다음 줄을 찾습니다(끝까지 가면 처음부터 재검색). [이전]/[다음] 버튼, Enter = 다음, Shift+Enter = 이전.\n'
             '\n'
             '■ 장비 타입 및 스펙 설정\n'
             '  ▶/▼를 눌러 펼치거나 접을 수 있고, 프로그램 입력창을 클릭하면 자동으로 접힙니다.\n'
@@ -5504,6 +5515,29 @@ else:
             start, end, wrapped = result
             self.select_source_span(start, end)
             self.set_search_status('처음부터 검색' if wrapped else '검색 위치 선택')
+
+        def _on_search_return_pressed(self):
+            """Enter = 다음, Shift+Enter = 이전."""
+            if QApplication.keyboardModifiers() & Qt.ShiftModifier:
+                self.find_prev_text()
+            else:
+                self.find_next_text()
+
+        def find_prev_text(self):
+            """v2.6.1: 문자 검색 '이전' — 선택 시작 위치 기준으로 위쪽을 찾는다(다음과 왕복해도 같은 곳을 다시 잡지 않는다)."""
+            needle = self.search_text.text()
+            if not needle:
+                self.set_search_status('검색어 입력 필요', True)
+                return
+            result = find_prev_literal_span(
+                self.src.toPlainText(), needle, self.src.textCursor().selectionStart())
+            if not result:
+                self.set_search_status('검색 결과 없음', True)
+                self.src.setFocus()
+                return
+            start, end, wrapped = result
+            self.select_source_span(start, end)
+            self.set_search_status('끝에서부터 검색' if wrapped else '검색 위치 선택')
 
         def next_tool_no(self):
             if self.is_lathe_program():
