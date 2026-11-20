@@ -57,6 +57,9 @@ describe('toolpath 골든', () => {
       expect(objOf(r.line_to_seq_all)).toEqual(g.line_to_seq_all);
       expect(objOf(r.modal_state_map)).toEqual(g.modal_state_map);
       expect(objOf(r.line_lathe_map)).toEqual(g.line_lathe_map);
+      // 원본 v2.6.4: 재생 바 [모달 정보]
+      const mt = r.modal_timeline!;
+      expect({ lathe: mt.lathe, keys: mt.keys, states: mt.states, changes: mt.changes.map((c) => [...c].sort()) }).toEqual(g.modal_timeline);
       nearly(objOf(r.line_to_coord_map), g.line_to_coord_map, 'line_to_coord_map');
       nearly(objOf(r.seq_to_coord_map), g.seq_to_coord_map, 'seq_to_coord_map');
       nearly(objOf(r.seq_to_c_rot), g.seq_to_c_rot, 'seq_to_c_rot');

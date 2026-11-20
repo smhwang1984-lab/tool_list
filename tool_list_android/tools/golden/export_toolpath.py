@@ -48,6 +48,13 @@ def clean(value):
     return value
 
 
+def modal_json(timeline):
+    if timeline is None:
+        return None
+    return {'lathe': timeline.lathe, 'keys': list(timeline.keys), 'states': clean(timeline.states),
+            'changes': [sorted(c) for c in timeline.changes]}
+
+
 def main(argv):
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -113,6 +120,8 @@ def main(argv):
                     'seq_to_dwell_sec': clean(viewer.seq_to_dwell_sec),
                     'process_time_sec': clean(viewer.process_time_sec),
                     'total_time_sec': clean(viewer.total_time_sec),
+                    # v2.6.4: 재생 바 [모달 정보]
+                    'modal_timeline': modal_json(viewer.modal_timeline),
                 }
             name = '%s__%s.json' % (path.stem, machine.replace(' ', '_').replace('/', '_'))
             (OUT / name).write_text(json.dumps(data, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')

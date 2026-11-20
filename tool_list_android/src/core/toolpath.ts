@@ -1,6 +1,7 @@
 // NC → 공구 경로 — 원본 NCViewerWidget.process_nc_lines (nc_viewer_widget.py 4639~6172) 순수 로직 이식.
 // 그리기·Qt 위젯은 빼고 좌표·seq·줄 대응·가공 시간만 계산한다. 골든(tests/golden/toolpath)과 맞춘다.
 import { pySplitlines } from './py';
+import { ModalTimeline } from './modal';
 
 // ---------------------------------------------------------------- 상수
 export const MACHINE_5AXIS_AC = '5축 MCT (A to C)';
@@ -63,6 +64,8 @@ export interface ToolpathResult {
   machine_auto_note?: string;
   /** v2.5.9: seq → 테이블 회전 표시용 회전축 상태 [종류, A, B, C(도)] (회전 없으면 null) */
   seq_to_table_rot?: Map<number, TableRot | null>;
+  /** v2.6.4: 재생 바 [모달 정보] (원본 viewer.modal_timeline) */
+  modal_timeline?: ModalTimeline;
   line_lathe_map: Map<number, LatheLineInfo>;
   modal_state_map: Map<number, string[]>;
   seq_to_modal_state: Map<number, string[]>;
@@ -587,6 +590,8 @@ export function processNcLines(lines: readonly string[], machineType: string, sp
 
   const seqLines = expandSubprograms(lines);
   res.seq_to_line = seqLines.map(([idx]) => idx);
+  // 원본 v2.6.4: 재생 바 [모달 정보] — 실행 순서대로 주축 · 이송 · G/M 모달 (표시 전용)
+  res.modal_timeline = new ModalTimeline(seqLines, isLathe);
   const [nStarts, nToolAt] = isLathe ? latheNBlocks(seqLines) : [new Set<number>(), new Map<number, string>()];
 
   for (let seqPos = 0; seqPos < seqLines.length; seqPos++) {

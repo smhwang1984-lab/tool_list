@@ -424,3 +424,36 @@ def line_width_pixmap(width_px, color, length=64, height=16):
     finally:
         painter.end()
     return pixmap
+
+
+_CHECK_MARK_CACHE = {}
+
+
+def check_mark_png(color, size=14):
+    """v2.6.4: 체크박스 체크 표시(스타일시트 `image: url(...)`용) PNG 경로. 임시 폴더에 한 번만 그린다."""
+    key = (str(color), int(size))
+    cached = _CHECK_MARK_CACHE.get(key)
+    if cached:
+        return cached
+    import os
+    import tempfile
+    from PyQt5.QtGui import QImage
+    folder = os.path.join(tempfile.gettempdir(), "sumpath_ui")
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, "check_%s_%d.png" % (str(color).lstrip("#"), int(size)))
+    image = QImage(size, size, QImage.Format_ARGB32)
+    image.fill(Qt.transparent)
+    painter = QPainter(image)
+    painter.setRenderHint(QPainter.Antialiasing, True)
+    pen = QPen(QColor(color))
+    pen.setWidthF(max(1.5, size * 0.15))
+    pen.setCapStyle(Qt.RoundCap)
+    pen.setJoinStyle(Qt.RoundJoin)
+    painter.setPen(pen)
+    s = float(size)
+    painter.drawPolyline(QPolygonF([QPointF(0.2 * s, 0.52 * s), QPointF(0.42 * s, 0.74 * s), QPointF(0.8 * s, 0.28 * s)]))
+    painter.end()
+    image.save(path, "PNG")
+    result = path.replace("\\", "/")
+    _CHECK_MARK_CACHE[key] = result
+    return result

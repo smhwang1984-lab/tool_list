@@ -19,6 +19,7 @@ import { getPref, setPref } from '../platform/prefs';
 import { getViewerSettings, onViewerSettings, updateViewerSettings } from '../platform/viewerSettings';
 import { el } from '../ui/dialog';
 import { icon } from '../icons';
+import { emptyState, feedUnit, groupTable, M_CATEGORIES, summaryText, type ModalState } from '../core/modal';
 import { cutGroups, groupAt, type CutGroup } from './entryArrow';
 import { buildToolGeometry } from './toolMesh';
 import { toolShapeFromValues, type ToolValues } from '../sim/toolShape';
@@ -69,6 +70,8 @@ export interface Viewer {
   setSimProgram(p: SimProgram | LatheProgram | null, source: SimSource | null): void;
   /** 밀링 공구 모양을 그리기 위한 툴리스트 공구값(키: T01/T1/1) */
   setToolValues(v: ReadonlyMap<string, ToolValues> | null): void;
+  /** 원본 v2.6.4: 재생 바 옆 지금 공구 이름(키: T01/T1/1, 선반이면 null) */
+  setToolNames(names: Readonly<Record<string, string>> | null): void;
   /** 소재 적용(bounds 가 null 이면 소재 제거) */
   applyStock(bounds: Bounds | LatheBounds | null, resolution: number | null, enabled: boolean): void;
   /** PG 매칭: 전체 경로를 지우고 커서가 있는 공정만 커서 위치까지 그린다 */
@@ -336,9 +339,78 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
 
   // ---------------------------------------------------------------- 화면 겹침(오버레이)
   const projBar = el('div', { class: 'v-proj' });
+  // 원본 v2.6.4: 재생 정보 묶음 — 좌표 · [모달 정보](기본 접힘) · 진행 · 재생 버튼을 한 판에
+  const hud = el('div', { class: 'v-hud' });
+  const coordRow = el('div', { class: 'v-coordrow' });
   const coordBox = el('div', { class: 'v-coord' });
+  const modalRow = el('div', { class: 'v-modalrow' });
+  const modalToggle = el('button', { type: 'button', class: 'v-mtoggle', 'aria-expanded': 'false',
+    title: '주축 · 이송 · 마지막으로 적용된 G코드(그룹별)와 M코드 보기 / 숨기기' });
+  const modalPeek = el('span', { class: 'v-peek' });
+  modalRow.append(modalToggle, modalPeek);
+  const modalPanel = el('div', { class: 'v-modal' });
+  const kvBox = el('div', { class: 'v-kv' });
+  const groupBox = el('div', { class: 'v-groups' });
+  const mRow = el('div', { class: 'v-mrow' });
+  modalPanel.append(kvBox, groupBox, mRow);
   const playBar = el('div', { class: 'v-play' });
-  host.append(projBar, coordBox, playBar, progressBox);
+  const buttonRow = el('div', { class: 'v-btnrow' });
+  hud.append(coordRow, modalRow, modalPanel, playBar, buttonRow);
+  host.append(projBar, hud, progressBox);
+  let modalOpen = getPref('modal_info_open') === 'true';
+  let toolNames: Readonly<Record<string, string>> | null = null;
+  const kvCells = new Map<string, HTMLElement>();
+  for (const [key, name] of [['S', '주축'], ['spindle', '회전'], ['F', '이송'], ['unit', '단위']] as const) {
+    const n = el('span'); n.textContent = name;
+    const v = el('b'); v.textContent = '—';
+    const row = el('div'); row.append(n, v);
+    kvBox.append(row);
+    kvCells.set(key, v);
+  }
+  let groupCells = new Map<string, HTMLElement>();
+  let groupsLathe: boolean | null = null;
+  const buildGroups = (isLathe: boolean): void => {
+    if (groupsLathe === isLathe) return;
+    groupsLathe = isLathe;
+    groupBox.replaceChildren();
+    groupCells = new Map();
+    for (const [gid, name] of groupTable(isLathe)) {
+      const cell = el('div', { class: 'v-gg' });
+      const t = el('span'); t.textContent = `${gid} ${name}`;
+      const v = el('code'); v.textContent = '—';
+      cell.append(t, v);
+      groupBox.append(cell);
+      groupCells.set(gid, v);
+    }
+  };
+  const paintCell = (cell: HTMLElement, text: string | null | undefined, changed: boolean): void => {
+    cell.textContent = text || '—';
+    cell.classList.toggle('chg', changed);
+    cell.classList.toggle('none', !text);
+  };
+  const paintModalToggle = (): void => {
+    modalPanel.hidden = !modalOpen;
+    modalPeek.hidden = modalOpen;
+    modalToggle.setAttribute('aria-expanded', String(modalOpen));
+    modalToggle.textContent = `${modalOpen ? '▾' : '▸'} 모달 정보`;
+  };
+  paintModalToggle();
+  modalToggle.addEventListener('click', () => {
+    modalOpen = !modalOpen;
+    setPref('modal_info_open', String(modalOpen));
+    paintModalToggle();
+    showModal();
+  });
+  /** 원본 _tool_number_and_name — 'T03' + 이름 (선반은 번호만) */
+  const toolNumberAndName = (toolNo: string | undefined): [string, string] => {
+    if (!toolNo) return ['', ''];
+    const m = /T(\d+)/i.exec(toolNo);
+    if (!m) return [toolNo, ''];
+    const n = parseInt(m[1]!, 10);
+    if (lathe) return [n >= 100 ? `T${String(n).padStart(4, '0')}` : `T${String(n).padStart(2, '0')}`, ''];
+    const key = `T${String(n).padStart(2, '0')}`;
+    return [key, (toolNames && (toolNames[key] || toolNames[`T${n}`] || toolNames[String(n)])) || ''];
+  };
   instantBtn.addEventListener('click', () => {
     if (!result) return;
     let end: number | null = null;
@@ -387,7 +459,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     panel.hidden = !moreOpen;
     moreBtn.setAttribute('aria-expanded', String(moreOpen));
     const n = activeCount();
-    moreBtn.textContent = `${moreOpen ? '» 옵션' : '« 옵션'}${n && !moreOpen ? `  ${n}` : ''}`;
+    moreBtn.textContent = `${moreOpen ? '옵션 닫기' : '옵션 열기'}${n && !moreOpen ? `  ${n}` : ''}`;
   }
   paintMoreRef = paintMore;
   moreBtn.addEventListener('click', () => { moreOpen = !moreOpen; setPref('overlay_more_open', String(moreOpen)); paintMore(); });
@@ -447,17 +519,59 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     paintMore();
   };
 
-  const bPrevTool = mkIconBtn(playBar, 'prev', '이전 공정');
-  const bRewind = mkIconBtn(playBar, 'rewind', '처음으로');
-  const bPlay = mkIconBtn(playBar, 'play', '재생 / 정지');
-  const bNextTool = mkIconBtn(playBar, 'next', '다음 공정');
+  // [이전 공구]  (처음으로) (재생) 지금 공구  [다음 공구]
+  const labelBtn = (name: string, text: string, title: string, iconAfter: boolean): HTMLButtonElement => {
+    const b = el('button', { type: 'button', title, class: 'v-tool' });
+    b.innerHTML = iconAfter ? `<span>${text}</span>${icon(name)}` : `${icon(name)}<span>${text}</span>`;
+    return b;
+  };
+  const bPrevTool = labelBtn('prev', '이전 공구', '이전 공구 (F6)', false);
+  const bNextTool = labelBtn('next', '다음 공구', '다음 공구 (F8)', true);
+  const centerBox = el('div', { class: 'v-center' });
+  const bRewind = mkIconBtn(centerBox, 'rewind', '처음으로');
+  const bPlay = mkIconBtn(centerBox, 'play', '재생 / 정지 (F7)');
+  bPlay.classList.add('v-playbtn');
+  const toolNow = el('span', { class: 'v-toolnow' });
+  centerBox.append(toolNow);
+  buttonRow.append(bPrevTool, centerBox, bNextTool);
   const speedSel = el('select', { title: '재생 속도' });
   for (const s of PLAY_SPEEDS) speedSel.append(new Option(`${s}x`, String(s)));
   speedSel.value = '50';
   const slider = el('input', { type: 'range', min: '0', max: '0', value: '0', title: '재생 위치' });
+  const pctText = el('span', { class: 'v-pct' });
+  pctText.textContent = '0%';
+  playBar.append(speedSel, slider, pctText);
   const timeText = el('span', { class: 'v-time' });
   timeText.textContent = '00:00 / 00:00';
-  playBar.append(speedSel, slider, timeText);
+  coordRow.append(coordBox, timeText);
+  /** 원본 PlaybackBarWidget.set_modal_state / set_tool_text */
+  function showModal(): void {
+    paintModalToggle();
+    const tl = result?.modal_timeline;
+    const isLathe = tl ? tl.lathe : lathe;
+    const { state, changed } = tl ? tl.at(seqNow) : { state: emptyState() as ModalState, changed: new Set<string>() };
+    modalPeek.textContent = summaryText(state, isLathe);
+    const [num, name] = toolNumberAndName(result?.seq_to_tool_map.get(seqNow));
+    toolNow.innerHTML = '';
+    if (num) { toolNow.append(num + ' '); const b = el('b'); b.textContent = name; toolNow.append(b); }
+    if (!modalOpen) return;
+    buildGroups(isLathe);
+    let s = state.S ? 'S' + state.S : '';
+    if (isLathe && state.groups['02'] === 'G96' && s) s += ' (주속)';
+    paintCell(kvCells.get('S')!, s, changed.has('S'));
+    paintCell(kvCells.get('spindle')!, state.m.spindle, changed.has('m:spindle'));
+    paintCell(kvCells.get('F')!, state.F ? 'F' + state.F : '', changed.has('F'));
+    paintCell(kvCells.get('unit')!, feedUnit(state, isLathe), false);
+    for (const [gid, cell] of groupCells) paintCell(cell, state.groups[gid], changed.has(gid));
+    mRow.replaceChildren();
+    for (const [key, name] of M_CATEGORIES) {
+      const item = el('span');
+      const code = el('code');
+      paintCell(code, state.m[key], changed.has('m:' + key));
+      item.append(name + ' ', code);
+      mRow.append(item);
+    }
+  }
 
   // ---------------------------------------------------------------- 카메라
   const cameraPosition = (): THREE.Vector3 => {
@@ -946,8 +1060,17 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
       }
     }
     const modal = result.seq_to_modal_state.get(seqNow);
-    coordBox.textContent = (modal ? `X ${modal[0]}  Y ${modal[1]}  Z ${modal[2]}${lathe ? `  C ${modal[5]}` : `  A ${modal[3]}  B ${modal[4]}  C ${modal[5]}`}` : '') + (result.machine_auto_note ? `   (${result.machine_auto_note})` : '');
+    // 원본 v2.6.4: 축 이름은 흐리게, 값은 한 가지 색 · 고정폭
+    coordBox.replaceChildren();
+    if (modal) {
+      const axes = lathe ? [['X', 0], ['Y', 1], ['Z', 2], ['C', 5]] as const : [['X', 0], ['Y', 1], ['Z', 2], ['A', 3], ['B', 4], ['C', 5]] as const;
+      for (const [name, i] of axes) { const s = el('span'); s.textContent = name; const b = el('b'); b.textContent = String(modal[i]); s.append(b); coordBox.append(s); }
+    }
+    if (result.machine_auto_note) { const note = el('em'); note.textContent = result.machine_auto_note; coordBox.append(note); }
     timeText.textContent = formatElapsedOverTotal(elapsedSecondsAtSeq(result, seqNow, sortedKeys), result.total_time_sec);
+    const total = sequenceLength(result);
+    pctText.textContent = `${total > 1 ? Math.round((Math.max(0, Math.min(1, seqNow / (total - 1)))) * 100) : 0}%`;
+    showModal();
     dirty = true;
     if (emit) hooks.onLine?.(lineAtSeq(result, seqNow));
   }
@@ -1073,6 +1196,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
       return true;
     },
     setToolValues(v) { toolValues = v; toolGeoCache.clear(); },
+    setToolNames(names) { toolNames = names; },
     setSimProgram(p, source) { sim.setProgram(p, source); if (!simLive) sim.setTarget(selectionEndSeq()); },
     applyStock(bounds, resolution, on) {
       if (bounds && 'X' in bounds) {

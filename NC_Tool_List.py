@@ -33,7 +33,7 @@ import lathe_insert_spec
 import sumpath_license
 
 
-APP_VERSION = '2.6.3'
+APP_VERSION = '2.6.4'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-11-20'
 APP_CREATOR = 'Hwang.seonmun'
@@ -90,16 +90,41 @@ def scaled(value):
     return round(value * FILTER_SECTION_SCALE)
 
 
-# v1.6.3: 재생 시 사용하는 체크박스(텍스트 정지/정지/옵션정지/PG 매칭)가
-# 체크되면 한눈에 띄도록 인디케이터를 초록으로 채우고 글자도 굵은 초록으로
-# 바꾼다 — 테마와 무관하게 항상 같은 색을 써서 라이트/다크 어느 쪽에서도
-# 잘 보이게 한다.
+# v1.6.3: 재생 시 사용하는 체크박스(텍스트 정지/정지/옵션정지/실시간 형상)의 체크 모양.
+# v2.6.4: 초록 + 굵은 글씨 대신 강조색 하나(글자는 그대로). 이 체크박스들은 늘 어두운
+# 3D 화면 위 옵션 창에 있어 다크 강조색을 쓴다. PG 매칭은 테마를 따르는 pg_match_checkbox_style().
 PLAYBACK_CHECKBOX_STYLE = (
-    'QCheckBox::indicator { width: 16px; height: 16px; border-radius: 3px;'
-    ' border: 1.5px solid #8a94a3; background: transparent; }'
-    'QCheckBox::indicator:checked { background: #2ecc71; border: 1.5px solid #1e9e5a; }'
-    'QCheckBox:checked { color: #1e9e5a; font-weight: 700; }'
+    'QCheckBox::indicator { width: 16px; height: 16px; border-radius: 4px;'
+    ' border: 1.5px solid #7a8494; background: transparent; }'
+    'QCheckBox::indicator:checked { background: #3f7fc9; border: 1.5px solid #3f7fc9; image: url(%s); }'
 )
+
+
+def _rgba(hex_color, alpha):
+    value = hex_color.lstrip('#')
+    return 'rgba(%d, %d, %d, %d)' % (int(value[0:2], 16), int(value[2:4], 16), int(value[4:6], 16), alpha)
+
+
+def pg_match_checkbox_style(t):
+    """v2.6.4: [PG 매칭] — 옆 버튼들과 같은 틀의 체크 버튼. 켜지면 옅은 강조색 면 + 강조색 선."""
+    return (
+        'QCheckBox { color: %(text)s; background: %(panel_bg)s; border: 1px solid %(border)s;'
+        ' border-radius: 6px; padding: 4px 10px 4px 8px; spacing: 8px; }'
+        'QCheckBox:hover { background: %(list_hover)s; }'
+        'QCheckBox:checked { border-color: %(accent)s; background: %(soft)s; }'
+        'QCheckBox::indicator { width: 16px; height: 16px; border-radius: 4px;'
+        ' border: 1.5px solid %(faint_text)s; background: transparent; }'
+        'QCheckBox::indicator:checked { background: %(accent)s; border: 1.5px solid %(accent)s; image: url(%(check)s); }'
+    ) % dict(t, soft=_rgba(t['accent'], 46 if _is_dark(t) else 31), check=ui_icons.check_mark_png('#ffffff'))
+
+
+def _is_dark(t):
+    value = t['window_bg'].lstrip('#')
+    return (int(value[0:2], 16) + int(value[2:4], 16) + int(value[4:6], 16)) < 3 * 128
+
+
+def playback_checkbox_style():
+    return PLAYBACK_CHECKBOX_STYLE % ui_icons.check_mark_png('#ffffff')
 
 # 라이트/다크 테마 색상 토큰. 의미 기반 키로 두어 위젯 각각이 하드코딩된
 # 색 대신 이 값을 참조하고, 다크모드 토글 시 App.apply_theme()이 전체를
@@ -3382,6 +3407,7 @@ else:
             self._style_neutral_button(self.machine_save_button)
             self._style_groupbox_border(self.machine_settings_panel)
             self._style_tool_filter_list(self.tool_filter)
+            self.pg_match_check.setStyleSheet(pg_match_checkbox_style(self.theme))
             self._style_info_panel(self.metadata_summary)
             self._style_muted(self.count)
             self._style_muted(self.machine_settings_status)
@@ -3435,13 +3461,14 @@ else:
 
         def _style_tool_filter_list(self, widget):
             t = self.theme
+            # v2.6.4: 선택한 공정은 옅은 강조색 면 + 왼쪽 강조색 막대(꽉 찬 파랑 대신), 글자는 그대로.
             widget.setStyleSheet(
-                'QListWidget { background: %s; border: 1px solid %s; }'
-                'QListWidget::item { padding: 5px 6px; color: %s; }'
+                'QListWidget { background: %s; border: 1px solid %s; border-radius: 6px; }'
+                'QListWidget::item { padding: 5px 6px; color: %s; border-left: 3px solid transparent; }'
                 'QListWidget::item:hover { background: %s; }'
-                'QListWidget::item:selected { background: %s; color: %s; }'
+                'QListWidget::item:selected { background: %s; color: %s; border-left: 3px solid %s; }'
                 % (t['list_bg'], t['border'], t['list_text'], t['list_hover'],
-                   t['list_selected_bg'], t['list_selected_text'])
+                   _rgba(t['accent'], 46 if _is_dark(t) else 31), t['list_text'], t['accent'])
             )
 
         def _build_ui(self):
@@ -3641,8 +3668,9 @@ else:
             self.main_splitter.addWidget(self.program_panel)
 
             lbar = QHBoxLayout()
+            # v2.6.4: 굵기는 보통·중간 두 가지만 — 제목은 굵게 대신 중간(500).
             label = QLabel('① 프로그램 입력')
-            label.setFont(QFont('맑은 고딕', 10, QFont.Bold))
+            label.setFont(QFont('맑은 고딕', 10, QFont.Medium))
             lbar.addWidget(label)
             self.edit_mode_label = QLabel('✎ 편집 중')
             self.edit_mode_label.setFont(QFont('맑은 고딕', 10, QFont.Bold))
@@ -3728,7 +3756,7 @@ else:
 
             self.stop_text_check = QCheckBox('텍스트 정지')
             self.stop_text_check.setFont(filter_kfont)
-            self.stop_text_check.setStyleSheet(PLAYBACK_CHECKBOX_STYLE)
+            self.stop_text_check.setStyleSheet(playback_checkbox_style())
             self.stop_text_check.setToolTip(
                 '오른쪽 입력창의 문자열이 포함된 줄에서 자동 재생을 멈춥니다.\n'
                 '위쪽 "문자 검색"과는 별개의 값입니다.'
@@ -3740,11 +3768,11 @@ else:
             self.stop_text_input.setToolTip(self.stop_text_check.toolTip())
             self.stop_m00_check = QCheckBox('정지')
             self.stop_m00_check.setFont(filter_kfont)
-            self.stop_m00_check.setStyleSheet(PLAYBACK_CHECKBOX_STYLE)
+            self.stop_m00_check.setStyleSheet(playback_checkbox_style())
             self.stop_m00_check.setToolTip('M0 또는 M00에서 자동 재생을 멈춥니다.')
             self.stop_m01_check = QCheckBox('옵션정지')
             self.stop_m01_check.setFont(filter_kfont)
-            self.stop_m01_check.setStyleSheet(PLAYBACK_CHECKBOX_STYLE)
+            self.stop_m01_check.setStyleSheet(playback_checkbox_style())
             self.stop_m01_check.setToolTip('M1 또는 M01에서 자동 재생을 멈춥니다.')
             self._load_playback_stop_options()
             self.stop_text_check.toggled.connect(self._on_stop_text_check_toggled)
@@ -3756,7 +3784,7 @@ else:
             # v2.3.3: PG 매칭 재생 중 공구가 지나가는 대로 소재를 깎아 보인다(소재 적용 후).
             self.sim_live_check = QCheckBox('실시간 형상')
             self.sim_live_check.setFont(filter_kfont)
-            self.sim_live_check.setStyleSheet(PLAYBACK_CHECKBOX_STYLE)
+            self.sim_live_check.setStyleSheet(playback_checkbox_style())
             self.sim_live_check.setChecked(
                 self._as_bool_setting(self.layout_settings.value('sim_live_shape', None), False))
             self.sim_live_check.toggled.connect(self._on_sim_live_toggled)
@@ -3772,7 +3800,7 @@ else:
             # 전체/해제 글자가 잘리지 않도록 라벨을 줄이고, 원래 이름은 툴팁에 둔다.
             filter_label = QLabel('공정 필터')
             filter_label.setToolTip('공정별 경로 필터 선택 — 아래 목록에서 3D 화면에 그릴 공정을 고릅니다.')
-            filter_label_font = QFont('맑은 고딕', weight=QFont.Bold)
+            filter_label_font = QFont('맑은 고딕', weight=QFont.Medium)
             filter_label_font.setPointSizeF(9 * FILTER_SECTION_SCALE)
             filter_label.setFont(filter_label_font)
             filter_bar.addWidget(filter_label)
@@ -3785,7 +3813,7 @@ else:
             )
             self.pg_match_check = QCheckBox('PG 매칭')
             self.pg_match_check.setFont(filter_kfont)
-            self.pg_match_check.setStyleSheet(PLAYBACK_CHECKBOX_STYLE)
+            self.pg_match_check.setStyleSheet(pg_match_checkbox_style(self.theme))
             self.pg_match_check.setToolTip(
                 '체크하면 그려진 경로를 지우고, 커서가 있는 공정만\n'
                 '프로그램 방향키에 맞춰 실시간으로 그리고 지웁니다.'
@@ -3801,7 +3829,7 @@ else:
             filter_layout.addLayout(filter_bar)
             self.tool_filter = QListWidget()
             self.tool_filter.setSelectionMode(QAbstractItemView.MultiSelection)
-            self.tool_filter.setFont(QFont('맑은 고딕', 10, QFont.Bold))
+            self.tool_filter.setFont(QFont('맑은 고딕', 10))
             self.tool_filter.setIconSize(QSize(14, 14))
             self._style_tool_filter_list(self.tool_filter)
             filter_layout.addWidget(self.tool_filter, 1)

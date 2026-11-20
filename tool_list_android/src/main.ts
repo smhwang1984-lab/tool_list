@@ -475,6 +475,7 @@ function mount(root: HTMLElement): void {
     const rows = toolTable.rows();
     const names = machinePanel.isLathe() ? latheToolNameMapFromRows(rows) : toolNameMapFromRows(rows);
     viewer.setToolValues(machinePanel.isLathe() ? null : toolShapeMapFromRows(rows));
+    viewer.setToolNames(machinePanel.isLathe() ? null : names); // 원본 v2.6.4: 재생 바 옆 지금 공구 이름
     viewer.setProgram(res, mt);
     lastResult = res;
     if (machinePanel.isLathe()) {

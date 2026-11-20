@@ -2736,7 +2736,9 @@ G02 X0 Y10 I-10 J0
             self.assertIsNone(viewer.gl_view.bottom_projection_widget)
             self.assertIn(viewer.projection_overlay, viewer.gl_view.top_left_widgets)
             self.assertIn('background: transparent', viewer.coord_overlay.styleSheet())
-            self.assertIn('color: white', viewer.coord_overlay.styleSheet())
+            # v2.6.4: 글자는 밝은 한 가지 색, 좌표는 재생 정보 묶음(재생 바)의 첫 줄.
+            self.assertIn('color: #e4e8f0', viewer.coord_overlay.styleSheet())
+            self.assertIs(viewer.coord_overlay.parent(), viewer.playback_bar)
             # 값 갱신은 여전히 동작해야 한다.
             viewer._set_coordinate_labels([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
             self.assertEqual(viewer.coord_labels['X'].text(), '1.0')
@@ -2795,7 +2797,10 @@ G02 X0 Y10 I-10 J0
             ):
                 style = checkbox.styleSheet()
                 self.assertIn('indicator:checked', style)
-                self.assertIn('font-weight', style)
+                # v2.6.4: 초록 굵은 글씨 대신 강조색 하나 — 체크 표시만 강조색으로 채운다.
+                self.assertNotIn('font-weight', style)
+                self.assertNotIn('#2ecc71', style)
+                self.assertIn(window.theme['accent'] if checkbox is window.pg_match_check else '#3f7fc9', style)
         finally:
             window.deleteLater()
             settings_dir.cleanup()

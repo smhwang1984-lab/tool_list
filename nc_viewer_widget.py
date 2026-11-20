@@ -48,6 +48,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+import nc_modal
 import nc_tool_marker
 import nc_sim
 import nc_sim3d
@@ -1050,7 +1051,9 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
         if self.bottom_bar_widget is None:
             return
         bar = self.bottom_bar_widget
-        width = max(200, round(self.width() * self._BOTTOM_BAR_WIDTH_RATIO))
+        # v2.6.4: 좌표 · 모달 정보가 한 판에 들어가 최소 640px(화면이 좁으면 화면 폭 - 24px).
+        width = max(round(640 * ui_scale()), round(self.width() * self._BOTTOM_BAR_WIDTH_RATIO))
+        width = max(200, min(width, self.width() - 24))
         bar.setFixedWidth(width)
         height = bar.sizeHint().height()
         margin_bottom = round(2 * PX_PER_CM)
@@ -1084,7 +1087,7 @@ class OrthographicGLViewWidget(gl.GLViewWidget):
             proj_y = bar_top_y - projection.height() - BOTTOM_COORD_OVERLAY_GAP_PX
             projection.move(cursor_x, max(0, proj_y))
             cursor_x += projection.width() + BOTTOM_COORD_OVERLAY_GAP_PX
-        if widget is not None:
+        if widget is not None and widget.parent() is not bar:
             coord_y = bar_top_y - widget.height() - BOTTOM_COORD_OVERLAY_GAP_PX
             widget.move(cursor_x, max(0, coord_y))
 
@@ -1443,7 +1446,7 @@ class ProjectionOverlayWidget(QWidget):
             " border: 1px solid rgba(255, 255, 255, 70); border-radius: 5px;"
             " padding: 3px 7px; font-size: 12px; }"
             " QPushButton:hover { background-color: rgba(255, 255, 255, 65); }"
-            " QPushButton:checked { background-color: #2e86de; border-color: #8ec5ff; color: white; }"
+            " QPushButton:checked { background-color: #3f7fc9; border-color: #3f7fc9; color: white; }"
             " QToolButton { color: white; background-color: rgba(40, 44, 52, 90);"
             " border: 1px solid rgba(255, 255, 255, 70); border-radius: 5px;"
             " padding: 3px 7px; font-size: 12px; }"
@@ -1461,8 +1464,13 @@ class ProjectionOverlayWidget(QWidget):
             " QWidget#moreRow QCheckBox, QWidget#moreRow QLineEdit, QWidget#moreRow QPushButton { font-size: 12px; }"
             " QWidget#moreRow QCheckBox { min-height: 24px; }"
             # v2.4.3: 버튼은 모두 본래 크기(위치 찍기 포함). 눌린 버튼만 파랗게.
-            # v2.4.6: [가공형상즉시보기]는 켜지면 초록색.
-            " QPushButton#shapeButton:checked { background-color: #2ea043; border-color: #7ee787; }"
+            # v2.6.4: 켜짐 색은 강조색 하나(가공형상즉시보기도 초록 대신 같은 파랑).
+            " QPushButton#shapeButton:checked { background-color: #3f7fc9; border-color: #3f7fc9; }"
+            " QCheckBox::indicator { width: 16px; height: 16px; border-radius: 4px;"
+            " border: 1.5px solid #7a8494; background: transparent; }"
+            " QCheckBox::indicator:checked { border-color: #3f7fc9; background: #3f7fc9; image: url(%s); }"
+            " QCheckBox::indicator:disabled { border-color: rgba(228, 232, 240, 50); }"
+            % ui_icons.check_mark_png("#ffffff")
         )
         # v2.6.0: 첫 줄(투영 버튼들) 아래에 [>>]로 여닫는 옵션 줄을 둔다.
         outer = QVBoxLayout(self)
@@ -1521,7 +1529,7 @@ class ProjectionOverlayWidget(QWidget):
         dock_layout.setContentsMargins(0, 0, 0, 0)
         dock_layout.setSpacing(8)
         self._dock_layout = dock_layout
-        self.more_button = QPushButton("« 옵션")
+        self.more_button = QPushButton("옵션 열기")
         self.more_button.setObjectName("moreButton")
         self.more_button.setCheckable(True)
         self.more_button.setFocusPolicy(Qt.NoFocus)
@@ -1643,7 +1651,7 @@ class ProjectionOverlayWidget(QWidget):
             return
         count = self._active_option_count()
         suffix = "  %d" % count if (count and not self.more_button.isChecked()) else ""
-        self.more_button.setText(("» 옵션" if self.more_button.isChecked() else "« 옵션") + suffix)
+        self.more_button.setText(("옵션 닫기" if self.more_button.isChecked() else "옵션 열기") + suffix)
 
     def set_stop_widgets(self, text_check, text_input, m00_check, m01_check, live_check):
         """앱이 만든 정지 옵션 위젯을 옵션 창의 [재생 정지] 구역에 풀어서 늘어놓는다(v2.6.2)."""
@@ -1834,36 +1842,35 @@ class CoordOverlayWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WA_TranslucentBackground)
+        # v2.6.4: 재생 정보 묶음의 첫 줄. 축 이름은 흐리게, 값은 한 가지 글자색 · 고정폭 숫자(축마다 다른 색 제거).
         self.setStyleSheet(
             "CoordOverlayWidget { background: transparent; }"
-            " QLabel { background: transparent; color: white; font-size: 14px; font-weight: bold; }"
+            " QLabel { background: transparent; color: #e4e8f0; font-family: Consolas; font-size: 10pt; }"
         )
         row = QHBoxLayout(self)
-        row.setContentsMargins(6, 4, 6, 4)
-        row.setSpacing(14)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
         self.value_labels = {}
-        for axis in ("X", "Y", "Z", "A", "B", "C"):
-            axis_label = QLabel(axis + ":")
+        for index, axis in enumerate(("X", "Y", "Z", "A", "B", "C")):
+            if index:
+                row.addSpacing(12)
+            axis_label = QLabel(axis)
+            axis_label.setStyleSheet("color: #7a8494;")
             row.addWidget(axis_label)
             value = QLabel("0.000")
-            value.setStyleSheet(
-                "background: transparent; font-weight: bold; font-size: 14px; color: %s;"
-                % self._AXIS_COLORS[axis]
-            )
+            value.setStyleSheet("color: #e4e8f0;")
             self.value_labels[axis] = value
             row.addWidget(value)
-        # v1.6.7: 좌표 끝에 "진행중인 시간 / 전체 시간"을 붙인다. 축 값들과
-        # 구분되게 옅은 회색으로 두고, 계산된 시간이 없으면 0으로 보인다.
-        row.addSpacing(6)
+        # v1.6.7: 좌표 끝에 "진행중인 시간 / 전체 시간"(v2.6.4: 오른쪽 끝, 옅게).
+        row.addStretch(1)
+        row.addSpacing(12)
         self.time_label = QLabel(TIME_OVERLAY_PLACEHOLDER)
-        self.time_label.setStyleSheet(
-            "background: transparent; font-weight: bold; font-size: 14px; color: #DDDDDD;"
-        )
+        self.time_label.setStyleSheet("color: #9aa5b8;")
         row.addWidget(self.time_label)
         # v2.5.9: 장비 설정과 다르게 계산했을 때(예: 3축 설정인데 G43.4 프로그램) 안내문을 붙인다.
         self.note_label = QLabel("")
         self.note_label.setStyleSheet(
-            "background: transparent; font-weight: normal; font-size: 12px; color: #F0B24A;"
+            "font-family: '맑은 고딕'; font-size: 9pt; color: #F0B24A;"
         )
         self.note_label.setVisible(False)
         row.addWidget(self.note_label)
@@ -1877,6 +1884,19 @@ class CoordOverlayWidget(QWidget):
         self.note_label.setText(text)
         self.note_label.setVisible(bool(text))
         self.adjustSize()
+
+
+def ui_scale():
+    """v2.6.4: 윈도우 화면 배율(논리 DPI / 96, 최소 1). 이 앱은 Qt 고해상도 배율을 켜지 않아 pt 글자만
+    배율을 따르므로, 글자와 함께 놓이는 px 여백·폭은 이 값을 곱한다."""
+    try:
+        from PyQt5.QtGui import QGuiApplication
+        screen = QGuiApplication.primaryScreen()
+        if screen is not None:
+            return max(1.0, float(screen.logicalDotsPerInch()) / 96.0)
+    except Exception:
+        pass
+    return 1.0
 
 
 def format_playback_speed(value):
@@ -1899,68 +1919,132 @@ class PlaybackBarWidget(QWidget):
     next_tool_clicked = pyqtSignal()
     speed_changed = pyqtSignal(int)
 
+    # v2.6.4: 재생 정보 묶음(좌표 · 모달 정보 · 진행 막대 · 재생 버튼) — 3D 화면은 늘 어두워 테마와 무관한 다크 디자인.
+    _HUD_TEXT = "#e4e8f0"
+    _HUD_MUTED = "#7a8494"
+    _HUD_SOFT = "#9aa5b8"
+    _HUD_ACCENT = "#3f7fc9"
+    _HUD_CHANGED = "#8fc0ff"
+    _MONO = "Consolas"
+    modal_toggled = pyqtSignal(bool)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        # v1.6.1: 앱 전역 테마 스타일시트의 'QWidget { background: ... }'
-        # 규칙이 (Qt는 타입 선택자를 서브클래스까지 매칭하므로) 이 바의
-        # 자식 QLabel/QSlider에도 적용되어, 라이트 모드에서 밝은 배경이
-        # 반투명 어두운 패널 위를 불투명하게 덮어 흰 글자가 안 보이는
-        # 문제가 있었다. 이 바는 항상 어두운 3D 캔버스 위에 뜨므로
-        # 테마와 무관하게 항상 다크 디자인으로 고정한다.
-        # v1.6.2: 1920x1080 실사용에서 너무 크다는 피드백으로 바 전체(패딩·
-        # 폰트·슬라이더 두께)를 40% 줄인다 — 아래 수치는 모두 v1.6.1 값에
-        # shrink()(0.6배)를 적용한 것이다.
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        # v1.6.1: 앱 전역 테마 스타일시트의 QWidget 배경 규칙이 자식에 번지지 않게, 이 바 안의 모든 위젯 색을 직접 정한다.
+        # v2.6.4: 글자는 pt(윈도우 배율을 따라 앱 글자와 같은 크기), 여백·폭은 배율을 곱한 px.
+        s = ui_scale()
+        self._ui_scale = s
+        px = lambda value: max(1, int(round(value * s)))
+        self._px = px
         self.setStyleSheet(
-            "PlaybackBarWidget { background-color: rgba(33, 37, 43, 190);"
-            " border-radius: %(radius)dpx; }"
-            " QLabel { background: transparent; color: white; font-size: %(label)dpx; }"
-            " QSlider { background: transparent; }"
-            " QSlider::groove:horizontal { background: rgba(255, 255, 255, 40);"
-            " border-radius: %(groove_radius)dpx; height: %(groove)dpx; }"
-            " QSlider::sub-page:horizontal { background: rgba(120, 170, 255, 200);"
-            " border-radius: %(groove_radius)dpx; height: %(groove)dpx; }"
-            " QSlider::handle:horizontal { background: #e4e8f0;"
-            " border: 1px solid rgba(0, 0, 0, 80); width: %(handle)dpx; height: %(handle)dpx;"
-            " margin: -%(handle_margin)dpx 0; border-radius: %(handle_radius)dpx; }"
-            " QPushButton { color: white; background-color: rgba(255, 255, 255, 30);"
-            " border: 1px solid rgba(255, 255, 255, 60); border-radius: %(btn_radius)dpx;"
-            " padding: %(btn_pad_v)dpx %(btn_pad_h)dpx; font-size: %(btn_font)dpx;"
-            " font-weight: bold; }"
-            " QPushButton:hover { background-color: rgba(255, 255, 255, 55); }"
-            " QPushButton:disabled { color: rgba(255, 255, 255, 90); }"
-            " QToolButton { color: white; background-color: rgba(255, 255, 255, 30);"
-            " border: 1px solid rgba(255, 255, 255, 60); border-radius: %(btn_radius)dpx;"
-            " padding: %(tb_pad)dpx %(tb_pad_h)dpx; font-size: %(label)dpx; font-weight: bold; }"
-            " QToolButton:hover, QToolButton:checked { background-color: #2e86de; }"
+            "QWidget { background: transparent; }"
+            " QLabel { color: #e4e8f0; font-size: 10pt; }"
+            " QLabel#muted { color: #7a8494; font-size: 9pt; }"
+            " QLabel#groupName { color: #7a8494; font-size: 8pt; }"
+            " QLabel#mono { font-family: Consolas; font-size: 10pt; color: #e4e8f0; }"
+            " QLabel#peek { font-family: Consolas; font-size: 9pt; color: #c9d1dc; }"
+            " QLabel#pct { font-family: Consolas; font-size: 9pt; color: #9aa5b8; }"
+            " QLabel#toolNow { font-family: Consolas; font-size: 9pt; color: #9aa5b8; }"
+            " QPushButton { color: #e4e8f0; background-color: rgba(228, 232, 240, 10);"
+            " border: 1px solid rgba(228, 232, 240, 40); border-radius: %(r8)dpx;"
+            " padding: 0px %(p12)dpx; min-height: %(h34)dpx; font-size: 10pt; }"
+            " QPushButton:hover { background-color: rgba(228, 232, 240, 26); }"
+            " QPushButton:disabled { color: rgba(228, 232, 240, 90); border-color: rgba(228, 232, 240, 20); }"
+            " QPushButton#iconButton { padding: 0px; min-width: %(w40)dpx; max-width: %(w40)dpx; }"
+            " QPushButton#playButton { padding: 0px; min-width: %(w56)dpx; max-width: %(w56)dpx;"
+            " background-color: #e4e8f0; border-color: #e4e8f0; }"
+            " QPushButton#playButton:hover { background-color: #ffffff; }"
+            " QPushButton#playButton:disabled { background-color: rgba(228, 232, 240, 60); border-color: transparent; }"
+            " QToolButton { color: #e4e8f0; background: transparent;"
+            " border: 1px solid rgba(228, 232, 240, 46); border-radius: %(r6)dpx;"
+            " padding: %(p2)dpx %(p8)dpx; font-family: Consolas; font-size: 9pt; }"
+            " QToolButton:hover { background-color: rgba(228, 232, 240, 20); }"
             " QToolButton::menu-indicator { image: none; }"
-            " QProgressBar { background: rgba(255, 255, 255, 40); border: none;"
-            " border-radius: %(groove_radius)dpx; }"
-            " QProgressBar::chunk { background: #2e86de; border-radius: %(groove_radius)dpx; }"
-            % {
-                "tb_pad": shrink(10), "tb_pad_h": shrink(20),
-                "radius": shrink(14), "label": shrink(15),
-                "groove": shrink(12), "groove_radius": shrink(6),
-                "handle": shrink(22), "handle_margin": shrink(6),
-                "handle_radius": shrink(11),
-                "btn_radius": shrink(8), "btn_pad_v": shrink(18),
-                "btn_pad_h": shrink(27), "btn_font": shrink(17),
-            }
+            " QToolButton#modalToggle { border: none; color: #9aa5b8; font-family: '맑은 고딕';"
+            " padding: %(p2)dpx %(p6)dpx %(p2)dpx %(p2)dpx; }"
+            " QToolButton#modalToggle:hover { color: #e4e8f0; }"
+            " QProgressBar { background: #2a2f38; border: none; border-radius: %(r3)dpx; }"
+            " QProgressBar::chunk { background: #3f7fc9; border-radius: %(r3)dpx; }"
+            " QMenu { background: #242a35; color: #e4e8f0; border: 1px solid #3a4250; font-family: Consolas; }"
+            " QMenu::item { padding: %(p6)dpx %(p12)dpx; }"
+            " QMenu::item:selected { background: #3f7fc9; color: #ffffff; }"
+            % {"r12": px(12), "r8": px(8), "r6": px(6), "r3": px(3), "p12": px(12), "p8": px(8),
+               "p6": px(6), "p2": px(2), "h34": px(32), "w40": px(40), "w56": px(56)}
         )
         self._playing = False
-        # v2.3.6: 바 위의 마우스·휠은 (꺼져 있을 때도) 아래 3D 화면으로 넘기지 않는다 —
-        # 바 여백을 누르면 회전이 시작되고 회전 중심·줌 십자가 뜨던 문제.
+        # v2.3.6: 바 위의 마우스·휠은 (꺼져 있을 때도) 아래 3D 화면으로 넘기지 않는다.
         self.setAttribute(Qt.WA_NoMousePropagation, True)
 
-        # 전체 높이(~3배)와 버튼 크기(~2.5배)를 원래(80px 큐브 시절과 같은 시기에
-        # 만든 60px 높이 바) 대비로 키워 달라는 사용자 요청 반영. 슬라이더도
-        # 자간을 맞춰 함께 키운다.
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(shrink(26), shrink(24), shrink(26), shrink(26))
-        outer.setSpacing(shrink(26))
+        outer.setContentsMargins(px(14), px(12), px(14), px(12))
+        outer.setSpacing(px(8))
+        self._outer = outer
+        # 좌표 오버레이를 여기 첫 줄에 넣는다(set_coord_widget).
+        self._coord_slot = QVBoxLayout()
+        self._coord_slot.setContentsMargins(0, 0, 0, 0)
+        outer.addLayout(self._coord_slot)
+
+        # 모달 정보: [▸ 모달 정보] + 한 줄 요약, 펼치면 아래 표. 기본 접힘.
+        toggle_row = QHBoxLayout()
+        toggle_row.setSpacing(4)
+        self.modal_toggle = QToolButton()
+        self.modal_toggle.setObjectName("modalToggle")
+        self.modal_toggle.setFocusPolicy(Qt.NoFocus)
+        self.modal_toggle.setCheckable(True)
+        self.modal_toggle.setToolTip("주축 · 이송 · 마지막으로 적용된 G코드(그룹별)와 M코드 보기 / 숨기기")
+        self.modal_toggle.toggled.connect(self._on_modal_toggled)
+        self.modal_peek = QLabel("")
+        self.modal_peek.setObjectName("peek")
+        toggle_row.addWidget(self.modal_toggle)
+        toggle_row.addWidget(self.modal_peek)
+        toggle_row.addStretch(1)
+        outer.addLayout(toggle_row)
+        self.modal_panel = QWidget()
+        self.modal_panel.setObjectName("modalPanel")
+        self.modal_panel.setAttribute(Qt.WA_StyledBackground, True)
+        panel_layout = QHBoxLayout(self.modal_panel)
+        panel_layout.setContentsMargins(0, px(10), 0, px(4))
+        panel_layout.setSpacing(px(16))
+        kv = QGridLayout()
+        kv.setContentsMargins(0, 0, 0, 0)
+        kv.setHorizontalSpacing(px(12))
+        kv.setVerticalSpacing(px(6))
+        self._kv_values = {}
+        for row_index, (key, name) in enumerate((("S", "주축"), ("spindle", "회전"), ("F", "이송"), ("unit", "단위"))):
+            name_label = QLabel(name)
+            name_label.setObjectName("muted")
+            value_label = QLabel("—")
+            value_label.setObjectName("mono")
+            value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            kv.addWidget(name_label, row_index, 0)
+            kv.addWidget(value_label, row_index, 1)
+            self._kv_values[key] = value_label
+        kv_box = QWidget()
+        kv_box.setLayout(kv)
+        kv_box.setFixedWidth(px(148))
+        panel_layout.addWidget(kv_box, 0, Qt.AlignTop)
+        right = QVBoxLayout()
+        right.setSpacing(px(8))
+        self._group_grid = QGridLayout()
+        self._group_grid.setHorizontalSpacing(px(10))
+        self._group_grid.setVerticalSpacing(px(6))
+        right.addLayout(self._group_grid)
+        self._m_label = QLabel("")
+        self._m_label.setObjectName("muted")
+        self._m_label.setTextFormat(Qt.RichText)
+        right.addWidget(self._m_label)
+        panel_layout.addLayout(right, 1)
+        outer.addWidget(self.modal_panel)
+        self._group_cells = {}
+        self._group_lathe = None
+        self._build_group_cells(False)
+        self.modal_panel.setVisible(False)
+        self._refresh_modal_toggle()
 
         speed_row = QHBoxLayout()
-        speed_row.setSpacing(shrink(20))
+        speed_row.setSpacing(px(10))
         # v2.4.2: 배속은 재생바 앞의 드롭업(위로 펼침)에서 고르고, 바는 시뮬레이션 진행 상태를 보인다.
         self._speed_value = 1
         self._speed_cap = None
@@ -1980,42 +2064,49 @@ class PlaybackBarWidget(QWidget):
         self.progress_bar.setValue(0)
         self.progress_bar.setTextVisible(False)
         self.progress_bar.setFocusPolicy(Qt.NoFocus)
-        self.progress_bar.setFixedHeight(shrink(40))
+        self.progress_bar.setFixedHeight(px(6))
         self.progress_bar.setToolTip("시뮬레이션 진행 상태")
         speed_row.addWidget(self.progress_bar, 1)
         self.progress_label = QLabel("0%")
-        self.progress_label.setStyleSheet(
-            "background: transparent; color: white; font-size: %dpx; font-weight: bold;" % shrink(22))
-        self.progress_label.setFixedWidth(shrink(100))
+        self.progress_label.setObjectName("pct")
+        self.progress_label.setFixedWidth(px(44))
+        self.progress_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         speed_row.addWidget(self.progress_label)
         self._refresh_speed_label()
         outer.addLayout(speed_row)
 
-        # 유니코드 기호(◀◀/▶ 등)는 폰트마다 굵기·정렬이 들쭉날쭉해 시인성이
-        # 떨어져, QPainter로 직접 그린 아이콘으로 바꾼다(_make_icon 계열).
-        # 이 바는 항상 어두운 반투명 패널 위라 아이콘 색은 테마와 무관하게
-        # 흰색으로 고정한다.
-        icon_size = QSize(shrink(26), shrink(26))
+        # [이전 공구]  ⟮처음으로⟯ ⟮재생⟯ 지금 공구  [다음 공구]
+        icon_size = QSize(px(16), px(16))
         button_row = QHBoxLayout()
-        self.prev_tool_button = QPushButton()
-        self.prev_tool_button.setIcon(skip_icon("white", forward=False))
-        self.prev_tool_button.setToolTip("이전 툴 (F6)")
+        button_row.setSpacing(px(8))
+        self.prev_tool_button = QPushButton("이전 공구")
+        self.prev_tool_button.setIcon(skip_icon(self._HUD_SOFT, forward=False))
+        self.prev_tool_button.setToolTip("이전 공구 (F6)")
         self.rewind_button = QPushButton()
-        self.rewind_button.setIcon(rewind_icon("white"))
-        self.rewind_button.setToolTip("되감기")
+        self.rewind_button.setObjectName("iconButton")
+        self.rewind_button.setIcon(rewind_icon(self._HUD_SOFT))
+        self.rewind_button.setToolTip("처음으로")
         self.play_pause_button = QPushButton()
-        self.play_pause_button.setIcon(play_icon("white"))
+        self.play_pause_button.setObjectName("playButton")
+        self.play_pause_button.setIcon(play_icon("#11141a"))
         self.play_pause_button.setToolTip("재생 (F7)")
-        self.next_tool_button = QPushButton()
-        self.next_tool_button.setIcon(skip_icon("white", forward=True))
-        self.next_tool_button.setToolTip("다음 툴 (F8)")
-        for button in (
-            self.prev_tool_button, self.rewind_button,
-            self.play_pause_button, self.next_tool_button,
-        ):
+        self.next_tool_button = QPushButton("다음 공구")
+        self.next_tool_button.setIcon(skip_icon(self._HUD_SOFT, forward=True))
+        self.next_tool_button.setLayoutDirection(Qt.RightToLeft)      # 아이콘을 글자 오른쪽에
+        self.next_tool_button.setToolTip("다음 공구 (F8)")
+        self.tool_label = QLabel("")
+        self.tool_label.setObjectName("toolNow")
+        self.tool_label.setTextFormat(Qt.RichText)
+        for button in (self.prev_tool_button, self.rewind_button, self.play_pause_button, self.next_tool_button):
             button.setFocusPolicy(Qt.NoFocus)
             button.setIconSize(icon_size)
-            button_row.addWidget(button)
+        button_row.addWidget(self.prev_tool_button)
+        button_row.addStretch(1)
+        button_row.addWidget(self.rewind_button)
+        button_row.addWidget(self.play_pause_button)
+        button_row.addWidget(self.tool_label)
+        button_row.addStretch(1)
+        button_row.addWidget(self.next_tool_button)
         outer.addLayout(button_row)
 
         self.prev_tool_button.clicked.connect(self.prev_tool_clicked)
@@ -2025,6 +2116,110 @@ class PlaybackBarWidget(QWidget):
         # v2.4.1: 속도 슬라이더는 PG 매칭이 꺼져 있어도 움직인다(미리 맞춰 둘 수 있게).
         # 재생·이동 버튼만 PG 매칭일 때 켠다.
         self.set_controls_enabled(False)
+
+    def paintEvent(self, event):
+        """v2.6.4: 묶음 판(반투명 흑연 + 얇은 선). 자식 위젯이라 스타일시트 배경이 그려지지 않아 직접 그린다."""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        radius = self._px(12)
+        rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        painter.setPen(QPen(QColor(228, 232, 240, 34), 1))
+        painter.setBrush(QColor(20, 23, 29, 228))
+        painter.drawRoundedRect(rect, radius, radius)
+        if self.modal_panel.isVisible():
+            y = self.modal_panel.geometry().top() + 0.5
+            painter.setPen(QPen(QColor(228, 232, 240, 22), 1))
+            painter.drawLine(QPointF(self.modal_panel.geometry().left(), y),
+                             QPointF(self.modal_panel.geometry().right(), y))
+        painter.end()
+
+    # ---- v2.6.4: 좌표 · 모달 정보 · 지금 공구 ----
+    def set_coord_widget(self, widget):
+        """좌표 오버레이를 이 묶음의 첫 줄로 넣는다."""
+        if widget is None or widget.parent() is self:
+            return
+        widget.setParent(self)
+        self._coord_slot.addWidget(widget)
+        widget.show()
+
+    def _refresh_modal_toggle(self):
+        expanded = self.modal_toggle.isChecked()
+        self.modal_toggle.setText(("▾ " if expanded else "▸ ") + "모달 정보")
+        self.modal_peek.setVisible(not expanded)
+
+    def _on_modal_toggled(self, expanded):
+        self.modal_panel.setVisible(bool(expanded))
+        self._refresh_modal_toggle()
+        self.modal_toggled.emit(bool(expanded))
+        parent = self.parent()
+        reposition = getattr(parent, "_reposition_bottom_bar", None)
+        if callable(reposition):
+            self.adjustSize()
+            reposition()
+
+    def set_modal_expanded(self, expanded):
+        if self.modal_toggle.isChecked() != bool(expanded):
+            self.modal_toggle.setChecked(bool(expanded))
+
+    def _build_group_cells(self, lathe):
+        if self._group_lathe == bool(lathe):
+            return
+        self._group_lathe = bool(lathe)
+        while self._group_grid.count():
+            item = self._group_grid.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+        self._group_cells = {}
+        for index, (gid, name, _codes) in enumerate(nc_modal.group_table(lathe)):
+            cell = QWidget()
+            cell_layout = QVBoxLayout(cell)
+            cell_layout.setContentsMargins(0, 0, 0, 0)
+            cell_layout.setSpacing(0)
+            title = QLabel("%s %s" % (gid, name))
+            title.setObjectName("groupName")
+            value = QLabel("—")
+            value.setObjectName("mono")
+            cell_layout.addWidget(title)
+            cell_layout.addWidget(value)
+            self._group_grid.addWidget(cell, index // 4, index % 4)
+            self._group_cells[gid] = value
+
+    def set_modal_state(self, state, changed, lathe):
+        """모달 상태(nc_modal)를 표시한다. 이 줄에서 바뀐 값은 파랗게."""
+        self._build_group_cells(lathe)
+        changed = changed or frozenset()
+
+        def paint(label, text, is_changed):
+            label.setText(text or "—")
+            color = self._HUD_CHANGED if is_changed else (self._HUD_TEXT if text else self._HUD_MUTED)
+            label.setStyleSheet("color: %s;" % color)
+
+        s_text = ("S" + state["S"]) if state["S"] else ""
+        if lathe and state["groups"].get("02") == "G96" and s_text:
+            s_text += " (주속)"
+        paint(self._kv_values["S"], s_text, "S" in changed)
+        paint(self._kv_values["spindle"], state["m"].get("spindle"), "m:spindle" in changed)
+        paint(self._kv_values["F"], ("F" + state["F"]) if state["F"] else "", "F" in changed)
+        paint(self._kv_values["unit"], nc_modal.feed_unit(state, lathe), False)
+        for gid, label in self._group_cells.items():
+            paint(label, state["groups"].get(gid), gid in changed)
+        parts = []
+        for key, name in nc_modal.M_CATEGORIES:
+            code = state["m"].get(key)
+            color = self._HUD_CHANGED if ("m:" + key) in changed else (self._HUD_TEXT if code else self._HUD_MUTED)
+            parts.append('%s <span style="font-family:Consolas; font-size:10pt; color:%s">%s</span>'
+                         % (name, color, code or "—"))
+        self._m_label.setText("&nbsp;&nbsp;&nbsp;".join(parts))
+        self.modal_peek.setText(nc_modal.summary_text(state, lathe))
+
+    def set_tool_text(self, number, name):
+        """재생 버튼 옆 지금 공구 — 'T03 D6 B.EM'."""
+        if not number:
+            self.tool_label.setText("")
+            return
+        self.tool_label.setText('%s <span style="color:#e4e8f0">%s</span>' % (number, name or ""))
 
     def set_controls_enabled(self, enabled):
         for button in (self.prev_tool_button, self.rewind_button,
@@ -2082,8 +2277,8 @@ class PlaybackBarWidget(QWidget):
 
     def set_playing(self, playing):
         self._playing = bool(playing)
-        self.play_pause_button.setIcon(pause_icon("white") if self._playing else play_icon("white"))
-        self.play_pause_button.setToolTip("일시정지" if self._playing else "재생")
+        self.play_pause_button.setIcon(pause_icon("#11141a") if self._playing else play_icon("#11141a"))
+        self.play_pause_button.setToolTip("일시정지 (F7)" if self._playing else "재생 (F7)")
 
     def set_speed(self, value):
         self._speed_value = snap_playback_speed(value)
@@ -2979,6 +3174,7 @@ class NCViewerWidget(QWidget):
         # 몇 번째 줄인가"를 물을 때 쓰는 역방향 테이블 — line_sequence
         # 자체를 그대로 저장한 것과 같다(process_nc_lines가 채운다).
         self.seq_to_line = []
+        self.modal_timeline = None          # v2.6.4: 재생 바 [모달 정보](nc_modal.ModalTimeline)
         # v1.7.6: 아래 4개는 위 line_to_* 맵들의 "seq 키" 짝이다. 서브프로그램
         # 반복 구간에서 같은 원본 줄(idx)이 여러 번 실행되면 line_to_* 쪽은
         # 마지막 실행 값만 남지만, 이 맵들은 실행 회차마다 다른 키(seq_pos)를
@@ -3295,6 +3491,47 @@ class NCViewerWidget(QWidget):
             except Exception:
                 pass
 
+    def _on_modal_info_toggled(self, expanded):
+        try:
+            self.settings.setValue("modal_info_open", "true" if expanded else "false")
+        except Exception:
+            pass
+        if expanded:
+            self._update_modal_info(getattr(self, "current_seq", 0))
+
+    def _update_modal_info(self, seq):
+        """v2.6.4: 재생 위치의 주축 · 이송 · G/M 모달과 지금 공구를 재생 바에 보인다."""
+        bar = getattr(self, "playback_bar", None)
+        timeline = getattr(self, "modal_timeline", None)
+        if bar is None:
+            return
+        try:
+            if timeline is None:
+                state, changed = nc_modal.empty_state(), frozenset()
+                lathe = self.is_lathe_mode()
+            else:
+                state, changed = timeline.at(seq)
+                lathe = timeline.lathe
+            bar.set_modal_state(state, changed, lathe)
+            tool = self.seq_to_tool_map.get(seq)
+            number, name = self._tool_number_and_name(tool)
+            bar.set_tool_text(number, name)
+        except Exception:
+            pass
+
+    def _tool_number_and_name(self, tool_no):
+        if not tool_no:
+            return "", ""
+        match = re.search(r"T(\d+)", str(tool_no), re.I)
+        if not match:
+            return str(tool_no), ""
+        number = int(match.group(1))
+        if self.is_lathe_mode():
+            return "T%04d" % number if number >= 100 else "T%02d" % number, ""
+        name = (self.tool_name_map.get("T%02d" % number) or self.tool_name_map.get("T%d" % number)
+                or self.tool_name_map.get(str(number)) or "")
+        return "T%02d" % number, name
+
     def _on_more_options_toggled(self, expanded):
         """[>>] 옵션 줄을 펼쳤는지 기억한다(기본 접힘)."""
         try:
@@ -3307,6 +3544,15 @@ class NCViewerWidget(QWidget):
         try:
             bar = PlaybackBarWidget(self.gl_view)
             self.gl_view.bottom_bar_widget = bar
+            coord_overlay = getattr(self, "coord_overlay", None)
+            if coord_overlay is not None:
+                bar.set_coord_widget(coord_overlay)
+            # v2.6.4: [모달 정보] 펼침 상태 기억(기본 접힘).
+            try:
+                bar.set_modal_expanded(str(self.settings.value("modal_info_open", "false")).lower() == "true")
+            except Exception:
+                pass
+            bar.modal_toggled.connect(self._on_modal_info_toggled)
             self.gl_view._reposition_bottom_bar()
             bar.raise_()
         except Exception:
@@ -3817,6 +4063,7 @@ class NCViewerWidget(QWidget):
         self.line_to_seq.clear()
         self.line_to_seq_all.clear()
         self.seq_to_line = []
+        self.modal_timeline = None
         self.seq_to_tool_map.clear()
         self.seq_to_coord_map.clear()
         self.seq_to_modal_state.clear()
@@ -5049,6 +5296,11 @@ class NCViewerWidget(QWidget):
             if coord_overlay in gl_view.top_left_widgets:
                 gl_view.top_left_widgets.remove(coord_overlay)
             gl_view.bottom_coord_widget = coord_overlay
+            # v2.6.4: 좌표는 재생 정보 묶음(재생 바)의 첫 줄로 들어간다.
+            bar = getattr(self, "playback_bar", None)
+            if bar is not None:
+                bar.set_coord_widget(coord_overlay)
+                gl_view._reposition_bottom_bar()
         projection_overlay = getattr(self, "projection_overlay", None)
         if projection_overlay is not None:
             # v2.4.1: 투영(위치 · ISO · XY · XZ · YZ) 오버레이는 3D 화면 왼쪽 위에 둔다.
@@ -5643,6 +5895,7 @@ class NCViewerWidget(QWidget):
         self.line_to_seq.clear()
         self.line_to_seq_all.clear()
         self.seq_to_line = []
+        self.modal_timeline = None
         self.seq_to_tool_map.clear()
         self.seq_to_coord_map.clear()
         self.seq_to_modal_state.clear()
@@ -5876,6 +6129,11 @@ class NCViewerWidget(QWidget):
         # `list(enumerate(lines))`를 그대로 돌려주므로, M98을 안 쓰는 기존
         # 밀링/선반 파일은 시퀀스가 지금과 완전히 동일하다(회귀 없음).
         line_sequence = self._expand_subprograms(lines)
+        # v2.6.4: 재생 바 [모달 정보] — 실행 순서대로 주축 · 이송 · G/M 모달을 읽어 둔다(표시 전용).
+        try:
+            self.modal_timeline = nc_modal.ModalTimeline(line_sequence, lathe=is_lathe)
+        except Exception:
+            self.modal_timeline = None
         # v1.7.6: seq_pos -> 원본 줄번호(idx) 역방향 테이블. 재생기가
         # "다음 seq가 문서의 몇 번째 줄인가"를 알아야 커서를 옮길 수 있다.
         self.seq_to_line = [idx for idx, _ in line_sequence]
@@ -7432,6 +7690,7 @@ class NCViewerWidget(QWidget):
         if modal_values:
             self._set_coordinate_labels(modal_values)
         self._update_time_overlay_seq(seq)
+        self._update_modal_info(seq)
         # v1.9.1: STOCK 절삭 계산은 여기(재생/커서 이동 프레임마다)서 더는
         # 하지 않는다 — 너무 무겁다는 피드백으로, 공정 필터 선택이 바뀔 때만
         # 계산하도록 옮겼다(update_visible_paths -> _sim_recompute_for_selection).

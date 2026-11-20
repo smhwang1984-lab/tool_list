@@ -11,14 +11,16 @@ from tests.test_v233_live_reload import viewer, needs_viewer, _spec  # noqa: F40
 
 
 @needs_viewer
-def test_shape_button_lives_in_options_dock_and_green_when_on(viewer):
+def test_shape_button_lives_in_options_dock_and_accent_when_on(viewer):
     ov = viewer.projection_overlay
     assert ov.shape_button.text() == '가공형상즉시보기'
     # v2.6.2: [가공형상즉시보기]는 큐브 아래 [« 옵션] 창 안에 있다(투영 줄에는 없다)
     assert ov._row.indexOf(ov.shape_button) == -1
     assert ov.shape_button.parent() is ov.more_row
     assert ov.more_button.parent() is ov.dock
-    assert 'shapeButton:checked' in ov.styleSheet() and '#2ea043' in ov.styleSheet()
+    # v2.6.4: 켜짐 색은 강조색 하나(초록 아님)
+    assert 'shapeButton:checked' in ov.styleSheet() and '#2ea043' not in ov.styleSheet()
+    assert 'shapeButton:checked { background-color: #3f7fc9' in ov.styleSheet()
     # 렌더 후 투영 버튼을 갈아 끼워도 버튼은 남는다
     ov.set_lathe_mode(True)
     ov.set_lathe_mode(False)
