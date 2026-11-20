@@ -52,7 +52,10 @@ Last updated: 2026-11-05 (NC_Tool_List v2.3.0 — 로컬 v2.2.9(STOCK SIZE)와 G
 - Version: 2.6.2 → 2.6.3 (안드로이드 2.0.2 → 2.0.3)
 - Summary: 사용자 확인(B축 회전 정상) 뒤 요청 반영. **① 테이블·A·B·C 회전 속도를 v2.6.2의 30%로**(`TABLE_ANIM_SPEED_SCALE = 0.3`). **② 옵션 창 글자 겹침 수정**: 화면 배율이 큰 PC(150% 등)에서 창 크기가 내용보다 작게(168×225, 필요 263×328) 잡혀 버튼 높이가 8px로 눌렸다. 창을 내용 크기 그대로 다시 잡고(`_fit_dock`, 위치 잡을 때도 확인), 창 안 글자 12px·버튼 여백을 한 가지로 맞췄다. **③ 안드로이드 v2.0.3에 v2.6.0~v2.6.3을 한 번에 반영**: G68.2 해 선택(A→C A 음수, B→C B 양수), B→C 소재 기울임(공구 수직), 재생 중 천천히 회전(30%), 축 원점 회전, 지난 경로 숨김(100~500블록), 큐브 아래 [« 옵션] 창(테이블 회전·가공형상 즉시 보기·정지 옵션·실시간 형상·지난 경로 숨김), 상단바 [정지 옵션] 제거, 설정 창 'Viewer 5축 · 재생 경로', 문자 검색 이전/다음.
 - Open source: 변경 없음.
-- Installer/package status: __INSTALLER263__
+- Installer/package status: **생성 완료**. `installer\NC_Tool_List_Setup_v2.6.3.exe`(dist exe 파일 버전 2.6.3.0, 실행 10초 확인) + 안드로이드 `tool_list_android\out\SumPath_v2.0.3.apk`.
+  - Setup EXE SHA-256: 9EAC8C07612F84B3AB27009FCB21EAF58A1899B047E50574F970D91964E24727
+  - APK SHA-256: 92DCCF58E754B9EBFB4EBD978945D5DED751473401361F6BDE33D76DDC613949
+- Verification: 데스크톱 pytest 896 중 893 통과·2 건너뜀(기존부터 실패하던 `ToolListModeComboTests` 1건 제외). 옵션 창은 실제 Windows 화면(배율 100%·150%)에서 캡처해 겹침이 없어진 것을 확인. 안드로이드 `npm test` 317 통과(새 `tests/v262.test.ts`: G68.2 해 선택 A→C/B→C, 블록 수, 문자 검색 이전), 골든 재생성(SOURCE_REV 720bf88). 안드로이드 옵션 창은 브라우저(헤드리스, 배율 1.5)로 열어 확인. 실기기 확인은 아직 안 함.
 
 ### 2026-11-20 (v2.6.2)
 

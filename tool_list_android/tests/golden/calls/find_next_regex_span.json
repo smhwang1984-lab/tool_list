@@ -198,6 +198,36 @@
     18,
     false
    ]
+  },
+  {
+   "args": [
+    "G1 X1\nG0 X0\nG1 X2\nG1 X3",
+    {
+     "__re__": "G1",
+     "flags": 34
+    },
+    0
+   ],
+   "result": [
+    0,
+    2,
+    false
+   ]
+  },
+  {
+   "args": [
+    "G1 X1\nG0 X0\nG1 X2\nG1 X3",
+    {
+     "__re__": "G1",
+     "flags": 34
+    },
+    2
+   ],
+   "result": [
+    12,
+    14,
+    false
+   ]
   }
  ]
 }
