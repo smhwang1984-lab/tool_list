@@ -505,6 +505,13 @@ function mount(root: HTMLElement): void {
     btnStl.disabled = true;
     toast('소재를 지웠습니다. 툴패스 선을 다시 표시합니다.');
   };
+  /** 원본 v2.6.6: 소재 [적용]은 묻지 않고 바로 가공 시뮬레이션 — PG 매칭·실시간 형상을 자동으로 켠다.
+   *  [가공형상 즉시 보기]는 누를 때만 보이는 버튼이라 늘 꺼진 채 시작한다. */
+  const applyStockAuto = (bounds: Parameters<NonNullable<typeof viewer>['applyStock']>[0], res: number | null): void => {
+    filterPanel.setLive(true);
+    viewer?.applyStock(bounds, res, true);
+    filterPanel.setPgMatch(true);
+  };
   btnStockClear.addEventListener('click', clearStock);
   btnStl.addEventListener('click', () => {
     const bytes = viewer?.exportStl();
@@ -521,7 +528,7 @@ function mount(root: HTMLElement): void {
       if (machinePanel.isLathe()) {
         showLatheStockDialog({
           extent: () => (lastResult ? latheToolpathExtent(lastResult) : null),
-          apply: (spec, res, enabled) => { viewer?.applyStock(spec.bounds(), res, enabled); },
+          apply: (spec, res) => applyStockAuto(spec.bounds(), res),
           clear: clearStock,
           status: () => viewer!.simStatus(),
           setToolpathVisible: (on) => viewer?.setToolpathVisible(on),
@@ -533,7 +540,7 @@ function mount(root: HTMLElement): void {
       showStockDialog({
         lines: () => editor.getText().split(/\r\n|\r|\n/),
         toolpathBounds: (margin) => (lastResult ? toolpathBounds(lastResult, margin) : null),
-        apply: (spec, res, enabled) => { viewer?.applyStock(spec.bounds(), res, enabled); },
+        apply: (spec, res) => applyStockAuto(spec.bounds(), res),
         clear: clearStock,
         status: () => viewer!.simStatus(),
         gotoLine: (line) => editor.selectLine(line),

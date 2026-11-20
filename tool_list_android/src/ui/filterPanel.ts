@@ -21,6 +21,8 @@ export interface FilterPanel {
   root: HTMLElement;
   stopOptions(): StopOptions;
   pgMatch(): boolean;
+  /** PG 매칭을 켜고 끈다(체크 + onPgMatch 호출). 소재 적용 때 자동으로 켠다(원본 v2.6.6) */
+  setPgMatch(on: boolean): void;
   /** 공정 목록 채우기 (keepSelection 이면 이전 선택 유지, 아니면 전부 선택) */
   setItems(items: readonly FilterItem[], keepSelection?: boolean): void;
   itemCount(): number;
@@ -109,6 +111,11 @@ export function createFilterPanel(): FilterPanel {
       stopText: textCheck.checked, stopTextValue: textInput.value, stopM00: m00Check.checked, stopM01: m01Check.checked,
     }),
     pgMatch: () => pgCheck.checked,
+    setPgMatch(on) {
+      if (pgCheck.checked === on) return;
+      pgCheck.checked = on;
+      api.onPgMatch(on);
+    },
     stopMenu: stopBar,
     stockButton: btnStock,
     itemCount: () => items.length,

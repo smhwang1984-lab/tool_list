@@ -49,6 +49,7 @@ from PyQt5.QtWidgets import (
 )
 
 import nc_modal
+import nc_process_marker
 import nc_tool_marker
 import nc_sim
 import nc_sim3d
@@ -2256,12 +2257,16 @@ class PlaybackBarWidget(QWidget):
         self._m_label.setText("&nbsp;&nbsp;&nbsp;".join(parts))
         self.modal_peek.setText(nc_modal.summary_text(state, lathe))
 
-    def set_tool_text(self, number, name):
-        """재생 버튼 옆 지금 공구 — 'T03 D6 B.EM'."""
+    def set_tool_text(self, number, name, comments=()):
+        """재생 버튼 옆 지금 공구 — 'T03 D6 B.EM' + 공정 머리말 주석 최대 2줄(v2.6.6)."""
         if not number:
             self.tool_label.setText("")
             return
-        self.tool_label.setText('%s <span style="color:#e4e8f0">%s</span>' % (number, name or ""))
+        text = '%s <span style="color:#e4e8f0">%s</span>' % (number, name or "")
+        for comment in list(comments or ())[:2]:
+            text += ('<br><span style="color:#8fc99b;font-size:small">%s</span>'
+                     % str(comment).replace("&", "&amp;").replace("<", "&lt;"))
+        self.tool_label.setText(text)
 
     def set_controls_enabled(self, enabled):
         for button in (self.prev_tool_button, self.rewind_button,
@@ -2779,25 +2784,10 @@ class StockDialog(QDialog):
         self._refresh_status()
 
     def _decide_run_simulation(self):
-        """v2.4.9: [예]는 PG 매칭 중일 때만 가공 시뮬레이션을 켠다. PG 매칭이 꺼져 있으면
-        선택 공정 전체가 한꺼번에 깎여 보이므로 켜지 않고, [가공형상즉시보기] 버튼으로 보게 안내한다."""
-        if not self._ask_run_simulation():
-            return False
-        if getattr(self.viewer, 'pg_match_mode', False):
-            return True
-        QMessageBox.information(
-            self, '소재 설정',
-            '소재를 적용했습니다.\nPG 매칭이 꺼져 있어 가공 형상은 켜지 않았습니다.\n'
-            'PG 매칭을 켜거나 [가공형상즉시보기]를 누르면 볼 수 있습니다.')
-        return False
-
-    def _ask_run_simulation(self):
-        """v2.4.6: 소재를 입력한 뒤 가공 시뮬레이션으로 전환할지 확인한다."""
-        answer = QMessageBox.question(
-            self, '소재 설정', '소재를 적용했습니다.\n가공 시뮬레이션을 하시겠습니까?\n'
-            '[예]를 누르면 가공 시뮬레이션으로 전환합니다.',
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
-        return answer == QMessageBox.Yes
+        """v2.6.6: 소재 [적용]은 묻지 않고 바로 가공 시뮬레이션을 켠다. 작업자가 PG 매칭·실시간
+        형상을 빠뜨리지 않게 viewer.stock_applied를 받은 앱이 둘 다 켠다. [가공형상 즉시 보기]는
+        켜지 않는다(꺼짐)."""
+        return True
 
     def _export_stl(self):
         if self.viewer.sim_stock is None:
@@ -3030,7 +3020,6 @@ class LatheStockDialog(QDialog):
 
     # 밀링 소재 창과 같은 viewer/위젯 이름만 쓰는 동작은 그대로 빌려 쓴다(중복 방지)
     _show_rapid_list = StockDialog._show_rapid_list
-    _ask_run_simulation = StockDialog._ask_run_simulation
     _decide_run_simulation = StockDialog._decide_run_simulation
     _resolution_value = StockDialog._resolution_value
     _on_toolpath_toggled = StockDialog._on_toolpath_toggled
@@ -3145,6 +3134,7 @@ class NCViewerWidget(QWidget):
     line_activated = pyqtSignal(int)
     # v2.3.3: 소재 적용/해제·PG 매칭 전환처럼 [실시간 형상]을 쓸 수 있는지가 바뀔 때.
     sim_state_changed = pyqtSignal()
+    stock_applied = pyqtSignal()     # v2.6.6: 소재 [적용] 직후 — 앱이 PG 매칭·실시간 형상을 자동으로 켠다
     # v2.6.0: 테이블 회전·지난 경로 숨김 옵션이 바뀌었다(설정 창이 따라 간다).
     view_options_changed = pyqtSignal()
 
@@ -3201,6 +3191,8 @@ class NCViewerWidget(QWidget):
         # 시작되는 실행 순서(seq_pos) — 재생/방향키가 seq 기준으로 도는
         # 동안 F6/F8·되감기가 공정 경계로 점프할 때 쓴다.
         self.process_first_seq = {}
+        self._seq_line_texts = []
+        self._process_markers = None      # v2.6.6: {공정: (시작 N 줄 seq, [주석])} — 처음 쓸 때 만든다
         self.modal_state_map = {}
         # v1.7.4: 원본 줄번호(idx) -> 실행 순서(seq_pos). M98/M99 서브프로그램
         # 확장으로 같은 idx가 여러 번 실행되면 마지막 실행의 seq가 남는다
@@ -3558,11 +3550,46 @@ class NCViewerWidget(QWidget):
                 state, changed = timeline.at(seq)
                 lathe = timeline.lathe
             bar.set_modal_state(state, changed, lathe)
-            tool = self.seq_to_tool_map.get(seq)
-            number, name = self._tool_number_and_name(tool)
-            bar.set_tool_text(number, name)
+            # v2.6.6: 공정 시작 N 줄부터 그 공정의 공구·주석을 보인다(공구 교체 줄 도착 전에도).
+            key = self.process_key_at(seq) or self.seq_to_tool_map.get(seq)
+            number, name = self._tool_number_and_name(key)
+            comments = self.process_markers().get(key, (0, []))[1] if key else []
+            bar.set_tool_text(number, name, comments)
         except Exception:
             pass
+
+    def process_markers(self):
+        """{공정 키: (시작 N 줄 seq, [주석 최대 2개])} — 공구 교체 줄 위쪽 첫 N 시퀀스(v2.6.6)."""
+        if self._process_markers is None:
+            markers = {}
+            ordered = sorted(self.process_first_seq.items(), key=lambda kv: kv[1])
+            floor = -1
+            for key, change_seq in ordered:
+                if key == "Initial":
+                    markers[key] = (0, [])
+                else:
+                    markers[key] = nc_process_marker.find_process_marker(
+                        self._seq_line_texts, change_seq, floor)
+                floor = change_seq
+            self._process_markers = markers
+        return self._process_markers
+
+    def process_marker_list(self, processes=None):
+        """시작 N 줄 seq 순서의 [(seq, 공정 키)]. processes가 있으면 그 공정만."""
+        items = [(seq, key) for key, (seq, _c) in self.process_markers().items()
+                 if processes is None or key in processes]
+        items.sort()
+        return items
+
+    def process_key_at(self, seq):
+        """이 재생 위치가 속한 공정(= 시작 N 줄이 seq 이하인 마지막 공정). 없으면 None."""
+        found = None
+        for marker_seq, key in self.process_marker_list():
+            if marker_seq <= seq:
+                found = key
+            else:
+                break
+        return found
 
     def _tool_number_and_name(self, tool_no):
         if not tool_no:
@@ -4104,6 +4131,8 @@ class NCViewerWidget(QWidget):
         self.line_to_tool_map.clear()
         self.process_first_line.clear()
         self.process_first_seq.clear()
+        self._seq_line_texts = []
+        self._process_markers = None
         self.modal_state_map.clear()
         self.line_to_seq.clear()
         self.line_to_seq_all.clear()
@@ -4475,6 +4504,7 @@ class NCViewerWidget(QWidget):
         self._sim_advance_to_seq(seq)
         self._sim_request_mesh_refresh(force=True)
         self.sim_state_changed.emit()
+        self.stock_applied.emit()
 
     def toolpath_bounds(self, margin=2.0):
         """절삭 이송(G01/G02/G03) 노드의 XYZ 범위 + 여유(mm). 점이 없으면
@@ -4937,6 +4967,7 @@ class NCViewerWidget(QWidget):
         self._sim_advance_to_seq(seq)
         self._sim_request_mesh_refresh(force=True)
         self.sim_state_changed.emit()
+        self.stock_applied.emit()
 
     def lathe_toolpath_bounds(self, margin=2.0):
         """선삭 절삭 이송의 소재 범위 — {'diameter','length','front_z'}(mm). 없으면 None.
@@ -5207,7 +5238,7 @@ class NCViewerWidget(QWidget):
         """v2.5.3: 소재 적용 때 [예]였는지 기억한다. PG 매칭 중의 [예]는 실시간 형상(PG 매칭을
         끄면 같이 꺼짐), PG 매칭이 꺼진 채 켠 것은 [가공형상즉시보기]로 본다(안드로이드와 같다)."""
         self._sim_live_wanted = bool(enabled)
-        self._sim_instant = bool(enabled) and not self.pg_match_mode
+        self._sim_instant = False       # v2.6.6: 소재를 적용하면 [가공형상 즉시 보기]는 늘 꺼짐으로 시작
 
     def set_sim_enabled(self, enabled, _auto=False):
         if not _auto:
@@ -6189,6 +6220,8 @@ class NCViewerWidget(QWidget):
         # v1.7.6: seq_pos -> 원본 줄번호(idx) 역방향 테이블. 재생기가
         # "다음 seq가 문서의 몇 번째 줄인가"를 알아야 커서를 옮길 수 있다.
         self.seq_to_line = [idx for idx, _ in line_sequence]
+        self._seq_line_texts = [text for _, text in line_sequence]   # v2.6.6: 공정 시작 N 줄 탐색용
+        self._process_markers = None
         # v1.6.9: N 블록 사전 스캔(선반만). N 라인이 하나도 없으면 둘 다
         # 비어 있고, 아래 루프는 기존 Tnn00 기준으로 자동 폴백한다.
         n_block_starts, n_block_tool_at_position = (

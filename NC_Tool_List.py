@@ -33,9 +33,9 @@ import lathe_insert_spec
 import sumpath_license
 
 
-APP_VERSION = '2.6.5'
+APP_VERSION = '2.6.6'
 APP_NAME = 'Sum Path'
-APP_BUILD_DATE = '2026-11-20'
+APP_BUILD_DATE = '2026-11-21'
 APP_CREATOR = 'Hwang.seonmun'
 APP_PURPOSE = 'NC 프로그램에서 공구 리스트를 산출하고 NC 경로를 Viewer로 확인하는 도구'
 OPEN_SOURCE_COMPONENTS = (
@@ -1269,6 +1269,23 @@ def find_prev_tool_change_span(text, start=0, lathe=False):
     return find_prev_regex_span(
         text, LATHE_T_SEARCH_RE if lathe else M6_SEARCH_RE, start
     )
+
+
+def pick_relative_marker(ordered_seqs, current_seq, direction):
+    """v2.6.6: 공정 시작 N 줄 seq 목록에서 이전/다음 이동 목표. 현재 공정 시작 줄(<= 현재 위치)에
+    서 있으면 다음 = 다음 공정, 이전 = 앞 공정. 공정 중간이면 이전 = 그 공정 시작 줄."""
+    ordered = sorted(ordered_seqs)
+    index = -1
+    for i, seq in enumerate(ordered):
+        if seq <= current_seq:
+            index = i
+    if direction > 0:
+        return ordered[min(index + 1, len(ordered) - 1)]
+    if index < 0:
+        return ordered[0]
+    if ordered[index] < current_seq:
+        return ordered[index]
+    return ordered[max(index - 1, 0)]
 
 
 def _stop_scan_code(line):
@@ -3913,6 +3930,8 @@ else:
                 playback_bar.set_speed(self.play_speed)
             if hasattr(self.viewer, 'sim_state_changed'):
                 self.viewer.sim_state_changed.connect(self._refresh_sim_live_ui)
+            if hasattr(self.viewer, 'stock_applied'):
+                self.viewer.stock_applied.connect(self._on_stock_applied)
             if hasattr(self.viewer, 'set_sim_live_enabled'):
                 self.viewer.set_sim_live_enabled(self.sim_live_check.isChecked())
             self._refresh_sim_live_ui()
@@ -5186,6 +5205,17 @@ else:
                 self.viewer.set_sim_live_enabled(checked)
             self._refresh_sim_live_ui()
 
+        def _on_stock_applied(self):
+            """v2.6.6: 소재 [적용] 직후 PG 매칭과 실시간 형상을 자동으로 켠다 — 작업자가 빠뜨려
+            시뮬레이션이 안 보이는 실수를 막는다. [가공형상 즉시 보기]는 뷰어가 이미 꺼 둔다."""
+            if self.current_mode != 'viewer':
+                return
+            if not self.pg_match_check.isChecked():
+                self.pg_match_check.setChecked(True)      # toggled → toggle_pg_match_mode
+            if not self.sim_live_check.isChecked():
+                self.sim_live_check.setChecked(True)      # toggled → _on_sim_live_toggled
+            self._refresh_sim_live_ui()
+
         def _sim_stock_ready(self):
             return bool(getattr(self.viewer, 'sim_enabled', False)
                         and getattr(self.viewer, 'sim_stock', None) is not None)
@@ -5352,23 +5382,16 @@ else:
             # 움직이지 않도록, start_playback()과 같은 조건으로 막는다.
             if self.current_mode != 'viewer' or not getattr(self.viewer, 'pg_match_mode', False):
                 return
-            first_seq_map = getattr(self.viewer, 'process_first_seq', None)
+            # v2.6.6: 공구 교체(M6) 줄이 아니라 그 공정의 첫 N 시퀀스 줄로 간다 — 공정 머리말
+            # 주석이 함께 보인다. 시작 N 줄에 서 있으면 그 공정 안에 있는 것으로 본다(다음 = 다음 공정).
             selected = getattr(self.viewer, 'selected_tools', None)
-            if not first_seq_map or not callable(selected):
+            marker_list = getattr(self.viewer, 'process_marker_list', None)
+            if not callable(selected) or not callable(marker_list):
                 return
-            selected_processes = selected()
-            ordered_seqs = sorted(
-                seq for key, seq in first_seq_map.items() if key in selected_processes
-            )
+            ordered_seqs = [seq for seq, _key in marker_list(selected())]
             if not ordered_seqs:
                 return
-            current_seq = self.playback_seq
-            if direction > 0:
-                later = [seq for seq in ordered_seqs if seq > current_seq]
-                target = later[0] if later else ordered_seqs[-1]
-            else:
-                earlier = [seq for seq in ordered_seqs if seq < current_seq]
-                target = earlier[-1] if earlier else ordered_seqs[0]
+            target = pick_relative_marker(ordered_seqs, self.playback_seq, direction)
             self._goto_seq(target)
 
         def _highlight_current_line(self):

@@ -309,6 +309,8 @@ def test_live_shape_needs_pg_match_and_stock(viewer):
     assert viewer.sim_live_speed_cap() is None      # v2.5.2: 배속 상한 없음
     viewer.set_pg_match_mode(False)
     assert viewer.sim_live_speed_cap() is None
+    assert not viewer.sim_enabled                   # v2.6.6: 즉시 보기를 켜지 않았으면 PG 매칭과 함께 꺼진다
+    viewer.set_sim_enabled(True)                    # [가공형상 즉시 보기]
     assert viewer.sim_last_seq == viewer._sim_target_seq_for_selection()
 
 

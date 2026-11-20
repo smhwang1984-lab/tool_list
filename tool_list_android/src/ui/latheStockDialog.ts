@@ -47,6 +47,7 @@ export function showLatheStockDialog(ctx: LatheStockDialogContext): void {
   enable.checked = s.enabled;
   const enableLabel = el('label', { class: 'stock-enable' });
   enableLabel.append(enable, document.createTextNode(' 가공 형상 표시'));
+  enableLabel.hidden = true; // 원본 v2.6.6: 적용하면 늘 가공 시뮬레이션을 켠다(묻지 않음)
   const lineCheck = el('input', { type: 'checkbox' });
   lineCheck.checked = getPref('sim_toolpath_visible') !== '0';
   lineCheck.addEventListener('change', () => { setPref('sim_toolpath_visible', lineCheck.checked ? '1' : '0'); ctx.setToolpathVisible(lineCheck.checked); });

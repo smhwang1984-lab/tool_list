@@ -110,6 +110,7 @@ export function showStockDialog(ctx: StockDialogContext): void {
   enable.checked = s.enabled;
   const enableLabel = el('label', { class: 'stock-enable' });
   enableLabel.append(enable, document.createTextNode(' 가공 형상 표시'));
+  enableLabel.hidden = true; // 원본 v2.6.6: 적용하면 늘 가공 시뮬레이션을 켠다(묻지 않음)
   const lineLabel = el('label', { class: 'stock-enable' });
   const lineCheck = el('input', { type: 'checkbox' });
   lineCheck.checked = getPref('sim_toolpath_visible') !== '0';

@@ -5,6 +5,7 @@ import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 import { elapsedSecondsAtSeq, formatElapsedOverTotal, lineAtSeq, resolveSeqForLine, sequenceLength } from '../core/playback';
+import { findProcessMarker, pickRelativeMarker } from '../core/processMarker';
 import { isLatheMachine, type TableRot, type ToolpathResult } from '../core/toolpath';
 import { createSimLayer, type SimLayer, type SimSource, type SimStatus } from './simLayer';
 import type { SimProgram } from '../sim/segments';
@@ -336,6 +337,27 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     for (const [key, s] of result.process_first_seq) if (s <= seqNow && s >= bestSeq) { best = key; bestSeq = s; }
     return best;
   };
+  /** 원본 v2.6.6: 공정별 시작 N 줄 seq와 머리말 주석(최대 2개) — 결과가 바뀔 때 다시 만든다 */
+  let markerCache: { res: ToolpathResult; list: { seq: number; key: string; comments: string[] }[] } | null = null;
+  const processMarkers = (): { seq: number; key: string; comments: string[] }[] => {
+    if (!result) return [];
+    if (markerCache?.res === result) return markerCache.list;
+    const ordered = [...result.process_first_seq.entries()].filter(([k]) => result!.tool_paths.has(k)).sort((a, b) => a[1] - b[1]);
+    let floor = -1;
+    const list = ordered.map(([key, changeSeq]) => {
+      const m = key === 'Initial' ? { seq: 0, comments: [] as string[] } : findProcessMarker(result!.seq_texts, changeSeq, floor);
+      floor = changeSeq;
+      return { seq: m.seq, key, comments: m.comments };
+    }).sort((a, b) => a.seq - b.seq);
+    markerCache = { res: result, list };
+    return list;
+  };
+  /** seqNow 가 속한 공정 = 시작 N 줄이 seq 이하인 마지막 공정 */
+  const markerAt = (seq: number): { seq: number; key: string; comments: string[] } | null => {
+    let found: { seq: number; key: string; comments: string[] } | null = null;
+    for (const m of processMarkers()) { if (m.seq <= seq) found = m; else break; }
+    return found;
+  };
   let processes: ProcessObjects[] = [];
   const materials: { m: LineMaterial; base: number }[] = [];
 
@@ -553,9 +575,14 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     const isLathe = tl ? tl.lathe : lathe;
     const { state, changed } = tl ? tl.at(seqNow) : { state: emptyState() as ModalState, changed: new Set<string>() };
     modalPeek.textContent = summaryText(state, isLathe);
-    const [num, name] = toolNumberAndName(result?.seq_to_tool_map.get(seqNow));
+    const mk = markerAt(seqNow);
+    const [num, name] = toolNumberAndName(mk?.key ?? result?.seq_to_tool_map.get(seqNow));
     toolNow.innerHTML = '';
-    if (num) { toolNow.append(num + ' '); const b = el('b'); b.textContent = name; toolNow.append(b); }
+    if (num) {
+      toolNow.append(num + ' '); const b = el('b'); b.textContent = name; toolNow.append(b);
+      // 원본 v2.6.6: 공정 머리말 주석 최대 2줄
+      for (const c of (mk?.comments ?? []).slice(0, 2)) { toolNow.append(el('br')); const t = el('span', { class: 'v-toolcm' }); t.textContent = c; toolNow.append(t); }
+    }
     if (!modalOpen) return;
     buildGroups(isLathe);
     let s = state.S ? 'S' + state.S : '';
@@ -1091,9 +1118,11 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
   slider.addEventListener('input', () => { stopPlaying(); showSeq(Number(slider.value), true); });
   const jumpTool = (dir: -1 | 1): void => {
     if (!result) return;
-    const starts = [...result.process_first_seq.entries()].filter(([k]) => result!.tool_paths.has(k)).map(([, s]) => s).sort((a, b) => a - b);
-    const target = dir > 0 ? starts.find((s) => s > seqNow) : [...starts].reverse().find((s) => s < seqNow);
-    if (target !== undefined) { stopPlaying(); showSeq(target, true); }
+    // 원본 v2.6.6: 공구 교체(M6) 줄이 아니라 공정의 첫 N 시퀀스 줄로 간다(주석이 함께 보인다)
+    const seqs = processMarkers().map((m) => m.seq);
+    if (!seqs.length) return;
+    stopPlaying();
+    showSeq(pickRelativeMarker(seqs, seqNow, dir), true);
   };
   bPrevTool.addEventListener('click', () => jumpTool(-1));
   bNextTool.addEventListener('click', () => jumpTool(1));

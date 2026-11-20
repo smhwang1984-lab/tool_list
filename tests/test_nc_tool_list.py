@@ -1844,18 +1844,22 @@ G02 X0 Y10 I-10 J0
                 window.pg_match_check.setChecked(True)
                 qapp.processEvents()
 
+                # v2.6.6: 이동 목표는 공구 교체 줄이 아니라 공정의 첫 N 시퀀스 줄(없으면 교체 줄)
+                viewer = window.viewer
                 first_lines = sorted(window.viewer.process_first_line.values())
                 self.assertGreaterEqual(len(first_lines), 3)
+                marks = [viewer.line_at_seq(seq) for seq, _key in viewer.process_marker_list()]
+                self.assertGreaterEqual(len(marks), 3)
 
                 window.jump_to_process_line(first_lines[0])
                 window.playback_next_tool()
-                self.assertEqual(window.src.textCursor().blockNumber(), first_lines[1])
+                self.assertEqual(window.src.textCursor().blockNumber(), marks[1])
 
                 window.playback_next_tool()
-                self.assertEqual(window.src.textCursor().blockNumber(), first_lines[2])
+                self.assertEqual(window.src.textCursor().blockNumber(), marks[2])
 
                 window.playback_prev_tool()
-                self.assertEqual(window.src.textCursor().blockNumber(), first_lines[1])
+                self.assertEqual(window.src.textCursor().blockNumber(), marks[1])
             finally:
                 window.deleteLater()
                 qapp.processEvents()

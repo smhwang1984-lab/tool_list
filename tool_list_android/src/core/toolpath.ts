@@ -55,6 +55,8 @@ export interface ToolpathResult {
   line_to_coord_map: Map<number, Vec3>;
   line_to_tool_map: Map<number, string>;
   seq_to_line: number[];
+  /** 실행 순서(seq)별 줄 글자 — 공정 시작 N 줄 탐색용 (원본 v2.6.6) */
+  seq_texts: string[];
   seq_to_tool_map: Map<number, string>;
   seq_to_coord_map: Map<number, Vec3>;
   seq_to_c_rot: Map<number, number>;
@@ -535,7 +537,7 @@ export function aAxisPrefersNegative(specs: MachineSpec | undefined): boolean {
 export function processNcLines(lines: readonly string[], machineType: string, specs: MachineSpec | undefined): ToolpathResult {
   const res: ToolpathResult = {
     tool_paths: new Map(), process_tool_map: new Map(), process_first_line: new Map(), process_first_seq: new Map(),
-    line_to_coord_map: new Map(), line_to_tool_map: new Map(), seq_to_line: [], seq_to_tool_map: new Map(),
+    line_to_coord_map: new Map(), line_to_tool_map: new Map(), seq_to_line: [], seq_texts: [], seq_to_tool_map: new Map(),
     seq_to_coord_map: new Map(), seq_to_c_rot: new Map(), line_to_c_rot: new Map(), line_to_seq: new Map(),
     line_to_seq_all: new Map(), line_feed_state: new Map(), line_axis_map: new Map(), line_lathe_map: new Map(),
     modal_state_map: new Map(), seq_to_modal_state: new Map(), seq_to_elapsed_sec: new Map(),
@@ -615,6 +617,7 @@ export function processNcLines(lines: readonly string[], machineType: string, sp
 
   const seqLines = expandSubprograms(lines);
   res.seq_to_line = seqLines.map(([idx]) => idx);
+  res.seq_texts = seqLines.map(([, text]) => text);
   // 원본 v2.6.4: 재생 바 [모달 정보] — 실행 순서대로 주축 · 이송 · G/M 모달 (표시 전용)
   res.modal_timeline = new ModalTimeline(seqLines, isLathe);
   const [nStarts, nToolAt] = isLathe ? latheNBlocks(seqLines) : [new Set<number>(), new Map<number, string>()];

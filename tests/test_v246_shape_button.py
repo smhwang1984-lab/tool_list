@@ -65,24 +65,22 @@ def test_center_progress_percent_font_equals_cube_size(viewer):
 
 
 @needs_viewer
-def test_stock_dialog_apply_asks_then_switches_to_simulation(viewer, monkeypatch):
+def test_stock_dialog_apply_runs_simulation_without_asking(viewer, monkeypatch):
     from nc_viewer_widget import StockDialog
+    from PyQt5.QtWidgets import QMessageBox
     viewer._sim_sync = True
     viewer.pg_match_mode = True
+    boxes = []
+    for name in ('question', 'information', 'warning'):
+        monkeypatch.setattr(QMessageBox, name, lambda *a, **k: boxes.append(1) or QMessageBox.Yes)
     dialog = StockDialog(viewer)
     assert dialog.enable_check.isHidden()                   # 화면에는 체크가 없다
-    asked = []
-    monkeypatch.setattr(StockDialog, '_ask_run_simulation', lambda self: asked.append(1) or True)
+    applied = []
+    viewer.stock_applied.connect(lambda: applied.append(1))
     dialog.refresh_from_viewer()
     dialog._apply()
-    assert asked == [1] and viewer.sim_enabled              # 확인 뒤 가공 시뮬레이션으로 전환
-    dialog._apply()
-    assert asked == [1, 1]                                  # v2.4.8: 켜져 있어도 적용할 때마다 묻는다
-    viewer.set_sim_enabled(False)
-    dialog.refresh_from_viewer()
-    monkeypatch.setattr(StockDialog, '_ask_run_simulation', lambda self: False)
-    dialog._apply()
-    assert viewer.sim_stock is not None and not viewer.sim_enabled   # 아니오: 소재만 적용
+    assert viewer.sim_enabled and boxes == [] and applied == [1]   # v2.6.6: 묻지 않고 바로 켠다
+    assert viewer._sim_instant is False                     # 가공형상 즉시 보기는 꺼짐
 
 
 @needs_viewer
@@ -116,17 +114,17 @@ def test_tool_marker_unshaded(viewer):
 
 
 @needs_viewer
-def test_stock_apply_yes_without_pg_match_does_not_show_whole_shape(viewer, monkeypatch):
+def test_stock_apply_resets_instant_view_to_off(viewer):
     from nc_viewer_widget import StockDialog
-    from PyQt5.QtWidgets import QMessageBox
     viewer._sim_sync = True
     viewer.pg_match_mode = False
-    infos = []
-    monkeypatch.setattr(StockDialog, '_ask_run_simulation', lambda self: True)
-    monkeypatch.setattr(QMessageBox, 'information', lambda *a, **k: infos.append(1))
     dialog = StockDialog(viewer)
     dialog._apply()
-    assert viewer.sim_stock is not None and not viewer.sim_enabled and infos == [1]
+    assert viewer.sim_stock is not None and viewer._sim_instant is False
+    viewer.set_sim_enabled(True)                            # 작업자가 직접 즉시 보기를 켬
+    assert viewer._sim_instant is True
+    dialog._apply()                                         # 다시 적용하면 꺼짐으로 돌아간다
+    assert viewer._sim_instant is False
 
 
 @needs_viewer

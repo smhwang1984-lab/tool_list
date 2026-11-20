@@ -377,6 +377,7 @@ dialog .dlg-foot button.primary { border-color: var(--accent); background: var(-
 .viewer-host .v-btnrow button.v-playbtn { width: 56px; background: #e4e8f0; border-color: #e4e8f0; }
 .viewer-host .v-btnrow button.v-playbtn svg { color: #11141a; fill: #11141a; }
 .viewer-host .v-toolnow { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px var(--mono); color: #9aa5b8; }
+.viewer-host .v-toolnow .v-toolcm { color: #8fc99b; font-size: 11px; }
 .viewer-host .v-toolnow b { font-weight: 400; color: #e4e8f0; }
 @container (max-width: 520px) {
   .viewer-host .v-modal { grid-template-columns: 1fr; }
