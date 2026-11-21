@@ -39,6 +39,36 @@
   },
   {
    "args": [
+    "D10 F.EM"
+   ],
+   "result": "10"
+  },
+  {
+   "args": [
+    "D6 B.EM"
+   ],
+   "result": "6"
+  },
+  {
+   "args": [
+    "D2.3 DRILL"
+   ],
+   "result": "2.3"
+  },
+  {
+   "args": [
+    "D6 F.EM"
+   ],
+   "result": "6"
+  },
+  {
+   "args": [
+    "D1 B.EM"
+   ],
+   "result": "1"
+  },
+  {
+   "args": [
     "D5 DR"
    ],
    "result": "5"
@@ -69,9 +99,51 @@
   },
   {
    "args": [
-    "D10 F.EM"
+    "D25XR2 CUT"
+   ],
+   "result": "25"
+  },
+  {
+   "args": [
+    "D12 F.EM"
+   ],
+   "result": "12"
+  },
+  {
+   "args": [
+    "D10 B.EM"
    ],
    "result": "10"
+  },
+  {
+   "args": [
+    "D16 F.EM"
+   ],
+   "result": "16"
+  },
+  {
+   "args": [
+    "D7.1 DR"
+   ],
+   "result": "7.1"
+  },
+  {
+   "args": [
+    "D10 RM"
+   ],
+   "result": "10"
+  },
+  {
+   "args": [
+    "D9.8 DR"
+   ],
+   "result": "9.8"
+  },
+  {
+   "args": [
+    "D2 XR2 CUT"
+   ],
+   "result": "2"
   },
   {
    "args": [

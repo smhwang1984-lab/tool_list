@@ -3,6 +3,34 @@
  "calls": [
   {
    "args": [
+    "10",
+    "10"
+   ],
+   "result": true
+  },
+  {
+   "args": [
+    "6",
+    "6"
+   ],
+   "result": true
+  },
+  {
+   "args": [
+    "2.3",
+    "2.3"
+   ],
+   "result": true
+  },
+  {
+   "args": [
+    "1",
+    "1"
+   ],
+   "result": true
+  },
+  {
+   "args": [
     "90",
     "90"
    ],
@@ -49,6 +77,55 @@
     "33"
    ],
    "result": true
+  },
+  {
+   "args": [
+    "25",
+    "25"
+   ],
+   "result": true
+  },
+  {
+   "args": [
+    "12",
+    "12"
+   ],
+   "result": true
+  },
+  {
+   "args": [
+    "16",
+    "16"
+   ],
+   "result": true
+  },
+  {
+   "args": [
+    "7.1",
+    "7.1"
+   ],
+   "result": true
+  },
+  {
+   "args": [
+    "13",
+    "13"
+   ],
+   "result": true
+  },
+  {
+   "args": [
+    "9.8",
+    "9.8"
+   ],
+   "result": true
+  },
+  {
+   "args": [
+    "2",
+    "25"
+   ],
+   "result": false
   }
  ]
 }

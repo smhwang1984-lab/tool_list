@@ -37,6 +37,7 @@
    "SO_NAME": "30",
    "SO_CMT": "",
    "SO_ALERT": "",
+   "D_ALERT": "",
    "SPINDL_CHECKS": [
     [
      9,
@@ -67,6 +68,7 @@
    "SO_NAME": "20",
    "SO_CMT": "",
    "SO_ALERT": "",
+   "D_ALERT": "",
    "SPINDL_CHECKS": [
     [
      29,
@@ -97,6 +99,7 @@
    "SO_NAME": "40",
    "SO_CMT": "",
    "SO_ALERT": "",
+   "D_ALERT": "",
    "SPINDL_CHECKS": [
     [
      43,
@@ -132,6 +135,7 @@
    "SO_NAME": "30",
    "SO_CMT": "",
    "SO_ALERT": "",
+   "D_ALERT": "",
    "SPINDL_CHECKS": [
     [
      9,
@@ -162,6 +166,7 @@
    "SO_NAME": "20",
    "SO_CMT": "",
    "SO_ALERT": "",
+   "D_ALERT": "",
    "SPINDL_CHECKS": [
     [
      29,
@@ -192,6 +197,7 @@
    "SO_NAME": "40",
    "SO_CMT": "",
    "SO_ALERT": "",
+   "D_ALERT": "",
    "SPINDL_CHECKS": [
     [
      43,

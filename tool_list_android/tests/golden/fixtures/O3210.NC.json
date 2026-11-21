@@ -37,6 +37,7 @@
    "SO_NAME": "70",
    "SO_CMT": "",
    "SO_ALERT": "",
+   "D_ALERT": "공구명 D2 / 주석 DC 25",
    "SPINDL_CHECKS": [
     [
      236,
@@ -67,6 +68,7 @@
    "SO_NAME": "90",
    "SO_CMT": "",
    "SO_ALERT": "",
+   "D_ALERT": "",
    "SPINDL_CHECKS": [
     [
      31,
@@ -97,6 +99,7 @@
    "SO_NAME": "30",
    "SO_CMT": "",
    "SO_ALERT": "",
+   "D_ALERT": "",
    "SPINDL_CHECKS": [
     [
      4950,
@@ -127,6 +130,7 @@
    "SO_NAME": "30",
    "SO_CMT": "",
    "SO_ALERT": "",
+   "D_ALERT": "",
    "SPINDL_CHECKS": [
     [
      4000,
@@ -175,6 +179,7 @@
    "SO_NAME": "30",
    "SO_CMT": "",
    "SO_ALERT": "",
+   "D_ALERT": "",
    "SPINDL_CHECKS": [
     [
      18203,
@@ -210,6 +215,7 @@
    "SO_NAME": "70",
    "SO_CMT": "",
    "SO_ALERT": "",
+   "D_ALERT": "공구명 D2 / 주석 DC 25",
    "SPINDL_CHECKS": [
     [
      236,
@@ -240,6 +246,7 @@
    "SO_NAME": "90",
    "SO_CMT": "",
    "SO_ALERT": "",
+   "D_ALERT": "",
    "SPINDL_CHECKS": [
     [
      31,
@@ -270,6 +277,7 @@
    "SO_NAME": "30",
    "SO_CMT": "",
    "SO_ALERT": "",
+   "D_ALERT": "",
    "SPINDL_CHECKS": [
     [
      4950,
@@ -300,6 +308,7 @@
    "SO_NAME": "30",
    "SO_CMT": "",
    "SO_ALERT": "",
+   "D_ALERT": "",
    "SPINDL_CHECKS": [
     [
      4000,
@@ -348,6 +357,7 @@
    "SO_NAME": "30",
    "SO_CMT": "",
    "SO_ALERT": "",
+   "D_ALERT": "",
    "SPINDL_CHECKS": [
     [
      18203,

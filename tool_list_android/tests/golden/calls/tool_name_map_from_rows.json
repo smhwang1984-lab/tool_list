@@ -24,6 +24,7 @@
       "SO_NAME": "200",
       "SO_CMT": "",
       "SO_ALERT": "",
+      "D_ALERT": "",
       "SPINDL_CHECKS": [],
       "SPINDL_ALERT": "",
       "NO_ALERT": ""
@@ -66,6 +67,7 @@
       "SO_NAME": "80",
       "SO_CMT": "",
       "SO_ALERT": "",
+      "D_ALERT": "",
       "SPINDL_CHECKS": [],
       "SPINDL_ALERT": "",
       "NO_ALERT": ""
@@ -90,6 +92,7 @@
       "SO_NAME": "70",
       "SO_CMT": "",
       "SO_ALERT": "",
+      "D_ALERT": "",
       "SPINDL_CHECKS": [],
       "SPINDL_ALERT": "",
       "NO_ALERT": ""
@@ -222,6 +225,7 @@
       "SO_NAME": "140",
       "SO_CMT": "",
       "SO_ALERT": "",
+      "D_ALERT": "",
       "SPINDL_CHECKS": [],
       "SPINDL_ALERT": "",
       "NO_ALERT": ""
@@ -246,6 +250,7 @@
       "SO_NAME": "120",
       "SO_CMT": "",
       "SO_ALERT": "",
+      "D_ALERT": "",
       "SPINDL_CHECKS": [],
       "SPINDL_ALERT": "",
       "NO_ALERT": ""
@@ -324,6 +329,7 @@
       "SO_NAME": "30",
       "SO_CMT": "",
       "SO_ALERT": "",
+      "D_ALERT": "",
       "SPINDL_CHECKS": [],
       "SPINDL_ALERT": "",
       "NO_ALERT": ""
@@ -371,6 +377,7 @@
       "SO_NAME": "",
       "SO_CMT": "",
       "SO_ALERT": "",
+      "D_ALERT": "",
       "SPINDL_CHECKS": [],
       "SPINDL_ALERT": "",
       "NO_ALERT": ""
@@ -395,6 +402,7 @@
       "SO_NAME": "",
       "SO_CMT": "",
       "SO_ALERT": "",
+      "D_ALERT": "",
       "SPINDL_CHECKS": [],
       "SPINDL_ALERT": "",
       "NO_ALERT": ""
@@ -433,6 +441,7 @@
       "SO_NAME": "",
       "SO_CMT": "",
       "SO_ALERT": "",
+      "D_ALERT": "",
       "SPINDL_CHECKS": [],
       "SPINDL_ALERT": "",
       "NO_ALERT": ""

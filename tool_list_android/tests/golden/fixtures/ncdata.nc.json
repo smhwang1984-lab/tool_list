@@ -55,6 +55,7 @@
    "SO_NAME": "40",
    "SO_CMT": "",
    "SO_ALERT": "",
+   "D_ALERT": "",
    "SPINDL_CHECKS": [
     [
      27,
@@ -95,6 +96,7 @@
    "SO_NAME": "30",
    "SO_CMT": "",
    "SO_ALERT": "",
+   "D_ALERT": "",
    "SPINDL_CHECKS": [
     [
      6138,
@@ -125,6 +127,7 @@
    "SO_NAME": "20",
    "SO_CMT": "",
    "SO_ALERT": "",
+   "D_ALERT": "",
    "SPINDL_CHECKS": [
     [
      22775,
@@ -160,6 +163,7 @@
    "SO_NAME": "35",
    "SO_CMT": "",
    "SO_ALERT": "",
+   "D_ALERT": "",
    "SPINDL_CHECKS": [
     [
      28661,
@@ -200,6 +204,7 @@
    "SO_NAME": "22",
    "SO_CMT": "",
    "SO_ALERT": "",
+   "D_ALERT": "",
    "SPINDL_CHECKS": [
     [
      27008,
@@ -253,6 +258,7 @@
    "SO_NAME": "40",
    "SO_CMT": "",
    "SO_ALERT": "",
+   "D_ALERT": "",
    "SPINDL_CHECKS": [
     [
      27,
@@ -293,6 +299,7 @@
    "SO_NAME": "30",
    "SO_CMT": "",
    "SO_ALERT": "",
+   "D_ALERT": "",
    "SPINDL_CHECKS": [
     [
      6138,
@@ -323,6 +330,7 @@
    "SO_NAME": "20",
    "SO_CMT": "",
    "SO_ALERT": "",
+   "D_ALERT": "",
    "SPINDL_CHECKS": [
     [
      22775,
@@ -358,6 +366,7 @@
    "SO_NAME": "35",
    "SO_CMT": "",
    "SO_ALERT": "",
+   "D_ALERT": "",
    "SPINDL_CHECKS": [
     [
      28661,
@@ -398,6 +407,7 @@
    "SO_NAME": "22",
    "SO_CMT": "",
    "SO_ALERT": "",
+   "D_ALERT": "",
    "SPINDL_CHECKS": [
     [
      27008,
