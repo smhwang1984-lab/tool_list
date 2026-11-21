@@ -52,7 +52,9 @@ Last updated: 2026-11-05 (NC_Tool_List v2.3.0 — 로컬 v2.2.9(STOCK SIZE)와 G
 - Version: 2.6.7 → 2.6.8 (안드로이드 2.0.7 → 2.0.8)
 - Summary: UI 정리(unslop, 사용자 시안 승인). **① 데스크톱 다크·라이트 테마를 안드로이드와 같은 흑연 계열로**(`THEMES`: 남색 슬레이트 `#1b1f27`/`#242a35`/`#3a4250` → `#121315`/`#1a1b1e`/`#2b2d31`, 활성 모드 탭은 파랑 채움 대신 회색 한 단계, 강조색 `#3a78c2` 통일, 라이트는 `#eef0f2` 계열). 3D 뷰어 오버레이·재생 바·메뉴의 하드코딩 색도 같은 값으로 맞췄다. **② 보더 투명도 3단계**: 구분선 .10 / 컨트롤 .18 / 활성·호버 .32(안드로이드 `--v-line-soft/--v-line/--v-line-strong`, 데스크톱 알파 26/46/82). **③ `⚠` 글자 기호 제거**(상태 줄·선반 소재 창·저장 실패 알림은 문구로 전달, 내경 오류는 오류색). NC 코드 색과 3D 캔버스는 그대로. 안드로이드에는 `⚠`가 없어 ①~②만 해당.
 - Open source: 변경 없음.
-- Installer/package status: **미생성**(코드·테스트만 완료).
+- Installer/package status: **생성 완료**. `installer\NC_Tool_List_Setup_v2.6.8.exe`(dist exe 파일 버전 2.6.8.0, 실행 10초 확인) + 안드로이드 `tool_list_android\out\SumPath_v2.0.8.apk`. v2.6.7/v2.0.7은 설치본·APK 없이 v2.6.8/v2.0.8에 합쳐 빌드했다.
+  - Setup EXE SHA-256: 8838A1A00C62EFC61835C9471BB76BE784D0EB6E36EFE776756ABC3F705E80CE
+  - APK SHA-256: B37BA5C0935EB29FDFFA016E4DB949592D0A96B5D24E8D26B9DA1E2BD4C96D3C
 
 ### 2026-11-21 (v2.6.7 / 안드로이드 v2.0.7)
 
