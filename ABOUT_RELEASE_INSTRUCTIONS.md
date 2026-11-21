@@ -55,6 +55,7 @@ Last updated: 2026-11-05 (NC_Tool_List v2.3.0 — 로컬 v2.2.9(STOCK SIZE)와 G
 - Installer/package status: **생성 완료**. `installer\NC_Tool_List_Setup_v2.6.9.exe`(dist exe 파일 버전 2.6.9.0, 실행 10초 확인) + 안드로이드 `tool_list_android\out\SumPath_v2.0.9.apk`.
   - Setup EXE SHA-256: 97C665E63D83F049F2635CD2B4681B1D57174EF6DFBE949DF10AA83B0148C173
   - APK SHA-256: 303B7E6AB3B7F0E2927D74B9AEE35B769C863286A59FECFD8C996492FC229A1F
+- 후속(안드로이드 전용): 안드로이드 v2.1.0에서 재생 정보 판 접기 · 프로그램 창 접기 · 회전 중 줄 수정을 넣었다. 데스크톱 변경 없음(v2.6.9 그대로).
 
 ### 2026-11-21 (v2.6.8 / 안드로이드 v2.0.8)
 

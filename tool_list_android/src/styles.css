@@ -106,6 +106,19 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 .splitter::after { content: ''; width: 2px; height: 40px; border-radius: 1px; background: var(--toolbar_sep); }
 /* 보이는 두께는 8px, 손가락으로 잡는 영역은 양옆 8px씩 더 넓게 */
 .splitter::before { content: ''; position: absolute; inset: 0 -8px; }
+/* 프로그램 창 접기(v2.0.9, 안드로이드 전용): 분할선에 붙은 탭. 접으면 창이 사라지고 탭만 왼쪽 끝에 남는다 */
+.pane-fold {
+  position: absolute; top: 50%; left: 8px; transform: translateY(-50%); width: 20px; height: 48px; padding: 0;
+  border: 1px solid var(--v-line); border-left: 0; border-radius: 0 8px 8px 0; background: var(--v-surface); color: var(--v-text);
+  display: inline-flex; align-items: center; justify-content: center; touch-action: manipulation; z-index: 3;
+}
+.pane-fold svg { width: 14px; height: 14px; stroke: currentColor; }
+.pane-fold:active { background: rgba(228, 232, 240, .08); }
+.pane-fold::before { content: ''; position: absolute; inset: -4px -8px -4px 0; }
+.program-pane.collapsed { display: none; }
+.splitter.collapsed { flex: 0 0 0; cursor: default; }
+.splitter.collapsed::before, .splitter.collapsed::after { display: none; }
+.splitter.collapsed .pane-fold { left: 0; }
 
 .editor-host { flex: 1; min-height: 0; background: var(--editor_bg); }
 .editor-host .cm-editor { height: 100%; }
@@ -333,7 +346,22 @@ dialog .dlg-foot button.primary { border-color: var(--accent); background: var(-
   background: rgba(20, 23, 29, .89); border: 1px solid var(--v-line); border-radius: 12px;
   max-height: calc(100% - 64px); overflow: auto; container-type: inline-size;
 }
-.viewer-host .v-coordrow { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+/* 회전 중 한 줄: 재생 정보 판 안, 회전이 도는 동안만 보인다(v2.0.9) */
+.viewer-host .v-rot {
+  display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; white-space: nowrap;
+  font: 13px/1.4 var(--mono); font-variant-numeric: tabular-nums; color: var(--v-text);
+}
+.viewer-host .v-rot[hidden] { display: none; }
+.viewer-host .v-rot::before { content: ''; flex: 0 0 8px; height: 8px; border-radius: 50%; background: #f0b24a; }
+.viewer-host .v-coordrow { display: flex; align-items: center; gap: 12px; min-width: 0; }
+/* 재생 정보 판 접기(v2.0.9, 안드로이드 전용): 눈에 보이는 건 작게, 터치 영역은 40px */
+.viewer-host .v-fold {
+  flex: 0 0 40px; width: 40px; height: 40px; margin: -10px -10px -10px -4px; padding: 0; border: 0; background: transparent;
+  color: var(--v-text); display: inline-flex; align-items: center; justify-content: center; touch-action: manipulation;
+}
+.viewer-host .v-fold svg { width: 16px; height: 16px; stroke: currentColor; }
+.viewer-host .v-fold:active { background: rgba(228, 232, 240, .08); }
+.viewer-host .v-hud.collapsed > :not(.v-coordrow):not(.v-rot) { display: none; }
 .viewer-host .v-coord { display: flex; flex-wrap: wrap; gap: 4px 16px; min-width: 0; font: 13px/1.4 var(--mono); font-variant-numeric: tabular-nums; }
 .viewer-host .v-coord span { color: #7a8494; white-space: nowrap; }
 .viewer-host .v-coord b { font-weight: 400; color: var(--v-text); margin-left: 6px; }
@@ -343,7 +371,9 @@ dialog .dlg-foot button.primary { border-color: var(--accent); background: var(-
 .viewer-host .v-mtoggle {
   height: 28px; padding: 0 8px 0 4px; border: 0; border-radius: 6px; background: transparent; color: #9aa5b8;
   font: inherit; font-size: 12px; white-space: nowrap; touch-action: manipulation;
+  display: inline-flex; align-items: center; gap: 4px;
 }
+.viewer-host .v-mtoggle svg { width: 14px; height: 14px; stroke: currentColor; }
 .viewer-host .v-mtoggle:active { background: rgba(228, 232, 240, .08); color: var(--v-text); }
 .viewer-host .v-peek { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px var(--mono); color: #c9d1dc; }
 .viewer-host .v-peek[hidden] { display: none; }

@@ -87,6 +87,11 @@ const HELP_TEXT = [
   '  위치 찍기(과녁 모양) 버튼(또는 영역 확대 뒤)에서 경로를 탭하면 가장 가까운 선의 프로그램 줄로 이동합니다.',
   '  방향 큐브의 면을 탭하면 해당 방향으로 바뀝니다. 뒤로 버튼으로 위치 찍기를 끝냅니다.',
   '',
+  '■ 접기 (안드로이드 전용)',
+  '  재생 정보 판의 오른쪽 위 화살표: 좌표·시간 한 줄만 남기고 접기 / 다시 펼치기.',
+  '  가운데 분할선의 ‹ › 탭: 프로그램 창을 접고 3D 화면을 넓게 쓰기 / 다시 펼치기. 상태는 저장됩니다.',
+  '  A·B·C가 회전하는 동안에는 재생 정보 판 맨 위에 "회전 중 A … → …" 한 줄이 나옵니다(접어도 보임).',
+  '',
   '■ 재생 (PG 매칭)',
   '  ▶ 재생/정지, ↺ 처음으로, ⏮⏭ 이전/다음 공정, 속도 1x~5000x, 막대를 끌어 위치 이동.',
   '  텍스트 정지 / 정지(M00) / 옵션정지(M01)에서 자동으로 멈춥니다.',
@@ -281,6 +286,25 @@ function mount(root: HTMLElement): void {
   });
 
   const splitter = el('div', { class: 'splitter', role: 'separator', 'aria-orientation': 'vertical' });
+  // 프로그램 창 접기(안드로이드 전용): 분할선의 탭을 누르면 숨고, 왼쪽 끝에 남은 탭을 누르면 저장된 폭으로 펼쳐진다
+  const paneFold = el('button', { type: 'button', class: 'pane-fold' });
+  let programCollapsed = getPref('program_pane_collapsed') === 'true';
+  const paintPaneFold = (): void => {
+    programPane.classList.toggle('collapsed', programCollapsed);
+    splitter.classList.toggle('collapsed', programCollapsed);
+    paneFold.innerHTML = icon(programCollapsed ? 'chevron_right' : 'chevron_left');
+    paneFold.title = programCollapsed ? '프로그램 창 펼치기' : '프로그램 창 접기';
+    paneFold.setAttribute('aria-label', paneFold.title);
+    paneFold.setAttribute('aria-expanded', String(!programCollapsed));
+  };
+  paneFold.addEventListener('pointerdown', (ev) => ev.stopPropagation());   // 분할선 끌기로 넘어가지 않게
+  paneFold.addEventListener('click', () => {
+    programCollapsed = !programCollapsed;
+    setPref('program_pane_collapsed', String(programCollapsed));
+    paintPaneFold();
+  });
+  splitter.append(paneFold);
+  paintPaneFold();
 
   const rightPane = el('section', { class: 'pane right-pane' });
   const toolTable = createToolTable();
@@ -707,6 +731,7 @@ function mount(root: HTMLElement): void {
   }
   // 가운데 손잡이 끌어서 폭 조절 (원본 QSplitter, 최소 폭 300px)
   splitter.addEventListener('pointerdown', (ev) => {
+    if (programCollapsed) return;
     splitter.setPointerCapture(ev.pointerId);
     const startX = ev.clientX;
     const startW = programPane.getBoundingClientRect().width;

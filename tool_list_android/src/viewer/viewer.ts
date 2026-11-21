@@ -288,10 +288,9 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
   let tableDelta: [number, number, number] = [0, 0, 0];
   let tableDur = 0;
   let tableElapsed = 0;
-  const rotInfo = el('div', { class: 'v-hud' });
-  rotInfo.style.cssText = 'position:absolute;left:8px;top:48px;padding:4px 8px;border-radius:4px;background:rgba(20,24,30,.8);color:#ffe082;font-size:12px;pointer-events:none';
+  // v2.0.9: 별도 상자가 아니라 재생 정보 판(hud) 안 좌표 줄 위의 한 줄이다 - 판의 폭 · 바탕을 물려받아 화면에 검은 블록이 생기던 문제를 없앴다
+  const rotInfo = el('div', { class: 'v-rot' });
   rotInfo.hidden = true;
-  host.append(rotInfo);
   const sameRot = (x: TableRot | null, y: TableRot | null): boolean =>
     x === y || (!!x && !!y && x[0] === y[0] && x[1] === y[1] && x[2] === y[2] && x[3] === y[3]);
   const paintRotInfo = (): void => {
@@ -300,7 +299,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     (['A', 'B', 'C'] as const).forEach((name, k) => {
       if (Math.abs(tableDelta[k]!) >= 0.05) parts.push(`${name} ${(tableDisp![k + 1] as number).toFixed(1)}° → ${(tableGoal![k + 1] as number).toFixed(1)}°`);
     });
-    rotInfo.textContent = parts.length ? `회전 중… ${parts.join('   ')}` : '';
+    rotInfo.textContent = parts.length ? `회전 중 ${parts.join('   ')}` : '';
     rotInfo.hidden = !parts.length;
   };
   const tableSync = (seq: number): void => {
@@ -426,7 +425,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
   modalPanel.append(kvBox, groupBox, mRow);
   const playBar = el('div', { class: 'v-play' });
   const buttonRow = el('div', { class: 'v-btnrow' });
-  hud.append(coordRow, modalRow, modalPanel, playBar, buttonRow);
+  hud.append(rotInfo, coordRow, modalRow, modalPanel, playBar, buttonRow);
   host.append(projBar, hud, progressBox);
   let modalOpen = getPref('modal_info_open') === 'true';
   let toolNames: Readonly<Record<string, string>> | null = null;
@@ -463,7 +462,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     modalPanel.hidden = !modalOpen;
     modalPeek.hidden = modalOpen;
     modalToggle.setAttribute('aria-expanded', String(modalOpen));
-    modalToggle.textContent = `${modalOpen ? '▾' : '▸'} 모달 정보`;
+    modalToggle.innerHTML = `${icon(modalOpen ? 'chevron_down' : 'chevron_right')}<span>모달 정보</span>`;
   };
   paintModalToggle();
   modalToggle.addEventListener('click', () => {
@@ -629,7 +628,19 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
   playBar.append(speedSel, slider, pctText);
   const timeText = el('span', { class: 'v-time' });
   timeText.textContent = '00:00 / 00:00';
-  coordRow.append(coordBox, timeText);
+  // v2.0.9(안드로이드 전용): 접으면 좌표 · 시간 줄(과 회전 중 줄)만 남는다. 상태는 저장된다.
+  const hudFold = el('button', { type: 'button', class: 'v-fold', 'aria-expanded': 'true' });
+  let hudCollapsed = getPref('hud_collapsed') === 'true';
+  const paintHudFold = (): void => {
+    hud.classList.toggle('collapsed', hudCollapsed);
+    hudFold.innerHTML = icon(hudCollapsed ? 'chevron_up' : 'chevron_down');
+    hudFold.title = hudCollapsed ? '재생 정보 펼치기' : '재생 정보 접기 (좌표만 남김)';
+    hudFold.setAttribute('aria-label', hudFold.title);
+    hudFold.setAttribute('aria-expanded', String(!hudCollapsed));
+  };
+  hudFold.addEventListener('click', () => { hudCollapsed = !hudCollapsed; setPref('hud_collapsed', String(hudCollapsed)); paintHudFold(); });
+  paintHudFold();
+  coordRow.append(coordBox, timeText, hudFold);
   /** 원본 PlaybackBarWidget.set_modal_state / set_tool_text */
   function showModal(): void {
     paintModalToggle();
