@@ -134,9 +134,140 @@ class GpuShaderTests(unittest.TestCase):
         self.assertLessEqual(float(diff.max()), 1e-3)
 
 
+@unittest.skipIf(CTX is None, 'OpenGL 3.3 문맥을 만들 수 없다(moderngl/드라이버 없음)')
+class GpuZMapStockTests(unittest.TestCase):
+    """GpuZMapStock은 nc_sim.ZMapStock과 같은 인터페이스·같은 결과(수평·수직 이동)를 낸다."""
+
+    def cut_both(self, kind, segments, rapid=None, colors=None):
+        tool = make_tool(kind)
+        p0, p1, n = arrays(segments)
+        rapid = np.zeros(n, dtype=bool) if rapid is None else np.asarray(rapid, dtype=bool)
+        colors = np.arange(n) % 5 if colors is None else np.asarray(colors)
+        gpu = nc_sim_gpu.GpuZMapStock(BOUNDS, RES)
+        cpu = nc_sim.ZMapStock(BOUNDS, RES)
+        args = (p0, p1, [tool], np.zeros(n, dtype=int), rapid, colors)
+        gpu.cut_batch(*args, src_lines=list(range(10, 10 + n)), seqs=list(range(n)))
+        cpu.cut_batch(*args, src_lines=list(range(10, 10 + n)), seqs=list(range(n)), use_numba=False)
+        return gpu, cpu
+
+    def test_same_shape_and_dtypes_as_cpu_stock(self):
+        gpu, cpu = self.cut_both('flat', LEVEL_PATHS['horizontal'])
+        self.assertTrue(gpu.last_cut_used_gpu)
+        self.assertEqual(gpu.heights.shape, cpu.heights.shape)
+        self.assertEqual(gpu.heights.dtype, np.float32)
+        self.assertEqual(gpu.color_ids.dtype, np.int16)
+        self.assertTrue(gpu.any_cut())
+
+    def test_level_moves_match_cpu_stock(self):
+        for kind in TOOL_KINDS:
+            for name, segments in LEVEL_PATHS.items():
+                gpu, cpu = self.cut_both(kind, segments, colors=[2] * len(segments))
+                diff = np.abs(gpu.heights.astype(np.float64) - cpu.heights.astype(np.float64))
+                self.assertLessEqual(float(diff.max()), 5e-3, '%s %s' % (kind, name))
+                gc, cc = gpu.color_ids, cpu.color_ids
+                self.assertLessEqual(int(((gc >= 0) != (cc >= 0)).sum()), max(8, int((cc >= 0).sum() * 0.001)),
+                                     '%s %s' % (kind, name))
+
+    def test_snapshot_restore_then_continue_matches_straight_run(self):
+        p0, p1, n = arrays(LEVEL_PATHS['zigzag'])
+        tool = [make_tool('ball')]
+        idx = np.zeros(n, dtype=int)
+        rapid = np.zeros(n, dtype=bool)
+        col = np.arange(n) % 5
+        half = n // 2
+        straight = nc_sim_gpu.GpuZMapStock(BOUNDS, RES)
+        straight.cut_batch(p0, p1, tool, idx, rapid, col)
+        stepped = nc_sim_gpu.GpuZMapStock(BOUNDS, RES)
+        stepped.cut_batch(p0[:half], p1[:half], tool, idx[:half], rapid[:half], col[:half])
+        snap = stepped.snapshot()
+        stepped.cut_batch(p0[half:], p1[half:], tool, idx[half:], rapid[half:], col[half:])
+        stepped.restore(snap)                                   # 되감기
+        stepped.cut_batch(p0[half:], p1[half:], tool, idx[half:], rapid[half:], col[half:])
+        self.assertLessEqual(float(np.abs(stepped.heights - straight.heights).max()), 1e-4)
+        self.assertEqual(int((stepped.color_ids != straight.color_ids).sum()), 0)
+
+    def test_untouched_cells_keep_exact_values_across_batches(self):
+        gpu = nc_sim_gpu.GpuZMapStock(BOUNDS, RES)
+        gpu.cut_batch([[-5, 0, -2]], [[5, 0, -2]], [make_tool('flat')], [0], [False], [1])
+        before = gpu.heights.copy()
+        gpu.cut_batch([[0, 100, -2]], [[1, 100, -2]], [make_tool('flat')], [0], [False], [2])   # 격자 밖
+        np.testing.assert_array_equal(gpu.heights, before)
+
+    def test_rapid_cut_warning_recorded_with_source_and_seq(self):
+        segs = [((-5, 0, 5), (5, 0, 5)), ((-5, 0, 5), (-5, 0, -1)), ((-5, 0, -1), (5, 0, -1))]
+        gpu, cpu = self.cut_both('flat', segs, rapid=[False, True, True])
+        self.assertEqual(len(gpu.rapid_cut_warnings), len(cpu.rapid_cut_warnings))
+        self.assertEqual(sorted(gpu.rapid_cut_warnings), sorted(cpu.rapid_cut_warnings))
+        gpu2, _ = self.cut_both('flat', segs, rapid=[False, False, False])
+        self.assertEqual(gpu2.rapid_cut_warnings, [])
+
+    def test_rapid_above_stock_is_not_a_warning(self):
+        gpu, _ = self.cut_both('flat', [((-5, 0, 5), (5, 0, 5))], rapid=[True])
+        self.assertEqual(gpu.rapid_cut_warnings, [])
+
+    def test_cancel_returns_false_and_progress_reports(self):
+        p0, p1, n = arrays(LEVEL_PATHS['zigzag'])
+        gpu = nc_sim_gpu.GpuZMapStock(BOUNDS, RES)
+        seen = []
+        ok = gpu.cut_batch(p0, p1, [make_tool('flat')], np.zeros(n, dtype=int), np.zeros(n, dtype=bool),
+                           np.zeros(n), progress=lambda d, t: seen.append((d, t)), chunk=3)
+        self.assertTrue(ok)
+        self.assertEqual(seen[-1], (n, n))
+        gpu2 = nc_sim_gpu.GpuZMapStock(BOUNDS, RES)
+        ok = gpu2.cut_batch(p0, p1, [make_tool('flat')], np.zeros(n, dtype=int), np.zeros(n, dtype=bool),
+                            np.zeros(n), cancel=lambda: True)
+        self.assertFalse(ok)
+
+    def test_clone_is_independent(self):
+        gpu = nc_sim_gpu.GpuZMapStock(BOUNDS, RES)
+        gpu.cut_batch([[-5, 0, -2]], [[5, 0, -2]], [make_tool('flat')], [0], [False], [1])
+        other = gpu.clone()
+        other.reset()
+        self.assertTrue(gpu.any_cut())
+        self.assertFalse(other.any_cut())
+        self.assertIsInstance(other, nc_sim_gpu.GpuZMapStock)
+
+    def test_works_from_a_worker_thread(self):
+        import threading
+        gpu = nc_sim_gpu.GpuZMapStock(BOUNDS, RES)
+        out = {}
+
+        def work():
+            out['ok'] = gpu.cut_batch([[-5, 0, -2]], [[5, 0, -2]], [make_tool('flat')], [0], [False], [1])
+            out['gpu'] = gpu.last_cut_used_gpu
+
+        thread = threading.Thread(target=work)
+        thread.start()
+        thread.join()
+        self.assertTrue(out.get('ok') and out.get('gpu'))
+        self.assertTrue(gpu.any_cut())
+
+    def test_unknown_tool_falls_back_to_cpu_engine(self):
+        custom = nc_sim.ToolShape(3.0, lambda r: r * 0.0, 20.0)
+        gpu = nc_sim_gpu.GpuZMapStock(BOUNDS, RES)
+        ok = gpu.cut_batch([[-5, 0, -2]], [[5, 0, -2]], [custom], [0], [False], [1])
+        self.assertTrue(ok)
+        self.assertFalse(gpu.last_cut_used_gpu)
+        self.assertTrue(gpu.any_cut())
+
+    def test_no_gpu_context_falls_back_to_cpu_engine(self):
+        gpu = nc_sim_gpu.GpuZMapStock(BOUNDS, RES, context_factory=lambda: None)
+        gpu.cut_batch([[-5, 0, -2]], [[5, 0, -2]], [make_tool('flat')], [0], [False], [1])
+        self.assertFalse(gpu.last_cut_used_gpu)
+        cpu = nc_sim.ZMapStock(BOUNDS, RES)
+        cpu.cut_batch([[-5, 0, -2]], [[5, 0, -2]], [make_tool('flat')], [0], [False], [1], use_numba=False)
+        np.testing.assert_array_equal(gpu.heights, cpu.heights)
+
+    def test_resolution_for_cells(self):
+        bounds = {'X': (0.0, 100.0), 'Y': (0.0, 40.0), 'Z': (-5.0, 0.0)}
+        res = nc_sim_gpu.resolution_for_cells(bounds, 2048)
+        stock = nc_sim_gpu.GpuZMapStock(bounds, res, context_factory=lambda: None)
+        self.assertEqual(max(stock.nx, stock.ny), 2048)
+
+
 class GpuHelpersTests(unittest.TestCase):
     def test_shader_dir_holds_the_shaders(self):
-        for name in ('cut.vert', 'cut.frag'):
+        for name in ('cut.vert', 'cut.frag', 'fill.vert', 'fill.frag'):
             self.assertTrue(os.path.exists(os.path.join(nc_sim_gpu.shader_dir(), name)), name)
         self.assertTrue(nc_sim_gpu.shader_source('cut.frag').startswith('#version 330 core'))
 

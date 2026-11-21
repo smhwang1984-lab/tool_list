@@ -30,6 +30,8 @@ COMPONENTS = (
     ('NumPy', 'numpy', 'BSD-3-Clause', '경로·소재 계산', 'https://numpy.org'),
     ('Numba', 'numba', 'BSD-2-Clause', '소재 시뮬레이션 가속', 'https://numba.pydata.org'),
     ('llvmlite', 'llvmlite', 'BSD-2-Clause (LLVM: Apache-2.0 WITH LLVM-exception)', 'Numba 컴파일러', 'https://github.com/numba/llvmlite'),
+    ('ModernGL', 'moderngl', 'MIT', '고해상도 GPU 형상 계산(OpenGL 3.3)', 'https://github.com/moderngl/moderngl'),
+    ('glcontext', 'glcontext', 'MIT', 'ModernGL의 OpenGL 문맥 생성', 'https://github.com/moderngl/glcontext'),
     ('PyOpenGL', 'PyOpenGL', 'BSD-3-Clause', '3D 그리기', 'https://pyopengl.sourceforge.net'),
     ('ReportLab', 'reportlab', 'BSD-3-Clause', 'PDF 출력', 'https://www.reportlab.com/opensource/'),
     ('PyInstaller', 'pyinstaller', 'GPL-2.0 WITH Bootloader-exception', '실행 파일 만들기(부트로더만 포함)', 'https://pyinstaller.org'),

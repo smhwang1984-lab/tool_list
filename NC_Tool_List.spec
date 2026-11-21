@@ -5,7 +5,7 @@ from PyInstaller.utils.hooks import collect_submodules
 
 import os
 
-app_data = [('assets/nc_tool_list.ico', 'assets')]
+app_data = [('assets/nc_tool_list.ico', 'assets'), ('sim_shaders', 'sim_shaders')]  # v2.8.0: GPU 절삭 셰이더
 
 # v1.10.0: 형상 시뮬레이션 가속(numba)을 배포에 넣는다. 3+2(G68.2)/동시 5축(G43.4)은 3D 복셀
 # 소재라 numba 없이는 수십 배 느려 해상도를 크게 낮춰야 한다. 대신 llvmlite 등으로 배포 폴더가
@@ -41,6 +41,8 @@ viewer_hiddenimports = [
     'nc_sim',
     # v1.10.0: 3D 소재(복셀) 엔진 — 경사면/동시 5축 가공 시뮬레이션.
     'nc_sim3d',
+    # v2.8.0: 고해상도 GPU 형상 엔진(ModernGL). moderngl이 없으면 앱은 CPU 엔진으로 동작한다.
+    'nc_sim_gpu', 'nc_sim_gpu_ref', 'moderngl', 'moderngl.mgl', 'glcontext', 'glcontext.wgl', 'glcontext.empty', '_moderngl',
     'nc_tool_marker',
     # v2.1.0: 선반 인서트·홀더 ISO 규격표와 툴리스트 자동 입력(순수 파이썬, Qt 비의존).
     'lathe_insert_spec',

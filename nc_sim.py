@@ -567,7 +567,7 @@ class ZMapStock:
 
     def clone(self):
         """같은 격자·현재 상태의 복사본(워커 스레드가 자기 사본으로 계산한다)."""
-        other = ZMapStock.__new__(ZMapStock)
+        other = type(self).__new__(type(self))
         other.__dict__.update(self.__dict__)
         other.heights = self.heights.copy()
         other.color_ids = self.color_ids.copy()

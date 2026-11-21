@@ -16,7 +16,7 @@ class ThirdPartyNoticesTest(unittest.TestCase):
     def test_components_cover_bundled_imports(self):
         names = {c[0] for c in tpn.COMPONENTS}
         for required in ('Python', 'PyQt5', 'Qt 5', 'pyqtgraph', 'NumPy', 'Numba', 'llvmlite',
-                         'PyOpenGL', 'ReportLab', 'PyInstaller', 'Inno Setup'):
+                         'ModernGL', 'glcontext', 'PyOpenGL', 'ReportLab', 'PyInstaller', 'Inno Setup'):
             self.assertIn(required, names)
 
     def test_summary_lines_name_license(self):
