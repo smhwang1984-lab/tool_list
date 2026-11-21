@@ -53,6 +53,8 @@ import nc_process_marker
 import nc_tool_marker
 import nc_sim
 import nc_sim3d
+import nc_sim_gpu
+import nc_sim_surface
 import nc_lathe_sim
 import ui_icons
 
@@ -2471,9 +2473,18 @@ class _SimJob:
 #   기본 엔진 · CPU  — 지금 쓰는 Z-map/복셀(셀 크기 mm). 저장 키는 예전과 같은 '자동', '0.05' ...
 #   고해상도 엔진 · GPU — 소재 긴 변의 칸 수(2048/4096/8192). 저장 키는 'gpu:auto', 'gpu:4096' ...
 # 고해상도 엔진(PLAN_gpu_sim_and_licensing.md 4장 G)은 아직 없어서 GPU 묶음은 흐리게 두고 고를 수 없다.
-# 엔진을 넣을 때 GPU_ENGINE_AVAILABLE만 True로(또는 그래픽 기능 감지 함수로) 바꾸면 열린다.
-# 안드로이드는 src/ui/stockDialog.ts의 RES_CPU / RES_GPU / GPU_ENGINE_AVAILABLE이 같은 약속이다.
-GPU_ENGINE_AVAILABLE = False
+# v2.8.0: 고해상도 엔진(GpuZMapStock, nc_sim_gpu.py)이 들어와서, 이 PC가 쓸 수 있으면(OpenGL 3.3 이상 하드웨어
+# 그래픽, 그래픽 안전 모드 아님) GPU 묶음이 열린다. 안드로이드는 src/ui/stockDialog.ts가 같은 약속이다.
+def gpu_engine_available(safe_mode=False):
+    """고해상도 엔진을 쓸 수 있는가. 안전 모드(그래픽 문제 회피)면 늘 False."""
+    if safe_mode:
+        return False
+    try:
+        return bool(nc_sim_gpu.gpu_usable())
+    except Exception:  # noqa: BLE001 - 감지 실패는 "쓸 수 없음"
+        return False
+
+
 SIM_RES_CPU_KEYS = ('자동', '0.05', '0.1', '0.2', '0.5', '1.0')
 SIM_RES_GPU_KEYS = ('gpu:auto', 'gpu:2048', 'gpu:4096', 'gpu:8192')
 SIM_RES_GROUP_CPU = '기본 엔진 · CPU'
@@ -2494,7 +2505,7 @@ def sim_resolution_label(key):
 def normalize_resolution_key(key, gpu_available=None):
     """저장돼 있던 값을 지금 쓸 수 있는 키로 바로잡는다. 모르는 값이거나 쓸 수 없는 엔진이면 '자동'."""
     if gpu_available is None:
-        gpu_available = GPU_ENGINE_AVAILABLE
+        gpu_available = gpu_engine_available()
     key = str(key) if key is not None else '자동'
     if key in SIM_RES_CPU_KEYS:
         return key
@@ -2823,7 +2834,7 @@ class StockDialog(QDialog):
 
     def _fill_resolution_combo(self):
         """해상도 목록을 엔진별 두 묶음으로 채운다. 머리글 줄은 고를 수 없고,
-        고해상도 엔진이 아직 없으면(GPU_ENGINE_AVAILABLE) 그 묶음 항목도 흐리게 둔다."""
+        이 PC가 고해상도 엔진을 쓸 수 없으면(gpu_engine_available) 그 묶음 항목도 흐리게 둔다."""
         combo = self.resolution_combo
         model = combo.model()
 
@@ -2834,21 +2845,29 @@ class StockDialog(QDialog):
         add_header(SIM_RES_GROUP_CPU)
         for key in SIM_RES_CPU_KEYS:
             combo.addItem(sim_resolution_label(key), key)
-        add_header(SIM_RES_GROUP_GPU + ('' if GPU_ENGINE_AVAILABLE else ' — 준비 중'))
+        self._gpu_ok = gpu_engine_available(bool(getattr(self.viewer, 'safe_mode', False)))
+        add_header(SIM_RES_GROUP_GPU + ('' if self._gpu_ok else ' — 사용할 수 없음'))
         for key in SIM_RES_GPU_KEYS:
             combo.addItem(sim_resolution_label(key), key)
-            if not GPU_ENGINE_AVAILABLE:
+            if not self._gpu_ok:
                 model.item(combo.count() - 1).setEnabled(False)
-        combo.setToolTip('기본 엔진(CPU): 셀 크기(mm)로 고릅니다. 지금 쓰는 방식입니다.\n'
-                         '고해상도 엔진(GPU): 소재 긴 변의 칸 수로 고릅니다. 아직 준비 중입니다.')
+        if self._gpu_ok:
+            gpu_tip = ('고해상도 엔진(GPU): 소재 긴 변의 칸 수로 고릅니다. 그래픽카드가 계산하고 그립니다. (%s)'
+                       % nc_sim_gpu.gpu_probe().get('renderer', ''))
+        elif getattr(self.viewer, 'safe_mode', False):
+            gpu_tip = '고해상도 엔진(GPU): 그래픽 안전 모드에서는 쓸 수 없습니다.'
+        else:
+            gpu_tip = ('고해상도 엔진(GPU): 지금은 쓸 수 없습니다 — %s.'
+                       % (nc_sim_gpu.gpu_probe().get('reason') or 'OpenGL 3.3 이상의 그래픽카드가 필요합니다'))
+        combo.setToolTip('기본 엔진(CPU): 셀 크기(mm)로 고릅니다. 지금 쓰는 방식입니다.\n' + gpu_tip)
         self._set_resolution_key('자동')
 
     def _resolution_key(self):
         key = self.resolution_combo.currentData()
-        return normalize_resolution_key(key)
+        return normalize_resolution_key(key, gpu_available=getattr(self, '_gpu_ok', False))
 
     def _set_resolution_key(self, key):
-        idx = self.resolution_combo.findData(normalize_resolution_key(key))
+        idx = self.resolution_combo.findData(normalize_resolution_key(key, gpu_available=getattr(self, '_gpu_ok', False)))
         if idx >= 0:
             self.resolution_combo.setCurrentIndex(idx)
 
@@ -2858,10 +2877,11 @@ class StockDialog(QDialog):
         self.quality_combo.setEnabled(engine == 'cpu')
 
     def _resolution_value(self):
-        """기본 엔진에 넘기는 셀 크기(mm). 자동이면 None. 고해상도 엔진은 아직 없어
-        그 키가 와도(저장값 등) 기본 엔진 자동으로 계산한다."""
-        engine, value = resolution_choice(self._resolution_key())
-        return value if engine == 'cpu' else None
+        """뷰어(apply_stock_spec)에 넘기는 해상도. 기본 엔진은 셀 크기(mm, 자동이면 None),
+        고해상도 엔진은 키 문자열('gpu:4096' 등)."""
+        key = self._resolution_key()
+        engine, value = resolution_choice(key)
+        return value if engine == 'cpu' else key
 
     def _on_toolpath_toggled(self, checked):
         self.viewer.set_toolpath_visible(checked)
@@ -4352,6 +4372,8 @@ class NCViewerWidget(QWidget):
         self.sim_last_seq = -1
         self.sim_mesh_item = None
         self.sim_edge_item = None
+        self.sim_surface_item = None          # v2.8.0: GPU 소재 표시(ZMapSurfaceItem)
+        self._sim_gpu_display_failed = False
         self.sim_color_mode = 'tool'
         self._sim_mesh_refresh_pending = False
         self.sim_status_text = ''
@@ -4618,6 +4640,8 @@ class NCViewerWidget(QWidget):
                 target = min(target, self.SIM3D_FAST_TARGET_VOXELS)
             if not nc_sim.numba_available():
                 target //= 8
+            if isinstance(resolution, str) and resolution.startswith('gpu:'):
+                resolution = None       # 경사면·5축 소재는 복셀 엔진(CPU)만 쓴다
             if resolution in (None, 'auto'):
                 resolution = nc_sim3d.auto_resolution_3d(bounds, target)
             else:
@@ -4625,19 +4649,29 @@ class NCViewerWidget(QWidget):
             self.sim_resolution = float(resolution)
             self.sim_stock = nc_sim3d.VoxelStock(bounds, self.sim_resolution)
         else:
-            if resolution in (None, 'auto'):
-                resolution = nc_sim.auto_resolution(bounds, safe_mode=safe)
-            self.sim_resolution = float(resolution)
-            self.sim_stock = nc_sim.ZMapStock(bounds, self.sim_resolution)
+            gpu_cells = None
+            if isinstance(resolution, str) and resolution.startswith('gpu:'):
+                _engine, value = resolution_choice(resolution)
+                if gpu_engine_available(bool(getattr(self, 'safe_mode', False))):
+                    gpu_cells = value or (2048 if getattr(self, 'safe_mode', False) else 4096)
+                resolution = None
+            if gpu_cells is not None:
+                # 고해상도 엔진: 긴 변이 gpu_cells 칸. 0.01mm보다 잘게는 나누지 않는다.
+                self.sim_resolution = max(nc_sim_gpu.resolution_for_cells(bounds, gpu_cells), 0.01)
+                self.sim_stock = nc_sim_gpu.GpuZMapStock(bounds, self.sim_resolution)
+            else:
+                if resolution in (None, 'auto'):
+                    resolution = nc_sim.auto_resolution(bounds, safe_mode=safe)
+                self.sim_resolution = float(resolution)
+                self.sim_stock = nc_sim.ZMapStock(bounds, self.sim_resolution)
         self.sim_enabled = bool(enabled) and self.is_sim_available()
         self._note_sim_request(enabled)
         self._reset_sim_stock_progress()
-        if self.sim_mesh_item is not None:
-            self.gl_view.removeItem(self.sim_mesh_item)
-            self.sim_mesh_item = None
-        if self.sim_edge_item is not None:
-            self.gl_view.removeItem(self.sim_edge_item)
-            self.sim_edge_item = None
+        for name in ('sim_mesh_item', 'sim_edge_item', 'sim_surface_item'):
+            item = getattr(self, name, None)
+            if item is not None:
+                self.gl_view.removeItem(item)
+                setattr(self, name, None)
         seq = self._sim_desired_seq()
         if seq is None:
             seq = self.line_to_seq.get(self.current_cursor_line, self.current_cursor_line)
@@ -4891,7 +4925,7 @@ class NCViewerWidget(QWidget):
         self.sim_stock_spec = None
         self._sim_snapshots = {}
         self.sim_last_seq = -1
-        for name in ('sim_mesh_item', 'sim_edge_item'):
+        for name in ('sim_mesh_item', 'sim_edge_item', 'sim_surface_item'):
             item = getattr(self, name, None)
             if item is not None:
                 self.gl_view.removeItem(item)
@@ -5096,7 +5130,7 @@ class NCViewerWidget(QWidget):
         self.sim_enabled = bool(enabled)
         self._note_sim_request(enabled)
         self._reset_sim_stock_progress()
-        for name in ('sim_mesh_item', 'sim_edge_item'):
+        for name in ('sim_mesh_item', 'sim_edge_item', 'sim_surface_item'):
             item = getattr(self, name, None)
             if item is not None:
                 self.gl_view.removeItem(item)
@@ -5295,11 +5329,50 @@ class NCViewerWidget(QWidget):
         GL.GL_POLYGON_OFFSET_FILL: False,
     }
 
+    def _sim_gpu_surface_wanted(self):
+        """고해상도 엔진 소재는 셰이더로 직접 그린다(메쉬 600칸 제한 없음). 표시를 못 하면 메쉬로."""
+        return (getattr(self.sim_stock, 'engine_name', None) == 'gpu'
+                and not self._sim_gpu_display_failed and nc_sim_surface.ZMapSurfaceItem is not None
+                and nc_sim_surface._gl is not None)
+
+    def _sim_on_gpu_display_failed(self):
+        """GPU 표시를 못 만들었다(GL 3.3 미만 등) — 기존 메쉬 표시로 돌아간다."""
+        self._sim_gpu_display_failed = True
+        if self.sim_surface_item is not None:
+            self.gl_view.removeItem(self.sim_surface_item)
+            self.sim_surface_item = None
+        self._sim_request_mesh_refresh(force=True)
+
+    def _sim_refresh_gpu_surface(self):
+        stock = self.sim_stock
+        cap = (nc_sim_surface.SURFACE_GRID_MAX_SAFE if getattr(self, 'safe_mode', False)
+               else nc_sim_surface.SURFACE_GRID_MAX)
+        xs, ys, Z, C = stock.display_grid(cap)
+        palette = nc_sim_surface.build_palette(self._sim_color_map())
+        for name in ('sim_mesh_item', 'sim_edge_item'):     # 메쉬 표시에서 넘어왔으면 치운다
+            item = getattr(self, name, None)
+            if item is not None:
+                self.gl_view.removeItem(item)
+                setattr(self, name, None)
+        if self.sim_surface_item is None:
+            self.sim_surface_item = nc_sim_surface.ZMapSurfaceItem(
+                glOptions=dict(self._SIM_MESH_GL_OPTIONS), on_failure=self._sim_on_gpu_display_failed)
+            self.gl_view.addItem(self.sim_surface_item)
+        self.sim_surface_item.set_surface(xs, ys, Z, C, palette, stock.zlo, stock.ztop, mode=self.sim_color_mode)
+        self.sim_surface_item.setVisible(self.sim_enabled)
+
     def _sim_do_mesh_refresh(self, live=False):
         """live=True: 실시간 형상 재생 중 갱신 — 복셀 소재는 거칠게 그린다(v2.3.3)."""
         self._sim_mesh_refresh_pending = False
         if self.sim_stock is None or not self.sim_enabled:
             return
+        if self._sim_gpu_surface_wanted():
+            self._sim_refresh_gpu_surface()
+            self._sim_mesh_last_time = time.monotonic()
+            return
+        if self.sim_surface_item is not None:        # GPU 표시에서 메쉬 표시로 돌아왔다
+            self.gl_view.removeItem(self.sim_surface_item)
+            self.sim_surface_item = None
         started = time.monotonic()
         extra = {}
         coarse = bool(live and self.sim_live_active() and self._sim_stock_is_voxel())
@@ -5352,7 +5425,7 @@ class NCViewerWidget(QWidget):
         self._sim_live_wanted = False
         self._sim_snapshots = {}
         self.sim_last_seq = -1
-        for name in ('sim_mesh_item', 'sim_edge_item'):
+        for name in ('sim_mesh_item', 'sim_edge_item', 'sim_surface_item'):
             item = getattr(self, name, None)
             if item is not None:
                 self.gl_view.removeItem(item)
@@ -5390,6 +5463,8 @@ class NCViewerWidget(QWidget):
             self.sim_mesh_item.setVisible(self.sim_enabled)
         if self.sim_edge_item is not None:
             self.sim_edge_item.setVisible(self.sim_enabled)
+        if self.sim_surface_item is not None:
+            self.sim_surface_item.setVisible(self.sim_enabled)
         if self.sim_enabled:
             # 꺼져 있는 동안 공정 선택이 바뀌었을 수 있으니 결과를 다시 맞춘다
             self._sim_recompute_for_selection()
@@ -7908,7 +7983,7 @@ class NCViewerWidget(QWidget):
         key = None if table is None else tuple(round(float(v), 6) for v in table[0].ravel())
         items = list(self.dynamic_trace_items)
         items.extend(item for group in self.plot_items.values() for item in group)
-        items.extend((self.sim_mesh_item, self.sim_edge_item))
+        items.extend((self.sim_mesh_item, self.sim_edge_item, self.sim_surface_item))
         items.extend(getattr(self, "_axis_items", []))
         matrix = None if table is None else self._mat3_to_qmatrix(table[0])
         axis_changed = False

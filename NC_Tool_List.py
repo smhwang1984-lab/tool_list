@@ -34,9 +34,9 @@ import sumpath_license
 import third_party_notices
 
 
-APP_VERSION = '2.7.1'
+APP_VERSION = '2.8.0'
 APP_NAME = 'Sum Path'
-APP_BUILD_DATE = '2026-11-21'
+APP_BUILD_DATE = '2026-11-22'
 APP_CREATOR = 'Hwang.seonmun'
 APP_PURPOSE = 'NC 프로그램에서 공구 리스트를 산출하고 NC 경로를 Viewer로 확인하는 도구'
 # v2.7.0: 목록과 라이선스는 third_party_notices.COMPONENTS 한 곳에서 관리한다.

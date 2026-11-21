@@ -410,11 +410,18 @@ M30
         self.assertEqual(w.resolution_choice('0.2'), ('cpu', 0.2))
         self.assertEqual(w.resolution_choice('gpu:auto'), ('gpu', None))
         self.assertEqual(w.resolution_choice('gpu:8192'), ('gpu', 8192))
-        # 이 버전은 고해상도 엔진이 없다(엔진을 넣는 작업에서 이 시험도 같이 고친다).
-        self.assertFalse(w.GPU_ENGINE_AVAILABLE)
+        # 안전 모드에서는 이 PC가 GPU를 쓸 수 있어도 고해상도 엔진은 없다.
+        self.assertFalse(w.gpu_engine_available(safe_mode=True))
+
+    def _with_gpu_available(self, value):
+        import nc_viewer_widget as w
+        original = w.gpu_engine_available
+        w.gpu_engine_available = lambda safe_mode=False: bool(value) and not safe_mode
+        self.addCleanup(setattr, w, 'gpu_engine_available', original)
 
     def test_dialog_resolution_combo_has_two_groups_and_gpu_items_are_disabled(self):
         import nc_viewer_widget as w
+        self._with_gpu_available(False)
         dialog = self._isolated_dialog(self.make_viewer())
         combo = dialog.resolution_combo
         model = combo.model()
@@ -432,7 +439,77 @@ M30
         self.assertEqual(dialog._resolution_value(), 0.2)
         self.assertTrue(dialog.quality_combo.isEnabled())
 
+    # -- v2.8.0 고해상도(GPU) 엔진 ---------------------------------------------------
+    def _gpu_viewer(self):
+        import nc_sim_gpu
+        if not nc_sim_gpu.gpu_usable():
+            self.skipTest('이 PC에서 고해상도(GPU) 엔진을 쓸 수 없다')
+        self._with_gpu_available(True)
+        viewer = self.make_viewer()
+        viewer.apply_stock_spec(make_spec(), 'gpu:2048', True)
+        return viewer
+
+    def test_gpu_resolution_key_builds_a_gpu_stock_and_shows_it_with_the_surface_item(self):
+        import nc_sim_gpu
+        viewer = self._gpu_viewer()
+        self.assertIsInstance(viewer.sim_stock, nc_sim_gpu.GpuZMapStock)
+        self.assertEqual(max(viewer.sim_stock.nx, viewer.sim_stock.ny), 2048)
+        self.compute(viewer, int(viewer._sim_seq_keys[-1]))
+        self.assertTrue(viewer.sim_stock.any_cut())
+        self.assertTrue(viewer.sim_stock.last_cut_used_gpu)
+        viewer._sim_do_mesh_refresh()
+        self.assertIsNotNone(viewer.sim_surface_item)
+        self.assertIsNone(viewer.sim_mesh_item)
+        self.assertIsNone(viewer.sim_edge_item)
+        # 메쉬 경로의 600칸 제한이 없다: 표시 격자가 계산 격자와 같다
+        self.assertEqual(viewer.sim_surface_item.shape, viewer.sim_stock.heights.shape)
+        for mode in ('solid', 'depth', 'tool'):
+            viewer.set_sim_color_mode(mode)
+            self.assertEqual(viewer.sim_surface_item._mode, {'tool': 0, 'depth': 1, 'solid': 2}[mode])
+
+    def test_gpu_display_failure_returns_to_the_mesh_path(self):
+        viewer = self._gpu_viewer()
+        self.compute(viewer, int(viewer._sim_seq_keys[-1]))
+        viewer._sim_do_mesh_refresh()
+        self.assertIsNotNone(viewer.sim_surface_item)
+        viewer._sim_on_gpu_display_failed()
+        self.assertIsNone(viewer.sim_surface_item)
+        self.assertIsNotNone(viewer.sim_mesh_item)
+        viewer._sim_do_mesh_refresh()                       # 이후에도 계속 메쉬로
+        self.assertIsNone(viewer.sim_surface_item)
+
+    def test_gpu_key_without_gpu_falls_back_to_cpu_engine(self):
+        import nc_sim_gpu
+        self._with_gpu_available(False)
+        viewer = self.make_viewer()
+        viewer.apply_stock_spec(make_spec(), 'gpu:4096', True)
+        self.assertNotIsInstance(viewer.sim_stock, nc_sim_gpu.GpuZMapStock)
+        self.assertIsInstance(viewer.sim_stock, nc_sim.ZMapStock)
+
+    def test_clearing_the_stock_removes_the_surface_item(self):
+        viewer = self._gpu_viewer()
+        self.compute(viewer, int(viewer._sim_seq_keys[-1]))
+        viewer._sim_do_mesh_refresh()
+        viewer.clear_stock()
+        self.assertIsNone(viewer.sim_surface_item)
+
+    def test_dialog_gpu_group_is_enabled_when_the_engine_is_available(self):
+        import nc_viewer_widget as w
+        self._with_gpu_available(True)
+        dialog = self._isolated_dialog(self.make_viewer())
+        combo = dialog.resolution_combo
+        model = combo.model()
+        for i in range(combo.count()):
+            key = combo.itemData(i)
+            self.assertEqual(model.item(i).isEnabled(), key is not None, combo.itemText(i))
+        combo.setCurrentIndex(combo.findData('gpu:2048'))
+        self.assertEqual(dialog._resolution_value(), 'gpu:2048')       # 뷰어에는 키가 간다
+        self.assertFalse(dialog.quality_combo.isEnabled())              # 품질(빠름·정밀)은 CPU 엔진 설정
+        combo.setCurrentIndex(combo.findData('0.5'))
+        self.assertEqual(dialog._resolution_value(), 0.5)
+
     def test_saved_resolution_is_restored_and_unknown_engine_falls_back_to_auto(self):
+        self._with_gpu_available(False)
         for saved, expected in (('0.1', '0.1'), ('gpu:4096', '자동'), ('못 알아보는 값', '자동')):
             viewer, dialog, settings = self._dialog_with_saved_mode('tool', migrated=True)
             settings.setValue('stock/resolution', saved)

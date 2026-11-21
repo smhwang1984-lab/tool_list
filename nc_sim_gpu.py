@@ -49,6 +49,43 @@ def gpu_available(ctx):
     return ctx is not None and getattr(ctx, 'version_code', 0) >= MIN_GL_VERSION
 
 
+# 소프트웨어 렌더러(그래픽카드가 아닌 CPU 에뮬레이션)는 GPU 엔진으로 쓰지 않는다 — CPU 엔진이 더 빠르다.
+SOFTWARE_RENDERERS = ('gdi generic', 'llvmpipe', 'softpipe', 'swrast', 'microsoft basic render', 'software')
+_probe_cache = None
+
+
+def gpu_probe(refresh=False):
+    """이 PC에서 고해상도(GPU) 엔진을 쓸 수 있는가를 한 번 알아본다(결과를 기억한다).
+    돌려줌: {'ok': bool, 'renderer': 그래픽 이름 또는 '', 'reason': 안 되는 이유 또는 ''}."""
+    global _probe_cache
+    if _probe_cache is not None and not refresh:
+        return dict(_probe_cache)
+    info = {'ok': False, 'renderer': '', 'reason': ''}
+    ctx = create_headless_context()
+    if ctx is None:
+        info['reason'] = 'OpenGL 3.3 문맥을 만들 수 없습니다'
+    else:
+        try:
+            info['renderer'] = str(ctx.info.get('GL_RENDERER', ''))
+            if not gpu_available(ctx):
+                info['reason'] = 'OpenGL 3.3 이상이 필요합니다'
+            elif any(name in info['renderer'].lower() for name in SOFTWARE_RENDERERS):
+                info['reason'] = '그래픽카드가 아닌 소프트웨어 렌더러입니다(%s)' % info['renderer']
+            else:
+                info['ok'] = True
+        finally:
+            try:
+                ctx.release()
+            except Exception:
+                pass
+    _probe_cache = info
+    return dict(info)
+
+
+def gpu_usable():
+    return bool(gpu_probe()['ok'])
+
+
 class GpuCutter:
     """소재 하나의 GPU 렌더 대상(깊이 + 색)과 절삭 프로그램. ctx는 호출부가 만든 moderngl 문맥이다.
 

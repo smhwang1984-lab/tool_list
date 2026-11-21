@@ -29,9 +29,8 @@ def arrays(segments):
 
 @unittest.skipIf(CTX is None, 'OpenGL 3.3 문맥을 만들 수 없다(moderngl/드라이버 없음)')
 class GpuShaderTests(unittest.TestCase):
-    @classmethod
-    def tearDownClass(cls):
-        pass
+    def setUp(self):
+        CTX.__enter__()          # 다른 시험이 만든 임시 문맥 때문에 풀린 '현재 문맥'을 되돌린다
 
     def run_both(self, kind, segments, colors=None):
         tool = make_tool(kind)
