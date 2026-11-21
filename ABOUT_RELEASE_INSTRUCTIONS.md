@@ -52,7 +52,11 @@ Last updated: 2026-11-05 (NC_Tool_List v2.3.0 — 로컬 v2.2.9(STOCK SIZE)와 G
 - Version: 2.7.0 → 2.7.1 (안드로이드 2.1.1 → 2.1.2)
 - Summary: **소재 해상도 목록을 엔진별 두 묶음으로**(시안 승인 2026-11-21, `PLAN_gpu_sim_and_licensing.md` G7 준비). 묶음 안에서 항목을 고르면 엔진도 같이 정해진다. **기본 엔진 · CPU** = 지금 쓰는 자동 · 0.05 · 0.1 · 0.2 · 0.5 · 1.0 mm(저장 키 그대로라 예전 저장값이 그대로 읽힌다). **고해상도 엔진 · GPU** = 소재 긴 변의 칸 수(자동 · 2048 · 4096 · 8192, 안드로이드는 휴대폰 메모리 때문에 4096까지). 고해상도 엔진(G 단계)은 아직 없어서 이 묶음은 "준비 중"으로 흐리게 두고 고를 수 없다 — 저장 키(`gpu:auto`, `gpu:4096` …)·불러올 때 바로잡기(쓸 수 없는 엔진이면 '자동')·품질 칸(기본 엔진에서만 켬)까지 넣어 두었다. 엔진을 넣을 때 `nc_viewer_widget.GPU_ENGINE_AVAILABLE`(안드로이드 `sim/resolutionKeys.ts`)만 바꾸면 열린다. 선반 소재 창은 그대로. **그래픽카드 자동 선택**: 값이 없는 PC에서 앱이 처음 한 번 Windows 그래픽 설정에 "고성능"(`GpuPreference=2`)을 직접 쓴다(`ensure_gpu_preference`) — 외장이 있으면 외장, 내장뿐이면 내장이 선택된다. 설치 프로그램이 안 닿는 포터블 ZIP·다른 관리자 계정 설치용이다. 이미 값이 있거나(설치 프로그램·사용자 선택), 뷰어 안전 모드이거나, 한 번 적용한 뒤에는 건드리지 않는다. Windows는 프로세스 시작 때 값을 읽으므로 **처음 쓴 실행이 아니라 다음 실행부터** 적용된다.
 - Open source: 변경 없음.
-- Installer/package status: **미생성**(코드·테스트만 완료. 데스크톱 pytest 942 통과 · 안드로이드 npm test 360 통과). 빌드 후 확인: 외장 그래픽이 있는 PC에서 포터블로 두 번 실행해 두 번째 실행부터 외장을 쓰는지.
+- Installer/package status: **생성 완료**(데스크톱 pytest 942 통과 · 안드로이드 npm test 360 통과). `installer\NC_Tool_List_Setup_v2.7.1.exe`(dist exe 파일 버전 2.7.1.0, 실행 10초 확인, `_internal\licenses\THIRD_PARTY_NOTICES.txt` 동봉 확인) + 안드로이드 `tool_list_android\out\SumPath_v2.1.2.apk`.
+  - Setup EXE SHA-256: 66932C93628444A7D3E4E71B9AF141DE02C3A8C0236D1B560827AEE56DA7AD7F
+  - APK SHA-256: 9060D5DC1BA341047160474BF84CC413E6C22B102FF9228991A257694849BECE
+  - 빌드 메모: 셸에 `NoDefaultCurrentDirectoryInExePath=1`이 있으면 `build_release.bat`의 `gradlew.bat`을 못 찾는다(Claude Code 셸) — 그 변수를 지우고 실행한다.
+  - 남은 확인: 외장 그래픽이 있는 PC에서 포터블로 두 번 실행해 두 번째 실행부터 외장을 쓰는지.
 
 ### 2026-11-21 (v2.7.0 / 안드로이드 v2.1.1)
 
