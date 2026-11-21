@@ -15,7 +15,15 @@ const TYPE_BALL = new Set(['BALL E/M']);
 const TYPE_DRILL = new Set(['DRILL']);
 export const DEFAULT_DRILL_ANGLE_DEG = 118;
 
-type Profile = (r: number) => number;
+// v2.8.0: GPU 엔진(sim_shaders/cut.frag)이 같은 형상을 쓰도록 프로파일마다 셰이더용 매개변수
+// [종류, a, b, c]를 붙인다(원본 nc_sim.py PROFILE_* 와 같은 번호·식).
+//   0 평바닥 h=0 / 1 코너 R(a=평평한 반경, b=코너 R) / 2 원뿔(a=기울기) / 3 챔퍼(a=평평한 반경)
+export const PROFILE_FLAT = 0;
+export const PROFILE_CORNER = 1;
+export const PROFILE_CONE = 2;
+export const PROFILE_CHAMFER = 3;
+export type ProfileParams = readonly [number, number, number, number];
+type Profile = ((r: number) => number) & { params?: ProfileParams };
 
 export interface RadialLut {
   lut: Float64Array;
@@ -52,28 +60,39 @@ export class ToolShape {
     }
     return entry;
   }
+
+  /** GPU 셰이더에 넘기는 형상 매개변수. 형상 함수를 직접 만든 공구처럼 모르면 null(CPU 엔진으로 깎아야 한다). */
+  profileParams(): ProfileParams | null {
+    return this.profile.params ?? null;
+  }
 }
 
-const flatProfile = (): Profile => () => 0;
+function withParams(fn: (r: number) => number, params: ProfileParams): Profile {
+  const profile = fn as Profile;
+  profile.params = params;
+  return profile;
+}
+
+const flatProfile = (): Profile => withParams(() => 0, [PROFILE_FLAT, 0, 0, 0]);
 function cornerRProfile(radius: number, cornerR: number): Profile {
   const c = Math.min(Math.max(cornerR, 0), radius);
   const flatR = radius - c;
-  return (r) => {
+  return withParams((r) => {
     if (c > 1e-9 && r > flatR) {
       const dr = Math.min(Math.max(r - flatR, 0), c);
       return c - Math.sqrt(Math.max(c * c - dr * dr, 0));
     }
     return 0;
-  };
+  }, c > 1e-9 ? [PROFILE_CORNER, flatR, c, 0] : [PROFILE_FLAT, 0, 0, 0]);
 }
 function coneProfile(halfAngleRad: number): Profile {
   const slope = 1 / Math.max(Math.tan(Math.max(halfAngleRad, 1e-4)), 1e-6);
-  return (r) => r * slope;
+  return withParams((r) => r * slope, [PROFILE_CONE, slope, 0, 0]);
 }
 function chamferProfile(radius: number, chamferHeight: number): Profile {
   const h = Math.min(Math.max(chamferHeight, 0), radius);
   const flatR = radius - h;
-  return (r) => Math.max(r - flatR, 0);
+  return withParams((r) => Math.max(r - flatR, 0), [PROFILE_CHAMFER, flatR, 0, 0]);
 }
 
 /** 툴리스트 한 공구의 값으로 형상을 만든다. 지름이 없거나 0 이하면 null. */

@@ -77,6 +77,12 @@ class ToolShape:
             cache[key] = entry
         return entry
 
+    def profile_params(self):
+        """GPU 셰이더에 넘기는 형상 매개변수 (종류, a, b, c). 형상 함수를 직접 만든 공구처럼
+        매개변수를 모르면 None — 호출부가 그 공구를 GPU 대신 CPU 엔진으로 깎아야 한다."""
+        params = getattr(self._profile_fn, 'params', None)
+        return tuple(float(v) for v in params) if params is not None else None
+
     def height_at(self, r):
         """스칼라 반경 하나에 대한 팁 기준 높이. r > radius면 None."""
         if r > self.radius + 1e-9:
@@ -84,9 +90,22 @@ class ToolShape:
         return float(self._profile_fn(np.array([float(r)]))[0])
 
 
+# v2.8.0: GPU 엔진(sim_shaders/cut.frag)이 같은 형상을 쓰도록 각 프로파일 함수에 셰이더용
+# 매개변수 (종류, a, b, c)를 붙인다. 종류 번호와 식은 cut.frag의 profile_h()와 같아야 한다:
+#   0 평바닥     h = 0
+#   1 코너 R     h = d <= a ? 0 : b - sqrt(max(b² - min(d - a, b)², 0))   (a = 평평한 반경, b = 코너 R)
+#   2 원뿔       h = d * a                                                (a = 기울기 = 1/tan(반각))
+#   3 챔퍼       h = max(d - a, 0)                                        (a = 평평한 반경)
+PROFILE_FLAT = 0
+PROFILE_CORNER = 1
+PROFILE_CONE = 2
+PROFILE_CHAMFER = 3
+
+
 def _flat_profile():
     def fn(r):
         return np.zeros_like(r)
+    fn.params = (PROFILE_FLAT, 0.0, 0.0, 0.0)
     return fn
 
 
@@ -101,6 +120,9 @@ def _corner_r_profile(radius, corner_r):
             dr = np.clip(r[mask] - flat_r, 0.0, corner_r)
             h[mask] = corner_r - np.sqrt(np.maximum(corner_r ** 2 - dr ** 2, 0.0))
         return h
+    # 코너 R이 사실상 0이면 평바닥과 같다(위 fn도 h=0).
+    fn.params = ((PROFILE_CORNER, flat_r, corner_r, 0.0) if corner_r > 1e-9
+                 else (PROFILE_FLAT, 0.0, 0.0, 0.0))
     return fn
 
 
@@ -109,6 +131,7 @@ def _cone_profile(half_angle_rad):
 
     def fn(r):
         return r * slope
+    fn.params = (PROFILE_CONE, float(slope), 0.0, 0.0)
     return fn
 
 
@@ -118,6 +141,7 @@ def _chamfer_profile(radius, chamfer_height):
 
     def fn(r):
         return np.clip(r - flat_r, 0.0, None)
+    fn.params = (PROFILE_CHAMFER, float(flat_r), 0.0, 0.0)
     return fn
 
 
