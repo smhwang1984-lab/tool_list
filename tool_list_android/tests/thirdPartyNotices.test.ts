@@ -24,7 +24,7 @@ describe('third party notices', () => {
   });
 
   it('committed public file is up to date with package-lock', () => {
-    const committed = readFileSync(join(root, 'public', 'THIRD_PARTY_NOTICES.txt'), 'utf8');
+    const committed = readFileSync(join(root, 'public', 'THIRD_PARTY_NOTICES.txt'), 'utf8').replace(/\r\n?/g, '\n');
     expect(committed).toBe(buildNotices().text);
   });
 

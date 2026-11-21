@@ -21,6 +21,8 @@ export const COMPONENTS = [
 ];
 
 const LICENSE_RE = /^(licen[cs]e|copying|notice)/i;
+// 줄바꿈은 LF 로 맞춘다(Windows 체크아웃의 CRLF 와 상관없이 같은 결과)
+const readText = (path) => readFileSync(path, 'utf8').replace(/\r\n?/g, '\n');
 
 function licenseFiles(dir) {
   if (!existsSync(dir)) return [];
@@ -57,11 +59,11 @@ export function buildNotices() {
       out.push(`(패키지에 라이선스 파일이 없습니다. package.json 의 license: ${p.license || '없음'}` +
         (author ? `, 저작권자: ${author}` : '') + (meta.repository ? `, 저장소: ${meta.repository.url ?? meta.repository}` : '') + ')');
     }
-    for (const [label, path] of files) out.push(`--- ${label} ---`, readFileSync(path, 'utf8').trimEnd());
+    for (const [label, path] of files) out.push(`--- ${label} ---`, readText(path).trimEnd());
     out.push('');
   }
   for (const [title, file] of [['Noto Sans KR (OFL-1.1)', 'NotoSansKR-OFL.txt'], ['AndroidX — Apache License 2.0', 'Apache-2.0.txt']]) {
-    out.push(LINE, title, LINE, readFileSync(join(root, 'tools', 'licenses', file), 'utf8').trimEnd(), '');
+    out.push(LINE, title, LINE, readText(join(root, 'tools', 'licenses', file)).trimEnd(), '');
   }
   return { text: out.join('\n') + '\n', count: pkgs.length, missing };
 }
