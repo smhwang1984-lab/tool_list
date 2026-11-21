@@ -33,7 +33,7 @@ import lathe_insert_spec
 import sumpath_license
 
 
-APP_VERSION = '2.6.6'
+APP_VERSION = '2.6.7'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-11-21'
 APP_CREATOR = 'Hwang.seonmun'
@@ -2946,7 +2946,7 @@ else:
             self.table_rotation_check = QCheckBox('테이블 회전 사용')
             self.table_rotation_check.setToolTip(
                 '5축 재생 중 공구는 고정하고 소재·테이블과 축 원점 표기가 A/B/C 값만큼 돕니다.\n'
-                '도는 속도는 재생 속도에 맞춰 천천히 보입니다. 화면 왼쪽 위 [>>]의 [테이블 회전]과 같은 값입니다.')
+                '도는 속도는 아래 [회전축 속도]를 따릅니다. 화면 왼쪽 위 [>>]의 [테이블 회전]과 같은 값입니다.')
             self.table_rotation_check.toggled.connect(self._on_table_rotation_changed)
             play_form.addRow(self.table_rotation_check)
             self.trail_hide_check = QCheckBox('지난 경로 숨김')
@@ -2963,6 +2963,18 @@ else:
             self.trail_blocks_slider.setPageStep(step)
             self.trail_blocks_slider.setTickInterval(step)
             self.trail_blocks_slider.setTickPosition(QSlider.TicksBelow)
+            self.rotary_speed_slider, self.rotary_speed_label = self._slider_row(
+                play_form, '회전축 속도 (A·B·C)',
+                viewer_module.ROTARY_SPEED_MIN if viewer_module else 5,
+                viewer_module.ROTARY_SPEED_MAX if viewer_module else 180,
+                '%d°/초', self._on_rotary_speed_changed)
+            rstep = viewer_module.ROTARY_SPEED_STEP if viewer_module else 5
+            self.rotary_speed_slider.setSingleStep(rstep)
+            self.rotary_speed_slider.setPageStep(rstep)
+            self.rotary_speed_slider.setToolTip(
+                'A·B·C 회전축을 한 번에 제어하는 속도(°/초). G0 인덱스 회전에만 적용하고,\n'
+                '여러 축은 동시에 끝납니다. 회전이 끝나야 다음 줄로 넘어가며, G43.4 동시 5축은 재생을 따릅니다.')
+            self.rotary_speed_label.setMinimumWidth(64)
             layout.addWidget(play_group)
 
             # v2.5.7: 상단바 숨김은 선택 기능(기본 꺼짐). 켜면 상단바 오른쪽에 숨김 버튼이 생기고 Ctrl+H가 동작한다.
@@ -3038,7 +3050,8 @@ else:
             viewer = self._viewer()
             enabled = viewer is not None
             for widget in (self.line_width_combo, self.sensitivity_slider, self.cube_slider, self.reset_button,
-                           self.table_rotation_check, self.trail_hide_check, self.trail_blocks_slider):
+                           self.table_rotation_check, self.trail_hide_check, self.trail_blocks_slider,
+                           self.rotary_speed_slider):
                 widget.setEnabled(enabled)
             self.unavailable_label.setVisible(not enabled)
             if not enabled:
@@ -3064,6 +3077,20 @@ else:
             self.trail_blocks_label.setText('%d' % viewer.trail_blocks)
             self.trail_blocks_slider.setEnabled(bool(viewer.trail_hide_on))
             self.trail_blocks_label.setEnabled(bool(viewer.trail_hide_on))
+            with QSignalBlocker(self.rotary_speed_slider):
+                self.rotary_speed_slider.setValue(viewer.rotary_speed)
+            self.rotary_speed_label.setText('%d°/초' % viewer.rotary_speed)
+
+        def _on_rotary_speed_changed(self, value):
+            viewer = self._viewer()
+            if viewer is None or self.viewer_module is None:
+                return
+            snapped = self.viewer_module.clamp_rotary_speed(value)
+            if snapped != value:
+                with QSignalBlocker(self.rotary_speed_slider):
+                    self.rotary_speed_slider.setValue(snapped)
+                self.rotary_speed_label.setText('%d°/초' % snapped)
+            viewer.set_rotary_speed(snapped)
 
         def _on_table_rotation_changed(self, checked):
             viewer = self._viewer()
@@ -3124,6 +3151,7 @@ else:
             viewer.set_table_rotation(True)
             viewer.set_trail_hide(False)
             viewer.set_trail_blocks(module.TRAIL_BLOCKS_DEFAULT)
+            viewer.set_rotary_speed(module.ROTARY_SPEED_DEFAULT)
 
 
     class App(QMainWindow):
@@ -5268,6 +5296,9 @@ else:
 
         def pause_playback(self):
             self.play_timer.stop()
+            finish = getattr(self.viewer, 'table_anim_finish', None)
+            if finish is not None:
+                finish()                          # v2.6.7: 돌던 회전축은 바로 목표 각도로 맞춘다
             self._dwell_remaining = 0.0
             bar = getattr(self.viewer, 'playback_bar', None)
             if bar is not None:
@@ -5309,6 +5340,11 @@ else:
                 self._dwell_remaining = 0.0
                 self._play_carry = 0.0
                 return
+            rotating = getattr(self.viewer, 'table_anim_active', None)
+            if rotating is not None and rotating():
+                # v2.6.7: A·B·C 회전축이 아직 목표 각도로 도는 중 — 다 돌 때까지 다음 줄로 넘어가지 않는다.
+                self._play_carry = 0.0
+                return
             busy = getattr(self.viewer, 'sim_live_busy', None)
             if busy is not None and busy():
                 # v2.3.3: 실시간 형상 계산이 아직 돌고 있다 — 형상이 공구보다 뒤처지지
@@ -5328,6 +5364,8 @@ else:
             dwell_at = getattr(self.viewer, 'dwell_seconds_at_seq', None)
             stop_seq = None
             dwell_seq = None
+            rotate_seq = None
+            rotate_at = getattr(self.viewer, 'table_rotation_changes_at', None)
             for seq in range(current_seq + 1, target_seq + 1):
                 block = document.findBlockByNumber(self.viewer.line_at_seq(seq))
                 if block.isValid() and line_stops_playback(
@@ -5338,10 +5376,15 @@ else:
                 if dwell_at is not None and dwell_at(seq) > 0.0:
                     dwell_seq = seq
                     break
+                if rotate_at is not None and rotate_at(seq):
+                    rotate_seq = seq              # v2.6.7: 회전축 인덱스 줄에서 한 번 멈춰 회전을 보인다
+                    break
             if stop_seq is not None:
                 destination = stop_seq
             elif dwell_seq is not None:
                 destination = dwell_seq
+            elif rotate_seq is not None:
+                destination = rotate_seq
             else:
                 destination = target_seq
             if destination != current_seq:

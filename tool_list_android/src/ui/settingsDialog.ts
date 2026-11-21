@@ -1,7 +1,7 @@
 // ⚙ 설정 창(비모달) — 원본 SettingsDialog (NC_Tool_List.py 2629~). 값을 바꾸면 바로 반영되고 저장된다.
 import {
   CUBE_DEFAULT, CUBE_MAX, CUBE_MIN, FOV_MAX, FOV_MIN, LINE_WIDTH_DEFAULT_PCT, LINE_WIDTH_STEPS, SENSITIVITY_MAX,
-  SENSITIVITY_MIN, CUT_LINE_BASE_WIDTH, TRAIL_BLOCKS_MAX, TRAIL_BLOCKS_MIN, TRAIL_BLOCKS_STEP, toolpathLineWidth,
+  SENSITIVITY_MIN, CUT_LINE_BASE_WIDTH, TRAIL_BLOCKS_MAX, TRAIL_BLOCKS_MIN, TRAIL_BLOCKS_STEP, ROTARY_SPEED_MAX, ROTARY_SPEED_MIN, ROTARY_SPEED_STEP, toolpathLineWidth,
 } from '../core/viewerSettings';
 import { getViewerSettings, resetViewerSettings, updateViewerSettings } from '../platform/viewerSettings';
 import { el } from './dialog';
@@ -79,6 +79,14 @@ export function showSettings(extras: SettingsExtras = {}): void {
   tn.textContent = '남길 블록 수';
   tr.append(tn, trailRange, trailVal);
   play.append(tr);
+  const rotRange = el('input', { type: 'range', min: String(ROTARY_SPEED_MIN), max: String(ROTARY_SPEED_MAX), step: String(ROTARY_SPEED_STEP),
+    title: 'A·B·C 회전축 인덱스 속도 — G0 이동에만 적용, 여러 축은 동시에 끝나며 회전이 끝나야 다음 줄로 넘어갑니다(G43.4 동시 5축은 재생을 따름)' });
+  const rotVal = el('output');
+  const rr = el('label', { class: 'settings-row' });
+  const rn = el('span');
+  rn.textContent = '회전축 속도 (A·B·C)';
+  rr.append(rn, rotRange, rotVal);
+  play.append(rr);
 
   const paint = (): void => {
     const v = getViewerSettings();
@@ -87,6 +95,8 @@ export function showSettings(extras: SettingsExtras = {}): void {
     trailRange.value = String(v.trailBlocks);
     trailRange.disabled = !v.trailHide;
     trailVal.textContent = `${v.trailBlocks} 블록`;
+    rotRange.value = String(v.rotarySpeed);
+    rotVal.textContent = `${v.rotarySpeed}°/초`;
     width.value = String(v.lineWidthPct);
     sens.value = String(v.sensitivityPct);
     cube.value = String(v.cubeSizePx);
@@ -104,6 +114,7 @@ export function showSettings(extras: SettingsExtras = {}): void {
   tableBox.addEventListener('change', () => { updateViewerSettings({ tableRotation: tableBox.checked }); paint(); });
   trailBox.addEventListener('change', () => { updateViewerSettings({ trailHide: trailBox.checked }); paint(); });
   trailRange.addEventListener('input', () => { updateViewerSettings({ trailBlocks: Number(trailRange.value) }); paint(); });
+  rotRange.addEventListener('input', () => { updateViewerSettings({ rotarySpeed: Number(rotRange.value) }); paint(); });
   body.append(group, play);
   if (extras.hideTopBar) {
     const screen = el('fieldset');

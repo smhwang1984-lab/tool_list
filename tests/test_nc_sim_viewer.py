@@ -863,9 +863,15 @@ M30
         self.assertNotEqual(goal[1], 0.0)
         self.assertNotAlmostEqual(viewer._table_disp[1], goal[1], places=3)      # 바로 가지 않고 따라간다
         self.assertTrue(viewer._table_anim_timer.isActive())
-        # v2.6.5: 회전 빠르기는 배속과 상관없이 x10 고정
-        from nc_viewer_widget import TABLE_ANIM_FIXED_RATE
-        self.assertEqual(viewer._table_anim_rate, TABLE_ANIM_FIXED_RATE)
+        # v2.6.7: 회전은 배속과 상관없이 rotary_speed(°/초) 일정 속도, 모든 축이 동시에 끝난다
+        biggest = max(abs(d) for d in viewer._table_anim_delta)
+        self.assertAlmostEqual(viewer._table_anim_duration, biggest / viewer.rotary_speed, places=6)
+        self.assertTrue(viewer.table_anim_active())
+        viewer._table_anim_clock = time.monotonic() - 0.1
+        viewer._table_anim_step()
+        done = [abs(viewer._table_disp[i] - viewer._table_anim_start[i]) / abs(viewer._table_anim_delta[i - 1])
+                for i in (1, 2, 3) if abs(viewer._table_anim_delta[i - 1]) > 0.05]
+        self.assertTrue(all(abs(f - done[0]) < 1e-6 for f in done))       # 축마다 같은 비율로 진행
         for _ in range(3000):
             viewer._table_anim_clock = time.monotonic() - 0.2
             viewer._table_anim_step()

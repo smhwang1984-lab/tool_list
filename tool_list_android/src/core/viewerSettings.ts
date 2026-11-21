@@ -19,12 +19,20 @@ export const TRAIL_BLOCKS_MIN = 100;
 export const TRAIL_BLOCKS_MAX = 500;
 export const TRAIL_BLOCKS_STEP = 50;
 export const TRAIL_BLOCKS_DEFAULT = 200;
-/** 원본 v2.6.0/v2.6.3: 테이블 회전을 천천히 — 지수 수렴 속도(1/초) = 0.3 × max(0.15, 배속 기준값) */
-export const TABLE_ANIM_MIN_RATE = 0.15;
-export const TABLE_ANIM_SPEED_SCALE = 0.3;
-// 원본 v2.6.5: A·B·C 회전은 배속과 상관없이 원본 x10 빠르기로 고정(동시 5축은 재생을 따른다)
-export const TABLE_ANIM_FIXED_SPEED = 10;
-export const TABLE_ANIM_FIXED_RATE = TABLE_ANIM_SPEED_SCALE * Math.max(TABLE_ANIM_MIN_RATE, TABLE_ANIM_FIXED_SPEED / 100);
+/** 원본 v2.6.7: 회전축(A·B·C) 인덱스 속도(°/초, 5~180, 5 단위, 기본 30). G0 인덱스 회전에만 적용 —
+ * 여러 축은 가장 큰 회전량 기준으로 동시에 끝나고, 회전이 끝날 때까지 재생은 다음 줄로 넘어가지 않는다. 동시 5축(G43.4)은 재생을 따른다 */
+export const ROTARY_SPEED_MIN = 5;
+export const ROTARY_SPEED_MAX = 180;
+export const ROTARY_SPEED_STEP = 5;
+export const ROTARY_SPEED_DEFAULT = 30;
+
+/** 원본 clamp_rotary_speed */
+export function clampRotarySpeed(value: unknown): number {
+  const n = value === null || value === undefined || (typeof value === 'string' && value.trim() === '') ? NaN : Number(value);
+  if (!Number.isFinite(n)) return ROTARY_SPEED_DEFAULT;
+  const v = Math.max(ROTARY_SPEED_MIN, Math.min(ROTARY_SPEED_MAX, roundHalfEven(n)));
+  return ROTARY_SPEED_MIN + roundHalfEven((v - ROTARY_SPEED_MIN) / ROTARY_SPEED_STEP) * ROTARY_SPEED_STEP;
+}
 
 /** 원본 clamp_trail_blocks: 100~500, 50 단위. 읽을 수 없으면 기본값 */
 export function clampTrailBlocks(value: unknown): number {

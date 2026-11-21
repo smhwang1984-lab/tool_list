@@ -108,9 +108,10 @@ describe('v2.6.5 장비 표시·회전 속도', () => {
     expect(machineDisplayName('5축 MCT (A to C)')).toBe('5축 MCT (A to C)');
     expect(['X 행정', 'C축 범위', '최대 RPM', '급속 속도', '기타'].map(machineSpecUnit)).toEqual(['mm', '°', 'rpm', 'mm/min', '']);
   });
-  it('회전 속도는 x10 고정', async () => {
-    const { TABLE_ANIM_FIXED_RATE } = await import('../src/core/viewerSettings');
-    expect(TABLE_ANIM_FIXED_RATE).toBeCloseTo(0.3 * 0.15, 9);
+  it('회전축 속도는 기본 30°/초, 5~180 5 단위', async () => {
+    const { ROTARY_SPEED_DEFAULT, clampRotarySpeed } = await import('../src/core/viewerSettings');
+    expect(ROTARY_SPEED_DEFAULT).toBe(30);
+    expect([0, 32, 999, 'x'].map(clampRotarySpeed)).toEqual([5, 30, 180, 30]);
   });
   it('동시 5축 이동만 재생을 따른다', async () => {
     const { processNcLines } = await import('../src/core/toolpath');

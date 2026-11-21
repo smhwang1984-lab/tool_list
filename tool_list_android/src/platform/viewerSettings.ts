@@ -1,6 +1,6 @@
 // Viewer 표시 설정 저장소 — 값이 바뀌면 구독자(3D 뷰어, P4)에게 알린다.
 import {
-  clampLineWidthPct, clampTrailBlocks, TRAIL_BLOCKS_DEFAULT, CUBE_DEFAULT, CUBE_MAX, CUBE_MIN, FOV_DEFAULT, FOV_MAX, FOV_MIN, LINE_WIDTH_DEFAULT_PCT,
+  clampLineWidthPct, clampRotarySpeed, clampTrailBlocks, ROTARY_SPEED_DEFAULT, TRAIL_BLOCKS_DEFAULT, CUBE_DEFAULT, CUBE_MAX, CUBE_MIN, FOV_DEFAULT, FOV_MAX, FOV_MIN, LINE_WIDTH_DEFAULT_PCT,
   SENSITIVITY_DEFAULT, SENSITIVITY_MAX, SENSITIVITY_MIN,
 } from '../core/viewerSettings';
 import { getPref, getPrefNumber, setPref } from './prefs';
@@ -15,6 +15,8 @@ export interface ViewerSettings {
   /** 원본 v2.6.0: 지난 경로 숨김(기본 꺼짐)과 남길 블록 수 */
   trailHide: boolean;
   trailBlocks: number;
+  /** 원본 v2.6.7: 회전축(A·B·C) 속도 °/초 */
+  rotarySpeed: number;
 }
 
 let current: ViewerSettings | null = null;
@@ -29,6 +31,7 @@ export function getViewerSettings(): ViewerSettings {
     tableRotation: getPref('table_rotation') !== 'off',
     trailHide: getPref('trail_hide') === 'on',
     trailBlocks: clampTrailBlocks(getPref('trail_blocks', String(TRAIL_BLOCKS_DEFAULT))),
+    rotarySpeed: clampRotarySpeed(getPref('rotary_speed', String(ROTARY_SPEED_DEFAULT))),
   };
   return { ...current };
 }
@@ -42,6 +45,7 @@ export function updateViewerSettings(patch: Partial<ViewerSettings>): ViewerSett
   next.tableRotation = !!next.tableRotation;
   next.trailHide = !!next.trailHide;
   next.trailBlocks = clampTrailBlocks(next.trailBlocks);
+  next.rotarySpeed = clampRotarySpeed(next.rotarySpeed);
   current = next;
   setPref('toolpath_line_width_pct', String(next.lineWidthPct));
   setPref('sensitivity_pct', String(next.sensitivityPct));
@@ -50,6 +54,7 @@ export function updateViewerSettings(patch: Partial<ViewerSettings>): ViewerSett
   setPref('table_rotation', next.tableRotation ? 'on' : 'off');
   setPref('trail_hide', next.trailHide ? 'on' : 'off');
   setPref('trail_blocks', String(next.trailBlocks));
+  setPref('rotary_speed', String(next.rotarySpeed));
   for (const l of listeners) l({ ...next });
   return { ...next };
 }
@@ -58,6 +63,7 @@ export function resetViewerSettings(): ViewerSettings {
   return updateViewerSettings({
     lineWidthPct: LINE_WIDTH_DEFAULT_PCT, sensitivityPct: SENSITIVITY_DEFAULT, cubeSizePx: CUBE_DEFAULT, fovDeg: FOV_DEFAULT,
     tableRotation: true, trailHide: false, trailBlocks: TRAIL_BLOCKS_DEFAULT,
+    rotarySpeed: ROTARY_SPEED_DEFAULT,
   });
 }
 

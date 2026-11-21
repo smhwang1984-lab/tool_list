@@ -73,16 +73,23 @@ TRAIL_BLOCKS_MIN = 100
 TRAIL_BLOCKS_MAX = 500
 TRAIL_BLOCKS_STEP = 50
 TRAIL_BLOCKS_DEFAULT = 200
-# v2.6.0: 테이블 회전을 천천히 보인다. 재생 x1(= 초당 100줄)에서 큰 회전이 약 3초에 끝나고,
-# 배속에 반비례해 빨라진다. 지수 수렴 속도(1/초) k = 배속 표기값, 너무 느린 배속에서는 바닥값을 둔다.
-TABLE_ANIM_MIN_RATE = 0.15
-# v2.6.3: 사용자 요청 — 테이블·A·B·C 회전을 v2.6.2 속도의 30%로 더 천천히.
-TABLE_ANIM_SPEED_SCALE = 0.3
-# v2.6.5: 사용자 요청 — A·B·C 회전(인덱스)은 재생 배속과 상관없이 x10일 때 빠르기로 고정한다.
-# 동시 5축(G43.4 중 회전축이 들어간 절삭 이동)은 따로 돌리지 않고 재생(이송 · 배속)을 그대로 따른다.
-TABLE_ANIM_FIXED_SPEED = 10
-TABLE_ANIM_FIXED_RATE = TABLE_ANIM_SPEED_SCALE * max(
-    TABLE_ANIM_MIN_RATE, float(TABLE_ANIM_FIXED_SPEED) / 100.0)
+# v2.6.7: 회전축(A·B·C) 인덱스 속도 — 한 번에 제어하는 °/초 값. G0(급속) 인덱스 회전에만 적용하고,
+# 여러 축은 가장 큰 회전량 기준으로 동시에 끝난다. 회전이 끝날 때까지 재생은 다음 줄로 넘어가지 않는다.
+# G43.4 동시 5축 절삭 이동은 이 값과 상관없이 재생(이송 · 배속)을 그대로 따른다.
+ROTARY_SPEED_MIN = 5
+ROTARY_SPEED_MAX = 180
+ROTARY_SPEED_STEP = 5
+ROTARY_SPEED_DEFAULT = 30
+
+
+def clamp_rotary_speed(value):
+    """회전축 속도(°/초)를 5~180, 5 단위로 맞춘다. 읽을 수 없으면 기본값(30)."""
+    try:
+        number = int(round(float(value)))
+    except (TypeError, ValueError):
+        return ROTARY_SPEED_DEFAULT
+    number = max(ROTARY_SPEED_MIN, min(ROTARY_SPEED_MAX, number))
+    return ROTARY_SPEED_MIN + int(round((number - ROTARY_SPEED_MIN) / ROTARY_SPEED_STEP)) * ROTARY_SPEED_STEP
 
 
 def clamp_trail_blocks(value):
@@ -1475,6 +1482,7 @@ class ProjectionOverlayWidget(QWidget):
     more_toggled = pyqtSignal(bool)
     trail_toggled = pyqtSignal(bool)
     trail_blocks_changed = pyqtSignal(int)
+    rotary_speed_changed = pyqtSignal(int)      # v2.6.7: 회전축(A·B·C) 속도 °/초
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1596,6 +1604,25 @@ class ProjectionOverlayWidget(QWidget):
         self._more_layout.addWidget(self.shape_button)
         section("재생 정지")
         self._stop_section_index = self._more_layout.count()
+        section("회전축 속도 (A·B·C, G0)")
+        rotary_row = QHBoxLayout()
+        rotary_row.setSpacing(8)
+        self.rotary_minus = QPushButton("−")
+        self.rotary_plus = QPushButton("+")
+        self.rotary_label = QLabel("%d °/초" % ROTARY_SPEED_DEFAULT)
+        self.rotary_label.setMinimumWidth(64)
+        self.rotary_label.setAlignment(Qt.AlignCenter)
+        self.rotary_label.setToolTip("A·B·C 회전축 인덱스 속도 — G0 이동에만 적용, G43.4 동시 5축은 재생을 따름")
+        for step_button, delta in ((self.rotary_minus, -ROTARY_SPEED_STEP), (self.rotary_plus, ROTARY_SPEED_STEP)):
+            step_button.setFocusPolicy(Qt.NoFocus)
+            step_button.setFixedWidth(32)
+            step_button.setToolTip("회전축 속도 %+d °/초" % delta)
+            step_button.clicked.connect(lambda _checked=False, d=delta: self._step_rotary_speed(d))
+        rotary_row.addWidget(self.rotary_minus)
+        rotary_row.addWidget(self.rotary_label, 1)
+        rotary_row.addWidget(self.rotary_plus)
+        self._more_layout.addLayout(rotary_row)
+        self._rotary_speed = ROTARY_SPEED_DEFAULT
         section("지난 경로")
         self.trail_button = QPushButton("지난 경로 숨김")
         self.trail_button.setCheckable(True)
@@ -1739,6 +1766,18 @@ class ProjectionOverlayWidget(QWidget):
             self._trail_blocks = blocks
             self.trail_label.setText("%d 블록" % blocks)
             self.trail_blocks_changed.emit(blocks)
+
+    def set_rotary_speed(self, speed):
+        """뷰어의 회전축 속도를 라벨에 맞춘다(신호는 내보내지 않는다)."""
+        self._rotary_speed = int(speed)
+        self.rotary_label.setText("%d °/초" % self._rotary_speed)
+
+    def _step_rotary_speed(self, delta):
+        speed = max(ROTARY_SPEED_MIN, min(ROTARY_SPEED_MAX, self._rotary_speed + int(delta)))
+        if speed != self._rotary_speed:
+            self._rotary_speed = speed
+            self.rotary_label.setText("%d °/초" % speed)
+            self.rotary_speed_changed.emit(speed)
 
     def set_shape_checked(self, checked):
         if self.shape_button.isChecked() != bool(checked):
@@ -3248,11 +3287,15 @@ class NCViewerWidget(QWidget):
         self.seq_table_follow = set()     # v2.6.5: 동시 5축 이동 seq(회전이 재생을 그대로 따른다)
         self._table_rot_keys = []
         # v2.6.0: 테이블 회전은 천천히 따라 돈다. 재생 틱이 table_anim_speed(초당 줄 수)를 걸어 두면
-        # 목표 각도를 지수로 따라가고, 걸려 있지 않으면(방향키·클릭 이동) 바로 맞춘다.
+        # 목표 각도를 rotary_speed(°/초) 일정 속도로 따라가고, 걸려 있지 않으면(방향키·클릭 이동) 바로 맞춘다.
         self.table_anim_speed = None
+        self.rotary_speed = clamp_rotary_speed(self.settings.value("rotary_speed", ROTARY_SPEED_DEFAULT))
         self._table_goal = None
         self._table_disp = None
-        self._table_anim_rate = 1.0
+        self._table_anim_start = None     # v2.6.7: 일정 속도 회전 — 시작 각도 / 각도 변화량 / 걸리는 시간 / 지난 시간
+        self._table_anim_delta = (0.0, 0.0, 0.0)
+        self._table_anim_duration = 0.0
+        self._table_anim_elapsed = 0.0
         self._table_anim_clock = 0.0
         self._table_anim_timer = QTimer(self)
         self._table_anim_timer.setInterval(33)
@@ -3504,6 +3547,8 @@ class NCViewerWidget(QWidget):
             overlay.table_toggled.connect(self._on_table_rotation_toggled)
             overlay.trail_toggled.connect(self.set_trail_hide)
             overlay.trail_blocks_changed.connect(self.set_trail_blocks)
+            overlay.rotary_speed_changed.connect(self.set_rotary_speed)
+            overlay.set_rotary_speed(self.rotary_speed)
             overlay.more_toggled.connect(self._on_more_options_toggled)
             overlay.set_trail_state(self.trail_hide_on, self.trail_blocks)
             if str(self.settings.value("overlay_more_open", "false")).lower() in ("true", "1"):
@@ -5982,7 +6027,7 @@ class NCViewerWidget(QWidget):
         self._table_rot_keys = []
         self._table_goal = None
         self._table_disp = None
-        self._table_anim_timer.stop()
+        self._table_anim_stop()
         self.line_feed_state.clear()
         self.seq_to_elapsed_sec.clear()
         self._elapsed_seq_keys = []
@@ -7590,12 +7635,13 @@ class NCViewerWidget(QWidget):
         return rot(1, b_deg).T, np.eye(3)
 
     def _table_sync(self, seq):
-        """v2.6.0: 이 seq의 목표 회전을 잡는다. 재생 중이면 천천히 따라 돌고, 아니면 바로 맞춘다."""
+        """v2.6.0: 이 seq의 목표 회전을 잡는다. 재생 중이면 일정 속도로 따라 돌고, 아니면 바로 맞춘다.
+        v2.6.7: 도는 속도는 rotary_speed(°/초) 하나로 A·B·C가 함께 정하고, 가장 큰 회전량 기준으로 동시에 끝난다."""
         target = self._table_target_info(seq)
         if target is None:
             self._table_goal = None
             self._table_disp = None
-            self._table_anim_timer.stop()
+            self._table_anim_stop()
             return
         if target == self._table_goal:
             return
@@ -7605,37 +7651,136 @@ class NCViewerWidget(QWidget):
         if (speed is None or follow or self._table_disp is None
                 or self._table_disp[0] != target[0]):
             self._table_disp = target
-            self._table_anim_timer.stop()
+            self._table_anim_stop()
             return
-        self._table_anim_rate = TABLE_ANIM_FIXED_RATE    # v2.6.5: 배속과 상관없이 x10 빠르기
+        start = self._table_disp
+        delta = []
+        for index in (1, 2, 3):
+            d = target[index] - start[index]
+            if index == 3:
+                d = (d + 180.0) % 360.0 - 180.0           # C는 가까운 쪽으로 돈다
+            delta.append(d)
+        biggest = max(abs(d) for d in delta)
+        if biggest < 0.05:
+            self._table_disp = target
+            self._table_anim_stop()
+            return
+        self._table_anim_start = start
+        self._table_anim_delta = tuple(delta)
+        self._table_anim_duration = biggest / float(max(1, self.rotary_speed))
+        self._table_anim_elapsed = 0.0
+        self._table_anim_clock = time.monotonic()
         if not self._table_anim_timer.isActive():
-            self._table_anim_clock = time.monotonic()
             self._table_anim_timer.start()
+        self._table_anim_show_status()
+
+    def _table_anim_stop(self):
+        self._table_anim_timer.stop()
+        self._table_anim_start = None
+        self._rotary_show_status('')
+
+    def table_anim_active(self):
+        """v2.6.7: 회전축이 아직 목표 각도로 돌고 있는가 — 재생은 회전이 끝날 때까지 다음 줄로 넘어가지 않는다."""
+        return bool(self._table_anim_timer.isActive())
+
+    def table_anim_finish(self):
+        """v2.6.7: 돌고 있는 회전을 바로 목표 각도로 맞추고 끝낸다(재생 정지·일시정지 때)."""
+        if not self._table_anim_timer.isActive():
+            return
+        if self._table_goal is not None:
+            self._table_disp = self._table_goal
+        self._table_anim_stop()
+        seq = getattr(self, "current_seq", 0)
+        self._apply_table_rotation(seq)
+        self._refresh_tool_marker(seq)
+        self._reposition_cursor_sphere(seq)
+
+    def table_rotation_changes_at(self, seq):
+        """v2.6.7: 이 seq에서 A·B·C 인덱스 회전(G43.4 동시 5축 제외)이 새로 일어나는가.
+        재생은 이런 줄에서 한 번 멈추고 회전이 끝난 뒤 이어 간다."""
+        seq = int(seq)
+        if seq <= 0 or seq in self.seq_table_follow:
+            return False
+        now = self._table_target_info(seq)
+        before = self._table_target_info(seq - 1)
+        if now is None or before is None or now[0] != before[0]:
+            return False
+        return any(abs(now[i] - before[i]) >= 0.05 for i in (1, 2, 3))
+
+    def set_rotary_speed(self, speed):
+        """v2.6.7: A·B·C 회전축 속도(°/초, 5~180, 5 단위). G0 인덱스 회전에만 적용된다."""
+        speed = clamp_rotary_speed(speed)
+        changed = speed != self.rotary_speed
+        self.rotary_speed = speed
+        try:
+            self.settings.setValue("rotary_speed", speed)
+        except Exception:
+            pass
+        overlay = getattr(self, "projection_overlay", None)
+        if overlay is not None:
+            overlay.set_rotary_speed(speed)
+        if changed and self._table_anim_timer.isActive() and self._table_anim_start is not None:
+            # 도는 중에 바꾸면 남은 회전량을 새 속도로 이어 간다.
+            frac = min(1.0, self._table_anim_elapsed / max(self._table_anim_duration, 1e-9))
+            biggest = max(abs(d) for d in self._table_anim_delta) * (1.0 - frac)
+            total = max(abs(d) for d in self._table_anim_delta)
+            if total > 0:
+                self._table_anim_duration = self._table_anim_elapsed + biggest / float(speed)
+        self.view_options_changed.emit()
+
+    def _table_anim_show_status(self):
+        start, delta, goal = self._table_anim_start, self._table_anim_delta, self._table_goal
+        if start is None or goal is None:
+            return
+        frac = min(1.0, self._table_anim_elapsed / max(self._table_anim_duration, 1e-9))
+        parts = []
+        for name, index in (("A", 1), ("B", 2), ("C", 3)):
+            if abs(delta[index - 1]) >= 0.05:
+                parts.append("%s %.1f° → %.1f°" % (name, start[index] + delta[index - 1] * frac, goal[index]))
+        if parts:
+            self._rotary_show_status("회전 중… " + "   ".join(parts))
+
+    def _rotary_show_status(self, text):
+        """회전 중 안내를 왼쪽 위에 보인다. 빈 문자열이면 숨긴다."""
+        label = getattr(self, "rotary_status_label", None)
+        if not text:
+            if label is not None and not label.isHidden():
+                label.hide()
+                if label in self.gl_view.top_left_widgets:
+                    self.gl_view.top_left_widgets.remove(label)
+                self.gl_view._reposition_top_left()
+            return
+        if label is None:
+            label = QLabel(self.gl_view)
+            label.setAttribute(Qt.WA_TransparentForMouseEvents)
+            self.rotary_status_label = label
+        label.setStyleSheet(self._SIM_LABEL_PROGRESS_STYLE)
+        label.setText(text)
+        label.adjustSize()
+        if label not in self.gl_view.top_left_widgets:
+            self.gl_view.top_left_widgets.append(label)
+        label.show()
+        label.raise_()
+        self.gl_view._reposition_top_left()
 
     def _table_anim_step(self):
-        """천천히 도는 중인 표시 각도를 한 걸음 옮기고 소재·공구·축 표시를 다시 건다."""
-        goal, disp = self._table_goal, self._table_disp
-        if goal is None or disp is None:
-            self._table_anim_timer.stop()
+        """돌고 있는 표시 각도를 일정 속도로 한 걸음 옮기고 소재·공구·축 표시를 다시 건다."""
+        goal, start = self._table_goal, self._table_anim_start
+        if goal is None or start is None:
+            self._table_anim_stop()
             return
         now = time.monotonic()
         dt = max(0.0, min(0.2, now - self._table_anim_clock))
         self._table_anim_clock = now
-        fraction = 1.0 - float(np.exp(-self._table_anim_rate * dt))
-        values = [goal[0]]
-        done = True
-        for index in (1, 2, 3):
-            delta = goal[index] - disp[index]
-            if index == 3:
-                delta = (delta + 180.0) % 360.0 - 180.0       # C는 가까운 쪽으로 돈다
-            if abs(delta) < 0.05:
-                values.append(goal[index])
-            else:
-                values.append(disp[index] + delta * fraction)
-                done = False
-        self._table_disp = goal if done else tuple(values)
-        if done:
-            self._table_anim_timer.stop()
+        self._table_anim_elapsed += dt
+        frac = min(1.0, self._table_anim_elapsed / max(self._table_anim_duration, 1e-9))
+        if frac >= 1.0:
+            self._table_disp = goal
+            self._table_anim_stop()
+        else:
+            self._table_disp = (goal[0],) + tuple(
+                start[i] + self._table_anim_delta[i - 1] * frac for i in (1, 2, 3))
+            self._table_anim_show_status()
         seq = getattr(self, "current_seq", 0)
         self._apply_table_rotation(seq)
         self._refresh_tool_marker(seq)

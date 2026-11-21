@@ -13,7 +13,7 @@ import type { Bounds } from '../sim/stock';
 import type { LatheProgram } from '../sim/latheSegments';
 import type { LatheBounds } from '../sim/latheStock';
 import {
-  CUT_LINE_BASE_WIDTH, FOV_MAX, FOV_MIN, TABLE_ANIM_FIXED_RATE, TRAIL_BLOCKS_MAX, TRAIL_BLOCKS_MIN,
+  CUT_LINE_BASE_WIDTH, FOV_MAX, FOV_MIN, ROTARY_SPEED_MAX, ROTARY_SPEED_MIN, ROTARY_SPEED_STEP, TRAIL_BLOCKS_MAX, TRAIL_BLOCKS_MIN,
   TRAIL_BLOCKS_STEP, toolpathLineWidth,
 } from '../core/viewerSettings';
 import { getPref, setPref } from '../platform/prefs';
@@ -220,6 +220,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
   // 원본 v2.6.0: 지난 경로 숨김 — 재생(PG 매칭) 중 지금 줄 기준 앞쪽 N블록만 그린다
   let trailOn = getViewerSettings().trailHide;
   let trailBlocks = getViewerSettings().trailBlocks;
+  let rotarySpeed = getViewerSettings().rotarySpeed;
   const trailBtn = el('button', { type: 'button', class: 'v-live', title: '켜면 재생 중 지금 줄 기준 앞쪽 N블록만 보입니다 (블록 수는 − + 또는 설정 창)' });
   trailBtn.textContent = '지난 경로 숨김';
   const trailMinus = el('button', { type: 'button', class: 'v-step', title: `표시 블록 수 -${TRAIL_BLOCKS_STEP}` });
@@ -280,35 +281,75 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     if (kind === 'bc') return { part: rotZ(c).multiply(rotY(b)).transpose(), tool: new THREE.Matrix4() };
     return { part: rotY(b).transpose(), tool: new THREE.Matrix4() };
   };
-  // 원본 v2.6.0/v2.6.3: 재생 중에는 회전을 천천히 따라간다(지수 수렴). 손으로 옮길 때는 바로 맞춘다.
+  // 원본 v2.6.7: 재생 중 회전축 인덱스는 rotarySpeed(°/초) 일정 속도로 돌고, 모든 축이 동시에 끝난다. 손으로 옮길 때는 바로 맞춘다.
   let tableGoal: TableRot | null = null;
   let tableDisp: TableRot | null = null;
+  let tableStart: TableRot | null = null;
+  let tableDelta: [number, number, number] = [0, 0, 0];
+  let tableDur = 0;
+  let tableElapsed = 0;
+  const rotInfo = el('div', { class: 'v-hud' });
+  rotInfo.style.cssText = 'position:absolute;left:8px;top:48px;padding:4px 8px;border-radius:4px;background:rgba(20,24,30,.8);color:#ffe082;font-size:12px;pointer-events:none';
+  rotInfo.hidden = true;
+  host.append(rotInfo);
   const sameRot = (x: TableRot | null, y: TableRot | null): boolean =>
     x === y || (!!x && !!y && x[0] === y[0] && x[1] === y[1] && x[2] === y[2] && x[3] === y[3]);
+  const paintRotInfo = (): void => {
+    if (!tableGoal || !tableDisp || !tableStart || sameRot(tableGoal, tableDisp)) { rotInfo.hidden = true; return; }
+    const parts: string[] = [];
+    (['A', 'B', 'C'] as const).forEach((name, k) => {
+      if (Math.abs(tableDelta[k]!) >= 0.05) parts.push(`${name} ${(tableDisp![k + 1] as number).toFixed(1)}° → ${(tableGoal![k + 1] as number).toFixed(1)}°`);
+    });
+    rotInfo.textContent = parts.length ? `회전 중… ${parts.join('   ')}` : '';
+    rotInfo.hidden = !parts.length;
+  };
   const tableSync = (seq: number): void => {
     const target = tableInfo(seq);
-    if (!target) { tableGoal = null; tableDisp = null; return; }
+    if (!target) { tableGoal = null; tableDisp = null; paintRotInfo(); return; }
     if (sameRot(target, tableGoal)) return;
     tableGoal = target;
     // 원본 v2.6.5: 동시 5축은 재생(이송 · 배속)을 그대로 따른다 — 바로 맞춘다
     const follow = result?.seq_table_follow?.has(seq) ?? false;
-    if (!playing || follow || !tableDisp || tableDisp[0] !== target[0]) tableDisp = target;
+    if (!playing || follow || !tableDisp || tableDisp[0] !== target[0]) { tableDisp = target; paintRotInfo(); return; }
+    const d: [number, number, number] = [0, 0, 0];
+    for (const i of [1, 2, 3] as const) {
+      let delta = target[i] - tableDisp[i];
+      if (i === 3) delta = ((((delta + 180) % 360) + 360) % 360) - 180; // C는 가까운 쪽으로
+      d[i - 1] = delta;
+    }
+    const biggest = Math.max(Math.abs(d[0]), Math.abs(d[1]), Math.abs(d[2]));
+    if (biggest < 0.05) { tableDisp = target; paintRotInfo(); return; }
+    tableStart = tableDisp;
+    tableDelta = d;
+    tableDur = biggest / Math.max(1, rotarySpeed);
+    tableElapsed = 0;
+    paintRotInfo();
+  };
+  /** 회전축이 아직 목표 각도로 도는 중인가 — 재생은 회전이 끝날 때까지 다음 줄로 넘어가지 않는다 */
+  const tableAnimating = (): boolean => !!tableGoal && !!tableDisp && !!tableStart && !sameRot(tableGoal, tableDisp);
+  /** 도는 회전을 바로 목표 각도로 맞춘다(재생 정지·일시정지) */
+  const tableFinish = (): void => {
+    if (!tableAnimating()) return;
+    tableDisp = tableGoal;
+    tableStart = null;
+    paintRotInfo();
+    showSeq(seqNow, false);
+  };
+  /** 원본 table_rotation_changes_at: 이 seq 에서 A·B·C 인덱스 회전(G43.4 동시 5축 제외)이 새로 일어나는가 */
+  const tableRotationChangesAt = (seq: number): boolean => {
+    if (seq <= 0 || (result?.seq_table_follow?.has(seq) ?? false)) return false;
+    const now = tableInfo(seq), before = tableInfo(seq - 1);
+    if (!now || !before || now[0] !== before[0]) return false;
+    return [1, 2, 3].some((i) => Math.abs((now[i] as number) - (before[i] as number)) >= 0.05);
   };
   /** 한 프레임만큼 표시 각도를 목표 쪽으로 옮긴다. 옮겼으면 true */
   const tableStep = (dt: number): boolean => {
-    if (!tableGoal || !tableDisp || sameRot(tableGoal, tableDisp)) return false;
-    // 원본 v2.6.5: A·B·C 회전(인덱스)은 배속과 상관없이 원본 x10일 때 빠르기로 고정한다
-    const rate = TABLE_ANIM_FIXED_RATE;
-    const f = 1 - Math.exp(-rate * Math.max(0, Math.min(0.2, dt)));
-    const next: TableRot = [tableGoal[0], 0, 0, 0];
-    let done = true;
-    for (const i of [1, 2, 3] as const) {
-      let delta = tableGoal[i] - tableDisp[i];
-      if (i === 3) delta = ((((delta + 180) % 360) + 360) % 360) - 180; // C는 가까운 쪽으로
-      if (Math.abs(delta) < 0.05) next[i] = tableGoal[i];
-      else { next[i] = tableDisp[i] + delta * f; done = false; }
-    }
-    tableDisp = done ? tableGoal : next;
+    if (!tableAnimating() || !tableGoal || !tableStart) return false;
+    tableElapsed += Math.max(0, Math.min(0.2, dt));
+    const f = Math.min(1, tableElapsed / Math.max(tableDur, 1e-9));
+    if (f >= 1) { tableDisp = tableGoal; tableStart = null; }
+    else tableDisp = [tableGoal[0], tableStart[1] + tableDelta[0] * f, tableStart[2] + tableDelta[1] * f, tableStart[3] + tableDelta[2] * f] as TableRot;
+    paintRotInfo();
     return true;
   };
   const SECTION_LABEL = { '3q': '단면 3/4', half: '단면 1/2', full: '원통' } as const;
@@ -470,7 +511,22 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
   const stopSlot = el('div', { class: 'v-stop' });
   const stepRow = el('div', { class: 'v-steprow' });
   stepRow.append(trailMinus, trailLabel, trailPlus);
-  panel.append(section('뷰'), tableBtn, instantBtn, section('재생 정지'), stopSlot, liveBtn, section('지난 경로'), trailBtn, stepRow);
+  // 원본 v2.6.7: 회전축(A·B·C) 속도 °/초 — 설정 창과 같은 값
+  const rotMinus = el('button', { type: 'button', class: 'v-step', title: `회전축 속도 -${ROTARY_SPEED_STEP} °/초` });
+  rotMinus.textContent = '−';
+  const rotPlus = el('button', { type: 'button', class: 'v-step', title: `회전축 속도 +${ROTARY_SPEED_STEP} °/초` });
+  rotPlus.textContent = '+';
+  const rotLabel = el('span', { class: 'v-step-label' });
+  const rotRow = el('div', { class: 'v-steprow' });
+  rotRow.append(rotMinus, rotLabel, rotPlus);
+  const paintRot = (): void => { rotLabel.textContent = `${rotarySpeed} °/초`; };
+  paintRot();
+  const stepRot = (d: number): void => {
+    updateViewerSettings({ rotarySpeed: Math.max(ROTARY_SPEED_MIN, Math.min(ROTARY_SPEED_MAX, rotarySpeed + d)) });
+  };
+  rotMinus.addEventListener('click', () => stepRot(-ROTARY_SPEED_STEP));
+  rotPlus.addEventListener('click', () => stepRot(ROTARY_SPEED_STEP));
+  panel.append(section('뷰'), tableBtn, instantBtn, section('재생 정지'), stopSlot, liveBtn, section('회전축 속도 (A·B·C, G0)'), rotRow, section('지난 경로'), trailBtn, stepRow);
   dock.append(moreBtn, panel);
   host.append(dock);
   let moreOpen = getPref('overlay_more_open') === 'true';
@@ -1104,7 +1160,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     if (emit) hooks.onLine?.(lineAtSeq(result, seqNow));
   }
 
-  const stopPlaying = (): void => { playing = false; bPlay.innerHTML = icon('play'); };
+  const stopPlaying = (): void => { playing = false; bPlay.innerHTML = icon('play'); tableFinish(); };
   const startPlaying = (): void => {
     if (!result) return;
     if (seqNow >= sequenceLength(result) - 1) { seqNow = 0; showSeq(0, true); }
@@ -1149,7 +1205,8 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
       holdSince ??= now;
       hold = now - holdSince < 3000;
     } else holdSince = null;
-    if (playing && result && hold) lastFrame = now;
+    const rotating = playing && tableAnimating();
+    if (playing && result && (hold || rotating)) { lastFrame = now; virtualTime = elapsedSecondsAtSeq(result, seqNow, sortedKeys); }
     else if (playing && result) {
       const dt = (now - lastFrame) / 1000;
       lastFrame = now;
@@ -1161,6 +1218,8 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
         next++;
         // 같은 줄이 여러 seq 로 이어질 때(G80·사이클 줄 등) 줄에 들어설 때 한 번만 멈춘다 — 재생을 다시 눌렀을 때 같은 줄에서 또 멈춰 진행이 안 되던 문제
         if (lineAtSeq(result, next) !== lineAtSeq(result, next - 1) && shouldStop(next)) { showSeq(next, true); stopPlaying(); next = -1; break; }
+        // 원본 v2.6.7: 회전축 인덱스 줄에서 한 번 멈춰 회전을 보인다(다 돌 때까지 아래에서 기다린다)
+        if (tableRotationChangesAt(next)) break;
         if (next - startSeq > 20000) break;
       }
       if (next >= 0 && next !== seqNow) showSeq(next, true);
@@ -1182,6 +1241,8 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
   const offSettings = onViewerSettings((s) => {
     fovDeg = s.fovDeg;
     const changed = s.tableRotation !== tableOn || s.trailHide !== trailOn || s.trailBlocks !== trailBlocks;
+    rotarySpeed = s.rotarySpeed;
+    paintRot();
     tableOn = s.tableRotation;
     trailOn = s.trailHide;
     trailBlocks = s.trailBlocks;

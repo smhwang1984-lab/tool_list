@@ -151,8 +151,24 @@ def test_machine_display_names_and_units():
         ["mm", "°", "rpm", "mm/min", ""]
 
 
-def test_rotary_animation_rate_is_fixed_at_x10():
-    assert nvw.TABLE_ANIM_FIXED_RATE == pytest.approx(0.3 * 0.15)   # x10 = 10/100 -> 바닥값 0.15
+def test_rotary_speed_default_and_clamp():
+    assert nvw.ROTARY_SPEED_DEFAULT == 30                           # v2.6.7: 기본 30°/초
+    assert [nvw.clamp_rotary_speed(v) for v in (0, 32, 999, "x")] == [5, 30, 180, 30]
+
+
+def test_g0_index_rotation_stops_playback_and_waits(viewer):
+    _run(viewer, nvw.MACHINE_5AXIS_AC,
+         "G43.4 H1\nG0 G90 A0. C0.\nG0 A-30. C90.\nG1 X10. F500\nG1 X20. A-20. C100. F500")
+    viewer.set_pg_match_mode(True)
+    idx = viewer.line_to_seq[2]
+    assert viewer.table_rotation_changes_at(idx) is True            # G0 인덱스 줄은 재생이 한 번 멈춘다
+    assert viewer.table_rotation_changes_at(viewer.line_to_seq[3]) is False
+    assert viewer.table_rotation_changes_at(viewer.line_to_seq[4]) is False   # G43.4 동시 5축은 재생을 따른다
+    viewer.table_anim_speed = 100
+    viewer.set_cursor_seq(idx)
+    assert viewer.table_anim_active()                               # 도는 동안 재생은 다음 줄로 가지 않는다
+    viewer.table_anim_finish()
+    assert not viewer.table_anim_active() and viewer._table_disp == viewer._table_goal
 
 
 def test_simultaneous_5axis_moves_follow_playback(viewer):
