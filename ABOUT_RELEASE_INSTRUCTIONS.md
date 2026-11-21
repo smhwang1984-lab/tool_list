@@ -57,7 +57,9 @@ Last updated: 2026-11-05 (NC_Tool_List v2.3.0 — 로컬 v2.2.9(STOCK SIZE)와 G
 - Open source: **ModernGL 5.13.0(MIT)·glcontext 3.1.0(MIT) 추가** — `third_party_notices.COMPONENTS`, 고지문(라이선스 원문 동봉), 시험, `NC_Tool_List.spec`(숨은 import·`sim_shaders/` 동봉). 안드로이드는 새 라이브러리 없음.
 - 시험: 데스크톱 pytest 995 통과(GPU 셰이더·소재·표시·뷰어 연결 시험 포함, GPU 문맥이 없는 환경에서는 건너뜀) · 안드로이드 npm test 통과.
 - 측정(Intel Iris Plus 내장, 개발 PC): 13k 무작위 선분 · 4096칸 약 5초 · 2048칸 약 3초. 1초 목표는 외장 GPU(현장 GTX 1060)에서 G6로 확인한다.
-- Installer/package status: 빌드 중(아래 해시는 빌드 후 기록).
+- Installer/package status: **설치본 생성 완료, APK는 만들지 않음**(안드로이드 GPU 엔진 G4 단계에서 빌드). `installer\NC_Tool_List_Setup_v2.8.0.exe`(dist exe 파일 버전 2.8.0.0, 실행 10초 확인, `_internal\sim_shaders`·`moderngl`·`glcontext\wgl.pyd`·ModernGL 고지문 동봉 확인).
+  - Setup EXE SHA-256: AD62D6DBE3E3A66206B823E3796D793794536C15B08B615556683F42097D3AB2
+  - 남은 확인: 외장 GPU가 있는 PC(현장 GTX 1060)에서 설치본으로 소재 창의 GPU 묶음이 열리는지, 적용·재생이 되는지, 성능(G6). 설치본(동결 빌드)에서 GPU 동작은 이 PC에서 직접 확인하지 못했다.
 
 ### 2026-11-21 (v2.7.1 / 안드로이드 v2.1.2)
 
