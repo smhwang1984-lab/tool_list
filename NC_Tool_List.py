@@ -34,7 +34,7 @@ import sumpath_license
 import third_party_notices
 
 
-APP_VERSION = '2.7.0'
+APP_VERSION = '2.7.1'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-11-21'
 APP_CREATOR = 'Hwang.seonmun'
@@ -2259,8 +2259,9 @@ def gl_safe_mode_enabled():
 #     (Inno Setup이 컴파일 때 이 점을 경고한다).
 #   - 포터블 ZIP은 설치 과정 자체가 없다.
 # 그래서 안전 모드 화면에서 **실행 중인 계정으로** 직접 쓸 수 있게 한다.
-# 사용자가 버튼을 누를 때만 쓴다 — 멀쩡한 PC의 GPU 선택을 앱이 마음대로
-# 바꾸면, 외장 GPU 드라이버가 고장난 PC를 오히려 망가뜨릴 수 있다.
+# v2.7.1부터는 값이 없는 PC에서 앱이 처음 한 번 "고성능"을 직접 쓴다(ensure_gpu_preference).
+# 외장이 있으면 외장, 없으면 내장이 선택된다. 다만 외장 GPU 드라이버가 고장난 PC를 망가뜨리지
+# 않도록, 안전 모드이거나 이미 값이 있거나 한 번 적용한 뒤에는 건드리지 않는다.
 GPU_PREFERENCE_KEY = r'Software\Microsoft\DirectX\UserGpuPreferences'
 GPU_PREFERENCE_HIGH_PERFORMANCE = 2
 GPU_PREFERENCE_POWER_SAVING = 1
@@ -2345,6 +2346,40 @@ def viewer_safe_mode_active():
     if not gl_safe_mode_enabled():
         return False
     return viewer_gl_strike_count() >= GL_SAFE_MODE_STRIKE_LIMIT
+
+
+GPU_AUTOSET_FLAG = 'gpu_preference_autoset_v1'
+
+
+def ensure_gpu_preference(settings=None, exe_path=None):
+    """v2.7.1: 외장 그래픽카드가 있으면 외장을, 없으면 내장을 쓰게 Windows에 한 번 알려 둔다.
+
+    "고성능"(GpuPreference=2)은 PC에서 가장 빠른 그래픽 장치를 고르라는 뜻이라 외장이 있으면 외장,
+    내장뿐이면 내장이 그대로 선택된다(노트북 하이브리드 그래픽 포함). 설치 프로그램도 같은 값을 쓰지만
+    포터블 ZIP이나 다른 관리자 계정으로 설치한 PC에는 없으므로, 앱이 실행 중인 계정에 직접 쓴다.
+    Windows는 프로세스가 시작될 때 이 값을 읽으므로 **처음 쓴 실행이 아니라 다음 실행부터** 적용된다.
+
+    건드리지 않는 경우(성공 여부와 무관하게 False):
+      - 이 exe에 이미 값이 있다(설치 프로그램이나 사용자가 정한 선택을 존중).
+      - 뷰어 안전 모드다(그래픽 드라이버가 의심스러운 PC — 안전 모드 화면의 버튼으로 직접 고른다).
+      - 한 번 적용한 뒤다(사용자가 나중에 'Windows 자동'으로 되돌려도 다시 덮어쓰지 않는다).
+      - 패키징되지 않은 실행(python.exe에 값을 쓰지 않는다. exe_path를 직접 준 테스트는 예외).
+    값을 새로 썼으면 True.
+    """
+    if exe_path is None and not getattr(sys, 'frozen', False):
+        return False
+    if viewer_safe_mode_active():
+        return False
+    if read_gpu_preference(exe_path) is not None:
+        return False
+    if settings is None:
+        settings = QSettings('NC Tool List', 'MainWindow')
+    if str(settings.value(GPU_AUTOSET_FLAG, False)).lower() in ('1', 'true'):
+        return False
+    if not write_gpu_preference(GPU_PREFERENCE_HIGH_PERFORMANCE, exe_path):
+        return False
+    settings.setValue(GPU_AUTOSET_FLAG, True)
+    return True
 
 
 def mark_viewer_gl_pending():
@@ -7148,6 +7183,11 @@ def main():
         if not license_status.ok:
             write_startup_log('License not accepted: %s' % license_status.reason)
             return
+        try:
+            if ensure_gpu_preference():
+                write_startup_log('GPU preference auto-set to high performance (applies from next launch)')
+        except Exception as error:   # 그래픽 설정이 실패해도 앱은 켜져야 한다
+            write_startup_log('GPU preference auto-set skipped: %r' % (error,))
         window = App()
         start_single_instance_server(window)
         if initial_file:

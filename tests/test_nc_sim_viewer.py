@@ -395,6 +395,52 @@ M30
             self.assertEqual(settings.value('stock/color_mode'), 'tool', mode)
             self.assertTrue(settings.value('stock/color_mode_migrated_v2', False, type=bool))
 
+    # -- 해상도 엔진 묶음 (v2.7.1) -------------------------------------------------
+    def test_resolution_keys_stay_compatible_and_gpu_group_is_closed_for_now(self):
+        import nc_viewer_widget as w
+        # 예전에 저장된 값('자동', '0.05' ...)은 그대로 읽힌다.
+        for key in ('자동', '0.05', '0.1', '0.2', '0.5', '1.0'):
+            self.assertEqual(w.normalize_resolution_key(key, gpu_available=False), key)
+        # 고해상도 엔진이 없으면 그 키는 '자동'으로 바로잡고, 있으면 그대로 둔다. 모르는 값은 늘 '자동'.
+        self.assertEqual(w.normalize_resolution_key('gpu:4096', gpu_available=False), '자동')
+        self.assertEqual(w.normalize_resolution_key('gpu:4096', gpu_available=True), 'gpu:4096')
+        self.assertEqual(w.normalize_resolution_key('7.7', gpu_available=True), '자동')
+        self.assertEqual(w.normalize_resolution_key(None, gpu_available=True), '자동')
+        self.assertEqual(w.resolution_choice('자동'), ('cpu', None))
+        self.assertEqual(w.resolution_choice('0.2'), ('cpu', 0.2))
+        self.assertEqual(w.resolution_choice('gpu:auto'), ('gpu', None))
+        self.assertEqual(w.resolution_choice('gpu:8192'), ('gpu', 8192))
+        # 이 버전은 고해상도 엔진이 없다(엔진을 넣는 작업에서 이 시험도 같이 고친다).
+        self.assertFalse(w.GPU_ENGINE_AVAILABLE)
+
+    def test_dialog_resolution_combo_has_two_groups_and_gpu_items_are_disabled(self):
+        import nc_viewer_widget as w
+        dialog = self._isolated_dialog(self.make_viewer())
+        combo = dialog.resolution_combo
+        model = combo.model()
+        keys = [combo.itemData(i) for i in range(combo.count())]
+        self.assertEqual(keys, [None, *w.SIM_RES_CPU_KEYS, None, *w.SIM_RES_GPU_KEYS])
+        for i, key in enumerate(keys):
+            enabled = model.item(i).isEnabled()
+            if key is None or key in w.SIM_RES_GPU_KEYS:
+                self.assertFalse(enabled, combo.itemText(i))
+            else:
+                self.assertTrue(enabled, combo.itemText(i))
+        self.assertEqual(combo.currentData(), '자동')
+        # 기본 엔진 묶음을 고르면 셀 크기(mm)가 엔진에 넘어가고 품질 칸이 켜진다.
+        combo.setCurrentIndex(combo.findData('0.2'))
+        self.assertEqual(dialog._resolution_value(), 0.2)
+        self.assertTrue(dialog.quality_combo.isEnabled())
+
+    def test_saved_resolution_is_restored_and_unknown_engine_falls_back_to_auto(self):
+        for saved, expected in (('0.1', '0.1'), ('gpu:4096', '자동'), ('못 알아보는 값', '자동')):
+            viewer, dialog, settings = self._dialog_with_saved_mode('tool', migrated=True)
+            settings.setValue('stock/resolution', saved)
+            dialog._load_settings()
+            self.assertEqual(dialog.resolution_combo.currentData(), expected, saved)
+            dialog._save_settings()
+            self.assertEqual(settings.value('stock/resolution'), expected, saved)
+
     # -- NC 주석 STOCK SIZE (v2.2.9) ---------------------------------------------
     COMMENT_PROGRAM = '(STOCK SIZE : T12 W34 L56)\n' + PROGRAM
 

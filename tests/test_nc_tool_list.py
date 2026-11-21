@@ -633,6 +633,44 @@ X60 Y10 Z0
         # 없는 값을 다시 지워도 성공이어야 버튼이 멈추지 않는다.
         self.assertTrue(app.write_gpu_preference(None, probe))
 
+    def test_ensure_gpu_preference_sets_high_performance_once_and_respects_choices(self):
+        """v2.7.1: 값이 없는 PC에서 한 번만 '고성능'(외장이 있으면 외장, 없으면 내장)을 쓴다.
+        이미 값이 있거나, 안전 모드이거나, 한 번 적용한 뒤에는 건드리지 않는다."""
+        from unittest import mock
+        from PyQt5.QtCore import QSettings
+        probe = r'C:\__nc_tool_list_test_auto__\NC_Tool_List.exe'
+        self.addCleanup(app.write_gpu_preference, None, probe)
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+
+        def fresh_settings(name):
+            return QSettings(os.path.join(directory.name, name), QSettings.IniFormat)
+
+        app.write_gpu_preference(None, probe)
+        # 안전 모드면 값이 없어도 쓰지 않는다.
+        with mock.patch.object(app, 'viewer_safe_mode_active', return_value=True):
+            self.assertFalse(app.ensure_gpu_preference(fresh_settings('a.ini'), probe))
+        self.assertIsNone(app.read_gpu_preference(probe))
+        # 값이 없으면 고성능을 쓰고, 두 번째부터는 쓰지 않는다.
+        settings = fresh_settings('b.ini')
+        with mock.patch.object(app, 'viewer_safe_mode_active', return_value=False):
+            self.assertTrue(app.ensure_gpu_preference(settings, probe))
+            self.assertEqual(app.read_gpu_preference(probe), app.GPU_PREFERENCE_HIGH_PERFORMANCE)
+            self.assertFalse(app.ensure_gpu_preference(settings, probe))
+            # 사용자가 'Windows 자동'으로 되돌려도(값 삭제) 다시 덮어쓰지 않는다.
+            app.write_gpu_preference(None, probe)
+            self.assertFalse(app.ensure_gpu_preference(settings, probe))
+            self.assertIsNone(app.read_gpu_preference(probe))
+            # 이미 사용자가·설치 프로그램이 정한 값(절전)은 존중한다.
+            app.write_gpu_preference(app.GPU_PREFERENCE_POWER_SAVING, probe)
+            self.assertFalse(app.ensure_gpu_preference(fresh_settings('c.ini'), probe))
+            self.assertEqual(app.read_gpu_preference(probe), app.GPU_PREFERENCE_POWER_SAVING)
+
+    def test_ensure_gpu_preference_does_not_touch_python_when_run_from_source(self):
+        # 소스 실행(frozen 아님)이고 exe 경로도 안 줬으면 python.exe에 값을 쓰지 않는다.
+        self.assertFalse(getattr(sys, 'frozen', False))
+        self.assertFalse(app.ensure_gpu_preference())
+
     def test_gpu_preference_value_format_matches_the_installer(self):
         """앱이 쓰는 값과 설치 스크립트가 쓰는 값의 형식이 같아야 한다 —
         한쪽만 바꾸면 조용히 어긋난다."""

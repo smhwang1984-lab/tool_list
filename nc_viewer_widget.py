@@ -2465,6 +2465,55 @@ class _SimJob:
             self.error = '%s: %s' % (type(exc).__name__, exc)
 
 
+# ------------------------------------------------------------------------ v2.7.1
+# 해상도 목록은 엔진별 두 묶음이다(시안 승인 2026-11-21). 묶음 안에서 항목을 고르면 엔진도
+# 같이 정해진다.
+#   기본 엔진 · CPU  — 지금 쓰는 Z-map/복셀(셀 크기 mm). 저장 키는 예전과 같은 '자동', '0.05' ...
+#   고해상도 엔진 · GPU — 소재 긴 변의 칸 수(2048/4096/8192). 저장 키는 'gpu:auto', 'gpu:4096' ...
+# 고해상도 엔진(PLAN_gpu_sim_and_licensing.md 4장 G)은 아직 없어서 GPU 묶음은 흐리게 두고 고를 수 없다.
+# 엔진을 넣을 때 GPU_ENGINE_AVAILABLE만 True로(또는 그래픽 기능 감지 함수로) 바꾸면 열린다.
+# 안드로이드는 src/ui/stockDialog.ts의 RES_CPU / RES_GPU / GPU_ENGINE_AVAILABLE이 같은 약속이다.
+GPU_ENGINE_AVAILABLE = False
+SIM_RES_CPU_KEYS = ('자동', '0.05', '0.1', '0.2', '0.5', '1.0')
+SIM_RES_GPU_KEYS = ('gpu:auto', 'gpu:2048', 'gpu:4096', 'gpu:8192')
+SIM_RES_GROUP_CPU = '기본 엔진 · CPU'
+SIM_RES_GROUP_GPU = '고해상도 엔진 · GPU'
+
+
+def sim_resolution_label(key):
+    """목록에 보이는 글자."""
+    if key == '자동':
+        return '자동'
+    if key == 'gpu:auto':
+        return '자동 (그래픽 메모리에 맞춤)'
+    if key.startswith('gpu:'):
+        return '%s 칸' % key[4:]
+    return '%s mm' % key
+
+
+def normalize_resolution_key(key, gpu_available=None):
+    """저장돼 있던 값을 지금 쓸 수 있는 키로 바로잡는다. 모르는 값이거나 쓸 수 없는 엔진이면 '자동'."""
+    if gpu_available is None:
+        gpu_available = GPU_ENGINE_AVAILABLE
+    key = str(key) if key is not None else '자동'
+    if key in SIM_RES_CPU_KEYS:
+        return key
+    if key in SIM_RES_GPU_KEYS and gpu_available:
+        return key
+    return '자동'
+
+
+def resolution_choice(key):
+    """키 → (엔진, 값). 엔진은 'cpu' | 'gpu'. cpu의 값은 셀 크기(mm, 자동이면 None),
+    gpu의 값은 긴 변 칸 수(자동이면 None)."""
+    if key.startswith('gpu:'):
+        tail = key[4:]
+        return 'gpu', (None if tail == 'auto' else int(tail))
+    if key == '자동':
+        return 'cpu', None
+    return 'cpu', float(key)
+
+
 # ------------------------------------------------------------------------ v1.9.0
 # 소재(STOCK) 설정 팝업 — 밀링 모드 전용. T/W/L 치수, 축 배정(T=Y, W=Z, L=X
 # 처럼 서로 바꿀 수 있음), 기준 위치(중심/한쪽 끝/윗면), 추가 이동, 해상도를
@@ -2474,7 +2523,7 @@ class StockDialog(QDialog):
     _AXES = ('X', 'Y', 'Z')
     _XY_REF_ITEMS = [('center', '중심'), ('neg', '-쪽 끝 = 0'), ('pos', '+쪽 끝 = 0')]
     _Z_REF_ITEMS = [('top', '윗면 = 0'), ('bottom', '바닥 = 0'), ('center', '중심')]
-    _RESOLUTION_ITEMS = ['자동', '0.05', '0.1', '0.2', '0.5', '1.0']
+    _RESOLUTION_ITEMS = list(SIM_RES_CPU_KEYS)   # 예전 이름 유지(저장값 검사용)
 
     def __init__(self, viewer, parent=None):
         super().__init__(parent)
@@ -2570,7 +2619,7 @@ class StockDialog(QDialog):
         res_bar = QHBoxLayout()
         res_bar.addWidget(QLabel('해상도'))
         self.resolution_combo = QComboBox()
-        self.resolution_combo.addItems(self._RESOLUTION_ITEMS)
+        self._fill_resolution_combo()
         res_bar.addWidget(self.resolution_combo)
         res_bar.addSpacing(12)
         res_bar.addWidget(QLabel('품질'))
@@ -2579,10 +2628,13 @@ class StockDialog(QDialog):
             self.quality_combo.addItem(label, value)
         self.quality_combo.setCurrentIndex(max(0, self.quality_combo.findData(self.viewer.sim_quality)))
         self.quality_combo.setToolTip('빠름: 소재 격자를 거칠게 잡아 빠르게 계산합니다(안드로이드와 비슷).\n'
-                                      '정밀: 격자를 4배 촘촘히 잡아 표면이 곱지만 느립니다. [적용] 때 반영됩니다.')
+                                      '정밀: 격자를 4배 촘촘히 잡아 표면이 곱지만 느립니다. [적용] 때 반영됩니다.\n'
+                                      '기본 엔진(CPU)을 고른 때만 씁니다.')
         res_bar.addWidget(self.quality_combo)
         res_bar.addStretch()
         layout.addLayout(res_bar)
+        self.resolution_combo.currentIndexChanged.connect(self._on_resolution_changed)
+        self._on_resolution_changed()
 
         color_bar = QHBoxLayout()
         color_bar.addWidget(QLabel('소재 색'))
@@ -2769,14 +2821,47 @@ class StockDialog(QDialog):
         self._updating = False
         self._update_bounds_preview()
 
+    def _fill_resolution_combo(self):
+        """해상도 목록을 엔진별 두 묶음으로 채운다. 머리글 줄은 고를 수 없고,
+        고해상도 엔진이 아직 없으면(GPU_ENGINE_AVAILABLE) 그 묶음 항목도 흐리게 둔다."""
+        combo = self.resolution_combo
+        model = combo.model()
+
+        def add_header(text):
+            combo.addItem(text, None)
+            model.item(combo.count() - 1).setEnabled(False)
+
+        add_header(SIM_RES_GROUP_CPU)
+        for key in SIM_RES_CPU_KEYS:
+            combo.addItem(sim_resolution_label(key), key)
+        add_header(SIM_RES_GROUP_GPU + ('' if GPU_ENGINE_AVAILABLE else ' — 준비 중'))
+        for key in SIM_RES_GPU_KEYS:
+            combo.addItem(sim_resolution_label(key), key)
+            if not GPU_ENGINE_AVAILABLE:
+                model.item(combo.count() - 1).setEnabled(False)
+        combo.setToolTip('기본 엔진(CPU): 셀 크기(mm)로 고릅니다. 지금 쓰는 방식입니다.\n'
+                         '고해상도 엔진(GPU): 소재 긴 변의 칸 수로 고릅니다. 아직 준비 중입니다.')
+        self._set_resolution_key('자동')
+
+    def _resolution_key(self):
+        key = self.resolution_combo.currentData()
+        return normalize_resolution_key(key)
+
+    def _set_resolution_key(self, key):
+        idx = self.resolution_combo.findData(normalize_resolution_key(key))
+        if idx >= 0:
+            self.resolution_combo.setCurrentIndex(idx)
+
+    def _on_resolution_changed(self, _index=None):
+        # 품질(빠름·정밀)은 기본 엔진에만 있는 설정이다.
+        engine, _value = resolution_choice(self._resolution_key())
+        self.quality_combo.setEnabled(engine == 'cpu')
+
     def _resolution_value(self):
-        text = self.resolution_combo.currentText()
-        if text == '자동':
-            return None
-        try:
-            return float(text)
-        except ValueError:
-            return None
+        """기본 엔진에 넘기는 셀 크기(mm). 자동이면 None. 고해상도 엔진은 아직 없어
+        그 키가 와도(저장값 등) 기본 엔진 자동으로 계산한다."""
+        engine, value = resolution_choice(self._resolution_key())
+        return value if engine == 'cpu' else None
 
     def _on_toolpath_toggled(self, checked):
         self.viewer.set_toolpath_visible(checked)
@@ -2878,7 +2963,7 @@ class StockDialog(QDialog):
         for axis in self._AXES:
             settings.setValue('ref_%s' % axis, self.ref_combos[axis].currentData())
             settings.setValue('offset_%s' % axis, self.offset_spins[axis].value())
-        settings.setValue('resolution', self.resolution_combo.currentText())
+        settings.setValue('resolution', self._resolution_key())
         settings.setValue('enabled', self.enable_check.isChecked())
         settings.setValue('toolpath_visible', self.toolpath_check.isChecked())
         settings.setValue('color_mode', self.color_mode_combo.currentData())
@@ -2913,9 +2998,8 @@ class StockDialog(QDialog):
                     self.offset_spins[axis].setValue(float(off_val))
                 except (TypeError, ValueError):
                     pass
-        res_val = settings.value('resolution', None)
-        if res_val in self._RESOLUTION_ITEMS:
-            self.resolution_combo.setCurrentText(res_val)
+        # v2.7.1: 저장값이 쓸 수 없는 엔진(고해상도 엔진이 없는 PC·버전)이면 '자동'으로 연다.
+        self._set_resolution_key(settings.value('resolution', '자동'))
         enabled_val = settings.value('enabled', False)
         self.enable_check.setChecked(str(enabled_val).lower() in ('1', 'true'))
         mode_val = settings.value('color_mode', 'tool')
@@ -3060,11 +3144,20 @@ class LatheStockDialog(QDialog):
     # 밀링 소재 창과 같은 viewer/위젯 이름만 쓰는 동작은 그대로 빌려 쓴다(중복 방지)
     _show_rapid_list = StockDialog._show_rapid_list
     _decide_run_simulation = StockDialog._decide_run_simulation
-    _resolution_value = StockDialog._resolution_value
     _on_toolpath_toggled = StockDialog._on_toolpath_toggled
     refresh_status = StockDialog.refresh_status
     _refresh_status = StockDialog.refresh_status
     refresh_from_viewer = StockDialog.refresh_from_viewer
+
+    def _resolution_value(self):
+        # 선반 창은 해상도 묶음 없이 예전 목록 그대로다(고해상도 엔진은 3축 밀링 전용).
+        text = self.resolution_combo.currentText()
+        if text == '자동':
+            return None
+        try:
+            return float(text)
+        except ValueError:
+            return None
 
     def _build_spec(self):
         d = {key: spin.value() for key, spin in self.dim_spins.items()}

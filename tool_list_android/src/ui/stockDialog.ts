@@ -1,5 +1,9 @@
 // 소재(STOCK) 창 — 원본 StockDialog(밀링). T/W/L 치수 · 축 배정 · 기준 위치 · 추가 이동 · 해상도 · 형상 켜기.
 import { getPref, setPref } from '../platform/prefs';
+import {
+  GPU_ENGINE_AVAILABLE, RES_CPU_KEYS, RES_GPU_KEYS, RES_GROUP_CPU, RES_GROUP_GPU,
+  normalizeResolutionKey, resolutionChoice, resolutionLabel,
+} from '../sim/resolutionKeys';
 import { AXES, DIM_KEYS, StockSpec, parseStockSizeComment, type Axis, type Bounds, type DimKey, type Reference } from '../sim/stock';
 import type { SimStatus } from '../viewer/simLayer';
 import { el, showDialog, toast } from './dialog';
@@ -22,7 +26,6 @@ export interface StockDialogContext {
 const XY_REFS: [Reference, string][] = [['center', '중심'], ['neg', '-쪽 끝 = 0'], ['pos', '+쪽 끝 = 0']];
 const Z_REFS: [Reference, string][] = [['top', '윗면 = 0'], ['bottom', '바닥 = 0'], ['center', '중심']];
 const DIM_LABEL: Record<DimKey, string> = { T: 'T (두께)', W: 'W (폭)', L: 'L (길이)' };
-const RES_ITEMS = ['자동', '0.05', '0.1', '0.2', '0.5', '1.0'];
 const KEY = 'sim_stock_v1';
 
 interface Saved {
@@ -100,8 +103,21 @@ export function showStockDialog(ctx: StockDialogContext): void {
     offInputs[a] = num(s.offset[a]);
     body.append(row(`${a} 기준 / 이동`, refSelects[a], offInputs[a]));
   }
-  const resSelect = select(RES_ITEMS.map((r) => [r, r] as const), s.resolution);
-  { const r = row('해상도(mm)', resSelect); r.classList.add('single'); body.append(r); }
+  // 해상도: 엔진별 두 묶음(원본 v2.7.1). 고해상도 엔진은 아직 없어 그 묶음은 흐리게 두고 고를 수 없다.
+  const resSelect = el('select');
+  {
+    const group = (label: string, keys: readonly string[], disabled: boolean): void => {
+      const g = document.createElement('optgroup');
+      g.label = label;
+      for (const k of keys) { const o = new Option(resolutionLabel(k), k); o.disabled = disabled; g.append(o); }
+      resSelect.append(g);
+    };
+    group(RES_GROUP_CPU, RES_CPU_KEYS, false);
+    group(GPU_ENGINE_AVAILABLE ? RES_GROUP_GPU : `${RES_GROUP_GPU} — 준비 중`, RES_GPU_KEYS, !GPU_ENGINE_AVAILABLE);
+    resSelect.value = normalizeResolutionKey(s.resolution);
+    resSelect.title = '기본 엔진(CPU): 셀 크기(mm)로 고릅니다. 지금 쓰는 방식입니다.\n고해상도 엔진(GPU): 소재 긴 변의 칸 수로 고릅니다. 아직 준비 중입니다.';
+  }
+  { const r = row('해상도', resSelect); r.classList.add('single'); body.append(r); }
   const margin = num(2, '1');
   const fitBtn = el('button', { type: 'button' });
   fitBtn.textContent = '툴패스 범위에 맞추기';
@@ -183,7 +199,7 @@ export function showStockDialog(ctx: StockDialogContext): void {
     const ref = {} as Record<Axis, Reference>;
     const offset = {} as Record<Axis, number>;
     for (const a of AXES) { ref[a] = refSelects[a].value as Reference; offset[a] = parseFloat(offInputs[a].value) || 0; }
-    const saved: Saved = { dims, axisOf, ref, offset, resolution: resSelect.value, enabled: enable.checked, seenComment: commentKey || s.seenComment };
+    const saved: Saved = { dims, axisOf, ref, offset, resolution: normalizeResolutionKey(resSelect.value), enabled: enable.checked, seenComment: commentKey || s.seenComment };
     setPref(KEY, JSON.stringify(saved));
   };
 
@@ -198,8 +214,9 @@ export function showStockDialog(ctx: StockDialogContext): void {
         try { spec = readSpec(); } catch (e) { toast((e as Error).message); return false; }
         const b = spec.bounds();
         if (!(b.X[1] > b.X[0] && b.Y[1] > b.Y[0] && b.Z[1] > b.Z[0])) { toast('소재 치수가 0 이하입니다.'); return false; }
-        const resText = resSelect.value;
-        const res = resText === '자동' ? null : parseFloat(resText);
+        // 고해상도 엔진은 아직 없어 gpu 키가 와도(저장값 등) 기본 엔진 자동으로 계산한다.
+        const choice = resolutionChoice(normalizeResolutionKey(resSelect.value));
+        const res = choice.engine === 'cpu' ? choice.value : null;
         save();
         ctx.apply(spec, res, enable.checked);
         return true;

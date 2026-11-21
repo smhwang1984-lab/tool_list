@@ -172,7 +172,7 @@ def scene_mill():
     dialog.enable_check.setChecked(True)
     for key, value in (('T', 30.0), ('W', 80.0), ('L', 100.0)):
         dialog.dim_spins[key].setValue(value)
-    dialog.resolution_combo.setCurrentText('0.2')
+    dialog.resolution_combo.setCurrentIndex(dialog.resolution_combo.findData('0.2'))
     pump(10)
     dialog._apply()
     pump(20)
