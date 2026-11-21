@@ -8,6 +8,7 @@ import { icon } from './icons';
 import { EXAMPLE } from './example';
 import { getPref, getPrefNumber, loadPrefs, setPref } from './platform/prefs';
 import { alertDialog, confirmDialog, el, installLongPressHints, showDialog, toast } from './ui/dialog';
+import { NOTICE_SUMMARY, showThirdPartyNotices } from './ui/thirdPartyNotices';
 import { createEditor } from './ui/editor';
 import { createSearchBar } from './ui/searchBar';
 import { createMachinePanel } from './ui/machinePanel';
@@ -722,8 +723,12 @@ function mount(root: HTMLElement): void {
     '만든 사람: Hwang.seonmun',
     '용도: NC 프로그램에서 공구 리스트를 산출하고 NC 경로를 Viewer로 확인하는 도구',
     '',
-    '오픈소스: Capacitor, Vite, TypeScript, Three.js',
-  ].join('\n')));
+    '사용 오픈소스:',
+    ...NOTICE_SUMMARY.map((s) => `- ${s}`),
+  ].join('\n'), [
+    { label: '오픈소스 라이선스', onClick: () => { void showThirdPartyNotices(); } },
+    { label: '닫기', primary: true },
+  ]));
 
   {
     const saved = parseFloat(getPref('program_pane_ratio'));

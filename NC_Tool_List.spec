@@ -19,6 +19,14 @@ if INCLUDE_NUMBA:
     app_data.append(('nc_sim_numba.py', '.'))
 else:
     numba_excludes = ['numba', 'llvmlite', 'nc_sim_numba']
+
+# v2.7.0: 오픈소스 라이선스 고지문(요약 + 설치된 패키지의 라이선스 원문)을 빌드 때 만들어
+# 배포 폴더 _internal/licenses/THIRD_PARTY_NOTICES.txt로 넣는다. About → 오픈소스 라이선스 고지.
+import sys as _sys
+_sys.path.insert(0, os.path.abspath('.'))
+import third_party_notices
+_notice_path = third_party_notices.write_notice_bundle(os.path.join('build', 'third_party_licenses'))
+app_data.append((str(_notice_path), third_party_notices.LICENSE_DIR_NAME))
 viewer_hiddenimports = [
     'numpy',
     # QtNetwork는 v1.6.7 단일 실행(QLocalServer/QLocalSocket)에 필요하다.
@@ -26,6 +34,7 @@ viewer_hiddenimports = [
     'pyqtgraph', 'pyqtgraph.opengl',
     # v1.8.0: 라이선스 검증 공용 모듈(순수 파이썬, 외부 의존성 없음).
     'sumpath_license',
+    'third_party_notices',
     # v2.3.1: 시작할 때 업데이트 감지(라이선스 서버 배포 + 공유 폴더, 순수 파이썬).
     'app_update',
     # v1.9.0: 밀링 3축 형상 가공 시뮬레이션 엔진(순수 numpy, Qt 비의존).

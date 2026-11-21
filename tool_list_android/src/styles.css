@@ -524,3 +524,6 @@ dialog.settings::backdrop { background: transparent; }
 .viewer-host .v-panel .v-step:disabled { opacity: .4; }
 .viewer-host .v-panel .v-step-label { flex: 1; text-align: center; font-size: 13px; font-variant-numeric: tabular-nums; }
 .viewer-host .v-panel .v-step-label.off { opacity: .5; }
+
+/* v2.1.1: 오픈소스 라이선스 고지 — 긴 원문을 고정폭으로, 대화상자 안에서만 스크롤 */
+dialog .dlg-body pre.notice-text { margin: 0; font-family: ui-monospace, Consolas, monospace; font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }

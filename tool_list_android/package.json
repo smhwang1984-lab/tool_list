@@ -1,12 +1,13 @@
 {
   "name": "sumpath-android",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "private": true,
   "description": "Sum Path (NC Tool List) Android",
   "type": "module",
   "scripts": {
     "dev": "vite --host",
-    "build": "tsc --noEmit && vite build",
+    "build": "node tools/collect_licenses.mjs && tsc --noEmit && vite build",
+    "licenses": "node tools/collect_licenses.mjs",
     "preview": "vite preview --host",
     "test": "vitest run",
     "cap:sync": "cap sync android",
