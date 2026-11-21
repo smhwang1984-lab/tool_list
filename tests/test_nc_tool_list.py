@@ -398,7 +398,8 @@ X60 Y10 Z0
             self.assertIsNotNone(items[-1].spacerItem())
             for item in items[:-1]:
                 self.assertIsNone(item.spacerItem())
-            self.assertIs(items[-2].widget(), window.copy_button)
+            self.assertIs(items[-2].widget(), window.pdf_button)    # v2.6.9: PDF 출력이 마지막(유일한 채움 버튼)
+            self.assertIs(items[-3].widget(), window.copy_button)
         finally:
             window.deleteLater()
             settings_dir.cleanup()

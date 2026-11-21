@@ -17,6 +17,8 @@ export const THEMES = {
     nc_cycle: '#8d4e1f', nc_spindle: '#7a6000', nc_coolant: '#a84300',
     toolbar_bg: '#f7f8f9', toolbar_sep: '#dcdfe2', toolbar_hover: '#eceef0',
     icon: '#4a5058',
+    // 원본 v2.6.9: 화면당 채운 버튼은 하나(PDF 출력), 표 복사는 테두리, 편집 버튼은 투명
+    primary_button: '#1d2125', primary_button_text: '#ffffff', primary_hover: '#383d43', border_strong: '#b4b9be',
   },
   dark: {
     window_bg: '#121315', panel_bg: '#1a1b1e', text: '#e4e5e7',
@@ -35,6 +37,7 @@ export const THEMES = {
     nc_cycle: '#d9a066', nc_spindle: '#ffd84d', nc_coolant: '#ffa040',
     toolbar_bg: '#1a1b1e', toolbar_sep: '#2b2d31', toolbar_hover: '#26282c',
     icon: '#b8bcc3',
+    primary_button: '#e4e5e7', primary_button_text: '#121315', primary_hover: '#ffffff', border_strong: '#4a4d53',
   },
 } as const;
 

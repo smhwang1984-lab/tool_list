@@ -33,7 +33,7 @@ import lathe_insert_spec
 import sumpath_license
 
 
-APP_VERSION = '2.6.8'
+APP_VERSION = '2.6.9'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-11-21'
 APP_CREATOR = 'Hwang.seonmun'
@@ -151,6 +151,9 @@ THEMES = {
         # v2.5.6: 상단바는 흑연색 한 줄(제목 줄과 툴바를 합침). 남색 제목 줄은 없앴다.
         'toolbar_bg': '#f7f8f9', 'toolbar_sep': '#dcdfe2', 'toolbar_hover': '#eceef0',
         'toolbar_active': '#e1e4e7', 'icon': '#4a5058',
+        # v2.6.9: 화면당 채운 버튼은 하나(PDF 출력) — 글자색 계열 / 테두리 버튼 / 투명 버튼
+        'primary_button': '#1d2125', 'primary_button_text': '#ffffff', 'primary_hover': '#383d43',
+        'border_strong': '#b4b9be',
     },
     'dark': {
         'window_bg': '#121315', 'panel_bg': '#1a1b1e', 'text': '#e4e5e7',
@@ -168,6 +171,8 @@ THEMES = {
         'nc_cycle': '#d9a066', 'nc_spindle': '#ffd84d', 'nc_coolant': '#ffa040',
         'toolbar_bg': '#1a1b1e', 'toolbar_sep': '#2b2d31', 'toolbar_hover': '#26282c',
         'toolbar_active': '#303236', 'icon': '#b8bcc3',
+        'primary_button': '#e4e5e7', 'primary_button_text': '#121315', 'primary_hover': '#ffffff',
+        'border_strong': '#4a4d53',
     },
 }
 
@@ -987,7 +992,7 @@ def make_pdf_table(rows, metadata, available_width, fonts):
     alerts = [(so_col, 2 + i) for i, row in enumerate(page_rows) if row.get('_SO_ALERT')]
     # v2.3.2: S값(SPINDL)·T↔H(NO) 불일치 칸도 붉은색
     keys = [key for key, _label in COLUMNS]
-    for check_key in ('SPINDL', 'NO'):
+    for check_key in ('SPINDL', 'NO', 'D'):
         col = keys.index(check_key)
         alerts.extend((col, 2 + i) for i, row in enumerate(page_rows) if row.get('_%s_ALERT' % check_key))
     table = style_pdf_table(data, available_width, regular_font, bold_font, alerts)
@@ -1380,6 +1385,7 @@ DEFAULT_NAME_TYPES = [
     ('DYNAMIC E/M', 'DYNAMIC E/M'),
     ('C.MIL', 'CHAMF MILL'),
     ('CHAMF MILL', 'CHAMF MILL'),
+    ('TAP', 'TAP'),                      # v2.6.9: 탭은 TYPE이 빈칸이었다
 ]
 
 # 매칭 순서 (긴/구체적인 약어를 앞에 둬서 잘못 잡히지 않게 함) + 풀네임 대비
@@ -1855,6 +1861,15 @@ def h_number_alert_text(tool_number, h_checks):
                      for h, nums in groups.items())
 
 
+def d_alert_text(name_d, comment_dc):
+    """v2.6.9: 공구명의 지름(D10)과 주석 DC가 둘 다 있고 값이 다르면 안내 문구, 아니면 빈 문자열."""
+    if name_d in (None, '') or comment_dc in (None, ''):
+        return ''
+    if _same_number(name_d, comment_dc):
+        return ''
+    return '공구명 D%s / 주석 DC %s' % (name_d, comment_dc)
+
+
 def so_alert_text(name_so, comment_so):
     """공구명 SO와 주석 SO가 둘 다 있고 값이 다르면 안내 문구, 아니면 빈 문자열."""
     if name_so in (None, '') or comment_so in (None, ''):
@@ -1981,6 +1996,7 @@ def parse_program(text, name_types=None, lathe=False):
             'SO_NAME': f.get('SO_NAME', ''),
             'SO_CMT': f.get('SO_CMT', ''),
             'SO_ALERT': tools[n].get('alert', ''),
+            'D_ALERT': d_alert_text(derive_d(f.get('NAME', '')), f.get('DC', '')),
             # v2.3.2: S값·H번호 일치성(밀링). 검사 목록은 [수정] 후 다시 비교할 때 쓴다.
             'SPINDL_CHECKS': list(tools[n]['s_checks']),
             'SPINDL_ALERT': spindle_alert_text(tools[n]['s_checks'], f.get('SPINDL', '')),
@@ -3491,8 +3507,7 @@ else:
             self.run_button.setStyleSheet(
                 'background: %s; color: %s; padding: 5px 9px; border: 1px solid transparent; border-radius: 6px;'
                 % (self.theme['accent'], self.theme['accent_text']))
-            self._style_accent_button_large(self.copy_button)
-            self._style_success_button_large(self.pdf_button)
+            self._style_export_buttons()
             self._style_neutral_button(self.machine_save_button)
             for unit_label in getattr(self, '_machine_unit_labels', []):
                 self._style_muted(unit_label)
@@ -3516,10 +3531,28 @@ else:
                 % (self.theme['accent'], self.theme['accent_text'])
             )
 
-        def _style_accent_button_large(self, widget):
-            # '표 복사' 버튼 전용: 폰트/버튼 크기를 1.3배로 키운다(v1.6.0).
-            self._style_accent_button(widget)
-            widget.setStyleSheet(widget.styleSheet() + ' padding: 7px 12px;')
+        def _style_export_buttons(self):
+            """v2.6.9: 공구 리스트 줄 버튼 위계 — PDF 출력만 채움, 표 복사는 테두리, 나머지 편집 버튼은 투명."""
+            t = self.theme
+            ghost = ('QPushButton { background: transparent; color: %(text)s; border: 1px solid transparent;'
+                     ' border-radius: 8px; padding: 5px 10px; min-height: 22px; }'
+                     'QPushButton:hover { background: %(toolbar_hover)s; }'
+                     'QPushButton:pressed { background: %(toolbar_active)s; }') % t
+            for button in getattr(self, '_ghost_buttons', []):
+                button.setStyleSheet(ghost)
+            self.copy_button.setStyleSheet(
+                'QPushButton { background: transparent; color: %(text)s; border: 1px solid %(border_strong)s;'
+                ' border-radius: 8px; padding: 5px 12px; min-height: 22px; }'
+                'QPushButton:hover { background: %(toolbar_hover)s; }'
+                'QPushButton:pressed { background: %(toolbar_active)s; }' % t)
+            self.pdf_button.setStyleSheet(
+                'QPushButton { background: %(primary_button)s; color: %(primary_button_text)s;'
+                ' border: 1px solid %(primary_button)s; border-radius: 8px; padding: 5px 12px; min-height: 22px; }'
+                'QPushButton:hover { background: %(primary_hover)s; border-color: %(primary_hover)s; }' % t)
+            sep = getattr(self, '_rbar_separator', None)
+            if sep is not None:
+                sep.setStyleSheet('background: %s; border: none;' % t['border'])
+
 
         def _style_success_button(self, widget):
             widget.setStyleSheet(
@@ -3527,10 +3560,6 @@ else:
                 % (self.theme['success'], self.theme['success_text'])
             )
 
-        def _style_success_button_large(self, widget):
-            # 'PDF 출력' 버튼 전용: '표 복사'와 같은 행이라 크기를 맞춘다(v1.6.0).
-            self._style_success_button(widget)
-            widget.setStyleSheet(widget.styleSheet() + ' padding: 7px 12px;')
 
         def _style_neutral_button(self, widget):
             widget.setStyleSheet(
@@ -4875,7 +4904,7 @@ else:
             # 배치한다(v1.5.9 요청) — addStretch()를 버튼들 뒤로 옮긴다.
             # '표 복사'까지 이 행의 버튼들은 폰트/크기를 1.3배로 키운다(v1.6.0).
             row_button_font = QFont('맑은 고딕', 13)
-            row_button_style = 'padding: 5px 10px;'
+            self._ghost_buttons = []
             # v1.6.8: 산출 모드에서는 장비 설정 패널이 숨겨져(set_mode) 선반
             # <-> MCT를 바꿀 방법이 없었다 — 장비 콤보와 완전 연동되는 축약
             # 콤보를 여기 둔다(is_lathe_program()이 유일한 진실 원천이므로
@@ -4904,26 +4933,29 @@ else:
             rbar.addWidget(self.tool_mode_combo)
             # v2.2.8: 버튼마다 기능 아이콘을 붙인다(글자는 그대로).
             btn_delete = self._add_button(rbar, '삭제', self.delete_selected, row_button_font)
-            btn_delete.setStyleSheet(row_button_style)
+            self._ghost_buttons.append(btn_delete)
             self._set_button_icon(btn_delete, 'trash', '선택한 행 삭제')
             btn_edit = self._add_button(rbar, '수정', self.edit_selected, row_button_font)
-            btn_edit.setStyleSheet(row_button_style)
+            self._ghost_buttons.append(btn_edit)
             self._set_button_icon(btn_edit, 'pencil', '선택한 행 수정 (더블클릭)')
             btn_add_row = self._add_button(rbar, '행 추가', self.add_row, row_button_font)
-            btn_add_row.setStyleSheet(row_button_style)
+            self._ghost_buttons.append(btn_add_row)
             self._set_button_icon(btn_add_row, 'plus', '빈 행 추가')
             btn_type_list = self._add_button(rbar, '이름 경우의 수', self.show_type_list, row_button_font)
-            btn_type_list.setStyleSheet(row_button_style)
+            self._ghost_buttons.append(btn_type_list)
             self._set_button_icon(btn_type_list, 'list', '공구 이름 → TYPE 변환표 편집')
+            # v2.6.9: 편집 묶음 | 구분선 | 출력 묶음(머리글 포함, 표 복사, PDF 출력 — PDF가 마지막·유일한 채움)
+            self._rbar_separator = QFrame()
+            self._rbar_separator.setFixedSize(1, 20)
+            rbar.addWidget(self._rbar_separator)
             self.with_header = QCheckBox('머리글 포함')
             self.with_header.setFont(row_button_font)
             rbar.addWidget(self.with_header)
-            self.pdf_button = self._add_button(rbar, 'PDF 출력', self.export_pdf, row_button_font)
-            self._style_success_button_large(self.pdf_button)
-            self._set_button_icon(self.pdf_button, 'pdf', 'PDF로 저장하고 바로 열기', color_key='success_text')
             self.copy_button = self._add_button(rbar, '표 복사', self.copy_table, row_button_font)
-            self._style_accent_button_large(self.copy_button)
-            self._set_button_icon(self.copy_button, 'copy', '표를 복사 (엑셀에 Ctrl+V)', color_key='accent_text')
+            self._set_button_icon(self.copy_button, 'copy', '표를 복사 (엑셀에 Ctrl+V)', color_key='text')
+            self.pdf_button = self._add_button(rbar, 'PDF 출력', self.export_pdf, row_button_font)
+            self._set_button_icon(self.pdf_button, 'pdf', 'PDF로 저장하고 바로 열기', color_key='primary_button_text')
+            self._style_export_buttons()
             rbar.addStretch()
             layout.addLayout(rbar)
 
@@ -5593,14 +5625,29 @@ else:
                 ))
             return tuple(counts)
 
+        def mill_d_alert_count(self):
+            """v2.6.9: 공구명 D ↔ 주석 DC가 다른 공구 수. 선반은 0."""
+            if self.is_lathe_program():
+                return 0
+            keys = [key for key, _label in self.active_columns()]
+            if 'D' not in keys:
+                return 0
+            col = keys.index('D')
+            return sum(1 for r in range(self.table.rowCount())
+                       if self.table.item(r, col) is not None and self.table.item(r, col).data(Qt.UserRole))
+
         def update_count(self):
             text = '공구 %d개' % self.table.rowCount()
             s_bad, h_bad = self.mill_check_counts()
-            if s_bad or h_bad:
+            d_bad = self.mill_d_alert_count()
+            if s_bad or h_bad or d_bad:
                 # v2.3.2: 불일치 안내 — 붉은 칸에 마우스를 올리면 줄 번호가 보인다.
-                text += ' · S값 불일치 %d · H번호 불일치 %d' % (s_bad, h_bad)
-                self.count.setStyleSheet('color: %s; font-weight: bold;' % self.theme['error'])
-                self.count.setToolTip('붉은 SPINDL/NO 칸에 마우스를 올리면 프로그램 위치(행)가 보입니다.')
+                if s_bad or h_bad:
+                    text += ' · S값 불일치 %d · H번호 불일치 %d' % (s_bad, h_bad)
+                if d_bad:
+                    text += ' · D값 불일치 %d' % d_bad          # v2.6.9: 공구명 D ↔ 주석 DC
+                self.count.setStyleSheet('color: %s;' % self.theme['error'])
+                self.count.setToolTip('붉은 SPINDL/NO/D 칸에 마우스를 올리면 내용(프로그램 위치·값)이 보입니다.')
             else:
                 self._style_muted(self.count)
                 self.count.setToolTip('')
@@ -6045,6 +6092,16 @@ else:
                     checks = list((old.data(Qt.UserRole + 1) if old else None) or [])
                 item.setData(Qt.UserRole + 1, checks)
                 alert = spindle_alert_text(checks, str(row.get('SPINDL', '')).strip())
+            elif key == 'D':
+                # v2.6.9: 공구명 D ↔ 주석 DC. [수정]으로 D를 고치면 표 D와 공구명 D를 다시 비교한다.
+                if 'D_ALERT' in row:
+                    alert = str(row.get('D_ALERT') or '')
+                else:
+                    name_d = derive_d(str(row.get('NAME', '')))
+                    shown = str(row.get('D', '')).strip()
+                    alert = ''
+                    if name_d and shown and not _same_number(name_d, shown):
+                        alert = '공구명 D%s / 표 D%s' % (name_d, shown)
             else:
                 if 'NO_ALERT' in row:
                     alert = str(row.get('NO_ALERT') or '')
@@ -6072,7 +6129,7 @@ else:
                         item.setToolTip(tip)
                 elif key == 'SO':
                     self._style_mill_so_item(item, row_index, column, row)
-                elif key in ('SPINDL', 'NO'):
+                elif key in ('SPINDL', 'NO', 'D'):
                     self._style_mill_check_item(item, row_index, column, row, key)
                 self.table.setItem(row_index, column, item)
             if not lathe:
@@ -6897,7 +6954,7 @@ else:
                     if so_item and so_item.data(Qt.UserRole):
                         row['_SO_ALERT'] = so_item.data(Qt.UserRole)
                     # v2.3.2: S값·H번호 불일치도 PDF에 붉은색(D-5 a)
-                    for check_key in ('SPINDL', 'NO'):
+                    for check_key in ('SPINDL', 'NO', 'D'):
                         check_item = self.table.item(row_index, [key for key, _label in columns].index(check_key))
                         if check_item and check_item.data(Qt.UserRole):
                             row['_%s_ALERT' % check_key] = check_item.data(Qt.UserRole)

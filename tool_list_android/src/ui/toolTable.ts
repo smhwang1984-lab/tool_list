@@ -1,6 +1,6 @@
 // 공구 리스트 표 — 원본 _build_tool_panel / set_table_row / _relayout_tool_table (NC_Tool_List.py 4320~, 5432~)
 // 밀링 16열 / 선반 14열. 밀링은 패널 폭에 맞춰 줄이고(하한 0.45), 선반은 줄이지 않고 가로 스크롤.
-import { spindleAlertText, sameNumber, type SpindleCheck } from '../core/alerts';
+import { dRowAlert, spindleAlertText, sameNumber, type SpindleCheck } from '../core/alerts';
 import {
   COLUMNS, COL_WIDTH, LATHE_COLUMNS, LATHE_COL_WIDTH, LATHE_SPEC_KEYS, TABLE_CELL_PADDING_PX, TABLE_FONT_PT,
   TOOL_TABLE_MIN_SCALE,
@@ -86,6 +86,7 @@ function millAlert(key: string, row: TableRow): string {
     return spindleAlertText(checks, cellText(row, 'SPINDL').trim());
   }
   if (key === 'NO') return cellText(row, 'NO_ALERT');
+  if (key === 'D') return dRowAlert(row); // 원본 v2.6.9: 공구명 D ↔ 주석 DC
   return '';
 }
 
@@ -149,12 +150,16 @@ export function createToolTable(): ToolTable {
   const btnEdit = mkBtn('수정', '선택한 행 수정 (두 번 탭)');
   const btnAdd = mkBtn('행 추가', '빈 행 추가');
   const btnTypes = mkBtn('이름 경우의 수', '공구 이름 → TYPE 변환표 편집');
-  const btnCopy = mkBtn('복사', '표를 복사 (엑셀에 붙여넣기)');
-  const btnPdf = mkBtn('PDF', '공구 리스트 PDF 만들기');
+  const btnCopy = mkBtn('표 복사', '표를 복사 (엑셀에 붙여넣기)');
+  const btnPdf = mkBtn('PDF 출력', '공구 리스트 PDF 만들기');
+  btnCopy.classList.add('btn-outline');
+  btnPdf.classList.add('btn-primary');
   const headerLabel = el('label', { class: 'with-header' });
   const headerCheck = el('input', { type: 'checkbox' });
   headerLabel.append(headerCheck, document.createTextNode(' 머리글 포함'));
-  actions.append(btnDelete, btnEdit, btnAdd, btnTypes, btnCopy, btnPdf, headerLabel);
+  // 원본 v2.6.9: 편집 묶음 | 구분선 | 출력 묶음(머리글 포함, 표 복사, PDF 출력 — PDF가 마지막·유일한 채움)
+  const actionsSep = el('span', { class: 'actions-sep', 'aria-hidden': 'true' });
+  actions.append(btnDelete, btnEdit, btnAdd, btnTypes, actionsSep, headerLabel, btnCopy, btnPdf);
   const summary = el('div', { class: 'metadata-summary' });
   summary.textContent = '출력 정보: -';
   const scroller = el('div', { class: 'table-scroll' });
@@ -232,18 +237,21 @@ export function createToolTable(): ToolTable {
     let text = `공구 ${data.length}개`;
     let sBad = 0;
     let hBad = 0;
+    let dBad = 0;
     let bad = false;
     if (!lathe) {
       for (const row of data) {
         if (millAlert('SPINDL', row)) sBad++;
         if (millAlert('NO', row)) hBad++;
+        if (millAlert('D', row)) dBad++;
       }
-      bad = sBad > 0 || hBad > 0;
-      if (bad) text += ` · S값 불일치 ${sBad} · H번호 불일치 ${hBad}`;
+      bad = sBad > 0 || hBad > 0 || dBad > 0;
+      if (sBad > 0 || hBad > 0) text += ` · S값 불일치 ${sBad} · H번호 불일치 ${hBad}`;
+      if (dBad > 0) text += ` · D값 불일치 ${dBad}`;
     }
     count.textContent = text;
     count.classList.toggle('error', bad);
-    count.title = bad ? '붉은 SPINDL/NO 칸을 길게 누르면 프로그램 위치(행)가 보입니다.' : '';
+    count.title = bad ? '붉은 SPINDL/NO/D 칸을 길게 누르면 내용(프로그램 위치·값)이 보입니다.' : '';
   };
 
   const paintSelection = (): void => {

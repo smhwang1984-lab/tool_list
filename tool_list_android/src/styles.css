@@ -195,6 +195,12 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
   background: var(--list_hover); color: var(--text); font: inherit; font-size: 14px;
 }
 .tool-actions button:active { background: var(--toolbar_hover); }
+/* 원본 v2.6.9: 편집 버튼은 투명, 표 복사는 테두리, PDF 출력만 채움(화면당 채운 버튼 하나) */
+.tool-actions button { background: transparent; border-color: transparent; }
+.tool-actions button.btn-outline { border-color: var(--border_strong); }
+.tool-actions button.btn-primary { background: var(--primary_button); border-color: var(--primary_button); color: var(--primary_button_text); }
+.tool-actions button.btn-primary:active { background: var(--primary_hover); border-color: var(--primary_hover); }
+.actions-sep { width: 1px; height: 20px; background: var(--border); margin: 0 4px; }
 .with-header { display: inline-flex; align-items: center; gap: 4px; font-size: 14px; min-height: 40px; }
 .with-header input { width: 20px; height: 20px; accent-color: var(--accent); }
 dialog.wide { width: min(640px, 94vw); }

@@ -310,7 +310,10 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
     tableGoal = target;
     // 원본 v2.6.5: 동시 5축은 재생(이송 · 배속)을 그대로 따른다 — 바로 맞춘다
     const follow = result?.seq_table_follow?.has(seq) ?? false;
-    if (!playing || follow || !tableDisp || tableDisp[0] !== target[0]) { tableDisp = target; paintRotInfo(); return; }
+    if (!playing || follow) { tableDisp = target; paintRotInfo(); return; }
+    // 원본 v2.6.9: 재생 중 처음 나타나는 회전도 같은 속도로 — 장비 원점(A0 B0 C0)에서 출발한다
+    if (!tableDisp) tableDisp = [target[0], 0, 0, 0] as TableRot;
+    else if (tableDisp[0] !== target[0]) { tableDisp = target; paintRotInfo(); return; }
     const d: [number, number, number] = [0, 0, 0];
     for (const i of [1, 2, 3] as const) {
       let delta = target[i] - tableDisp[i];
@@ -338,8 +341,11 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
   /** 원본 table_rotation_changes_at: 이 seq 에서 A·B·C 인덱스 회전(G43.4 동시 5축 제외)이 새로 일어나는가 */
   const tableRotationChangesAt = (seq: number): boolean => {
     if (seq <= 0 || (result?.seq_table_follow?.has(seq) ?? false)) return false;
-    const now = tableInfo(seq), before = tableInfo(seq - 1);
-    if (!now || !before || now[0] !== before[0]) return false;
+    const now = tableInfo(seq);
+    if (!now) return false;
+    let before = tableInfo(seq - 1);
+    if (!before) before = [now[0], 0, 0, 0] as TableRot; // 원본 v2.6.9: 처음 나타나는 회전은 원점에서 출발
+    else if (now[0] !== before[0]) return false;
     return [1, 2, 3].some((i) => Math.abs((now[i] as number) - (before[i] as number)) >= 0.05);
   };
   /** 한 프레임만큼 표시 각도를 목표 쪽으로 옮긴다. 옮겼으면 true */

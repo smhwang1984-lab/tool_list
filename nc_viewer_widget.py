@@ -7650,8 +7650,14 @@ class NCViewerWidget(QWidget):
         self._table_goal = target
         speed = self.table_anim_speed
         follow = seq in self.seq_table_follow          # v2.6.5: 동시 5축은 재생을 그대로 따른다
-        if (speed is None or follow or self._table_disp is None
-                or self._table_disp[0] != target[0]):
+        if speed is None or follow:
+            self._table_disp = target
+            self._table_anim_stop()
+            return
+        if self._table_disp is None:
+            # v2.6.9: 재생 중 처음 나타나는 회전도 같은 속도로 — 장비 원점(A0 B0 C0)에서 출발한다.
+            self._table_disp = (target[0], 0.0, 0.0, 0.0)
+        elif self._table_disp[0] != target[0]:
             self._table_disp = target
             self._table_anim_stop()
             return
@@ -7704,8 +7710,12 @@ class NCViewerWidget(QWidget):
         if seq <= 0 or seq in self.seq_table_follow:
             return False
         now = self._table_target_info(seq)
+        if now is None:
+            return False
         before = self._table_target_info(seq - 1)
-        if now is None or before is None or now[0] != before[0]:
+        if before is None:
+            before = (now[0], 0.0, 0.0, 0.0)             # v2.6.9: 처음 나타나는 회전은 원점(A0 B0 C0)에서 출발
+        elif now[0] != before[0]:
             return False
         return any(abs(now[i] - before[i]) >= 0.05 for i in (1, 2, 3))
 

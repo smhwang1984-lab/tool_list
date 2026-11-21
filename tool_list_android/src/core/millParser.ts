@@ -1,7 +1,7 @@
 // 밀링 공구 리스트 산출 — 원본 parse_program / _collect_mill_block_checks /
 // tool_name_map_from_rows / tool_shape_map_from_rows
 import {
-  type SpindleCheck, hNumberAlertText, soAlertText, spindleAlertText,
+  type SpindleCheck, dAlertText, hNumberAlertText, soAlertText, spindleAlertText,
 } from './alerts';
 import { COLUMNS, blankRow } from './columns';
 import { deriveD, deriveType, type NameType } from './nameTypes';
@@ -179,6 +179,8 @@ export function parseProgram(
       SO_NAME: get('SO_NAME'),
       SO_CMT: get('SO_CMT'),
       SO_ALERT: tool.alert ?? '',
+      // 원본 v2.6.9: 공구명 D ↔ 주석 DC 불일치
+      D_ALERT: dAlertText(deriveD(get('NAME')), get('DC')),
       // S값·H번호 일치성. 검사 목록은 [수정] 후 다시 비교할 때 쓴다.
       SPINDL_CHECKS: tool.sChecks.map((c) => [...c] as SpindleCheck),
       SPINDL_ALERT: spindleAlertText(tool.sChecks, get('SPINDL')),

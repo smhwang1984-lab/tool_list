@@ -1,5 +1,6 @@
 // 공구 리스트 PDF 배치 — 원본 export_tool_list_pdf / export_lathe_tool_list_pdf (ReportLab, NC_Tool_List.py 703~1030)
 // pdfmake 문서 정의(순수 데이터)만 만든다. 글꼴을 읽고 PDF 로 굽는 일은 platform/pdf.ts 가 한다.
+import { dRowAlert } from './alerts';
 import { COLUMNS, LATHE_COLUMNS, type Column } from './columns';
 import { RADIUS_COMP_DISPLAY_RE, hasCompDisplay, isProbeMismatch } from './radiusComp';
 import type { ProgramMetadata } from './metadata';
@@ -35,7 +36,7 @@ const FONT_LINE = 1.448;
 export const FONT_REGULAR = 'NotoSansKR';
 
 export type PdfRow = Record<string, unknown> & {
-  _SO_ALERT?: string; _SPINDL_ALERT?: string; _NO_ALERT?: string;
+  _SO_ALERT?: string; _SPINDL_ALERT?: string; _NO_ALERT?: string; _D_ALERT?: string;
 };
 
 /** 앞뒤 공백을 떼고 비어 있으면 오늘 날짜(원본 normalized_pdf_metadata) */
@@ -156,7 +157,7 @@ function table(rows: PdfRow[], metadata: ProgramMetadata, lathe: boolean): Recor
     body.push(columns.map(([key], col) => {
       const value = row ? row[key] : '';
       const text = value === undefined || value === null ? '' : String(value);
-      const alertKey = row && !lathe && (key === 'SO' || key === 'SPINDL' || key === 'NO') ? row[`${key}_ALERT`] : '';
+      const alertKey = row && !lathe && (key === 'SO' || key === 'SPINDL' || key === 'NO') ? row[`${key}_ALERT`] : row && !lathe && key === 'D' ? dRowAlert(row) : '';
       // 2줄 REMARK 행: 여백을 줄였으므로 다른 칸은 아래로 내려 세로 가운데에 맞춘다
       const shift = tight[i] && key !== 'REMARK' ? { margin: [0, verticalPad(ROW_HEIGHTS[tableRow]!, rowFont(tableRow)) - TWO_LINE_PAD, 0, 0] } : {};
       const common = { alignment: alignFor(lathe, key, col, tableRow), ...(fill ? { fillColor: fill } : {}), ...shift };

@@ -361,6 +361,7 @@ function mount(root: HTMLElement): void {
         if (!lathe) {
           const next: Record<string, unknown> = { ...(old ?? {}), ...edited };
           delete next.SO_ALERT; // 표 SO와 주석 SO를 다시 비교한다
+          delete next.D_ALERT; // 공구명 D와 표 D를 다시 비교한다
           if (old && String(old.NO ?? '') !== edited.NO) delete next.NO_ALERT;
           toolTable.putRow(index, next);
           return;

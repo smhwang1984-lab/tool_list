@@ -1,6 +1,7 @@
 // 경고 문구 — 원본 spindle_alert_text / h_number_alert_text / so_alert_text (v2.2.6, v2.3.2)
 import { fmtNum } from './text';
 import { PyError, pad2, pyFloat, pyStr, pyStrip } from './py';
+import { deriveD } from './nameTypes';
 
 export const SPINDLE_TOLERANCE_RPM = 1.0; // 1rpm 미만 차이는 같은 값
 export const ALERT_MAX_LINES = 4;
@@ -62,6 +63,22 @@ export function hNumberAlertText(toolNumber: number, hChecks: readonly (readonly
     }
   }
   return [...groups].map(([h, nums]) => `T${pad2(toolNumber)} 블록에서 H${pad2(h)} 사용 (${lineListText(nums)})`).join('\n');
+}
+
+/** 원본 v2.6.9 d_alert_text: 공구명 지름(D10)과 주석 DC가 둘 다 있고 값이 다르면 안내 문구 */
+export function dAlertText(nameD: unknown, commentDc: unknown): string {
+  if (isNoneOrEmpty(nameD) || isNoneOrEmpty(commentDc)) return '';
+  if (sameNumber(nameD, commentDc)) return '';
+  return `공구명 D${pyStr(nameD)} / 주석 DC ${pyStr(commentDc)}`;
+}
+
+/** 표 한 행의 D 경고: 파서가 만든 D_ALERT가 있으면 그것, [수정]으로 D_ALERT가 지워졌으면 공구명 D와 표 D를 다시 비교 */
+export function dRowAlert(row: Readonly<Record<string, unknown>>): string {
+  const text = (k: string) => (row[k] === undefined || row[k] === null ? '' : String(row[k]));
+  if ('D_ALERT' in row) return text('D_ALERT');
+  const nameD = deriveD(text('NAME'));
+  const shown = text('D').trim();
+  return nameD && shown && !sameNumber(nameD, shown) ? `공구명 D${nameD} / 표 D${shown}` : '';
 }
 
 /** 공구명 SO와 주석 SO가 둘 다 있고 값이 다르면 안내 문구 */

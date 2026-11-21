@@ -30,6 +30,7 @@ export const DEFAULT_NAME_TYPES: readonly NameType[] = [
   ['DYNAMIC E/M', 'DYNAMIC E/M'],
   ['C.MIL', 'CHAMF MILL'],
   ['CHAMF MILL', 'CHAMF MILL'],
+  ['TAP', 'TAP'], // 원본 v2.6.9: 탭은 TYPE이 빈칸이었다
 ];
 
 function isDict(v: unknown): v is Record<string, unknown> {

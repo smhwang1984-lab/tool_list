@@ -176,3 +176,19 @@ def test_simultaneous_5axis_moves_follow_playback(viewer):
          "G0 G90 A0. C0.\nG0 A-30. C90.\nG43.4 H1\nG1 X10. A-20. C100. F500\nG1 X20.\nG49\nG1 A-10.")
     follow = {viewer.seq_to_line[s] for s in viewer.seq_table_follow}
     assert follow == {3}          # G43.4 중 회전축이 든 절삭 이동만(인덱스 G0, 직선만, G49 뒤는 제외)
+
+
+def test_first_rotation_starts_from_origin_at_same_speed(viewer):
+    _run(viewer, nvw.MACHINE_5AXIS_AC,
+         "G0 G90 X0. Y0.\nG43.4 H1\nG0 A-30. C90.\nG1 X10. F500")
+    viewer.set_pg_match_mode(True)
+    idx = viewer.line_to_seq[2]                      # 처음 나타나는 회전(원점 A0 C0에서 출발)
+    assert viewer.table_rotation_changes_at(idx) is True      # 재생은 여기서 한 번 멈춘다
+    viewer.table_anim_speed = 100
+    viewer.set_cursor_seq(viewer.line_to_seq[1])     # 회전이 아직 없는 줄
+    viewer.set_cursor_seq(idx)
+    assert viewer.table_anim_active()                # 바로 튀지 않고 같은 속도로 돈다
+    assert viewer._table_anim_start[1:] == (0.0, 0.0, 0.0)
+    biggest = max(abs(d) for d in viewer._table_anim_delta)
+    assert abs(viewer._table_anim_duration - biggest / viewer.rotary_speed) < 1e-6
+    viewer.table_anim_finish()
