@@ -20,7 +20,7 @@ def test_shape_button_lives_in_options_dock_and_accent_when_on(viewer):
     assert ov.more_button.parent() is ov.dock
     # v2.6.4: 켜짐 색은 강조색 하나(초록 아님)
     assert 'shapeButton:checked' in ov.styleSheet() and '#2ea043' not in ov.styleSheet()
-    assert 'shapeButton:checked { background-color: #3f7fc9' in ov.styleSheet()
+    assert 'shapeButton:checked { background-color: #3a78c2' in ov.styleSheet()
     # 렌더 후 투영 버튼을 갈아 끼워도 버튼은 남는다
     ov.set_lathe_mode(True)
     ov.set_lathe_mode(False)

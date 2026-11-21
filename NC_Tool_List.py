@@ -33,7 +33,7 @@ import lathe_insert_spec
 import sumpath_license
 
 
-APP_VERSION = '2.6.7'
+APP_VERSION = '2.6.8'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-11-21'
 APP_CREATOR = 'Hwang.seonmun'
@@ -95,8 +95,8 @@ def scaled(value):
 # 3D 화면 위 옵션 창에 있어 다크 강조색을 쓴다. PG 매칭은 테마를 따르는 pg_match_checkbox_style().
 PLAYBACK_CHECKBOX_STYLE = (
     'QCheckBox::indicator { width: 16px; height: 16px; border-radius: 4px;'
-    ' border: 1.5px solid #7a8494; background: transparent; }'
-    'QCheckBox::indicator:checked { background: #3f7fc9; border: 1.5px solid #3f7fc9; image: url(%s); }'
+    ' border: 1.5px solid #8a8e95; background: transparent; }'
+    'QCheckBox::indicator:checked { background: #3a78c2; border: 1.5px solid #3a78c2; image: url(%s); }'
 )
 
 
@@ -131,42 +131,43 @@ def playback_checkbox_style():
 # 다시 칠한다. 뷰어(nc_viewer_widget.py)의 3D 캔버스는 테마와 무관하게
 # 항상 어두운 배경을 쓰므로 이 테마를 참조하지 않는다(v1.5.7).
 THEMES = {
+    # v2.6.7: 안드로이드와 같은 흑연 계열 — 바탕·패널·글자·테두리는 회색, 파랑은 선택과 주 버튼에만.
     'light': {
-        'window_bg': '#f0f4f8', 'panel_bg': '#ffffff', 'text': '#1f2937',
-        'muted_text': '#5a6577', 'faint_text': '#8a94a3', 'border': '#c5ced8',
-        'accent': '#2f6fb0', 'accent_text': '#ffffff', 'accent_hover': '#255a92',
-        'success': '#4c7f31', 'success_text': '#ffffff',
-        'neutral_button': '#555555', 'neutral_button_text': '#ffffff',
-        'editor_bg': '#ffffff', 'editor_text': '#1f2937', 'current_line': '#dbe7f5',
-        'list_bg': '#ffffff', 'list_text': '#1f2937', 'list_hover': '#eaf1f8',
+        'window_bg': '#eef0f2', 'panel_bg': '#ffffff', 'text': '#1d2125',
+        'muted_text': '#5c636b', 'faint_text': '#878d94', 'border': '#d9dcdf',
+        'accent': '#2f6fb0', 'accent_text': '#ffffff', 'accent_hover': '#285f97',
+        'success': '#3f7a3a', 'success_text': '#ffffff',
+        'neutral_button': '#34383d', 'neutral_button_text': '#ffffff',
+        'editor_bg': '#ffffff', 'editor_text': '#1d2125', 'current_line': '#e8eef5',
+        'list_bg': '#ffffff', 'list_text': '#1d2125', 'list_hover': '#f4f5f6',
         'list_selected_bg': '#2f6fb0', 'list_selected_text': '#ffffff',
-        'info_bg': '#eaf1f8', 'info_text': '#40536b', 'error': '#b03a2e',
-        'mode_active_bg': '#34577f', 'mode_active_text': '#ffffff',
-        'mode_inactive_bg': '#f0f4f8', 'mode_inactive_text': '#1f3a5f',
-        # v2.2.7: NC 코드 색(편집창 배경 #fff / 현재 줄 #dbe7f5 모두에서 대비 4.5 이상)
+        'info_bg': '#f4f5f6', 'info_text': '#5c636b', 'error': '#b03a2e',
+        'mode_active_bg': '#e4e7ea', 'mode_active_text': '#1d2125',
+        'mode_inactive_bg': '#f4f5f6', 'mode_inactive_text': '#1d2125',
+        # v2.2.7: NC 코드 색(편집창 배경 #fff / 현재 줄 #e8eef5 모두에서 대비 4.5 이상)
         'nc_g0': '#b71c1c', 'nc_g1': '#256b29', 'nc_g2': '#1565c0', 'nc_g3': '#7b1fa2',
         'nc_cycle': '#8d4e1f', 'nc_spindle': '#7a6000', 'nc_coolant': '#a84300',
         # v2.2.8: 상단 툴바와 아이콘 색
         # v2.5.6: 상단바는 흑연색 한 줄(제목 줄과 툴바를 합침). 남색 제목 줄은 없앴다.
-        'toolbar_bg': '#eceef1', 'toolbar_sep': '#d3d7dd', 'toolbar_hover': '#dfe2e7',
-        'toolbar_active': '#d6dae0', 'icon': '#4a5561',
+        'toolbar_bg': '#f7f8f9', 'toolbar_sep': '#dcdfe2', 'toolbar_hover': '#eceef0',
+        'toolbar_active': '#e1e4e7', 'icon': '#4a5058',
     },
     'dark': {
-        'window_bg': '#1b1f27', 'panel_bg': '#242a35', 'text': '#e4e8f0',
-        'muted_text': '#9aa5b8', 'faint_text': '#7a8494', 'border': '#3a4250',
-        'accent': '#3f7fc9', 'accent_text': '#ffffff', 'accent_hover': '#5090d6',
+        'window_bg': '#121315', 'panel_bg': '#1a1b1e', 'text': '#e4e5e7',
+        'muted_text': '#9a9ea5', 'faint_text': '#6c7077', 'border': '#2b2d31',
+        'accent': '#3a78c2', 'accent_text': '#ffffff', 'accent_hover': '#4886d0',
         'success': '#4f9a38', 'success_text': '#ffffff',
-        'neutral_button': '#4a5164', 'neutral_button_text': '#ffffff',
-        'editor_bg': '#1a1f29', 'editor_text': '#dbe3f0', 'current_line': '#2c3a52',
-        'list_bg': '#20262f', 'list_text': '#dbe3f0', 'list_hover': '#2c3644',
-        'list_selected_bg': '#3f7fc9', 'list_selected_text': '#ffffff',
-        'info_bg': '#233047', 'info_text': '#b7c8e6', 'error': '#e06a5a',
-        'mode_active_bg': '#3f7fc9', 'mode_active_text': '#ffffff',
-        'mode_inactive_bg': '#2a2f3a', 'mode_inactive_text': '#c7d0e0',
+        'neutral_button': '#3a3c41', 'neutral_button_text': '#ffffff',
+        'editor_bg': '#161719', 'editor_text': '#dcdee1', 'current_line': '#24282f',
+        'list_bg': '#17181b', 'list_text': '#dcdee1', 'list_hover': '#202125',
+        'list_selected_bg': '#3a78c2', 'list_selected_text': '#ffffff',
+        'info_bg': '#202125', 'info_text': '#a6aab1', 'error': '#e06a5a',
+        'mode_active_bg': '#2c2e33', 'mode_active_text': '#f0f1f2',
+        'mode_inactive_bg': '#202125', 'mode_inactive_text': '#c9ccd1',
         'nc_g0': '#ff7b7b', 'nc_g1': '#5fd068', 'nc_g2': '#6bb2ff', 'nc_g3': '#c792ff',
         'nc_cycle': '#d9a066', 'nc_spindle': '#ffd84d', 'nc_coolant': '#ffa040',
-        'toolbar_bg': '#1b2027', 'toolbar_sep': '#2d343d', 'toolbar_hover': '#262d36',
-        'toolbar_active': '#313944', 'icon': '#a9b3c0',
+        'toolbar_bg': '#1a1b1e', 'toolbar_sep': '#2b2d31', 'toolbar_hover': '#26282c',
+        'toolbar_active': '#303236', 'icon': '#b8bcc3',
     },
 }
 
@@ -5958,7 +5959,7 @@ else:
                     store.save()
                 except OSError:
                     # 이번 실행에서는 메모리 값으로 계속 동작하지만 다음 실행에는 남지 않는다 — 알린다
-                    self._lathe_notice = '⚠ 입력값을 파일에 저장하지 못했습니다(이번 실행에서만 유지)'
+                    self._lathe_notice = '입력값을 저장하지 못했습니다 · 이번 실행에서만 유지'
                     self._flash_count_message(self._lathe_notice, 6000)
                 self.invalidate_parse_cache()
             return changed

@@ -1493,22 +1493,22 @@ class ProjectionOverlayWidget(QWidget):
         self.setStyleSheet(
             "ProjectionOverlayWidget { background: transparent; }"
             " QLabel { background: transparent; color: white; font-size: 12px; }"
-            " QPushButton { color: white; background-color: rgba(40, 44, 52, 90);"
-            " border: 1px solid rgba(255, 255, 255, 70); border-radius: 5px;"
+            " QPushButton { color: white; background-color: rgba(44, 46, 51, 90);"
+            " border: 1px solid rgba(228, 229, 231, 82); border-radius: 5px;"
             " padding: 3px 7px; font-size: 12px; }"
             " QPushButton:hover { background-color: rgba(255, 255, 255, 65); }"
-            " QPushButton:checked { background-color: #3f7fc9; border-color: #3f7fc9; color: white; }"
-            " QToolButton { color: white; background-color: rgba(40, 44, 52, 90);"
-            " border: 1px solid rgba(255, 255, 255, 70); border-radius: 5px;"
+            " QPushButton:checked { background-color: #3a78c2; border-color: #3a78c2; color: white; }"
+            " QToolButton { color: white; background-color: rgba(44, 46, 51, 90);"
+            " border: 1px solid rgba(228, 229, 231, 82); border-radius: 5px;"
             " padding: 3px 7px; font-size: 12px; }"
             " QToolButton:hover { background-color: rgba(255, 255, 255, 65); }"
             " QToolButton::menu-indicator { image: none; }"
-            " QWidget#moreRow { background-color: rgba(24, 26, 30, 200);"
-            " border: 1px solid rgba(255, 255, 255, 50); border-radius: 10px; }"
+            " QWidget#moreRow { background-color: rgba(22, 24, 28, 200);"
+            " border: 1px solid rgba(228, 229, 231, 46); border-radius: 10px; }"
             " QLabel#optionsSection { color: rgba(255, 255, 255, 130); font-size: 11px; padding-top: 4px; }"
             " QCheckBox { color: white; font-size: 12px; spacing: 8px; background: transparent; }"
             " QLineEdit { color: white; background-color: rgba(0, 0, 0, 90);"
-            " border: 1px solid rgba(255, 255, 255, 70); border-radius: 4px; padding: 2px 6px; }"
+            " border: 1px solid rgba(228, 229, 231, 82); border-radius: 4px; padding: 2px 6px; }"
             " QLineEdit:disabled { color: rgba(255, 255, 255, 90); }"
             # v2.6.3: 옵션 창 안 글자 크기·버튼 높이를 한 가지로 맞춘다(앱 글꼴 배율과 섞여 겹쳐 보였다).
             " QWidget#moreRow QPushButton { padding: 6px 12px; min-height: 16px; }"
@@ -1516,11 +1516,11 @@ class ProjectionOverlayWidget(QWidget):
             " QWidget#moreRow QCheckBox { min-height: 24px; }"
             # v2.4.3: 버튼은 모두 본래 크기(위치 찍기 포함). 눌린 버튼만 파랗게.
             # v2.6.4: 켜짐 색은 강조색 하나(가공형상즉시보기도 초록 대신 같은 파랑).
-            " QPushButton#shapeButton:checked { background-color: #3f7fc9; border-color: #3f7fc9; }"
+            " QPushButton#shapeButton:checked { background-color: #3a78c2; border-color: #3a78c2; }"
             " QCheckBox::indicator { width: 16px; height: 16px; border-radius: 4px;"
-            " border: 1.5px solid #7a8494; background: transparent; }"
-            " QCheckBox::indicator:checked { border-color: #3f7fc9; background: #3f7fc9; image: url(%s); }"
-            " QCheckBox::indicator:disabled { border-color: rgba(228, 232, 240, 50); }"
+            " border: 1.5px solid #8a8e95; background: transparent; }"
+            " QCheckBox::indicator:checked { border-color: #3a78c2; background: #3a78c2; image: url(%s); }"
+            " QCheckBox::indicator:disabled { border-color: rgba(228, 229, 231, 46); }"
             % ui_icons.check_mark_png("#ffffff")
         )
         # v2.6.0: 첫 줄(투영 버튼들) 아래에 [>>]로 여닫는 옵션 줄을 둔다.
@@ -1536,7 +1536,7 @@ class ProjectionOverlayWidget(QWidget):
         outer.setAlignment(row, Qt.AlignLeft)
         self._outer = outer
         self.pick_button = QPushButton("위치 찍기")
-        self.pick_button.setIcon(ui_icons.icon("pin", "#e4e8f0", 14))
+        self.pick_button.setIcon(ui_icons.icon("pin", "#e4e5e7", 14))
         self.pick_button.setIconSize(QSize(14, 14))
         self.pick_button.setObjectName("pickButton")
         self.pick_button.setCheckable(True)
@@ -1799,7 +1799,7 @@ class ProjectionOverlayWidget(QWidget):
         for text, view_type in buttons:
             button = QPushButton(text)
             if view_type == "ISO":
-                button.setIcon(iso_icon("#e4e8f0"))
+                button.setIcon(iso_icon("#e4e5e7"))
             elif view_type == "LATHE":
                 button.setIcon(plane_icon("ZX"))
             elif view_type == "LATHE_XC":
@@ -1829,7 +1829,7 @@ class ProjectionOverlayWidget(QWidget):
             # v1.6.5: 선반 뷰 전용 — 드래그로 그린 사각형만큼 한 번에
             # 확대하는 토글 버튼(밀링에는 없음, 기존 오빗/휠줌 그대로).
             drag_zoom_button = QPushButton("드래그줌")
-            drag_zoom_button.setIcon(ui_icons.icon("drag_zoom", "#e4e8f0", 14))
+            drag_zoom_button.setIcon(ui_icons.icon("drag_zoom", "#e4e5e7", 14))
             drag_zoom_button.setIconSize(QSize(14, 14))
             drag_zoom_button.setCheckable(True)
             drag_zoom_button.setFocusPolicy(Qt.NoFocus)
@@ -1927,7 +1927,7 @@ class CoordOverlayWidget(QWidget):
         # v2.6.4: 재생 정보 묶음의 첫 줄. 축 이름은 흐리게, 값은 한 가지 글자색 · 고정폭 숫자(축마다 다른 색 제거).
         self.setStyleSheet(
             "CoordOverlayWidget { background: transparent; }"
-            " QLabel { background: transparent; color: #e4e8f0; font-family: Consolas; font-size: 10pt; }"
+            " QLabel { background: transparent; color: #e4e5e7; font-family: Consolas; font-size: 10pt; }"
         )
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
@@ -1937,17 +1937,17 @@ class CoordOverlayWidget(QWidget):
             if index:
                 row.addSpacing(12)
             axis_label = QLabel(axis)
-            axis_label.setStyleSheet("color: #7a8494;")
+            axis_label.setStyleSheet("color: #8a8e95;")
             row.addWidget(axis_label)
             value = QLabel("0.000")
-            value.setStyleSheet("color: #e4e8f0;")
+            value.setStyleSheet("color: #e4e5e7;")
             self.value_labels[axis] = value
             row.addWidget(value)
         # v1.6.7: 좌표 끝에 "진행중인 시간 / 전체 시간"(v2.6.4: 오른쪽 끝, 옅게).
         row.addStretch(1)
         row.addSpacing(12)
         self.time_label = QLabel(TIME_OVERLAY_PLACEHOLDER)
-        self.time_label.setStyleSheet("color: #9aa5b8;")
+        self.time_label.setStyleSheet("color: #a6aab1;")
         row.addWidget(self.time_label)
         # v2.5.9: 장비 설정과 다르게 계산했을 때(예: 3축 설정인데 G43.4 프로그램) 안내문을 붙인다.
         self.note_label = QLabel("")
@@ -2002,10 +2002,10 @@ class PlaybackBarWidget(QWidget):
     speed_changed = pyqtSignal(int)
 
     # v2.6.4: 재생 정보 묶음(좌표 · 모달 정보 · 진행 막대 · 재생 버튼) — 3D 화면은 늘 어두워 테마와 무관한 다크 디자인.
-    _HUD_TEXT = "#e4e8f0"
-    _HUD_MUTED = "#7a8494"
-    _HUD_SOFT = "#9aa5b8"
-    _HUD_ACCENT = "#3f7fc9"
+    _HUD_TEXT = "#e4e5e7"
+    _HUD_MUTED = "#8a8e95"
+    _HUD_SOFT = "#a6aab1"
+    _HUD_ACCENT = "#3a78c2"
     _HUD_CHANGED = "#8fc0ff"
     _MONO = "Consolas"
     modal_toggled = pyqtSignal(bool)
@@ -2022,36 +2022,36 @@ class PlaybackBarWidget(QWidget):
         self._px = px
         self.setStyleSheet(
             "QWidget { background: transparent; }"
-            " QLabel { color: #e4e8f0; font-size: 10pt; }"
-            " QLabel#muted { color: #7a8494; font-size: 9pt; }"
-            " QLabel#groupName { color: #7a8494; font-size: 8pt; }"
-            " QLabel#mono { font-family: Consolas; font-size: 10pt; color: #e4e8f0; }"
-            " QLabel#peek { font-family: Consolas; font-size: 9pt; color: #c9d1dc; }"
-            " QLabel#pct { font-family: Consolas; font-size: 9pt; color: #9aa5b8; }"
-            " QLabel#toolNow { font-family: Consolas; font-size: 9pt; color: #9aa5b8; }"
-            " QPushButton { color: #e4e8f0; background-color: rgba(228, 232, 240, 10);"
-            " border: 1px solid rgba(228, 232, 240, 40); border-radius: %(r8)dpx;"
+            " QLabel { color: #e4e5e7; font-size: 10pt; }"
+            " QLabel#muted { color: #8a8e95; font-size: 9pt; }"
+            " QLabel#groupName { color: #8a8e95; font-size: 8pt; }"
+            " QLabel#mono { font-family: Consolas; font-size: 10pt; color: #e4e5e7; }"
+            " QLabel#peek { font-family: Consolas; font-size: 9pt; color: #c9ccd1; }"
+            " QLabel#pct { font-family: Consolas; font-size: 9pt; color: #a6aab1; }"
+            " QLabel#toolNow { font-family: Consolas; font-size: 9pt; color: #a6aab1; }"
+            " QPushButton { color: #e4e5e7; background-color: rgba(228, 229, 231, 10);"
+            " border: 1px solid rgba(228, 229, 231, 46); border-radius: %(r8)dpx;"
             " padding: 0px %(p12)dpx; min-height: %(h34)dpx; font-size: 10pt; }"
-            " QPushButton:hover { background-color: rgba(228, 232, 240, 26); }"
-            " QPushButton:disabled { color: rgba(228, 232, 240, 90); border-color: rgba(228, 232, 240, 20); }"
+            " QPushButton:hover { background-color: rgba(228, 229, 231, 26); }"
+            " QPushButton:disabled { color: rgba(228, 229, 231, 90); border-color: rgba(228, 229, 231, 26); }"
             " QPushButton#iconButton { padding: 0px; min-width: %(w40)dpx; max-width: %(w40)dpx; }"
             " QPushButton#playButton { padding: 0px; min-width: %(w56)dpx; max-width: %(w56)dpx;"
-            " background-color: #e4e8f0; border-color: #e4e8f0; }"
+            " background-color: #e4e5e7; border-color: #e4e5e7; }"
             " QPushButton#playButton:hover { background-color: #ffffff; }"
-            " QPushButton#playButton:disabled { background-color: rgba(228, 232, 240, 60); border-color: transparent; }"
-            " QToolButton { color: #e4e8f0; background: transparent;"
-            " border: 1px solid rgba(228, 232, 240, 46); border-radius: %(r6)dpx;"
+            " QPushButton#playButton:disabled { background-color: rgba(228, 229, 231, 60); border-color: transparent; }"
+            " QToolButton { color: #e4e5e7; background: transparent;"
+            " border: 1px solid rgba(228, 229, 231, 46); border-radius: %(r6)dpx;"
             " padding: %(p2)dpx %(p8)dpx; font-family: Consolas; font-size: 9pt; }"
-            " QToolButton:hover { background-color: rgba(228, 232, 240, 20); }"
+            " QToolButton:hover { background-color: rgba(228, 229, 231, 20); }"
             " QToolButton::menu-indicator { image: none; }"
-            " QToolButton#modalToggle { border: none; color: #9aa5b8; font-family: '맑은 고딕';"
+            " QToolButton#modalToggle { border: none; color: #a6aab1; font-family: '맑은 고딕';"
             " padding: %(p2)dpx %(p6)dpx %(p2)dpx %(p2)dpx; }"
-            " QToolButton#modalToggle:hover { color: #e4e8f0; }"
-            " QProgressBar { background: #2a2f38; border: none; border-radius: %(r3)dpx; }"
-            " QProgressBar::chunk { background: #3f7fc9; border-radius: %(r3)dpx; }"
-            " QMenu { background: #242a35; color: #e4e8f0; border: 1px solid #3a4250; font-family: Consolas; }"
+            " QToolButton#modalToggle:hover { color: #e4e5e7; }"
+            " QProgressBar { background: #26282c; border: none; border-radius: %(r3)dpx; }"
+            " QProgressBar::chunk { background: #3a78c2; border-radius: %(r3)dpx; }"
+            " QMenu { background: #1a1b1e; color: #e4e5e7; border: 1px solid #2b2d31; font-family: Consolas; }"
             " QMenu::item { padding: %(p6)dpx %(p12)dpx; }"
-            " QMenu::item:selected { background: #3f7fc9; color: #ffffff; }"
+            " QMenu::item:selected { background: #3a78c2; color: #ffffff; }"
             % {"r12": px(12), "r8": px(8), "r6": px(6), "r3": px(3), "p12": px(12), "p8": px(8),
                "p6": px(6), "p2": px(2), "h34": px(32), "w40": px(40), "w56": px(56)}
         )
@@ -2301,7 +2301,7 @@ class PlaybackBarWidget(QWidget):
         if not number:
             self.tool_label.setText("")
             return
-        text = '%s <span style="color:#e4e8f0">%s</span>' % (number, name or "")
+        text = '%s <span style="color:#e4e5e7">%s</span>' % (number, name or "")
         for comment in list(comments or ())[:2]:
             text += ('<br><span style="color:#8fc99b;font-size:small">%s</span>'
                      % str(comment).replace("&", "&amp;").replace("<", "&lt;"))
@@ -2847,7 +2847,7 @@ class StockDialog(QDialog):
         if self.viewer.sim_progress_text:
             parts.append(self.viewer.sim_progress_text)
         if self.viewer.sim_notice_text:
-            parts.append('⚠ ' + self.viewer.sim_notice_text)
+            parts.append(self.viewer.sim_notice_text)
         if self.viewer.sim_status_text:
             parts.append(self.viewer.sim_status_text)
         rapid_count = self.viewer.rapid_cut_warning_count()
@@ -3075,9 +3075,11 @@ class LatheStockDialog(QDialog):
         bounds = spec.bounds()
         text = 'Z %.1f ~ %.1f  /  지름 %.1f' % (bounds['z'][0], bounds['z'][1], spec.diameter)
         if spec.bore >= spec.diameter and spec.bore > 0:
-            text += '  ⚠ 내경이 지름보다 작아야 합니다'
+            text += '  ·  내경이 지름보다 작아야 합니다'
         elif spec.bore > 0:
             text += ' (내경 %.1f)' % spec.bore
+        invalid = spec.bore >= spec.diameter and spec.bore > 0
+        self.bounds_label.setStyleSheet('color: #e06a5a;' if invalid else '')   # 오류 색(테마 error)
         self.bounds_label.setText(text)
 
     def _fit_to_toolpath(self, silent=False):
@@ -3679,7 +3681,7 @@ class NCViewerWidget(QWidget):
 
     # -- 우클릭 드래그 줌 / 위치 찍기 모드 (v2.3.4) ------------------------------
     _PICK_LABEL_STYLE = (
-        'QLabel { background: rgba(20,24,30,210); color: #ffd640;'
+        'QLabel { background: rgba(18,19,21,210); color: #ffd640;'
         ' border-radius: 4px; padding: 4px 8px; }')
 
     def _on_gl_right_drag_zoomed(self):
@@ -4723,7 +4725,7 @@ class NCViewerWidget(QWidget):
         self._sim_set_progress('형상 계산 중… %d%%' % percent)
 
     _SIM_LABEL_PROGRESS_STYLE = (
-        'QLabel { background: rgba(20,24,30,200); color: #ffe082;'
+        'QLabel { background: rgba(18,19,21,200); color: #ffe082;'
         ' border-radius: 4px; padding: 4px 8px; }')
     _SIM_LABEL_WARN_STYLE = (
         'QLabel { background: rgba(120,40,30,225); color: #ffffff;'
@@ -4775,7 +4777,7 @@ class NCViewerWidget(QWidget):
         shown = '%s%%' % match.group(1) if match else text
         # 글자 크기 = 뷰 큐브 크기(px)의 50% (v2.4.7: 너무 크다는 피드백으로 100% -> 50%)
         label.setStyleSheet(
-            'QLabel { background: rgba(20,24,30,170); color: #ffe082; border-radius: 14px;'
+            'QLabel { background: rgba(18,19,21,170); color: #ffe082; border-radius: 14px;'
             ' padding: 6px 24px; font-size: %dpx; font-weight: bold; }' % max(12, round(self._axis_cube_size_px() * 0.5)))
         label.setText(shown)
         label.adjustSize()
