@@ -31,25 +31,16 @@ from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Table, T
 import app_update
 import lathe_insert_spec
 import sumpath_license
+import third_party_notices
 
 
-APP_VERSION = '2.6.9'
+APP_VERSION = '2.7.0'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-11-21'
 APP_CREATOR = 'Hwang.seonmun'
 APP_PURPOSE = 'NC 프로그램에서 공구 리스트를 산출하고 NC 경로를 Viewer로 확인하는 도구'
-OPEN_SOURCE_COMPONENTS = (
-    'Python',
-    'PyQt5',
-    'pyqtgraph',
-    'NumPy',
-    'Numba',
-    'llvmlite',
-    'PyOpenGL',
-    'ReportLab',
-    'PyInstaller',
-    'Inno Setup',
-)
+# v2.7.0: 목록과 라이선스는 third_party_notices.COMPONENTS 한 곳에서 관리한다.
+OPEN_SOURCE_COMPONENTS = tuple(c[0] for c in third_party_notices.COMPONENTS)
 DEFAULT_UPDATE_ROOT = r'\\192.168.0.210\생산부서\05. 생산자료\Update_Files'
 UPDATE_INSTALLER_RE = re.compile(r'^NC_Tool_List_Setup_v(\d+)\.(\d+)\.(\d+)\.exe$', re.I)
 FILE_ASSOCIATION_EXTENSIONS = ('.nc', '.mpf', '.tap')
@@ -4342,6 +4333,24 @@ else:
                 raise error
             return state['path']
 
+        def show_third_party_notices(self, parent=None):
+            """v2.7.0: 오픈소스 라이선스 고지 창 — 배포본은 _internal/licenses/THIRD_PARTY_NOTICES.txt."""
+            dialog = QDialog(parent or self)
+            dialog.setWindowTitle('오픈소스 라이선스 고지')
+            dialog.resize(760, 620)
+            layout = QVBoxLayout(dialog)
+            text = QPlainTextEdit()
+            text.setReadOnly(True)
+            text.setLineWrapMode(QPlainTextEdit.WidgetWidth)
+            text.setPlainText(third_party_notices.load_notice_text())
+            layout.addWidget(text, 1)
+            row = QHBoxLayout()
+            self._add_button(row, '전체 복사', lambda: QApplication.clipboard().setText(text.toPlainText()))
+            row.addStretch(1)
+            self._add_button(row, '닫기', dialog.accept)
+            layout.addLayout(row)
+            dialog.exec_()
+
         def show_about(self):
             dialog = QDialog(self)
             dialog.setWindowTitle('About')
@@ -4363,12 +4372,18 @@ else:
                 '제작자: %s\n\n'
                 '사용 오픈소스:\n- %s' % (
                     APP_PURPOSE, APP_VERSION, APP_BUILD_DATE, APP_CREATOR,
-                    '\n- '.join(OPEN_SOURCE_COMPONENTS),
+                    '\n- '.join(third_party_notices.summary_lines()),
                 )
             )
             viewer.document().setTextWidth(480)
             viewer.setFixedHeight(int(viewer.document().size().height()) + 16)
             layout.addWidget(viewer)
+            # v2.7.0: 오픈소스 라이선스 고지(요약 + 라이선스 원문)
+            notice_row = QHBoxLayout()
+            self._add_button(notice_row, '오픈소스 라이선스 고지...',
+                             lambda: self.show_third_party_notices(dialog))
+            notice_row.addStretch(1)
+            layout.addLayout(notice_row)
 
             # --- 라이선스 (v1.8.0, 체험판/영구는 v1.8.1) ---
             license_group = QGroupBox('라이선스')

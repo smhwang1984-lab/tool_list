@@ -47,7 +47,14 @@ Last updated: 2026-11-05 (NC_Tool_List v2.3.0 — 로컬 v2.2.9(STOCK SIZE)와 G
 
 ## Version history
 
-### 2026-11-21 (latest, v2.6.9 / 안드로이드 v2.0.9)
+### 2026-11-21 (latest, v2.7.0 / 안드로이드 v2.1.1)
+
+- Version: 2.6.9 → 2.7.0 (안드로이드 2.1.0 → 2.1.1)
+- Summary: **오픈소스 라이선스 고지**(상업 배포 준비, `PLAN_gpu_sim_and_licensing.md` L1). 데스크톱: `third_party_notices.py`가 사용 오픈소스 목록(COMPONENTS)을 한 곳에서 관리하고, PyInstaller 빌드 때 빌드 venv에 설치된 패키지의 LICENSE/COPYING/NOTICE 원문과 의존 패키지(PyQt5_sip, pillow 등)까지 모아 `_internal\licenses\THIRD_PARTY_NOTICES.txt`로 동봉한다(`NC_Tool_List.spec`). About 본문의 오픈소스 목록에 라이선스를 함께 표시하고 `오픈소스 라이선스 고지...` 버튼(전체 보기·전체 복사)을 추가했다. 안드로이드: `tools/collect_licenses.mjs`(`npm run licenses`, `npm run build`가 먼저 실행)가 package-lock의 배포용 패키지 69개 원문 + Noto Sans KR(OFL-1.1) + AndroidX(Apache-2.0)를 `public/THIRD_PARTY_NOTICES.txt`로 만들고, About에 `오픈소스 라이선스` 버튼을 추가했다. 함께 GPU 소재 시뮬레이션·PySide6 전환 작업 플랜(`PLAN_gpu_sim_and_licensing.md`)을 추가했다. **주의: PyQt5는 GPL-3.0 또는 Riverbank 상용 라이선스다 — 상용 라이선스가 없으면 L2(PySide6 전환)가 필요하다.**
+- Open source: 변경 없음(고지만 추가). 고지 대상 — Python, PyQt5, Qt 5, pyqtgraph, NumPy, Numba, llvmlite, PyOpenGL, ReportLab, PyInstaller, Inno Setup / 안드로이드 Capacitor, three.js, CodeMirror, pdfmake, Noto Sans KR, AndroidX.
+- Installer/package status: **미생성**(코드·테스트만 완료. 설치본·APK는 빌드 PC에서 만든다). 빌드 후 `_internal\licenses\THIRD_PARTY_NOTICES.txt`가 있는지 확인한다.
+
+### 2026-11-21 (v2.6.9 / 안드로이드 v2.0.9)
 
 - Version: 2.6.8 → 2.6.9 (안드로이드 2.0.8 → 2.0.9)
 - Summary: 사용자 시안 승인. **① unslop을 작업 규칙으로**: `CLAUDE.md`(두 파일) 5절 "화면(UI) 작업 규칙" + 메모리 `ui-unslop-rule`. **② 표 복사 · PDF 출력 버튼 위계**: 화면당 채운 버튼은 하나 — PDF 출력만 글자색 계열로 채우고(`primary_button` 토큰), 표 복사는 테두리(`border_strong`), 삭제·수정·행 추가·이름 경우의 수는 투명 버튼. 두 버튼만 1.3배였던 글꼴·패딩을 없애고 높이를 맞췄다. 편집 묶음 | 구분선 | 머리글 포함 · 표 복사 · PDF 출력 순서. 안드로이드도 같은 위계(터치 대상은 최소 높이 40px로 데스크톱과 다름). **③ 공구명 D ↔ 주석 DC 불일치 점검**: 공구명의 지름(`D10 F.EM`)과 주석 `DC`가 다르면 D 칸 붉은색 + 툴팁 `공구명 D6 / 주석 DC 8` + 개수 줄 `D값 불일치 N` + PDF 붉은 글자(`d_alert_text`, 행 `D_ALERT`; [수정]으로 D를 고치면 공구명 D와 표 D를 다시 비교). 점검 대상은 공구명 앞에 D가 붙은 모든 공구(드릴·엔드밀·커터·리머·TAP 포함). 이름 변환표에 `TAP → TAP` 추가(저장된 이름표 파일이 있으면 그 파일이 우선). **④ 재생 시작 때도 회전을 같은 속도로**: 재생 중 처음 나타나는 A·B·C 회전도 장비 원점(A0 B0 C0)에서 같은 속도(기본 30°/초)로 돌고 다 돈 뒤에 재생이 이어진다(`_table_sync`, `table_rotation_changes_at`). 방향키·클릭·되감기는 그대로 바로 맞춘다. 안드로이드도 같은 로직. 골든은 `02d60fc`로 다시 뽑았다.
