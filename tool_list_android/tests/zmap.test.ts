@@ -8,6 +8,7 @@ import { buildSimProgram, toolpathBounds } from '../src/sim/segments';
 import { autoResolution, parseStockSizeComment, StockSpec } from '../src/sim/stock';
 import { toolShapeFromValues, type ToolValues } from '../src/sim/toolShape';
 import { ZMapStock } from '../src/sim/zmap';
+import { ZMapGpuRef } from '../src/sim/zmapGpuRef';
 import { VoxelStock } from '../src/sim/voxel';
 
 const DIR = join(__dirname, 'golden', 'zmap');
@@ -31,7 +32,7 @@ function fakeShapeMap(): Map<string, ToolValues> {
 }
 
 describe('Z-map 골든', () => {
-  for (const file of readdirSync(DIR).filter((f) => f.endsWith('.json') && !f.includes('__voxel'))) {
+  for (const file of readdirSync(DIR).filter((f) => f.endsWith('.json') && !f.includes('__voxel') && !f.includes('__gpuref'))) {
     it(file, () => {
       const g = JSON.parse(readFileSync(join(DIR, file), 'utf-8'));
       const lines = decode(readFileSync(join(FIX, g.file))).split(/\r\n|\r|\n/).slice(0, 700);
@@ -117,6 +118,39 @@ describe('3D 복셀 골든', () => {
       expect(badOcc / n).toBeLessThanOrEqual(0.001);
       expect(badCol / n).toBeLessThanOrEqual(0.001);
       expect(stock.rapidWarnings.map((w) => [w.src, w.seq])).toEqual(g.rapid_warnings);
+    });
+  }
+});
+
+// G5: GPU 셰이더와 같은 식의 기준 구현 골든(원본 nc_sim_gpu_ref.ZMapGpuRef 결과). 실제 GPU 결과는 tools/gpu_check.mjs 가 기준 구현과 비교한다.
+describe('GPU 기준 구현 골든', () => {
+  for (const file of readdirSync(DIR).filter((f) => f.endsWith('__gpuref.json'))) {
+    it(file, () => {
+      const g = JSON.parse(readFileSync(join(DIR, file), 'utf-8'));
+      const lines = decode(readFileSync(join(FIX, g.file))).split(/\r\n|\r|\n/).slice(0, 700);
+      const res = processNcLines(lines, M3, {});
+      const prog = buildSimProgram(res, fakeShapeMap());
+      const b = toolpathBounds(res, 2)!;
+      expect(prog.engine).toBe('zmap');
+      const stock = new ZMapGpuRef(b, g.resolution);
+      expect([stock.nx, stock.ny]).toEqual([g.nx, g.ny]);
+      stock.cutRange(prog.seg, prog.tools, 0, prog.seg.count);
+      const bin = gunzipSync(readFileSync(join(DIR, file.replace('.json', '.bin.gz'))));
+      const cells = g.nx * g.ny;
+      const gh = new Float32Array(bin.buffer.slice(bin.byteOffset, bin.byteOffset + cells * 4));
+      const gc = new Int16Array(bin.buffer.slice(bin.byteOffset + cells * 4, bin.byteOffset + cells * 6));
+      const ge = new Uint8Array(bin.buffer.slice(bin.byteOffset + cells * 6, bin.byteOffset + cells * 7));
+      let maxDiff = 0, badColor = 0, badEdge = 0;
+      for (let i = 0; i < cells; i++) {
+        maxDiff = Math.max(maxDiff, Math.abs(stock.heights[i]! - gh[i]!));
+        if (stock.colorIds[i] !== gc[i]) badColor++;
+        if (stock.edgeMask[i] !== ge[i]) badEdge++;
+      }
+      expect(maxDiff).toBeLessThanOrEqual(1e-5);
+      expect(badColor).toBe(0);
+      expect(badEdge).toBe(0);
+      expect(stock.rapidWarnings.map((w) => [w.src, w.seq])).toEqual(g.rapid_warnings);
+      expect(stock.anyCut()).toBe(g.cut);
     });
   }
 });

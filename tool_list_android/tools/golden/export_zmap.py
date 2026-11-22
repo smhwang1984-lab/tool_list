@@ -55,6 +55,7 @@ def main(argv):
     import numpy as np
     from PyQt5.QtWidgets import QApplication
     import nc_sim
+    import nc_sim_gpu_ref
     import nc_viewer_widget as nv
     app = QApplication.instance() or QApplication([])
     viewer = nv.NCViewerWidget()
@@ -97,6 +98,19 @@ def main(argv):
             f.write(stock.heights.astype('<f4').tobytes())
             f.write(stock.color_ids.astype('<i2').tobytes())
         print(name, 'cells', stock.nx * stock.ny, 'segs', meta['segments'], 'tilted', meta['tilted'], 'cut', meta['cut'])
+        # ---- G5: GPU 셰이더와 같은 식의 기준 구현(nc_sim_gpu_ref.ZMapGpuRef) 결과. 두 앱·실제 GPU 비교의 기준 ----
+        gref = nc_sim_gpu_ref.ZMapGpuRef(bounds, RES)
+        gref.cut_batch(seg['p0'][keep], seg['p1'][keep], viewer._sim_tools, seg['slot'][keep], seg['rapid'][keep],
+                       seg['color'][keep], src_lines=seg['src'][keep], seqs=seg['seq1'][keep])
+        gmeta = dict(meta, kind='gpu_ref', cut=bool(gref.any_cut()),
+                     rapid_warnings=[[a, b] for a, b in gref.rapid_cut_warnings], edge_cells=int(gref.edge_mask.sum()))
+        gstem = stem + '__gpuref'
+        (OUT / (gstem + '.json')).write_text(json.dumps(gmeta, ensure_ascii=False), encoding='utf-8')
+        with gzip.open(OUT / (gstem + '.bin.gz'), 'wb', compresslevel=9) as f:
+            f.write(gref.heights.astype('<f4').tobytes())
+            f.write(gref.color_ids.astype('<i2').tobytes())
+            f.write(gref.edge_mask.astype('u1').tobytes())
+        print(name, 'gpu_ref cut', gmeta['cut'], 'edge', gmeta['edge_cells'])
     # ---- P6-T3: 3D 복셀 (공구 축이 기운 이동) ----
     import nc_sim3d
     M5A = '5축 MCT (A to C)'
