@@ -1,8 +1,8 @@
 // 소재(STOCK) 창 — 원본 StockDialog(밀링). T/W/L 치수 · 축 배정 · 기준 위치 · 추가 이동 · 해상도 · 형상 켜기.
 import { getPref, setPref } from '../platform/prefs';
 import {
-  GPU_ENGINE_AVAILABLE, RES_CPU_KEYS, RES_GPU_KEYS, RES_GROUP_CPU, RES_GROUP_GPU,
-  normalizeResolutionKey, resolutionChoice, resolutionLabel,
+  RES_CPU_KEYS, RES_GPU_KEYS, RES_GROUP_CPU, RES_GROUP_GPU, gpuAvailability,
+  normalizeResolutionKey, resolutionLabel, simResolutionOf, type SimResolution,
 } from '../sim/resolutionKeys';
 import { AXES, DIM_KEYS, StockSpec, parseStockSizeComment, type Axis, type Bounds, type DimKey, type Reference } from '../sim/stock';
 import type { SimStatus } from '../viewer/simLayer';
@@ -13,8 +13,8 @@ export interface StockDialogContext {
   lines: () => string[];
   /** 툴패스 범위 + 여유(mm). 경로가 없으면 null */
   toolpathBounds: (margin: number) => Bounds | null;
-  /** resolution null = 자동 */
-  apply: (spec: StockSpec, resolution: number | null, enabled: boolean) => void;
+  /** resolution null = 기본 엔진 자동, { gpu } = 고해상도 엔진 */
+  apply: (spec: StockSpec, resolution: SimResolution, enabled: boolean) => void;
   clear: () => void;
   status: () => SimStatus;
   /** 급속 절삭 줄로 이동 */
@@ -103,7 +103,7 @@ export function showStockDialog(ctx: StockDialogContext): void {
     offInputs[a] = num(s.offset[a]);
     body.append(row(`${a} 기준 / 이동`, refSelects[a], offInputs[a]));
   }
-  // 해상도: 엔진별 두 묶음(원본 v2.7.1). 고해상도 엔진은 아직 없어 그 묶음은 흐리게 두고 고를 수 없다.
+  // 해상도: 엔진별 두 묶음(원본 v2.7.1). 고해상도 엔진(GPU)은 이 기기가 WebGL2 하드웨어 그래픽을 쓸 수 있을 때만 열린다.
   const resSelect = el('select');
   {
     const group = (label: string, keys: readonly string[], disabled: boolean): void => {
@@ -113,9 +113,11 @@ export function showStockDialog(ctx: StockDialogContext): void {
       resSelect.append(g);
     };
     group(RES_GROUP_CPU, RES_CPU_KEYS, false);
-    group(GPU_ENGINE_AVAILABLE ? RES_GROUP_GPU : `${RES_GROUP_GPU} — 준비 중`, RES_GPU_KEYS, !GPU_ENGINE_AVAILABLE);
+    const gpu = gpuAvailability();
+    group(gpu.ok ? RES_GROUP_GPU : `${RES_GROUP_GPU} — 사용할 수 없음`, RES_GPU_KEYS, !gpu.ok);
     resSelect.value = normalizeResolutionKey(s.resolution);
-    resSelect.title = '기본 엔진(CPU): 셀 크기(mm)로 고릅니다. 지금 쓰는 방식입니다.\n고해상도 엔진(GPU): 소재 긴 변의 칸 수로 고릅니다. 아직 준비 중입니다.';
+    resSelect.title = '기본 엔진(CPU): 셀 크기(mm)로 고릅니다.\n고해상도 엔진(GPU): 소재 긴 변의 칸 수로 고릅니다.'
+      + (gpu.ok ? `\n그래픽: ${gpu.renderer || '확인됨'}` : `\nGPU 사용 불가: ${gpu.reason}`);
   }
   { const r = row('해상도', resSelect); r.classList.add('single'); body.append(r); }
   const margin = num(2, '1');
@@ -152,8 +154,9 @@ export function showStockDialog(ctx: StockDialogContext): void {
   const refreshStatus = (): void => {
     const st = ctx.status();
     const parts: string[] = [];
-    if (st.hasStock) parts.push(`${st.engine === 'voxel' ? '3D 복셀' : 'Z-map'} 격자 ${st.nx}×${st.ny}${st.engine === 'voxel' ? '×' + st.nz : ''} (${(st.cells / 1000).toFixed(0)}천 칸, ${st.resolution}mm) · 깎은 선분 ${st.cutSegments}/${st.totalSegments}${st.busy ? ' · 계산 중…' : ''}`);
+    if (st.hasStock) parts.push(`${st.engine === 'voxel' ? '3D 복셀' : st.gpu ? 'Z-map(GPU)' : 'Z-map'} 격자 ${st.nx}×${st.ny}${st.engine === 'voxel' ? '×' + st.nz : ''} (${(st.cells / 1000).toFixed(0)}천 칸, ${+st.resolution.toFixed(4)}mm) · 깎은 선분 ${st.cutSegments}/${st.totalSegments}${st.busy ? ' · 계산 중…' : ''}`);
     if (st.engine === 'voxel' || st.tilted) parts.push(`공구 축이 기운 이동 ${st.tilted}개가 있어 3D 복셀로 깎습니다(자동 해상도는 거칠 수 있습니다).`);
+    if (st.gpuFallback) parts.push(`고해상도 엔진을 쓰지 못해 기본 엔진으로 계산합니다: ${st.gpuFallback}`);
     if (st.excluded.length) parts.push(`공구 형상을 못 만든 공구(지름 없음): ${st.excluded.join(', ')}`);
     if (st.noToolMoves) parts.push(`공구 번호가 없는 공정 이동 ${st.noToolMoves}개는 깎지 않습니다.`);
     if (st.rapidLines.length) parts.push(`급속(G00)이 소재를 깎은 줄: ${st.rapidLines.map((l) => l + 1).join(', ')}`);
@@ -214,9 +217,8 @@ export function showStockDialog(ctx: StockDialogContext): void {
         try { spec = readSpec(); } catch (e) { toast((e as Error).message); return false; }
         const b = spec.bounds();
         if (!(b.X[1] > b.X[0] && b.Y[1] > b.Y[0] && b.Z[1] > b.Z[0])) { toast('소재 치수가 0 이하입니다.'); return false; }
-        // 고해상도 엔진은 아직 없어 gpu 키가 와도(저장값 등) 기본 엔진 자동으로 계산한다.
-        const choice = resolutionChoice(normalizeResolutionKey(resSelect.value));
-        const res = choice.engine === 'cpu' ? choice.value : null;
+        // 못 쓰는 gpu 키가 와도(저장값 등) normalize 가 기본 엔진 자동으로 바로잡는다.
+        const res = simResolutionOf(normalizeResolutionKey(resSelect.value));
         save();
         ctx.apply(spec, res, enable.checked);
         return true;

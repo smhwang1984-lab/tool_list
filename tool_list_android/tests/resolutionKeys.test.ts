@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  GPU_ENGINE_AVAILABLE, RES_CPU_KEYS, RES_GPU_KEYS, normalizeResolutionKey, resolutionChoice, resolutionLabel,
+  RES_CPU_KEYS, RES_GPU_KEYS, gpuAvailability, normalizeResolutionKey, resolutionChoice, resolutionLabel, setGpuAvailability, simResolutionOf,
 } from '../src/sim/resolutionKeys';
 
 // 원본 tests/test_nc_sim_viewer.py test_resolution_keys_stay_compatible_and_gpu_group_is_closed_for_now 와 같은 약속
@@ -30,8 +30,21 @@ describe('해상도 엔진 묶음 (원본 v2.7.1)', () => {
     expect(resolutionLabel('자동')).toBe('자동');
   });
 
-  it('이 버전은 고해상도 엔진이 없다 (엔진을 넣는 작업에서 이 시험도 같이 고친다)', () => {
-    expect(GPU_ENGINE_AVAILABLE).toBe(false);
+  it('고해상도 엔진은 뷰어가 알려 준 가용 여부를 따른다(처음에는 닫혀 있다)', () => {
+    expect(gpuAvailability().ok).toBe(false);
+    expect(normalizeResolutionKey('gpu:2048')).toBe('자동');
+    setGpuAvailability(true, '', 'Adreno');
+    try {
+      expect(normalizeResolutionKey('gpu:2048')).toBe('gpu:2048');
+      expect(normalizeResolutionKey('gpu:8192')).toBe('자동'); // 휴대폰은 4096까지
+    } finally { setGpuAvailability(false, '시험'); }
     expect(RES_GPU_KEYS.length).toBeGreaterThan(0);
+  });
+
+  it('소재 계산에 넘기는 값', () => {
+    expect(simResolutionOf('자동')).toBeNull();
+    expect(simResolutionOf('0.2')).toBe(0.2);
+    expect(simResolutionOf('gpu:auto')).toEqual({ gpu: null });
+    expect(simResolutionOf('gpu:4096')).toEqual({ gpu: 4096 });
   });
 });

@@ -9,6 +9,7 @@ import { findProcessMarker, pickRelativeMarker } from '../core/processMarker';
 import { isLatheMachine, type TableRot, type ToolpathResult } from '../core/toolpath';
 import { createSimLayer, type SimLayer, type SimSource, type SimStatus } from './simLayer';
 import type { SimProgram } from '../sim/segments';
+import type { SimResolution } from '../sim/resolutionKeys';
 import type { Bounds } from '../sim/stock';
 import type { LatheProgram } from '../sim/latheSegments';
 import type { LatheBounds } from '../sim/latheStock';
@@ -74,7 +75,7 @@ export interface Viewer {
   /** 원본 v2.6.4: 재생 바 옆 지금 공구 이름(키: T01/T1/1, 선반이면 null) */
   setToolNames(names: Readonly<Record<string, string>> | null): void;
   /** 소재 적용(bounds 가 null 이면 소재 제거) */
-  applyStock(bounds: Bounds | LatheBounds | null, resolution: number | null, enabled: boolean): void;
+  applyStock(bounds: Bounds | LatheBounds | null, resolution: SimResolution, enabled: boolean): void;
   /** PG 매칭: 전체 경로를 지우고 커서가 있는 공정만 커서 위치까지 그린다 */
   setPgMatch(on: boolean): void;
   /** 툴패스 선 표시/숨김(가공 형상을 가리지 않게) */
@@ -188,7 +189,7 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
   const sim: SimLayer = createSimLayer(workGroup, () => { dirty = true; instantBtn.disabled = !sim.hasStock(); hooks.onSimChange?.(); }, (busy, pct) => {
     progressBox.hidden = !busy;
     if (busy) progressBox.textContent = `가공 형상 ${Math.round(pct * 100)}%`;
-  });
+  }, renderer);
   // 화면 가운데 진행률(가공 형상 계산 중)
   const progressBox = el('div', { class: 'v-progress' });
   progressBox.hidden = true;

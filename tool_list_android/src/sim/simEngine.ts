@@ -10,6 +10,7 @@ import type { ToolValues } from './toolShape';
 import { autoResolution3d, clampResolution3d, VoxelStock } from './voxel';
 import { buildVoxelMesh } from './voxelMesh';
 import { SIM_CHUNK_SEGMENTS, ZMapStock } from './zmap';
+import { GPU_AUTO_CELLS, resolutionForCells } from './gpuCells';
 import { buildLatheMesh, LatheStock, latheAutoResolution, type LatheBounds, type SectionMode } from './latheStock';
 import { buildTurnMillMesh, TurnMillStock, turnmillVoxelResolution } from './turnMillStock';
 import { buildLatheProgram, type LatheProgram } from './latheSegments';
@@ -25,23 +26,39 @@ export type SimSource =
 
 export interface MeshData { positions: Float32Array; colors: Float32Array; indices: Uint32Array; edges: Float32Array }
 
+/** GPU 소재(zmapGpu.GpuZMapStock)가 엔진에 보여 주는 모양 — 엔진은 three 를 가져오지 않는다 */
+export interface GpuStockLike extends ZMapStock {
+  readonly isGpu: true;
+  readonly chunk: number;
+  settle(): Promise<void>;
+  dispose(): void;
+}
+const isGpuStock = (s: unknown): s is GpuStockLike => !!s && (s as { isGpu?: boolean }).isGpu === true;
+/** GPU 소재를 만든다. 못 만들면 null(엔진은 기본 엔진으로 간다). 메인 스레드 엔진만 받는다. */
+export type GpuStockFactory = (bounds: Bounds, resolution: number) => GpuStockLike | null;
+
 export interface EngineStatus {
   hasStock: boolean; busy: boolean; cells: number; nx: number; ny: number; nz: number; resolution: number;
   cutSegments: number; rapidLines: number[];
+  /** 고해상도 엔진(GPU)으로 깎고 있나 */
+  gpu: boolean;
+  /** 고해상도 엔진을 요청했지만 못 써서 기본 엔진으로 갔을 때의 이유(아니면 빈 글자) */
+  gpuFallback: string;
   /** 마지막으로 목표까지 다 깎은 target 요청 번호 (재생이 계산을 기다리게 하는 용도) */
   ack: number;
 }
 
 export type InMsg =
   | { t: 'program'; source: SimSource | null }
-  | { t: 'stock'; bounds: Bounds | LatheBounds | null; resolution: number | null; enabled: boolean }
+  | { t: 'stock'; bounds: Bounds | LatheBounds | null; resolution: number | null; enabled: boolean; gpu?: { cells: number | null } | null }
   | { t: 'enabled'; on: boolean }
   | { t: 'live'; on: boolean }
   | { t: 'section'; m: SectionMode }
   | { t: 'target'; seq: number | null; show: boolean; id: number };
 
 export type OutMsg =
-  | { t: 'mesh'; mesh: MeshData | null; status: EngineStatus }
+  /** gpu: GPU 소재를 화면 층이 직접 그린다(mesh 는 null) */
+  | { t: 'mesh'; mesh: MeshData | null; status: EngineStatus; gpu?: GpuStockLike }
   | { t: 'status'; status: EngineStatus }
   | { t: 'progress'; busy: boolean; pct: number };
 
@@ -53,6 +70,8 @@ export class SimEngine {
   private stock: AnyStock | null = null;
   private stockBounds: Bounds | LatheBounds | null = null;
   private stockResolution: number | null = null;
+  private gpuRequest: { cells: number | null } | null = null;
+  private gpuFallback = '';
   private enabled = false;
   private section: SectionMode = '3q';
   private live = false;
@@ -69,12 +88,12 @@ export class SimEngine {
   private targetId = 0;
   private ackId = 0;
 
-  constructor(private readonly post: Post) {}
+  constructor(private readonly post: Post, private readonly gpuFactory: GpuStockFactory | null = null) {}
 
   handle(m: InMsg): void {
     switch (m.t) {
       case 'program': this.setProgram(m.source); break;
-      case 'stock': this.setStock(m.bounds, m.resolution, m.enabled); break;
+      case 'stock': this.setStock(m.bounds, m.resolution, m.enabled, m.gpu ?? null); break;
       case 'enabled': this.setEnabled(m.on); break;
       case 'live': this.live = m.on; break;
       case 'section':
@@ -99,6 +118,11 @@ export class SimEngine {
     const sb = bounds as Bounds;
     if (!('X' in sb)) return null; // 선반 소재 사양인데 밀링 프로그램: 만들지 않는다
     if (program?.engine === 'voxel') return new VoxelStock(sb, res === null ? autoResolution3d(sb) : clampResolution3d(sb, res));
+    if (this.gpuRequest) {
+      const gs = this.gpuFactory?.(sb, resolutionForCells(sb, this.gpuRequest.cells ?? GPU_AUTO_CELLS)) ?? null;
+      if (gs) { this.gpuFallback = ''; return gs; }
+      this.gpuFallback = this.gpuFactory ? '이 기기에서 GPU를 쓸 수 없습니다' : '이 계산 경로는 GPU를 쓰지 않습니다';
+    }
     return new ZMapStock(sb, res === null ? autoResolution(sb, 1_000_000, true) : res);
   }
 
@@ -113,7 +137,7 @@ export class SimEngine {
     return {
       hasStock: !!s, busy: this.running, cells: s?.cellCount() ?? 0, nx: s?.nx ?? 0, ny: s?.ny ?? 0,
       nz: s instanceof VoxelStock || s instanceof TurnMillStock ? s.nz : 1, resolution: s?.resolution ?? 0, cutSegments: this.cutIdx,
-      ack: this.ackId,
+      ack: this.ackId, gpu: isGpuStock(s), gpuFallback: this.gpuFallback,
       rapidLines: s ? [...new Set(s.rapidWarnings.flatMap((w) => (w.src !== null ? [w.src] : [])))].sort((a, b) => a - b) : [],
     };
   }
@@ -124,6 +148,13 @@ export class SimEngine {
     const stock = this.stock;
     if (!stock || !this.enabled) { this.hasMesh = false; this.post({ t: 'mesh', mesh: null, status: this.status() }); return; }
     const colorOf = (id: number): readonly [number, number, number] => toolColorForIndex(id);
+    if (isGpuStock(stock)) {
+      this.hasMesh = true;
+      this.lastMesh = performance.now();
+      this.dirty = false;
+      this.post({ t: 'mesh', mesh: null, gpu: stock, status: this.status() });
+      return;
+    }
     const live = this.live;
     let m: MeshData;
     if (stock instanceof TurnMillStock) m = buildTurnMillMesh(stock, colorOf, live ? 50_000 : 150_000, this.section);
@@ -137,6 +168,21 @@ export class SimEngine {
     this.lastMesh = performance.now();
     this.dirty = false;
     this.post({ t: 'mesh', mesh: m, status: this.status() }, [m.positions.buffer, m.colors.buffer, m.indices.buffer, m.edges.buffer] as Transferable[]);
+  }
+
+  /** 엔진이 쥔 GPU 자원을 놓는다 */
+  release(): void { this.disposeStock(); this.stock = null; }
+
+  private disposeStock(): void { if (isGpuStock(this.stock)) this.stock.dispose(); }
+
+  /** GPU 소재가 계산 도중 실패했을 때(공구 형상을 모름·문맥 손실 등) 기본 엔진으로 처음부터 다시 한다 */
+  private fallBackToCpu(why: string): void {
+    this.disposeStock();
+    this.gpuRequest = null;
+    this.stock = this.makeStock();
+    this.gpuFallback = why;
+    this.resetState();
+    this.dirty = true;
   }
 
   private resetState(): void {
@@ -156,15 +202,18 @@ export class SimEngine {
 
   private setProgram(source: SimSource | null): void {
     this.program = !source ? null : source.kind === 'lathe' ? buildLatheProgram(source.res, source.geometry) : buildSimProgram(source.res, source.shapes);
-    if (this.stockBounds && !this.stockMatches()) { this.stock = this.makeStock(); this.enabled = this.enabled && !!this.stock; }
+    if (this.stockBounds && !this.stockMatches()) { this.disposeStock(); this.stock = this.makeStock(); this.enabled = this.enabled && !!this.stock; }
     if (this.stock) this.resetState();
     if (this.enabled) void this.pump();
     else this.postStatus();
   }
 
-  private setStock(bounds: Bounds | LatheBounds | null, resolution: number | null, on: boolean): void {
+  private setStock(bounds: Bounds | LatheBounds | null, resolution: number | null, on: boolean, gpu: { cells: number | null } | null): void {
     this.stockBounds = bounds;
     this.stockResolution = resolution;
+    this.gpuRequest = gpu;
+    this.gpuFallback = '';
+    this.disposeStock();
     this.stock = this.makeStock();
     this.resetState();
     this.enabled = on && !!this.stock;
@@ -194,6 +243,7 @@ export class SimEngine {
     let runFrom = this.cutIdx;
     this.lastYield = performance.now();
     try {
+     for (;;) {
       while (this.stock && this.program && this.enabled) {
         const stock = this.stock, program = this.program;
         const want = this.targetIndex();
@@ -208,19 +258,27 @@ export class SimEngine {
         if (this.cutIdx === want) break;
         const snapAt = program.snapPositions;
         const bytes = stock.cellCount() * (stock instanceof VoxelStock || stock instanceof LatheStock || stock instanceof TurnMillStock ? 2 : 6);
-        if (snapAt.includes(this.cutIdx) && !this.snapshots.has(this.cutIdx) && this.snapBytes + bytes <= SNAPSHOT_MEMORY_BYTES) {
+        if (!isGpuStock(stock) && snapAt.includes(this.cutIdx) && !this.snapshots.has(this.cutIdx) && this.snapBytes + bytes <= SNAPSHOT_MEMORY_BYTES) {
           this.snapshots.set(this.cutIdx, stock.snapshot());
           this.snapBytes += bytes;
         }
         // 3D 복셀·턴밀은 한 선분이 무거워 작게 나눈다(메시지를 받을 틈을 주기 위해서이기도 하다)
-        const chunk = stock instanceof VoxelStock || stock instanceof TurnMillStock ? 150 : SIM_CHUNK_SEGMENTS;
+        const chunk = stock instanceof VoxelStock || stock instanceof TurnMillStock ? 150 : isGpuStock(stock) ? stock.chunk : SIM_CHUNK_SEGMENTS;
         let end = Math.min(want, this.cutIdx + chunk);
         for (const pos of snapAt) if (pos > this.cutIdx && pos < end) { end = pos; break; }
         const from = this.cutIdx;
         if (stock instanceof TurnMillStock) stock.cutRange(program as LatheProgram, from, end);
         else if (stock instanceof LatheStock) stock.cutRange(program.seg, program.tools as (LatheTool | null)[], from, end, { pitch: (program as LatheProgram).threadPitch, height: (program as LatheProgram).threadHeight });
         else if (stock instanceof VoxelStock) stock.cutRange(program.seg, program.tools as never, (program as SimProgram).axes0, (program as SimProgram).axes1, from, end);
-        else stock.cutRange(program.seg, program.tools as never, from, end);
+        else {
+          try { stock.cutRange(program.seg, program.tools as never, from, end); }
+          catch (e) {
+            if (!isGpuStock(stock)) throw e;
+            this.fallBackToCpu((e as Error).message);
+            runFrom = 0;
+            continue;
+          }
+        }
         this.cutIdx = end;
         this.dirty = true;
         const nowMs = performance.now();
@@ -232,6 +290,12 @@ export class SimEngine {
           this.lastYield = performance.now();
         }
       }
+      // GPU 급속 선분 질의는 작업이 끝난 뒤에야 결과가 나온다 — 다 모일 때까지 기다린다
+      const last = this.stock;
+      if (isGpuStock(last)) { try { await last.settle(); } catch { /* 문맥이 사라졌으면 경고 없이 넘어간다 */ } }
+      // 기다리는 사이 목표가 바뀌었으면(이 동안 들어온 요청은 running 때문에 무시됐다) 이어서 깎는다
+      if (!this.stock || !this.program || !this.enabled || this.cutIdx === this.targetIndex()) break;
+     }
     } finally {
       this.running = false;
       this.ackId = this.targetId;

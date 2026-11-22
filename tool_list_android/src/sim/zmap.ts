@@ -29,7 +29,8 @@ export class ZMapStock {
   colorIds: Int16Array;
   rapidWarnings: { src: number | null; seq: number | null }[] = [];
 
-  constructor(bounds: Bounds, resolution: number) {
+  /** allocate=false: 높이·색 배열을 만들지 않는다(GPU 소재가 필요할 때만 읽어 채운다) */
+  constructor(bounds: Bounds, resolution: number, allocate = true) {
     this.resolution = resolution;
     this.x0 = bounds.X[0];
     this.y0 = bounds.Y[0];
@@ -37,8 +38,9 @@ export class ZMapStock {
     this.ny = Math.max(2, Math.round((bounds.Y[1] - bounds.Y[0]) / resolution) + 1);
     this.zlo = bounds.Z[0];
     this.ztop = bounds.Z[1];
-    this.heights = new Float32Array(this.nx * this.ny).fill(Math.fround(this.ztop));
-    this.colorIds = new Int16Array(this.nx * this.ny).fill(-1);
+    const n = allocate ? this.nx * this.ny : 0;
+    this.heights = new Float32Array(n).fill(Math.fround(this.ztop));
+    this.colorIds = new Int16Array(n).fill(-1);
   }
 
   gridX(i: number): number { return this.x0 + i * this.resolution; }

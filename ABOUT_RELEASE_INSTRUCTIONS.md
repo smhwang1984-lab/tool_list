@@ -47,7 +47,20 @@ Last updated: 2026-11-05 (NC_Tool_List v2.3.0 — 로컬 v2.2.9(STOCK SIZE)와 G
 
 ## Version history
 
-### 2026-11-22 (latest, v2.8.0 / 안드로이드 v2.1.2 그대로)
+### 2026-11-22 (latest, 데스크톱 v2.8.0 그대로 / 안드로이드 v2.2.0)
+
+- Version: 안드로이드 2.1.2 → 2.2.0 (데스크톱은 올리지 않음 — 데스크톱 로직 변경 없음, `sim_shaders/height.frag` 추가만 있고 PC는 쓰지 않는다)
+- Summary: **고해상도 엔진 · GPU 도입(안드로이드)** — `PLAN_gpu_sim_and_licensing.md` G4. 소재 창의 "고해상도 엔진 · GPU"(자동 · 2048 · 4096 칸)가 이 기기가 WebGL2 하드웨어 그래픽을 쓸 수 있을 때 열린다(못 쓰면 흐리게 두고 이유를 툴팁으로). 데스크톱과 같은 셰이더 원본(`sim_shaders/`)을 three.js로 돌려 칸 단위 음영·공정 색·옆면이 있는 소재 표시를 600칸 제한 없이 그린다. GPU 실패 시 기본 엔진(CPU)으로 자동 복귀하고 이유를 소재 창에 보인다.
+  - 원본과 다른 점(안드로이드 CLAUDE.md 4절 6번에 따라 기록): 자동 2048 칸(원본 4096)·8192 없음 — 휴대폰 그래픽 메모리. 화면 표시 격자 상한 2048(원본 4096). 안드로이드는 소재가 있는 동안 GPU 문맥을 계속 쥔다.
+  - 결과 차이(의도, 원본과 같음): 수평·수직 이동은 CPU 엔진과 1e-3mm 이내로 같다. 경사 이동은 GPU가 연속 선분이라 더 정확하다.
+  - 엔진 연결 버그 하나를 시험이 잡아 고침: GPU 급속 질의를 기다리는 동안 들어온 목표 변경이 무시되던 문제(기다린 뒤 목표가 바뀌었으면 이어서 깎는다).
+- 시험: 안드로이드 npm test 385 통과(새 `zmapGpu.test.ts` 10개 포함). 실제 GPU 대조: `node tools/gpu_check.mjs` — Intel Iris Plus(D3D11)·SwiftShader 모두 기준 구현과 일치. 앱 전체(파일 열기 → Viewer → 소재 → GPU → 적용 → 재생 끝)는 `node tools/gpu_app_check.mjs`로 Edge에서 확인했다. 데스크톱 pytest 48(GPU 셰이더·기준·표시) 통과.
+- 측정(Intel Iris Plus 내장, 개발 PC, 브라우저): 13k 선분(길이 25mm) · 2048칸 약 2.9초 · 4096칸 약 10초(읽기 포함). 휴대폰·외장 GPU 측정은 G6.
+- Installer/package status: **APK 생성 완료, 데스크톱 설치본은 새로 만들지 않음**(v2.8.0 설치본 그대로). `tool_list_android\out\SumPath_v2.2.0.apk`
+  - APK SHA-256: 8E6054171AD02BEDD5FE4FFC4B878D70C201995A8F62CB7BB7282A23ADDD6C8C
+  - 남은 확인: 실제 휴대폰(Adreno·Mali)에서 GPU 묶음이 열리는지, 적용·재생·STL이 되는지, 성능(G6). 이 PC에서는 휴대폰을 쓰지 못해 Edge(WebGL2)에서만 확인했다.
+
+### 2026-11-22 (v2.8.0 / 안드로이드 v2.1.2 그대로)
 
 - Version: 2.7.1 → 2.8.0 (안드로이드는 올리지 않음 — APK는 안드로이드 GPU 엔진 G4 단계에서 빌드)
 - Summary: **고해상도 엔진 · GPU 도입(PC)** — `PLAN_gpu_sim_and_licensing.md` G1~G3. 소재 해상도 목록의 "고해상도 엔진 · GPU" 묶음(자동 · 2048 · 4096 · 8192 칸)이 이 PC가 쓸 수 있으면(OpenGL 3.3 이상 하드웨어 그래픽, 그래픽 안전 모드 아님) 열린다. 못 쓰면 흐리게 두고 이유를 툴팁으로 보인다. 골라서 [적용]하면 그래픽카드가 소재를 깎고(`nc_sim_gpu.GpuZMapStock`, 셰이더 `sim_shaders/cut.*`) 셰이더가 높이 텍스처를 직접 그린다(`nc_sim_surface.py`, `sim_shaders/surface.*`: 칸 단위 법선 음영·공정 색·깎인 깊이·단색·옆면, 메쉬 600칸 표시 제한 없음). 급속(G00) 소재 침범 경고·되감기·공정 스냅샷·취소는 기존과 같다. GPU를 못 쓰거나 GPU가 모르는 공구 형상이면 CPU 엔진으로, 화면 표시를 못 만들면 기존 메쉬 표시로 자동으로 돌아간다. 5축·경사면(복셀) 소재는 CPU 복셀 엔진 그대로다.
