@@ -572,6 +572,8 @@ function mount(root: HTMLElement): void {
         status: () => viewer!.simStatus(),
         gotoLine: (line) => editor.selectLine(line),
         setToolpathVisible: (on) => viewer?.setToolpathVisible(on),
+        zoom: (on) => viewer?.setQualityZoom(on) ?? false,
+        canZoom: () => viewer?.canQualityZoom() ?? false,
       });
     });
   });

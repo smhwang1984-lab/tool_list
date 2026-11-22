@@ -11,6 +11,7 @@ import { autoResolution3d, clampResolution3d, VoxelStock } from './voxel';
 import { buildVoxelMesh } from './voxelMesh';
 import { SIM_CHUNK_SEGMENTS, ZMapStock } from './zmap';
 import { GPU_AUTO_CELLS, resolutionForCells } from './gpuCells';
+import { ZOOM_MIN_RESOLUTION } from './zoomRegion';
 import { buildLatheMesh, LatheStock, latheAutoResolution, type LatheBounds, type SectionMode } from './latheStock';
 import { buildTurnMillMesh, TurnMillStock, turnmillVoxelResolution } from './turnMillStock';
 import { buildLatheProgram, type LatheProgram } from './latheSegments';
@@ -50,7 +51,7 @@ export interface EngineStatus {
 
 export type InMsg =
   | { t: 'program'; source: SimSource | null }
-  | { t: 'stock'; bounds: Bounds | LatheBounds | null; resolution: number | null; enabled: boolean; gpu?: { cells: number | null } | null }
+  | { t: 'stock'; bounds: Bounds | LatheBounds | null; resolution: number | null; enabled: boolean; gpu?: { cells: number | null; zoom?: boolean } | null }
   | { t: 'enabled'; on: boolean }
   | { t: 'live'; on: boolean }
   | { t: 'section'; m: SectionMode }
@@ -70,7 +71,7 @@ export class SimEngine {
   private stock: AnyStock | null = null;
   private stockBounds: Bounds | LatheBounds | null = null;
   private stockResolution: number | null = null;
-  private gpuRequest: { cells: number | null } | null = null;
+  private gpuRequest: { cells: number | null; zoom?: boolean } | null = null;
   private gpuFallback = '';
   private enabled = false;
   private section: SectionMode = '3q';
@@ -119,7 +120,7 @@ export class SimEngine {
     if (!('X' in sb)) return null; // 선반 소재 사양인데 밀링 프로그램: 만들지 않는다
     if (program?.engine === 'voxel') return new VoxelStock(sb, res === null ? autoResolution3d(sb) : clampResolution3d(sb, res));
     if (this.gpuRequest) {
-      const gs = this.gpuFactory?.(sb, resolutionForCells(sb, this.gpuRequest.cells ?? GPU_AUTO_CELLS)) ?? null;
+      const gs = this.gpuFactory?.(sb, resolutionForCells(sb, this.gpuRequest.cells ?? GPU_AUTO_CELLS, this.gpuRequest.zoom ? ZOOM_MIN_RESOLUTION : undefined)) ?? null;
       if (gs) { this.gpuFallback = ''; return gs; }
       this.gpuFallback = this.gpuFactory ? '이 기기에서 GPU를 쓸 수 없습니다' : '이 계산 경로는 GPU를 쓰지 않습니다';
     }
@@ -208,7 +209,7 @@ export class SimEngine {
     else this.postStatus();
   }
 
-  private setStock(bounds: Bounds | LatheBounds | null, resolution: number | null, on: boolean, gpu: { cells: number | null } | null): void {
+  private setStock(bounds: Bounds | LatheBounds | null, resolution: number | null, on: boolean, gpu: { cells: number | null; zoom?: boolean } | null): void {
     this.stockBounds = bounds;
     this.stockResolution = resolution;
     this.gpuRequest = gpu;

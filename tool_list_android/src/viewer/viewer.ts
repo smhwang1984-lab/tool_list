@@ -83,6 +83,9 @@ export interface Viewer {
   setSimEnabled(on: boolean): void;
   setSimLive(on: boolean): void;
   simStatus(): SimStatus;
+  /** 확대 고정밀: 지금 화면에 보이는 영역만 더 작은 셀로 다시 계산(null 이면 전체로 되돌림). 쓸 수 없으면 false */
+  setQualityZoom(on: boolean): boolean;
+  canQualityZoom(): boolean;
   exportStl(): Uint8Array | null;
   setSection(m: '3q' | 'half' | 'full'): void;
   dispose(): void;
@@ -1327,6 +1330,16 @@ export function createViewer(host: HTMLElement, hooks: ViewerHooks = {}): Viewer
       sim.setTarget(on ? seqNow : selectionEndSeq());
     },
     simStatus: () => sim.status(),
+    canQualityZoom: () => sim.canZoom(),
+    setQualityZoom(on) {
+      if (!on) { const ok = sim.setZoom(null); if (ok) sim.setTarget(simLive ? seqNow : selectionEndSeq(), true); return ok; }
+      // 위에서 보는 화면 기준: 카메라 중심 ± 보이는 반폭(세로 halfH, 가로 halfH*aspect)
+      const halfH = distance * Math.tan((fovDeg * Math.PI) / 360);
+      const halfW = halfH * aspect;
+      const ok = sim.setZoom({ X: [center.x - halfW, center.x + halfW], Y: [center.y - halfH, center.y + halfH] });
+      if (ok) sim.setTarget(simLive ? seqNow : selectionEndSeq(), true);
+      return ok;
+    },
     exportStl: () => sim.exportStl(),
     setSection: (m) => { applySection(m); },
     setStopOptions(content) { stopSlot.replaceChildren(content); paintMore(); },

@@ -8,9 +8,9 @@ export const GPU_DISPLAY_GRID_MAX = 2048;
 export const GPU_MIN_RESOLUTION = 0.01;
 
 /** 소재 긴 변이 cells 칸이 되는 격자 간격(mm) */
-export function resolutionForCells(bounds: Bounds, cells: number): number {
+export function resolutionForCells(bounds: Bounds, cells: number, minResolution = GPU_MIN_RESOLUTION): number {
   const long = Math.max(bounds.X[1] - bounds.X[0], bounds.Y[1] - bounds.Y[0], 1e-6);
-  return Math.max(long / Math.max(Math.trunc(cells) - 1, 1), GPU_MIN_RESOLUTION);
+  return Math.max(long / Math.max(Math.trunc(cells) - 1, 1), minResolution);
 }
 
 /** 계산 격자 → 표시 격자 블록 크기 */

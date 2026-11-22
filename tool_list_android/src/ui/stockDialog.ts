@@ -19,6 +19,9 @@ export interface StockDialogContext {
   status: () => SimStatus;
   /** 급속 절삭 줄로 이동 */
   gotoLine: (line: number) => void;
+  /** 확대 고정밀(보이는 영역만 더 작은 셀로 다시 계산) 켜기/끄기. 쓸 수 없으면 false */
+  zoom: (on: boolean) => boolean;
+  canZoom: () => boolean;
   /** 툴패스 선 표시/숨김 */
   setToolpathVisible: (on: boolean) => void;
 }
@@ -134,7 +137,17 @@ export function showStockDialog(ctx: StockDialogContext): void {
   lineCheck.checked = getPref('sim_toolpath_visible') !== '0';
   lineCheck.addEventListener('change', () => { setPref('sim_toolpath_visible', lineCheck.checked ? '1' : '0'); ctx.setToolpathVisible(lineCheck.checked); });
   lineLabel.append(lineCheck, document.createTextNode(' 툴패스 선 표시 (끄면 가공 형상이 잘 보입니다)'));
-  body.append(enableLabel, lineLabel, boundsLabel, note, statusLabel);
+  const zoomBtn = el('button', { type: 'button' });
+  zoomBtn.textContent = '보는 영역 정밀 계산';
+  const zoomClearBtn = el('button', { type: 'button' });
+  zoomClearBtn.textContent = '전체로 되돌리기';
+  zoomBtn.addEventListener('click', () => {
+    if (!ctx.zoom(true)) toast('이 소재(경사면·5축·선반)는 영역 정밀 계산을 쓸 수 없거나 보이는 영역이 소재 밖입니다.');
+    refreshStatus();
+  });
+  zoomClearBtn.addEventListener('click', () => { ctx.zoom(false); refreshStatus(); });
+  const zoomRow = row('확대 고정밀', zoomBtn, zoomClearBtn);
+  body.append(enableLabel, lineLabel, boundsLabel, note, zoomRow, statusLabel);
 
   const readSpec = (): StockSpec => {
     const dims = {} as Record<DimKey, number>;
@@ -153,8 +166,10 @@ export function showStockDialog(ctx: StockDialogContext): void {
   };
   const refreshStatus = (): void => {
     const st = ctx.status();
+    zoomBtn.disabled = !ctx.canZoom();
+    zoomClearBtn.hidden = !st.zoom;
     const parts: string[] = [];
-    if (st.hasStock) parts.push(`${st.engine === 'voxel' ? '3D 복셀' : st.gpu ? 'Z-map(GPU)' : 'Z-map'} 격자 ${st.nx}×${st.ny}${st.engine === 'voxel' ? '×' + st.nz : ''} (${(st.cells / 1000).toFixed(0)}천 칸, ${+st.resolution.toFixed(4)}mm) · 깎은 선분 ${st.cutSegments}/${st.totalSegments}${st.busy ? ' · 계산 중…' : ''}`);
+    if (st.hasStock) parts.push(`${st.engine === 'voxel' ? '3D 복셀' : st.gpu ? 'Z-map(GPU)' : 'Z-map'} 격자 ${st.nx}×${st.ny}${st.engine === 'voxel' ? '×' + st.nz : ''} (${(st.cells / 1000).toFixed(0)}천 칸, 셀 ${+st.resolution.toPrecision(4)}mm)${st.zoom ? ' · 확대 고정밀' : ''} · 깎은 선분 ${st.cutSegments}/${st.totalSegments}${st.busy ? ' · 계산 중…' : ''}`);
     if (st.engine === 'voxel' || st.tilted) parts.push(`공구 축이 기운 이동 ${st.tilted}개가 있어 3D 복셀로 깎습니다(자동 해상도는 거칠 수 있습니다).`);
     if (st.gpuFallback) parts.push(`고해상도 엔진을 쓰지 못해 기본 엔진으로 계산합니다: ${st.gpuFallback}`);
     if (st.excluded.length) parts.push(`공구 형상을 못 만든 공구(지름 없음): ${st.excluded.join(', ')}`);

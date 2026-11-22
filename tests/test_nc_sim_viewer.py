@@ -467,6 +467,55 @@ M30
             viewer.set_sim_color_mode(mode)
             self.assertEqual(viewer.sim_surface_item._mode, {'tool': 0, 'depth': 1, 'solid': 2}[mode])
 
+    def test_engine_info_text_shows_engine_cell_size_and_cell_count(self):
+        """v2.8.1 G7: 소재 창 정보 줄 — 엔진, 셀 크기, 칸 수."""
+        viewer = self.make_viewer()
+        self.assertEqual(viewer.sim_engine_info_text(), '')
+        viewer.apply_stock_spec(make_spec(), 0.5, True)
+        text = viewer.sim_engine_info_text()
+        stock = viewer.sim_stock
+        self.assertIn('CPU', text)
+        self.assertIn('셀 0.5 mm', text)
+        self.assertIn('%d x %d 칸' % (stock.nx, stock.ny), text)
+        viewer = self._gpu_viewer()
+        text = viewer.sim_engine_info_text()
+        self.assertIn('GPU', text)
+        self.assertIn('%d x %d 칸' % (viewer.sim_stock.nx, viewer.sim_stock.ny), text)
+
+    def test_quality_zoom_recomputes_only_the_visible_region_with_smaller_cells(self):
+        """v2.8.1 G8: 보이는 영역만 더 작은 셀로 다시 계산하고, 풀면 전체 소재로 돌아간다."""
+        viewer = self._gpu_viewer()
+        full_bounds = (viewer.sim_stock.x0, viewer.sim_stock.y0)
+        full_res = viewer.sim_resolution
+        self.assertTrue(viewer.can_quality_zoom())
+        region = {'X': (-5.0, 5.0), 'Y': (-5.0, 5.0)}
+        self.assertTrue(viewer.apply_quality_zoom(region))
+        self.assertLessEqual(viewer.sim_resolution, 0.01)                 # 0.01mm 이하 표시
+        self.assertLess(viewer.sim_resolution, full_res)
+        self.assertEqual(max(viewer.sim_stock.nx, viewer.sim_stock.ny), viewer.ZOOM_CELLS)
+        self.assertGreaterEqual(viewer.sim_stock.x0, -5.0 - 1e-6)
+        self.assertLessEqual(viewer.sim_stock.x0 + (viewer.sim_stock.nx - 1) * viewer.sim_resolution, 5.0 + 1e-3)
+        self.assertIn('확대 고정밀', viewer.sim_engine_info_text())
+        self.compute(viewer, int(viewer._sim_seq_keys[-1]))
+        self.assertTrue(viewer.sim_stock.any_cut())
+        viewer.clear_quality_zoom()
+        self.assertIsNone(viewer.sim_zoom_region)
+        self.assertEqual((viewer.sim_stock.x0, viewer.sim_stock.y0), full_bounds)
+        self.assertEqual(viewer.sim_resolution, full_res)
+        # 소재와 겹치지 않는 영역은 거절하고 그대로 둔다
+        self.assertFalse(viewer.apply_quality_zoom({'X': (900.0, 910.0), 'Y': (900.0, 910.0)}))
+        self.assertIsNone(viewer.sim_zoom_region)
+
+    def test_quality_zoom_without_gpu_uses_a_finer_cpu_grid(self):
+        viewer = self.make_viewer()
+        viewer.apply_stock_spec(make_spec(), 0.5, True)
+        coarse = viewer.sim_resolution
+        self.assertTrue(viewer.apply_quality_zoom({'X': (-6.0, 6.0), 'Y': (-6.0, 6.0)}))
+        self.assertLess(viewer.sim_resolution, coarse)
+        self.assertIsNotNone(viewer.sim_zoom_region)
+        viewer.clear_quality_zoom()
+        self.assertEqual(viewer.sim_resolution, coarse)
+
     def test_gpu_display_failure_returns_to_the_mesh_path(self):
         viewer = self._gpu_viewer()
         self.compute(viewer, int(viewer._sim_seq_keys[-1]))

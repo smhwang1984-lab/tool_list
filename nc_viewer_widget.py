@@ -2669,6 +2669,17 @@ class StockDialog(QDialog):
         self.rapid_button.setVisible(False)
         layout.addWidget(self.rapid_button)
 
+        zoom_bar = QHBoxLayout()
+        self.zoom_button = QPushButton('보는 영역 정밀 계산')
+        self.zoom_button.setToolTip('지금 화면에 보이는 영역만 더 작은 셀로 다시 계산합니다(고해상도 GPU 엔진이면 0.01mm 이하까지).')
+        self.zoom_button.clicked.connect(self._apply_quality_zoom)
+        zoom_bar.addWidget(self.zoom_button)
+        self.zoom_clear_button = QPushButton('전체로 되돌리기')
+        self.zoom_clear_button.clicked.connect(self._clear_quality_zoom)
+        zoom_bar.addWidget(self.zoom_clear_button)
+        zoom_bar.addStretch()
+        layout.addLayout(zoom_bar)
+
         button_bar = QHBoxLayout()
         self.export_button = QPushButton('STL 내보내기...')
         self.export_button.clicked.connect(self._export_stl)
@@ -2933,6 +2944,18 @@ class StockDialog(QDialog):
         켜지 않는다(꺼짐)."""
         return True
 
+    def _apply_quality_zoom(self):
+        if self.viewer.sim_stock is None:
+            QMessageBox.information(self, '정밀 계산', '먼저 [적용]으로 소재를 만들어야 합니다.')
+            return
+        if not self.viewer.apply_quality_zoom():
+            QMessageBox.information(self, '정밀 계산', '이 소재(경사면·5축·선반)는 영역 정밀 계산을 쓸 수 없거나 보이는 영역이 소재 밖입니다.')
+        self._refresh_status()
+
+    def _clear_quality_zoom(self):
+        self.viewer.clear_quality_zoom()
+        self._refresh_status()
+
     def _export_stl(self):
         if self.viewer.sim_stock is None:
             QMessageBox.information(self, 'STL 내보내기', '먼저 [적용]으로 소재를 만들어야 합니다.')
@@ -2949,6 +2972,9 @@ class StockDialog(QDialog):
 
     def refresh_status(self):
         parts = []
+        info = self.viewer.sim_engine_info_text()
+        if info:
+            parts.append(info)
         if self.viewer.sim_progress_text:
             parts.append(self.viewer.sim_progress_text)
         if self.viewer.sim_notice_text:
@@ -2960,6 +2986,10 @@ class StockDialog(QDialog):
             parts.append('급속 이동(G00) 절삭 경고 %d건' % rapid_count)
         self.status_label.setText(' / '.join(parts))
         self.rapid_button.setVisible(rapid_count > 0)
+        if hasattr(self, 'zoom_button'):             # 선반 소재 창에는 확대 고정밀이 없다
+            zoomed = getattr(self.viewer, 'sim_zoom_region', None) is not None
+            self.zoom_button.setEnabled(self.viewer.can_quality_zoom())
+            self.zoom_clear_button.setVisible(zoomed)
 
     _refresh_status = refresh_status
 
@@ -4360,6 +4390,8 @@ class NCViewerWidget(QWidget):
         self.sim_stock_spec = None
         self.sim_stock = None
         self.sim_resolution = None
+        self.sim_zoom_region = None
+        self._sim_res_request = None
         self.sim_seg = None                   # 절삭 선분 배열 묶음(_rebuild_sim_nodes)
         self.sim_engine = 'zmap'              # 'zmap'(공구 축 +Z만) / '3d'(경사면·5축 포함)
         self._sim_seq_keys = np.zeros(0, dtype=np.int64)
@@ -4604,6 +4636,26 @@ class NCViewerWidget(QWidget):
             parts.append('공구 번호(T) 없는 이동 %d개 제외' % self._sim_no_tool_moves)
         self.sim_status_text = ' / '.join(parts)
 
+    def sim_engine_info_text(self):
+        """v2.8.1(G7): 소재 창에 보일 계산 엔진·셀 크기·칸 수. 소재가 없으면 빈 글자."""
+        stock = self.sim_stock
+        if stock is None:
+            return ''
+        try:
+            if isinstance(stock, nc_sim_gpu.GpuZMapStock):
+                engine = 'GPU'
+            elif hasattr(stock, 'nz'):
+                engine = '복셀(CPU)'
+            else:
+                engine = 'CPU'
+            res = float(self.sim_resolution or 0.0)
+            if hasattr(stock, 'nz'):
+                return '엔진 %s · 셀 %.4g mm · %d x %d x %d 칸' % (engine, res, stock.nx, stock.ny, stock.nz)
+            zoom = ' · 확대 고정밀' if getattr(self, 'sim_zoom_region', None) else ''
+            return '엔진 %s · 셀 %.4g mm · %d x %d 칸%s' % (engine, res, stock.nx, stock.ny, zoom)
+        except Exception:  # noqa: BLE001 - 정보 줄이 화면을 막으면 안 된다
+            return ''
+
     def _sim_light(self):
         """v2.5.1: 가볍게 계산할지 — 그래픽 안전 모드이거나 품질이 '빠름'(기본)이면 True."""
         return bool(getattr(self, 'safe_mode', False) or self.sim_quality == 'fast')
@@ -4623,8 +4675,10 @@ class NCViewerWidget(QWidget):
         return nc_sim.SIM_DISPLAY_GRID_MAX
 
     # -- STOCK 배치 -----------------------------------------------------------
-    def apply_stock_spec(self, spec, resolution=None, enabled=True):
-        """StockDialog의 [적용]이 부른다. spec: nc_sim.StockSpec(선반이면 nc_lathe_sim.LatheStockSpec)."""
+    def apply_stock_spec(self, spec, resolution=None, enabled=True, zoom_region=None):
+        """StockDialog의 [적용]이 부른다. spec: nc_sim.StockSpec(선반이면 nc_lathe_sim.LatheStockSpec).
+        zoom_region: v2.8.1(G8) 확대 고정밀 — {'X': (lo, hi), 'Y': (lo, hi)}. 소재 XY를 이 영역으로 잘라
+        그 안만 더 작은 셀로 다시 계산한다(Z-map 엔진 전용)."""
         if self.is_lathe_mode():
             self._apply_lathe_stock_spec(spec, resolution, enabled)
             return
@@ -4632,6 +4686,16 @@ class NCViewerWidget(QWidget):
         self.sim_stock_spec = spec
         bounds = spec.bounds()
         safe = self._sim_light()
+        if zoom_region is None:
+            self.sim_zoom_region = None
+            self._sim_res_request = resolution
+        else:
+            bounds = self._clip_zoom_bounds(bounds, zoom_region)
+            if bounds is None or self.sim_engine == '3d':
+                self.sim_zoom_region = None
+                bounds = spec.bounds()
+            else:
+                self.sim_zoom_region = {'X': tuple(bounds['X']), 'Y': tuple(bounds['Y'])}
         if self.sim_engine == '3d':
             # 경사면/5축 이동이 있는 프로그램 — 3D 복셀 소재. numba가 없으면(배포 exe)
             # 계산이 수십 배 느리므로 자동 해상도를 거칠게 잡는다.
@@ -4650,6 +4714,11 @@ class NCViewerWidget(QWidget):
             self.sim_stock = nc_sim3d.VoxelStock(bounds, self.sim_resolution)
         else:
             gpu_cells = None
+            if getattr(self, 'sim_zoom_region', None):
+                if gpu_engine_available(bool(getattr(self, 'safe_mode', False))):
+                    resolution = 'gpu:%d' % self.ZOOM_CELLS      # 확대 고정밀은 GPU가 되면 항상 GPU 4096칸
+                else:
+                    resolution = max(nc_sim_gpu.resolution_for_cells(bounds, self.ZOOM_CELLS_CPU), 0.01)
             if isinstance(resolution, str) and resolution.startswith('gpu:'):
                 _engine, value = resolution_choice(resolution)
                 if gpu_engine_available(bool(getattr(self, 'safe_mode', False))):
@@ -4657,7 +4726,9 @@ class NCViewerWidget(QWidget):
                 resolution = None
             if gpu_cells is not None:
                 # 고해상도 엔진: 긴 변이 gpu_cells 칸. 0.01mm보다 잘게는 나누지 않는다.
-                self.sim_resolution = max(nc_sim_gpu.resolution_for_cells(bounds, gpu_cells), 0.01)
+                # 확대 고정밀(zoom_region)은 0.002mm까지 허용한다.
+                floor = 0.002 if getattr(self, 'sim_zoom_region', None) else 0.01
+                self.sim_resolution = max(nc_sim_gpu.resolution_for_cells(bounds, gpu_cells), floor)
                 self.sim_stock = nc_sim_gpu.GpuZMapStock(bounds, self.sim_resolution)
             else:
                 if resolution in (None, 'auto'):
@@ -4679,6 +4750,56 @@ class NCViewerWidget(QWidget):
         self._sim_request_mesh_refresh(force=True)
         self.sim_state_changed.emit()
         self.stock_applied.emit()
+
+    ZOOM_CELLS = 4096        # 확대 고정밀: GPU 긴 변 칸 수
+    ZOOM_CELLS_CPU = 1200    # GPU를 못 쓰면 CPU 엔진 긴 변 칸 수
+
+    @staticmethod
+    def _clip_zoom_bounds(bounds, region):
+        """소재 bounds를 zoom_region(XY)으로 자른다. 겹치지 않거나 너무 작으면 None."""
+        out = dict(bounds)
+        for axis in ('X', 'Y'):
+            lo = max(bounds[axis][0], region[axis][0])
+            hi = min(bounds[axis][1], region[axis][1])
+            if hi - lo < 0.05:
+                return None
+            out[axis] = (lo, hi)
+        return out
+
+    def visible_region(self):
+        """지금 화면에 보이는 영역의 XY 범위(카메라 중심 ± 보이는 반폭). 위에서 볼 때 정확하다."""
+        import math
+        center = self.gl_view.opts['center']
+        dist = float(self.gl_view.opts.get('distance', 100.0))
+        fov = float(self.gl_view.opts.get('fov', 60.0))
+        half = max(dist * math.tan(math.radians(fov) / 2.0), 0.1)
+        w = max(self.gl_view.width(), 1)
+        h = max(self.gl_view.height(), 1)
+        hx = half * w / h if w >= h else half
+        hy = half if w >= h else half * h / w
+        cx, cy = float(center.x()), float(center.y())
+        return {'X': (cx - hx, cx + hx), 'Y': (cy - hy, cy + hy)}
+
+    def can_quality_zoom(self):
+        return (self.sim_stock_spec is not None and not self.is_lathe_mode() and self.sim_engine != '3d'
+                and self.sim_seg is not None)
+
+    def apply_quality_zoom(self, region=None):
+        """v2.8.1(G8) 확대 고정밀: 보이는 영역(또는 region)만 더 작은 셀로 다시 계산한다. 성공하면 True."""
+        if not self.can_quality_zoom():
+            return False
+        region = region or self.visible_region()
+        full = self.sim_stock_spec.bounds()
+        if self._clip_zoom_bounds(full, region) is None:
+            return False
+        self.apply_stock_spec(self.sim_stock_spec, getattr(self, '_sim_res_request', None), self.sim_enabled, zoom_region=region)
+        return self.sim_zoom_region is not None
+
+    def clear_quality_zoom(self):
+        """확대 고정밀을 풀고 소재 전체를 원래 해상도로 되돌린다."""
+        if getattr(self, 'sim_zoom_region', None) is None or self.sim_stock_spec is None:
+            return
+        self.apply_stock_spec(self.sim_stock_spec, getattr(self, '_sim_res_request', None), self.sim_enabled)
 
     def toolpath_bounds(self, margin=2.0):
         """절삭 이송(G01/G02/G03) 노드의 XYZ 범위 + 여유(mm). 점이 없으면

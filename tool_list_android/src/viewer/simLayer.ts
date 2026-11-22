@@ -7,6 +7,8 @@ import type { LatheBounds, SectionMode } from '../sim/latheStock';
 import type { LatheProgram } from '../sim/latheSegments';
 import { SimEngine, type EngineStatus, type GpuStockLike, type InMsg, type MeshData, type OutMsg, type SimSource } from '../sim/simEngine';
 import { writeStlBinary } from '../sim/stl';
+import { clipZoomBounds, ZOOM_CELLS, ZOOM_CPU_CELLS, type ZoomRegion } from '../sim/zoomRegion';
+import { resolutionForCells } from '../sim/gpuCells';
 import { setGpuAvailability, type SimResolution } from '../sim/resolutionKeys';
 import { buildSimMesh } from '../sim/mesh';
 import { GpuSurface, GpuZMapStock, gpuProbe, type GpuProbe } from '../sim/zmapGpu';
@@ -27,6 +29,8 @@ export interface SimStatus {
   /** 고해상도 엔진(GPU)으로 깎고 있나 / 요청했지만 못 써서 기본 엔진으로 간 이유 */
   gpu: boolean;
   gpuFallback: string;
+  /** 확대 고정밀(보이는 영역만 더 작은 셀) 중인가 */
+  zoom: boolean;
   cutSegments: number;
   totalSegments: number;
   tilted: number;
@@ -41,6 +45,9 @@ export interface SimLayer {
   setProgram(p: SimProgram | LatheProgram | null, source: SimSource | null): void;
   /** resolution null = 기본 엔진 자동, 숫자 = 기본 엔진 셀 크기(mm), { gpu } = 고해상도 엔진(긴 변 칸 수, null이면 자동) */
   setStock(bounds: Bounds | LatheBounds | null, resolution: SimResolution, enabled: boolean): void;
+  /** 확대 고정밀: region(XY)만 더 작은 셀로 다시 계산. 쓸 수 없으면(경사·5축·선반·소재 밖) false */
+  setZoom(region: ZoomRegion | null): boolean;
+  canZoom(): boolean;
   setEnabled(on: boolean): void;
   setLive(on: boolean): void;
   /** 선반 소재 단면: 3/4 · 1/2 · 원통(전체) */
@@ -177,6 +184,23 @@ export function createSimLayer(parent: THREE.Object3D, onChange: () => void, onP
   /** 지금 쓰는 엔진으로 보낸다 */
   const send = (m: InMsg): void => { if (useGpu) ensureGpuEngine().handle(m); else sendCpu(m); };
 
+  let req: { bounds: Bounds | LatheBounds | null; resolution: SimResolution; on: boolean } | null = null;
+  let zoomed = false;
+  const applyStock = (b: Bounds | LatheBounds | null, resolution: SimResolution, on: boolean, zoom: boolean): void => {
+    bounds = b;
+    enabled = on && canMake(program, b);
+    if (!canMake(program, b)) { disposeMesh(); hideGpu(); group.visible = false; }
+    const wantGpu = typeof resolution === 'object' && resolution !== null && !!probe?.ok && !!b && 'X' in b;
+    if (wantGpu !== useGpu) {
+      // 엔진이 바뀌면 쓰던 쪽 소재를 놓는다
+      send({ t: 'stock', bounds: null, resolution: null, enabled: false });
+      disposeMesh(); hideGpu();
+      useGpu = wantGpu;
+    }
+    const cpuRes = typeof resolution === 'object' ? null : resolution;
+    send({ t: 'stock', bounds: b, resolution: cpuRes, enabled: on, gpu: wantGpu ? { cells: (resolution as { gpu: number | null }).gpu, zoom } : null });
+  };
+
   return {
     setProgram(p, source) {
       program = p;
@@ -186,18 +210,26 @@ export function createSimLayer(parent: THREE.Object3D, onChange: () => void, onP
       gpuEngine?.handle({ t: 'program', source });
     },
     setStock(b, resolution, on) {
-      bounds = b;
-      enabled = on && canMake(program, b);
-      if (!canMake(program, b)) { disposeMesh(); hideGpu(); group.visible = false; }
-      const wantGpu = typeof resolution === 'object' && resolution !== null && !!probe?.ok && !!b && 'X' in b;
-      if (wantGpu !== useGpu) {
-        // 엔진이 바뀌면 쓰던 쪽 소재를 놓는다
-        send({ t: 'stock', bounds: null, resolution: null, enabled: false });
-        disposeMesh(); hideGpu();
-        useGpu = wantGpu;
+      req = { bounds: b, resolution, on };
+      zoomed = false;
+      applyStock(b, resolution, on, false);
+    },
+    canZoom: () => !!req && !!req.bounds && 'X' in req.bounds && program?.engine === 'zmap',
+    setZoom(region) {
+      if (!region) {
+        if (!zoomed || !req) return false;
+        zoomed = false;
+        applyStock(req.bounds, req.resolution, req.on, false);
+        return true;
       }
-      const cpuRes = typeof resolution === 'object' ? null : resolution;
-      send({ t: 'stock', bounds: b, resolution: cpuRes, enabled: on, gpu: wantGpu ? { cells: (resolution as { gpu: number | null }).gpu } : null });
+      if (!req || !req.bounds || !('X' in req.bounds) || program?.engine !== 'zmap') return false;
+      const clipped = clipZoomBounds(req.bounds as Bounds, region);
+      if (!clipped) return false;
+      zoomed = true;
+      // GPU가 되면 4096 칸(셀 0.002mm까지), 안 되면 기본 엔진 1200 칸
+      const res: SimResolution = probe?.ok ? { gpu: ZOOM_CELLS } : resolutionForCells(clipped, ZOOM_CPU_CELLS, 0.01);
+      applyStock(clipped, res, req.on, true);
+      return true;
     },
     setEnabled(on) {
       enabled = on && canMake(program, bounds);
@@ -213,7 +245,7 @@ export function createSimLayer(parent: THREE.Object3D, onChange: () => void, onP
       const engine = (program?.engine ?? 'zmap') as SimStatus['engine'];
       return {
         enabled, live, busy: remote.busy, cells: remote.cells, nx: remote.nx, ny: remote.ny, nz: remote.nz, engine,
-        resolution: remote.resolution, gpu: remote.gpu, gpuFallback: remote.gpuFallback, cutSegments: remote.cutSegments, totalSegments: program?.seg.count ?? 0,
+        resolution: remote.resolution, gpu: remote.gpu, gpuFallback: remote.gpuFallback, zoom: zoomed, cutSegments: remote.cutSegments, totalSegments: program?.seg.count ?? 0,
         tilted: program?.tilted ?? 0, excluded: program?.excluded ?? [], noToolMoves: program?.noToolMoves ?? 0,
         rapidLines: remote.rapidLines, hasStock: canMake(program, bounds),
       };

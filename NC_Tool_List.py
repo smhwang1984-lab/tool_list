@@ -34,7 +34,7 @@ import sumpath_license
 import third_party_notices
 
 
-APP_VERSION = '2.8.0'
+APP_VERSION = '2.8.1'
 APP_NAME = 'Sum Path'
 APP_BUILD_DATE = '2026-11-22'
 APP_CREATOR = 'Hwang.seonmun'

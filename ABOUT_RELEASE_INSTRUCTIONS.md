@@ -47,7 +47,22 @@ Last updated: 2026-11-05 (NC_Tool_List v2.3.0 — 로컬 v2.2.9(STOCK SIZE)와 G
 
 ## Version history
 
-### 2026-11-22 (latest, 데스크톱 v2.8.0 그대로 / 안드로이드 v2.2.0)
+### 2026-11-22 (latest, 데스크톱 v2.8.1 / 안드로이드 v2.2.1)
+
+- Version: 데스크톱 2.8.0 → 2.8.1, 안드로이드 2.2.0 → 2.2.1
+- Summary: **GPU Z-map 마무리(G5~G8)** — `PLAN_gpu_sim_and_licensing.md`.
+  - G5 골든: `export_zmap.py`가 GPU 기준 구현(`ZMapGpuRef`) 결과를 `zmap3_plain__gpuref.*`로 내보낸다. 데스크톱 `tests/test_nc_sim_gpu_golden.py`(Python 기준 구현 = 골든, 실제 ModernGL 셰이더 ≈ 골든), 안드로이드 `tests/zmap.test.ts`(TS 기준 구현 = 골든). 칸 중심이 공구 반지름 위에 정확히 놓인 칸은 float32 셰이더와 float64 기준이 깎음/안 깎음으로 갈릴 수 있어(이 경로에서 가장자리 칸의 1.9%) 시험이 가장자리 칸의 2%까지 허용한다.
+  - G6 성능 측정 도구: `tests/bench_nc_sim_gpu.py [선분수] [칸수] [걸음mm]`. 개발 PC(Intel Iris Plus 내장) 13k 선분(걸음 1mm): 2048칸 1.02초, 4096칸 2.52초(긴 무작위 선분 13k는 4.7초 / 16.5초). **GTX 1060(작업 현장 PC)과 휴대폰 측정은 아직 — 그 PC에서 같은 스크립트를 돌려 기록할 것.**
+  - G7 정보 표시: 소재 창 상태 줄에 엔진(CPU/GPU/복셀)·셀 크기·칸 수를 보인다(데스크톱 `sim_engine_info_text`, 안드로이드는 같은 내용으로 셀 크기 표기를 보강). 해상도 목록의 엔진별 묶음·안전 모드 CPU 복귀·저장/복원은 이미 있던 것을 시험으로 확인.
+  - G8 확대 고정밀(Quality Zoom): 소재 창의 [보는 영역 정밀 계산]이 지금 화면에 보이는 영역만 소재로 잘라 더 작은 셀로 다시 계산한다. GPU가 되면 긴 변 4096칸(셀 최소 0.002mm — 일반 GPU 엔진의 0.01mm 바닥을 넘는다), 안 되면 기본 엔진 1200칸. [전체로 되돌리기]로 원래 소재·해상도 복귀. Z-map 엔진 전용(경사면·5축·선반은 거절). 안드로이드: `src/sim/zoomRegion.ts`, `simLayer.setZoom`, 소재 창 버튼.
+  - G9(G68.2 면별 소재 경계 정리)는 사용자 확인이 필요한 항목이라 구현하지 않았다.
+- 시험: 데스크톱 pytest 전체(1000개 통과 — 선반 소재 창이 공유하는 상태 줄 갱신에 확대 버튼이 없어 4개가 실패하던 것을 고침), 안드로이드 npm test 391 통과(새 `zoomRegion.test.ts`), 실제 GPU `node tools/gpu_check.mjs --software` 일치, 앱 확대 확인 `node tools/gpu_zoom_check.mjs`(셀 0.2mm → 0.024mm, 되돌리기 확인).
+- Installer/package status: **설치본·APK 모두 생성 완료**.
+  - `installer/NC_Tool_List_Setup_v2.8.1.exe` SHA-256 64394B6B052963A05BBF46B20DE27CE98111E8531AD93A64E823DB1237F1337C (dist exe 파일 버전 2.8.1.0, 실행 10초 유지 확인, `_internal/sim_shaders` 동봉).
+  - `tool_list_android/out/SumPath_v2.2.1.apk` SHA-256 AEC0B726F891376D4CE49A2E5BA508EAE83047C90663F38D547058C3286F98D2
+  - 남은 확인: 작업 현장 PC(GTX 1060)에서 GPU 성능(G6)·확대 고정밀 실제 동작, 실제 휴대폰에서 확대 고정밀.
+
+### 2026-11-22 (데스크톱 v2.8.0 그대로 / 안드로이드 v2.2.0)
 
 - Version: 안드로이드 2.1.2 → 2.2.0 (데스크톱은 올리지 않음 — 데스크톱 로직 변경 없음, `sim_shaders/height.frag` 추가만 있고 PC는 쓰지 않는다)
 - Summary: **고해상도 엔진 · GPU 도입(안드로이드)** — `PLAN_gpu_sim_and_licensing.md` G4. 소재 창의 "고해상도 엔진 · GPU"(자동 · 2048 · 4096 칸)가 이 기기가 WebGL2 하드웨어 그래픽을 쓸 수 있을 때 열린다(못 쓰면 흐리게 두고 이유를 툴팁으로). 데스크톱과 같은 셰이더 원본(`sim_shaders/`)을 three.js로 돌려 칸 단위 음영·공정 색·옆면이 있는 소재 표시를 600칸 제한 없이 그린다. GPU 실패 시 기본 엔진(CPU)으로 자동 복귀하고 이유를 소재 창에 보인다.
