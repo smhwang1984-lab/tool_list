@@ -10,7 +10,7 @@ export function setGpuAvailability(ok: boolean, reason = '', renderer = ''): voi
 export function gpuAvailability(): { ok: boolean; reason: string; renderer: string } { return gpuState; }
 
 export const RES_CPU_KEYS = ['자동', '0.05', '0.1', '0.2', '0.5', '1.0'] as const;
-export const RES_GPU_KEYS = ['gpu:auto', 'gpu:2048', 'gpu:4096'] as const;
+export const RES_GPU_KEYS = ['gpu:auto', 'gpu:2048', 'gpu:4096', 'gpu:max'] as const;
 export const RES_GROUP_CPU = '기본 엔진 · CPU';
 export const RES_GROUP_GPU = '고해상도 엔진 · GPU';
 
@@ -18,6 +18,7 @@ export const RES_GROUP_GPU = '고해상도 엔진 · GPU';
 export function resolutionLabel(key: string): string {
   if (key === '자동') return '자동';
   if (key === 'gpu:auto') return '자동 (그래픽 메모리에 맞춤)';
+  if (key === 'gpu:max') return '최고 (CAM 수준 · 목표 0.01 mm)';
   if (key.startsWith('gpu:')) return `${key.slice(4)} 칸`;
   return `${key} mm`;
 }
@@ -30,21 +31,22 @@ export function normalizeResolutionKey(key: unknown, gpuAvailable: boolean = gpu
   return '자동';
 }
 
-export type ResolutionChoice = { engine: 'cpu'; value: number | null } | { engine: 'gpu'; value: number | null };
+export type ResolutionChoice = { engine: 'cpu'; value: number | null } | { engine: 'gpu'; value: number | null; max?: boolean };
 
 /** 키 → 엔진과 값. cpu의 값은 셀 크기(mm, 자동이면 null), gpu의 값은 긴 변 칸 수(자동이면 null). */
 export function resolutionChoice(key: string): ResolutionChoice {
   if (key.startsWith('gpu:')) {
     const tail = key.slice(4);
+    if (tail === 'max') return { engine: 'gpu', value: null, max: true };
     return { engine: 'gpu', value: tail === 'auto' ? null : parseInt(tail, 10) };
   }
   return { engine: 'cpu', value: key === '자동' ? null : parseFloat(key) };
 }
 
 /** 소재 계산에 넘기는 해상도: 숫자 = CPU 셀 크기(mm), null = CPU 자동, { gpu } = 고해상도 엔진(긴 변 칸 수, null이면 자동) */
-export type SimResolution = number | null | { gpu: number | null };
+export type SimResolution = number | null | { gpu: number | null; max?: boolean };
 
 export function simResolutionOf(key: string): SimResolution {
   const c = resolutionChoice(key);
-  return c.engine === 'gpu' ? { gpu: c.value } : c.value;
+  return c.engine === 'gpu' ? (c.max ? { gpu: null, max: true } : { gpu: c.value }) : c.value;
 }

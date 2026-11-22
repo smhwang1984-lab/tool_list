@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { MAX_QUALITY_CELLS_CAP, maxQualityCells } from '../src/sim/gpuCells';
 import {
   RES_CPU_KEYS, RES_GPU_KEYS, gpuAvailability, normalizeResolutionKey, resolutionChoice, resolutionLabel, setGpuAvailability, simResolutionOf,
 } from '../src/sim/resolutionKeys';
@@ -46,5 +47,20 @@ describe('해상도 엔진 묶음 (원본 v2.7.1)', () => {
     expect(simResolutionOf('0.2')).toBe(0.2);
     expect(simResolutionOf('gpu:auto')).toEqual({ gpu: null });
     expect(simResolutionOf('gpu:4096')).toEqual({ gpu: 4096 });
+  });
+
+  // 원본 tests/test_nc_sim_viewer.py test_max_quality_key_targets_a_cam_grade_cell... 와 같은 약속 (안드로이드 상한만 4096)
+  it("'최고' 해상도: 목표 셀 0.01mm, 그래픽 한계까지", () => {
+    expect(resolutionChoice('gpu:max')).toEqual({ engine: 'gpu', value: null, max: true });
+    expect(simResolutionOf('gpu:max')).toEqual({ gpu: null, max: true });
+    expect(resolutionLabel('gpu:max')).toContain('0.01');
+    expect(normalizeResolutionKey('gpu:max', true)).toBe('gpu:max');
+    expect(normalizeResolutionKey('gpu:max', false)).toBe('자동');
+    const b = (x: number, y: number) => ({ X: [0, x], Y: [0, y], Z: [-5, 0] }) as never;
+    expect(maxQualityCells(b(20, 15))).toBe(2048);                       // 20mm / 0.01 + 1 = 2001 → 최소 2048
+    expect(maxQualityCells(b(30, 20))).toBe(3001);
+    expect(maxQualityCells(b(400, 300))).toBe(MAX_QUALITY_CELLS_CAP);    // 휴대폰 상한 4096
+    expect(maxQualityCells(b(400, 300), 8192)).toBe(8192);
+    expect(maxQualityCells(b(5, 5))).toBe(2048);
   });
 });

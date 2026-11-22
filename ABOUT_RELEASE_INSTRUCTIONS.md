@@ -47,7 +47,16 @@ Last updated: 2026-11-05 (NC_Tool_List v2.3.0 — 로컬 v2.2.9(STOCK SIZE)와 G
 
 ## Version history
 
-### 2026-11-22 (latest, 데스크톱 v2.8.1 / 안드로이드 v2.2.1)
+### 2026-11-22 (latest, 데스크톱 v2.8.2 / 안드로이드 v2.2.2)
+
+- Version: 데스크톱 2.8.1 → 2.8.2, 안드로이드 2.2.1 → 2.2.2
+- Summary: **'최고' 해상도 추가**(고해상도 엔진 · GPU 묶음의 마지막 항목, 저장 키 `gpu:max`, 목록 글자 "최고 (CAM 수준 · 목표 0.01 mm)"). 상용 CAM 검증 프로그램이 쓰는 0.01mm급 셀을 목표로, 소재 크기에 맞춰 긴 변 칸 수를 자동으로 키운다: `칸 수 = clamp(소재 긴 변 / 0.01 + 1, 2048, 상한)`. 데스크톱 상한 8192칸(그래픽 텍스처 한계 `GL_MAX_TEXTURE_SIZE`도 넘지 않음 — 프로브가 기록, 모르면 4096), 안드로이드 상한 4096칸(휴대폰 그래픽 메모리, 원본과 다른 점). 소재가 82mm(안드로이드 41mm)보다 크면 상한 때문에 셀이 0.01mm보다 굵어지므로, 그때는 [보는 영역 정밀 계산]으로 보는 곳만 0.002mm까지 내릴 수 있다. 데스크톱 `nc_sim_gpu.max_quality_cells/max_quality_cap`, 안드로이드 `gpuCells.maxQualityCells`·`resolutionKeys`(`{ gpu: null, max: true }`). 계산이 오래 걸린다(Intel Iris Plus 8192칸 · 2000선분 약 24초) — 외장 GPU에서 측정 예정.
+  - 시험: 데스크톱 `test_max_quality_key_targets_a_cam_grade_cell_and_stays_within_the_gpu_limit`, 안드로이드 `resolutionKeys.test.ts`(최고 항목), 앱 확인 `node tools/gpu_app_check.mjs <폴더> <nc> gpu:max`(4096칸 적용).
+- Installer/package status: **설치본·APK 모두 생성 완료**. pytest 1001 통과, npm test 392 통과(perf·zmapGpuRef는 부하 때 시간 초과가 날 수 있어 단독 실행으로 확인).
+  - `installer/NC_Tool_List_Setup_v2.8.2.exe` SHA-256 4D5FD51DF1CBE2B9F124274DDF2A94F3A033ED1BD116215D5602594CBFDD3163 (dist exe 파일 버전 2.8.2.0, 실행 10초 유지 확인)
+  - `tool_list_android/out/SumPath_v2.2.2.apk` SHA-256 F48165B44C3F72764E840394DF3F8AF7E2794DCE843EC3C78BB857B3CD01619A
+
+### 2026-11-22 (데스크톱 v2.8.1 / 안드로이드 v2.2.1)
 
 - Version: 데스크톱 2.8.0 → 2.8.1, 안드로이드 2.2.0 → 2.2.1
 - Summary: **GPU Z-map 마무리(G5~G8)** — `PLAN_gpu_sim_and_licensing.md`.

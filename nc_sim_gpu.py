@@ -11,6 +11,7 @@ sim_shaders/cut.vert · cut.frag 를 ModernGL(OpenGL 3.3)로 돌려 선분들을
 
 from __future__ import annotations
 
+import math
 import os
 import sys
 
@@ -67,6 +68,10 @@ def gpu_probe(refresh=False):
     else:
         try:
             info['renderer'] = str(ctx.info.get('GL_RENDERER', ''))
+            try:
+                info['max_texture'] = int(ctx.info.get('GL_MAX_TEXTURE_SIZE', 0))
+            except Exception:  # noqa: BLE001
+                info['max_texture'] = 0
             if not gpu_available(ctx):
                 info['reason'] = 'OpenGL 3.3 이상이 필요합니다'
             elif any(name in info['renderer'].lower() for name in SOFTWARE_RENDERERS):
@@ -254,6 +259,27 @@ class GpuCutter:
 
 # 취소 확인·진행 알림을 위해 선분을 이만큼씩 나눠 GPU에 보낸다.
 GPU_CHUNK_SEGMENTS = 20_000
+
+
+# v2.9.0 '최고' 해상도(키 'gpu:max'): 상용 CAM 검증 프로그램이 쓰는 0.01mm급 셀을 목표로, 그래픽카드가 허용하는
+# 가장 큰 격자(최대 8192칸, GL 텍스처 한계)까지 소재 크기에 맞춰 자동으로 키운다. 소재가 82mm보다 크면 8192칸이 한계라
+# 셀이 0.01mm보다 굵어진다 — 그때는 [보는 영역 정밀 계산]으로 보는 곳만 0.002mm까지 내릴 수 있다.
+MAX_QUALITY_TARGET_CELL = 0.01
+MAX_QUALITY_CELLS_CAP = 8192
+MAX_QUALITY_CELLS_MIN = 2048
+
+
+def max_quality_cells(bounds, cap=MAX_QUALITY_CELLS_CAP, target=MAX_QUALITY_TARGET_CELL):
+    """'최고' 해상도의 긴 변 칸 수: 목표 셀 크기가 되는 칸 수를 [2048, cap] 안으로 맞춘다. cap은 8192 이하·텍스처 한계 이하."""
+    long_side = max(bounds['X'][1] - bounds['X'][0], bounds['Y'][1] - bounds['Y'][0], 1e-6)
+    cap = max(int(cap), MAX_QUALITY_CELLS_MIN)
+    return int(min(max(int(math.ceil(long_side / target)) + 1, MAX_QUALITY_CELLS_MIN), cap))
+
+
+def max_quality_cap():
+    """이 PC에서 '최고' 해상도가 쓸 수 있는 칸 수 상한: 8192 이하, 그래픽 텍스처 한계 이하."""
+    limit = int(gpu_probe().get('max_texture') or 0)
+    return min(MAX_QUALITY_CELLS_CAP, limit) if limit >= MAX_QUALITY_CELLS_MIN else MAX_QUALITY_CELLS_CAP // 2
 
 
 def resolution_for_cells(bounds, cells):

@@ -2486,7 +2486,7 @@ def gpu_engine_available(safe_mode=False):
 
 
 SIM_RES_CPU_KEYS = ('자동', '0.05', '0.1', '0.2', '0.5', '1.0')
-SIM_RES_GPU_KEYS = ('gpu:auto', 'gpu:2048', 'gpu:4096', 'gpu:8192')
+SIM_RES_GPU_KEYS = ('gpu:auto', 'gpu:2048', 'gpu:4096', 'gpu:8192', 'gpu:max')
 SIM_RES_GROUP_CPU = '기본 엔진 · CPU'
 SIM_RES_GROUP_GPU = '고해상도 엔진 · GPU'
 
@@ -2497,6 +2497,8 @@ def sim_resolution_label(key):
         return '자동'
     if key == 'gpu:auto':
         return '자동 (그래픽 메모리에 맞춤)'
+    if key == 'gpu:max':
+        return '최고 (CAM 수준 · 목표 0.01 mm)'
     if key.startswith('gpu:'):
         return '%s 칸' % key[4:]
     return '%s mm' % key
@@ -2519,6 +2521,8 @@ def resolution_choice(key):
     gpu의 값은 긴 변 칸 수(자동이면 None)."""
     if key.startswith('gpu:'):
         tail = key[4:]
+        if tail == 'max':
+            return 'gpu', 'max'      # 소재 크기에 맞춰 목표 셀 0.01mm, 그래픽이 허용하는 가장 큰 격자
         return 'gpu', (None if tail == 'auto' else int(tail))
     if key == '자동':
         return 'cpu', None
@@ -2863,7 +2867,9 @@ class StockDialog(QDialog):
             if not self._gpu_ok:
                 model.item(combo.count() - 1).setEnabled(False)
         if self._gpu_ok:
-            gpu_tip = ('고해상도 엔진(GPU): 소재 긴 변의 칸 수로 고릅니다. 그래픽카드가 계산하고 그립니다. (%s)'
+            gpu_tip = ('고해상도 엔진(GPU): 소재 긴 변의 칸 수로 고릅니다. 그래픽카드가 계산하고 그립니다. (%s)\n'
+                       '최고: 상용 CAM 검증 프로그램 수준(목표 셀 0.01mm)으로 소재 크기에 맞춰 칸 수를 자동으로 키웁니다'
+                       '(최대 8192칸). 계산이 오래 걸리고 그래픽 메모리를 많이 씁니다.'
                        % nc_sim_gpu.gpu_probe().get('renderer', ''))
         elif getattr(self.viewer, 'safe_mode', False):
             gpu_tip = '고해상도 엔진(GPU): 그래픽 안전 모드에서는 쓸 수 없습니다.'
@@ -4722,7 +4728,10 @@ class NCViewerWidget(QWidget):
             if isinstance(resolution, str) and resolution.startswith('gpu:'):
                 _engine, value = resolution_choice(resolution)
                 if gpu_engine_available(bool(getattr(self, 'safe_mode', False))):
-                    gpu_cells = value or (2048 if getattr(self, 'safe_mode', False) else 4096)
+                    if value == 'max':
+                        gpu_cells = nc_sim_gpu.max_quality_cells(bounds, nc_sim_gpu.max_quality_cap())
+                    else:
+                        gpu_cells = value or (2048 if getattr(self, 'safe_mode', False) else 4096)
                 resolution = None
             if gpu_cells is not None:
                 # 고해상도 엔진: 긴 변이 gpu_cells 칸. 0.01mm보다 잘게는 나누지 않는다.

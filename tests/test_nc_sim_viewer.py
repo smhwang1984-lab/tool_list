@@ -482,6 +482,31 @@ M30
         self.assertIn('GPU', text)
         self.assertIn('%d x %d 칸' % (viewer.sim_stock.nx, viewer.sim_stock.ny), text)
 
+    def test_max_quality_key_targets_a_cam_grade_cell_and_stays_within_the_gpu_limit(self):
+        """v2.9.0 '최고' 해상도(gpu:max): 목표 셀 0.01mm, 그래픽이 허용하는 가장 큰 격자(최대 8192칸)까지."""
+        import nc_sim_gpu
+        import nc_viewer_widget as w
+        self.assertEqual(w.resolution_choice('gpu:max'), ('gpu', 'max'))
+        self.assertIn('gpu:max', w.SIM_RES_GPU_KEYS)
+        self.assertEqual(w.normalize_resolution_key('gpu:max', gpu_available=True), 'gpu:max')
+        self.assertEqual(w.normalize_resolution_key('gpu:max', gpu_available=False), '자동')
+        self.assertIn('0.01', w.sim_resolution_label('gpu:max'))
+        small = {'X': (0.0, 40.0), 'Y': (0.0, 30.0), 'Z': (-5.0, 0.0)}
+        big = {'X': (0.0, 400.0), 'Y': (0.0, 300.0), 'Z': (-5.0, 0.0)}
+        tiny = {'X': (0.0, 5.0), 'Y': (0.0, 5.0), 'Z': (-5.0, 0.0)}
+        self.assertEqual(nc_sim_gpu.max_quality_cells(small), 4001)          # 40mm / 0.01mm + 1
+        self.assertEqual(nc_sim_gpu.max_quality_cells(big), 8192)            # 한계 — 셀은 0.01mm보다 굵어진다
+        self.assertEqual(nc_sim_gpu.max_quality_cells(tiny), 2048)           # 아주 작은 소재도 최소 2048칸
+        self.assertEqual(nc_sim_gpu.max_quality_cells(big, cap=4096), 4096)  # 그래픽 한계가 낮으면 거기까지
+        viewer = self._gpu_viewer()
+        viewer.apply_stock_spec(make_spec(), 'gpu:max', True)
+        stock = viewer.sim_stock
+        self.assertIsInstance(stock, nc_sim_gpu.GpuZMapStock)
+        self.assertLessEqual(viewer.sim_resolution, 0.0101)
+        self.assertGreaterEqual(max(stock.nx, stock.ny), 2048)
+        self.assertLessEqual(max(stock.nx, stock.ny), 8192)
+        self.assertIn('GPU', viewer.sim_engine_info_text())
+
     def test_quality_zoom_recomputes_only_the_visible_region_with_smaller_cells(self):
         """v2.8.1 G8: 보이는 영역만 더 작은 셀로 다시 계산하고, 풀면 전체 소재로 돌아간다."""
         viewer = self._gpu_viewer()

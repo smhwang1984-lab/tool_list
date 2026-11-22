@@ -198,7 +198,7 @@ export function createSimLayer(parent: THREE.Object3D, onChange: () => void, onP
       useGpu = wantGpu;
     }
     const cpuRes = typeof resolution === 'object' ? null : resolution;
-    send({ t: 'stock', bounds: b, resolution: cpuRes, enabled: on, gpu: wantGpu ? { cells: (resolution as { gpu: number | null }).gpu, zoom } : null });
+    send({ t: 'stock', bounds: b, resolution: cpuRes, enabled: on, gpu: wantGpu ? { cells: (resolution as { gpu: number | null }).gpu, zoom, max: !zoom && !!(resolution as { max?: boolean }).max } : null });
   };
 
   return {
